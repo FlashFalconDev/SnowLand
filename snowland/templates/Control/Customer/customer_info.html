@@ -1,0 +1,114 @@
+<div class="block-box">
+    <div class="col-12 pb0">
+        <div class="block">
+            <div id="customer_info"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (() => {
+        let param = {};
+        param.config = {
+            column_config: true,
+            export_excel: true,
+            excel_title: '訪客資訊',
+            scrollx_panel: true,
+            fixed: {
+                thead: true,
+                first: true,
+                last: true
+            },
+            table_height: 'auto',
+            page: {
+                size: 10,
+                num: 5,
+                page_field: 'page',
+                size_field: 'size'
+            },
+            data: `/api/manager/customer_info/get/`,
+        };
+        param.column = [
+            {
+                name: '訪客ID',
+                field: 'mtPK',
+                column: false,
+                export: true
+            },
+            {
+                name: '訪客名稱',
+                field: 'name',
+                export: true,
+                tips: true
+            },
+            {
+                name: 'Email',
+                field: 'email',
+                export: true
+            },
+            {
+                name: '語言',
+                field: 'language',
+                export: true
+            },
+            {
+                name: '創建時間',
+                field: 'mdt_add',
+                export: true,
+                format: row => {
+                    return Time(row.mdt_add, '%y-%M-%d %h:%m:%s');
+                }
+            },
+            {
+                name: '管理者',
+                field: 'manager_state',
+                export: true,
+                format: row => {
+                    let [color, name] = ['', '']
+                    switch (row.manager_state) {
+                        case 1:
+                            color = 'green';
+                            name = '管理';
+                            break;
+                        case 0:
+                            color = 'grey';
+                            name = '訪客';
+                            break;
+                    }
+                    return status(name, color);
+                }
+            },
+            {
+                name: '操作',
+                button: row => {
+                    let btns = [];
+                    btns[0] = {
+                        name: '設定',
+                        icon: 'ri-file-edit-line',
+                        open: {
+                            title: '設定',
+                            width: '20%',
+                            height: '30%',
+                            drag: false,
+                            url: `/customer_detail/?mtPK=${row.mtPK}`,
+                            button: [{
+                                name: '確定保存'
+                            }],
+                            close: (change) => {
+                                if (change) Tb.refresh();
+                            }
+                        },
+                    };
+                    if (row.power == 0)
+                        btns[0].disabled = true;
+                    return btns;
+                }
+            }
+        ];
+
+        param.ready = data => {
+            
+        }
+        let Tb = Eui.table('#customer_info', param);
+    })();
+</script>

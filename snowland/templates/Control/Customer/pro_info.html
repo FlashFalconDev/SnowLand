@@ -1,0 +1,179 @@
+<div class="block-box">
+    <div class="col-12 pb0">
+        <div class="block">
+            <div id="pro_info"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (() => {
+        let param = {};
+        param.config = {
+            column_config: true,
+            scrollx_panel: true,
+            fixed: {
+                thead: true,
+                first: true,
+                last: true
+            },
+            table_height: 'auto',
+            page: {
+                size: 10,
+                num: 5,
+                page_field: 'page',
+                size_field: 'size'
+            },
+            data:`/api/manager/pro_info/get/`,
+        };
+        param.button = [
+            { 
+                name: '新增專業者',
+                icon: 'ri-add-circle-line',
+                open: {
+                    title: '新增專業者',
+                    width: '80%',
+                    height: '80%',
+                    url: `/product/${client_info}/`,
+                    drag: false,
+                    button: [{
+                        name: '确定保存資料',
+                    }],
+                    close: (change) => {
+                        if (change) Tb.refresh();
+                    }
+                }
+            },
+        ];
+        param.column = [
+            {
+                name: '教練編號',
+                field: 'Pro_number',
+                export: true
+            },
+            {
+                name: '教練名稱',
+                field: 'Pro_name',
+                export: true
+            },
+            {
+                name: '圖片',
+                field: 'img_pic',
+                img: true,
+                head: true,
+                view: true,
+                export: true,
+            },
+            {
+                name: '語種',
+                field: 'language',
+                export: true
+            },
+            {
+                name: '標籤',
+                field: 'tags_professional',
+                export: true,
+                tag: true
+            },
+            {
+                name: '課程種類',
+                field: 'course_tags',
+                export: true,
+                tag: true
+            },
+            {
+                name: '狀態',
+                field: 'state',
+                export: true,
+                format: row => {
+                    let [color, name] = ['', '']
+                    switch (row.state) {
+                        case 1:
+                            color = 'green';
+                            name = '在線';
+                            break;
+                        case 0:
+                            color = 'grey';
+                            name = '離線';
+                            break;
+                    }
+                    return status(name, color);
+                }
+            },
+            {
+                name: '產品ID',
+                field: 'id',
+                column: false,
+                export: false
+            },
+            {
+                name: '操作',
+                button: row => {
+                    let btns = [];
+                    btns[0] = {
+                        name: '編輯',
+                        icon: 'ri-file-edit-line',
+                        open: {
+                            title: '編輯產品',
+                            width: '80%',
+                            height: '80%',
+                            drag: false,
+                            url: `/product/${client_info}/?id=${row.id}`,
+                            button: [{
+                                name: '確定保存數據'
+                            }],
+                            close: (change) => {
+                                if (change) Tb.refresh();
+                            }
+                        },
+                    };
+                    btns[1] = {
+                        id: 'del-btn',
+                        name: '删除',
+                        icon: 'ri-delete-bin-line',
+                        confirm: true,
+                        refresh: true,
+                        api: `/api/manager/product/del/?id=${row.id}`
+                    }
+                    if (row.power == 0)
+                        btns[0].disabled = true;
+                    return btns;
+                }
+            }
+        ];
+        param.summary = {
+            money: {
+                total: 'sum',
+                decimal: 2,
+                doc: false,
+                format: result => {
+                    return `
+                        <span class="color-blue fwb">
+                            ${result}
+                        </span>
+                    `;
+                }
+            },
+            view: {
+                total: 'max',
+                doc: true
+            },
+            use: {
+                total: 'min',
+                doc: true,
+            },
+            left: {
+                total: (data, query, dom) => {
+                    let count = data.list.reduce((prev, row) => {
+                        return prev + parseFloat(row.left);
+                    }, 0);
+                    dom.html(count);
+                }
+            }
+        };
+        param.ready = data => {
+            
+        }
+        let Tb = Eui.table('#pro_info', param);
+    })();
+</script>

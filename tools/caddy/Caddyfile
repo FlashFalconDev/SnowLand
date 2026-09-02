@@ -1,0 +1,136 @@
+{
+	auto_https disable_redirects
+}
+
+http://dev.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy 127.0.0.1:8888
+}
+
+https://dev.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy 127.0.0.1:8888
+}
+
+http://dpos.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy [::1]:8705 {
+		header_up Host localhost:8705
+	}
+}
+
+https://dpos.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy [::1]:8705 {
+		header_up Host localhost:8705
+	}
+}
+
+http://dapp.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy 127.0.0.1:5173 {
+		header_up Host 127.0.0.1:5173
+	}
+}
+
+https://dapp.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy 127.0.0.1:5173 {
+		header_up Host 127.0.0.1:5173
+	}
+}
+
+http://dprepoe.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy 127.0.0.1:3333
+}
+
+https://dprepoe.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy 127.0.0.1:3333
+}
+
+http://dconsole.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy [::1]:8087 {
+		header_up Host localhost:8087
+	}
+}
+
+https://dconsole.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy [::1]:8087 {
+		header_up Host localhost:8087
+	}
+}
+
+http://dshetime.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy [::1]:8700 {
+		header_up Host localhost:8700
+	}
+}
+
+https://dshetime.flashfalcon.info {
+	encode zstd gzip
+	log {
+		output file C:\SnowLand\tools\caddy\logs\access.log
+		format console
+	}
+	reverse_proxy [::1]:8700 {
+		header_up Host localhost:8700
+	}
+}
+
+# Future examples:
+# test2.flashfalcon.info {
+# 	reverse_proxy 127.0.0.1:3334
+# }
+#
+# test3.flashfalcon.info {
+# 	reverse_proxy 127.0.0.1:3335
+# }

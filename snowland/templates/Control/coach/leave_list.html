@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>請假記錄 - 教練系統</title>
+    <!-- EUI Framework CSS -->
+    <link rel="stylesheet" href="/static/Control/css/eui.v3.min.css">
+    <!-- GitHub Dark Theme CSS -->
+    <link rel="stylesheet" href="/static/Control/css/github-dark.min.css">
+    <!-- RemixIcon -->
+    <link rel="stylesheet" href="/static/Control/css/remixicon.css">
+    <style>
+        body {
+            background: #141518;
+            color: #fff;
+            font-family: 'Microsoft YaHei', serif;
+        }
+        
+        .leave-list-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        
+        .page-header h1 {
+            font-size: 28px;
+            margin: 0;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .page-header h1 i {
+            color: #6b26d9;
+            font-size: 32px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: 2px solid #373d4d;
+            border-radius: 8px;
+            background: transparent;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+        
+        .btn:hover {
+            box-shadow: 0 0 8px 0 rgba(0,0,0,.4);
+            border-color: #6b26d9;
+            color: #fff;
+        }
+        
+        .btn.btn-primary {
+            background: #6b26d9;
+            border-color: #6b26d9;
+        }
+        
+        .btn.btn-primary:hover {
+            background: #7d40de;
+            border-color: #7d40de;
+        }
+        
+        .coach-info {
+            background: #282c38;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            border: 2px solid #373d4d;
+        }
+        
+        .coach-info h3 {
+            margin: 0 0 8px 0;
+            color: #fff;
+            font-size: 16px;
+        }
+        
+        .coach-info p {
+            margin: 0;
+            color: #8c95b0;
+            font-size: 14px;
+        }
+        
+        .leave-requests-card {
+            background: #1d1f25;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 0 12px 0 rgba(0,0,0,.4);
+            border: 2px solid #373d4d;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+        
+        .empty-state i {
+            font-size: 64px;
+            color: #8c95b0;
+            margin-bottom: 16px;
+        }
+        
+        .empty-state h3 {
+            color: #8c95b0;
+            margin-bottom: 8px;
+        }
+        
+        .empty-state p {
+            color: #76809d;
+            margin-bottom: 24px;
+        }
+        
+        .leave-request-item {
+            background: #282c38;
+            border-radius: 8px;
+            border: 2px solid #373d4d;
+            margin-bottom: 16px;
+            padding: 20px;
+            transition: all 0.2s ease;
+        }
+        
+        .leave-request-item:hover {
+            border-color: #6b26d9;
+            box-shadow: 0 0 8px 0 rgba(107, 38, 217, 0.3);
+        }
+        
+        .leave-request-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        
+        .leave-request-dates {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .leave-request-dates .date-range {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+        }
+        
+        .leave-request-dates .duration {
+            font-size: 14px;
+            color: #8c95b0;
+        }
+        
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-pending {
+            background: rgba(255, 220, 78, 0.2);
+            color: #ffdc4e;
+            border: 1px solid #ffdc4e;
+        }
+        
+        .status-approved {
+            background: rgba(60, 238, 165, 0.2);
+            color: #3ceea5;
+            border: 1px solid #3ceea5;
+        }
+        
+        .status-rejected {
+            background: rgba(255, 115, 83, 0.2);
+            color: #ff7353;
+            border: 1px solid #ff7353;
+        }
+        
+        .status-cancelled {
+            background: rgba(140, 149, 176, 0.2);
+            color: #8c95b0;
+            border: 1px solid #8c95b0;
+        }
+        
+        .leave-request-body {
+            margin-bottom: 16px;
+        }
+        
+        .leave-request-body h4 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #8c95b0;
+        }
+        
+        .leave-request-body .reason {
+            color: #fff;
+            line-height: 1.5;
+        }
+        
+        .leave-request-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            border-top: 1px solid #373d4d;
+            font-size: 12px;
+            color: #8c95b0;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .meta-info {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        
+        @media (max-width: 768px) {
+            .leave-list-container {
+                padding: 16px;
+            }
+            
+            .page-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .page-header h1 {
+                justify-content: center;
+            }
+            
+            .leave-requests-card {
+                padding: 16px;
+            }
+            
+            .leave-request-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .meta-info {
+                flex-direction: column;
+                gap: 4px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="leave-list-container">
+        <!-- 頁面標題 -->
+        <div class="page-header">
+            <h1>
+                <i class="ri-list-check-line"></i>
+                請假記錄
+            </h1>
+            <a href="/control/coach/apply_leave/" class="btn btn-primary">
+                <i class="ri-add-circle-line"></i>
+                申請請假
+            </a>
+        </div>
+
+        <!-- 教練資訊 -->
+        <div class="coach-info">
+            <h3>教練資訊</h3>
+            <p>姓名：{{ coach.name }} | 帳號：{{ coach.user.email }}</p>
+        </div>
+
+        <!-- 請假記錄列表 -->
+        <div class="leave-requests-card">
+            {% if leave_requests %}
+                {% for request in leave_requests %}
+                    <div class="leave-request-item">
+                        <div class="leave-request-header">
+                            <div class="leave-request-dates">
+                                <div class="date-range">
+                                    {{ request.start_date|date:"Y年m月d日" }} 至 {{ request.end_date|date:"Y年m月d日" }}
+                                </div>
+                                <div class="duration">
+                                    共 {{ request.leave_days }} 天
+                                </div>
+                            </div>
+                            <div class="status-badge status-{{ request.status }}">
+                                {% if request.status == 'pending' %}
+                                    待審核
+                                {% elif request.status == 'approved' %}
+                                    已批准
+                                {% elif request.status == 'rejected' %}
+                                    已拒絕
+                                {% elif request.status == 'cancelled' %}
+                                    已取消
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <div class="leave-request-body">
+                            <h4>請假原因</h4>
+                            <div class="reason">{{ request.reason }}</div>
+                        </div>
+                        
+                        <div class="leave-request-footer">
+                            <div class="meta-info">
+                                <span>申請時間：{{ request.created_at|date:"Y-m-d H:i" }}</span>
+                                {% if request.reviewed_at %}
+                                    <span>審核時間：{{ request.reviewed_at|date:"Y-m-d H:i" }}</span>
+                                {% endif %}
+                                {% if request.reviewed_by %}
+                                    <span>審核人：{{ request.reviewed_by.get_full_name|default:request.reviewed_by.username }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        {% if request.processing_result %}
+                            <div style="margin-top: 16px; padding: 12px; background: rgba(107, 38, 217, 0.1); border-radius: 6px; border-left: 4px solid #6b26d9;">
+                                <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #6b26d9;">處理結果</h4>
+                                <div style="color: #fff; font-size: 14px;">{{ request.processing_result }}</div>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <i class="ri-calendar-line"></i>
+                    <h3>尚無請假記錄</h3>
+                    <p>您還沒有提交過任何請假申請</p>
+                    <a href="/control/coach/apply_leave/" class="btn btn-primary">
+                        <i class="ri-add-circle-line"></i>
+                        立即申請請假
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html> 

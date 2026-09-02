@@ -1,0 +1,2680 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雪域滑雪課程預約系統</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    {% load socialaccount %}
+    {% load static %}
+    <link href="{% static 'booking.css' %}" rel="stylesheet">
+</head>
+<body>
+    {% if user.is_authenticated %}
+        <!-- 用戶資料區 -->
+        <div class="profile-container">
+            <img src="{{ user.socialaccount_set.all.0.get_avatar_url }}" alt="Google Avatar" class="profile-avatar" onclick="toggleProfileMenu(event)">
+            <div class="profile-menu" id="profileMenu">
+                <button id="viewReservationsButton" class="view-reservations-button">查看已預約</button>
+                <a href="{% url 'account_logout' %}?next={{ next_url }}" class="logout-button">登出</a>
+            </div>
+        </div>
+
+        <!-- 購物車按鈕 -->
+        <div class="cart-container">
+            <button class="view-cart-button" id="viewCartButton" title="查看購物車">
+                <i data-lucide="shopping-cart"></i>
+            </button>
+        </div>
+
+        <!-- 課程類型選擇彈窗 -->
+        <div id="courseTypeModal" class="modal" style="display: block;">
+            <div class="modal-content course-type-modal-content">
+                <h2 class="modal-title">請選擇課程類型</h2>
+                <div class="course-type-selection">
+                    {% for course_type, course_name in course_type_choices.items %}
+                        <button onclick="selectCourseType('{{ course_type }}')" class="course-type-button">{{ course_name }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 雪場選擇彈窗 -->
+        <div id="resortModal" class="modal" style="display: none;">
+            <div class="modal-content resort-modal-content">
+                <button onclick="goBack('resortModal', 'courseTypeModal')" class="close-button">返回</button>
+                <h2 class="modal-title">請選擇雪場</h2>
+                <div class="resort-selection">
+                    <!-- 雪場按鈕將由 JavaScript 動態生成 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 人數選擇彈窗 -->
+        <div id="peopleModal" class="modal" style="display: none;">
+            <div class="modal-content people-modal-content">
+                <button onclick="goBack('peopleModal', 'resortModal')" class="close-button">返回</button>
+                <h2 class="modal-title">請選擇預約人數</h2>
+                <div class="people-selection">
+                    <div class="people-controls">
+                        <button onclick="decreasePeople()" class="people-button" id="decreaseButton">-</button>
+                        <span id="peopleCount" class="people-count">1</span>
+                        <button onclick="increasePeople()" class="people-button" id="increaseButton">+</button>
+                    </div>
+                    <div class="under6-checkbox">
+                        <label>
+                            <input type="checkbox" id="hasUnder6Checkbox" onchange="handleUnder6Change()">
+                            有6歲以下學員
+                        </label>
+                    </div>
+                    <button onclick="confirmPeopleCount()" class="confirm-button">確認</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6歲以下問題彈窗 -->
+        <div id="under6QuestionModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h2 class="modal-title">6歲以下學員是否可以自主滑行？</h2>
+                <div style="margin: 1rem 0;">
+                    <button class="confirm-button" onclick="handleUnder6SelfSki(true)">可以</button>
+                    <button class="confirm-button" onclick="handleUnder6SelfSki(false)">不行</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 1對1建議彈窗 -->
+        <div id="under6SuggestModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h2 class="modal-title">建議1對1流程</h2>
+                <p>如果無法自主滑行，建議選擇1對1流程喔！</p>
+                <div style="margin: 1rem 0;">
+                    <button class="confirm-button" onclick="confirmUnder6Suggest()">確定</button>
+                    <button class="confirm-button" onclick="goBack('under6SuggestModal', 'under6QuestionModal')">返回</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 能力等級選擇彈窗 -->
+        <div id="abilityLevelModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h2 class="modal-title">請選擇本次預約最高滑雪能力</h2>
+                <div id="abilityLevelOptions" style="margin: 1.5rem 0;">
+                    {% for value, label in ability_level_choices.items %}
+                        <button class="ability-btn" data-value="{{ value }}">{{ label }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <!-- 登入頁面 -->
+        <div class="google-login-container">
+            <div class="login-card">
+                <h1 class="login-title">雪域滑雪課程預約</h1>
+                <p class="login-subtitle">請登入以開始您的預約</p>
+                <a href="{% provider_login_url 'google' %}?next={{ next_url }}" class="google-btn">
+                    <svg class="google-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg>
+                    使用 Google 帳號登入
+                </a>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- 主要預約流程容器 -->
+    <div class="container" style="display: none; position: relative;">
+        <button id="backToPeopleButton" style="position: absolute; top: 1rem; right: 1rem; z-index: 100; background: #f3e8ff; color: #6b21a8; border: none; border-radius: 0.5rem; padding: 0.5rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(124,58,237,0.08);">返回</button>
+        
+        <div class="content" id="booking-steps-container">
+            <!-- 預約步驟將由 JavaScript 動態生成 -->
+        </div>
+
+        <div id="cartActionsContainer" class="cart-actions-container">
+            <button class="cart-button" id="addToCartSingleButton">加入購物車</button>
+            <button class="cart-button" id="mergeCartButton" style="display: none;">加入正在進行的預約</button>
+            <button class="cart-button secondary" id="forceNewCartButton" style="display: none;">另外建立一筆新預約</button>
+        </div>
+    </div>
+
+    <!-- 購物車彈窗 -->
+    <div id="cartModal" class="modal">
+        <div class="modal-content">
+            <div class="cart-modal-header">
+                <button class="close-button" onclick="closeModal()">&times;</button>
+                <h2>購物車內容</h2>
+            </div>
+            <div id="cartDetails" class="cart-details"></div>
+            <div class="cart-modal-footer">
+                <button id="confirmBookingButton" class="confirm-button" onclick="confirmBooking()">確定預約</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 教練選擇模態框 -->
+    <div id="coachSelectModal" class="modal">
+        <div class="modal-content coach-select-modal">
+            <div class="modal-header">
+                <h2>選擇教練與語言</h2>
+                <span class="close" onclick="closeCoachModal()">&times;</span>
+            </div>
+            
+            <!-- 語言選擇區域 -->
+            <div class="language-selection-section">
+                <h3>選擇授課語言（可選）</h3>
+                <div class="language-options">
+                    <label class="language-option">
+                        <input type="radio" name="language" value="zh" onchange="onLanguageChange()">
+                        <span class="language-name">中文</span>
+                    </label>
+                    <label class="language-option">
+                        <input type="radio" name="language" value="en" onchange="onLanguageChange()">
+                        <span class="language-name">英文</span>
+                    </label>
+                    <label class="language-option">
+                        <input type="radio" name="language" value="yue" onchange="onLanguageChange()">
+                        <span class="language-name">粵語</span>
+                    </label>
+                    <button type="button" class="clear-language-btn" onclick="clearLanguageSelection()">清除選擇</button>
+                </div>
+                <div class="language-note">
+                    選擇語言後，只會顯示支援該語言的教練。不選擇則顯示所有教練。
+                </div>
+            </div>
+            
+            <div class="coach-search">
+                <div class="search-box">
+                    <i data-lucide="search"></i>
+                    <input type="text" id="coachSearchInput" placeholder="搜尋教練名稱或專長..." oninput="searchCoach()">
+                </div>
+            </div>
+            
+            <div class="coach-list-container">
+                <div id="coachList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通知元素 -->
+    <div id="notification" class="notification hidden"></div>
+
+    <!-- 載入動畫 -->
+    <div id="loadingAnimation" class="loading-animation" style="display: none;">
+        AI自動排課中...
+    </div>
+
+    <!-- 預約歷史模態框 -->
+    <div id="reservationsModal" class="modal">
+        <div class="container">
+            <div class="content">
+                <span class="close-button" id="closeModalButton">返回主頁</span>
+                <div id="reservations-container">
+                    <div class="loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        載入中...
+                    </div>
+                </div>
+            </div>
+        </div>
+        <ul id="reservationsList"></ul>
+    </div>
+
+    <!-- =========================== HTML Templates for JavaScript =========================== -->
+    <template id="course-card-template">
+        <div class="course-card" data-id="">
+            <div class="course-name"></div>
+            <div class="course-duration"></div>
+        </div>
+    </template>
+
+    <template id="time-slot-template">
+        <div class="time-slot">
+            <div class="time-slot-period">
+                <span class="period-text"></span>
+                <span class="booked-tag" style="display: none;">已預約</span>
+                <span class="unavailable-tag" style="display: none;">教練不可用</span>
+            </div>
+            <div class="time-details">
+                <div class="time-detail-date">日期: <span></span></div>
+                <div class="time-detail-total">總時間: <span></span></div>
+                <div class="time-detail-main">課程時間: <span></span></div>
+                <div class="time-detail-equipment" style="color: #7c3aed; display: none;">加購協助裝備租借: <span></span></div>
+            </div>
+        </div>
+    </template>
+
+    <template id="coach-item-template">
+        <div class="coach-item">
+            <div class="coach-avatar">
+                <img src="" alt="">
+            </div>
+            <div class="coach-info">
+                <div class="coach-name"></div>
+                <div class="coach-description"></div>
+                <div class="coach-specialties"></div>
+            </div>
+            <div class="coach-select-icon">
+                <i data-lucide="check-circle"></i>
+            </div>
+        </div>
+    </template>
+
+    <template id="reservation-card-template">
+        <div class="reservation-card">
+            <div class="reservation-status"></div>
+            <div class="reservation-details">
+                <div class="detail-item">
+                    <span class="detail-label">課程類型</span>
+                    <span class="detail-value" data-field="courseType"></span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">語言</span>
+                    <span class="detail-value" data-field="language"></span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">雪場</span>
+                    <span class="detail-value" data-field="resort"></span>
+                </div>
+            </div>
+            <div style="margin-top: 1.5rem;">
+                <div class="student-title" style="margin-bottom: 1rem;">課程日期與時間</div>
+                <div class="sessions-list"></div>
+            </div>
+        </div>
+    </template>
+
+    <template id="session-item-template">
+        <div class="session-item" style="background: #f9fafb; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.5rem;">
+            <div class="detail-item">
+                <span class="detail-label">課程名稱: <span data-field="course_name"></span></span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">日期: <span data-field="date"></span></span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">開始時間: <span data-field="startTime"></span></span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">結束時間: <span data-field="endTime"></span></span>
+            </div>
+        </div>
+    </template>
+
+    <template id="cart-reservation-group-template">
+        <div class="reservation-group">
+            <div class="reservation-header">
+                <h3>預約 <span class="reservation-index"></span></h3>
+                <div class="reservation-settings">
+                    <p><strong>教練:</strong> <span data-field="coach"></span></p>
+                    <p style="display: none;"><strong>裝備:</strong> <span data-field="equipment"></span></p>
+                    <p style="display: none;"><strong>語言:</strong> <span data-field="language"></span></p>
+                    <p><strong>雪場:</strong> <span data-field="resort"></span></p>
+                    <p><strong>人數:</strong> <span data-field="peopleCount"></span></p>
+                    <p style="display: none;"><strong>最高能力等級:</strong> <span data-field="abilityLevel"></span></p>
+                    <p><strong>課程:</strong> <span data-field="courseType"></span></p>
+                </div>
+            </div>
+            <div class="reservation-courses">
+                <h4>課程列表:</h4>
+            </div>
+            <button class="delete-reservation-btn">刪除整個預約</button>
+        </div>
+    </template>
+
+    <template id="cart-ski-course-item-template">
+        <div class="course-item ski-course">
+            <div class="course-info">
+                <p><strong>日期:</strong> <span data-field="date"></span></p>
+                <p><strong>課程:</strong> <span data-field="courseName"></span></p>
+                <p><strong>時段:</strong> <span data-field="timeSlot"></span></p>
+            </div>
+            <button class="delete-btn">刪除課程</button>
+        </div>
+    </template>
+
+    <template id="cart-photo-course-item-template">
+        <div class="course-item photography-course">
+            <div class="course-info">
+                <p><strong>日期:</strong> <span data-field="date"></span></p>
+                <p><strong>拍攝內容:</strong> <span data-field="photoContent"></span></p>
+                <p><strong>時長:</strong> <span data-field="photoDuration"></span></p>
+                <p><strong>時段:</strong> <span data-field="timeSlot"></span></p>
+            </div>
+            <button class="delete-btn">刪除課程</button>
+        </div>
+    </template>
+
+    <template id="suggestion-modal-template">
+        <div id="suggestionModal" class="modal" style="display: block;">
+            <div class="modal-content suggestion-modal-content">
+                <h3 class="suggestion-title">
+                    <i data-lucide="calendar-x"></i>
+                    預約失敗
+                </h3>
+                <p class="suggestion-subtitle"></p>
+                <div class="suggestion-body"></div>
+                <button class="suggestion-close-btn">了解，返回購物車修改</button>
+                <button id="superScheduleBtn" class="cart-button secondary" style="width: 100%; margin-top: 0.5rem;">嘗試進階排課 (可能由不同教練授課)</button>
+            </div>
+        </div>
+    </template>
+
+    <template id="suggestion-day-block-template">
+        <div class="suggestion-day-block">
+            <h4 class="suggestion-date"></h4>
+            <div class="suggestion-slots"></div>
+        </div>
+    </template>
+
+    <template id="suggestion-slot-card-template">
+        <div class="suggestion-slot-card">
+            <div class="slot-period"></div>
+            <div class="slot-sessions"></div>
+        </div>
+    </template>
+
+    <template id="gmail-input-modal-template">
+        <div id="gmailInputModal" class="modal" style="display: block; z-index: 2000;">
+            <div class="gmail-modal-content">
+                <button class="gmail-close-button">×</button>
+                <h3 class="gmail-modal-title">請輸入您的 Gmail<br>以接收付款連結</h3>
+                <input type="email" id="gmailInput" placeholder="example@gmail.com" class="gmail-input" required>
+                <div class="gmail-button-container">
+                    <button id="sendGmailButton" class="gmail-send-button">送出</button>
+                    <button id="copyPaymentUrlButton" class="gmail-copy-button">複製付款連結</button>
+                </div>
+                <div id="gmailError" class="gmail-error"></div>
+            </div>
+        </div>
+    </template>
+
+    <!-- =========================== JavaScript 完整邏輯 =========================== -->
+    <script>
+        // 初始化 Lucide 圖標
+        try {
+            lucide.createIcons();
+        } catch (e) {
+            console.error('Error initializing icons:', e);
+        }
+
+        // 禁用雙擊縮放
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function(event) {
+            let now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+
+        // ========== 全域變數和配置 ==========
+        // TIME_SLOT_CONFIG 現在由 fetchCourseData 動態生成
+        const coachs_list = {{ coachs_list|safe }};
+        const EQUIPMENT_CHOICES = {{ equipment_choices|safe }};
+        const COURSE_TYPE_CHOICES = {{ course_type_choices|safe }};
+        const ABILITY_LEVEL_CHOICES = {{ ability_level_choices|safe }};
+        const RESORT_CHOICES = {{ resort_choices|safe }};
+        const COURSE_TEMPLATES_DATA = {{ course_templates_data|safe }};
+        
+        // 新增：預先載入的課程資料
+        const ALL_COURSES_DATA = {{ all_courses_data|safe }};
+
+        // 狀態管理
+        let state = {
+            selectedcoach: null,
+            selectedDate: null,
+            selectedCourse: null,
+            needEquipment: null,
+            totalTime: null,
+            selectedTimeSlotId: null,
+            selectedLanguage: null,
+            coachBookings: null,
+            selectedPhotoContent: null,
+            selectedPhotoDuration: null
+        };
+
+        let selectedResort = null;
+        let selectedCourseType = null;
+        let peopleCount = 1;
+        let selectedAbilityLevel = 'no_exp';
+        let hasUnder6 = false;
+        let showBookingsMarker = true;
+        let currentMonth = new Date().getMonth();
+        let currentYear = new Date().getFullYear();
+        let forceCreateNew = false; // 重新引入：強制建立新預約的模式
+
+        // 課程資料 (現在由後端直接提供)
+        const courseTypes = {{ course_templates_data|safe }};
+        
+        // 時段配置 (現在由後端直接提供)
+        const TIME_SLOT_CONFIG = {{ time_slot_config|safe }};
+        
+        // 只在雪地攝影時開放的雪場
+        const PHOTO_RESORT_ALLOW = ['tomamu', 'furano'];
+
+        // ========== 步驟配置 ==========
+        const stepsConfig = [
+            {
+                id: 'step1',
+                title: '選擇教練',
+                icon: 'users',
+                explanation: '指定教練可先預約，9/30才會做最後確認，如無法指定將做指定費退款<br>指定教練費以天數計，校長&總監+3,000，二級教練+2,000，一般教練+1,000',
+                contentId: 'coachs',
+                contentType: 'coach-grid'
+            },
+            {
+                id: 'step2',
+                title: '裝備租借',
+                icon: 'shopping-bag',
+                explanation: '請選擇您是否需要加購協助租借裝備時間，以一組第一天課前協助租借計費，1~3人1,000元,4~6人2,000元。',
+                contentType: 'equipment-grid',
+                generateContent: () => {
+                    let html = '';
+                    Object.entries(EQUIPMENT_CHOICES).forEach(([value, label]) => {
+                        html += `<button 
+                            class="equipment-button" 
+                            id="${value}" 
+                            onclick="selectEquipment(${value === 'purchaseAssistanceTime' ? 'true' : 'false'}, '${value}')"
+                        >
+                            ${label}
+                        </button>`;
+                    });
+                    return html;
+                }
+            },
+            {
+                id: 'step4',
+                title: '選擇課程',
+                icon: 'clock',
+                contentId: 'courses',
+                contentType: 'course-grid'
+            },
+            {
+                id: 'step5',
+                title: '選擇日期',
+                icon: 'calendar-days',
+                contentType: 'calendar-container',
+                generateContent: () => {
+                    return `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                            <div class="calendar-wrapper">
+                                <div class="calendar">
+                                    <div class="calendar-header">
+                                        <span>日</span>
+                                        <span>一</span>
+                                        <span>二</span>
+                                        <span>三</span>
+                                        <span>四</span>
+                                        <span>五</span>
+                                        <span>六</span>
+                                    </div>
+                                    <div class="calendar-grid" id="calendar-days">
+                                        <!-- JavaScript 將動態填充日期 -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            },
+            {
+                id: 'step6',
+                title: '選擇時段',
+                icon: 'clock',
+                contentId: 'timeSlots',
+                contentType: 'time-slots'
+            }
+        ];
+
+        // 雪地攝影步驟配置
+        const photoStepsConfig = [
+            {
+                id: 'step1',
+                title: '選擇攝影師',
+                icon: 'camera',
+                explanation: '選擇您偏好的專業雪地攝影師，每位攝影師都擁有豐富的雪地攝影經驗',
+                contentId: 'coachs',
+                contentType: 'coach-grid'
+            },
+            {
+                id: 'step2',
+                title: '選擇拍攝內容',
+                icon: 'image',
+                explanation: '選擇您想要的拍攝類型',
+                contentId: 'photo-content',
+                contentType: 'course-grid',
+                generateContent: () => {
+                    return `
+                        <div class="course-card" data-id="family" onclick="selectPhotoContent('family')">
+                            <div class="course-name">全家福</div>
+                        </div>
+                        <div class="course-card" data-id="couples" onclick="selectPhotoContent('couples')">
+                            <div class="course-name">情侶寫真</div>
+                        </div>
+                        <div class="course-card" data-id="friends" onclick="selectPhotoContent('friends')">
+                            <div class="course-name">閨蜜寫真</div>
+                        </div>
+                        <div class="course-card" data-id="personal_female" onclick="selectPhotoContent('personal_female')">
+                            <div class="course-name">個人寫真-女生</div>
+                        </div>
+                        <div class="course-card" data-id="personal_male" onclick="selectPhotoContent('personal_male')">
+                            <div class="course-name">個人寫真-男生</div>
+                        </div>
+                        <div class="course-card" data-id="skiing_shoot" onclick="selectPhotoContent('skiing_shoot')">
+                            <div class="course-name">滑雪定點跟拍</div>
+                        </div>
+                        <div class="course-card" data-id="light_wedding" onclick="selectPhotoContent('light_wedding')">
+                            <div class="course-name">輕婚紗</div>
+                        </div>
+                    `;
+                }
+            },
+            {
+                id: 'step3',
+                title: '選擇時長',
+                icon: 'clock',
+                explanation: '選擇您需要的拍攝時長',
+                contentId: 'photo-duration',
+                contentType: 'course-grid',
+                generateContent: () => {
+                    return `
+                        <div class="course-card" data-id="1hr" onclick="selectPhotoDuration('1hr')">
+                            <div class="course-name">1小時</div>
+                        </div>
+                        <div class="course-card" data-id="2hrs" onclick="selectPhotoDuration('2hrs')">
+                            <div class="course-name">2小時</div>
+                        </div>
+                        <div class="course-card" data-id="3hrs" onclick="selectPhotoDuration('3hrs')">
+                            <div class="course-name">3小時</div>
+                        </div>
+                        <div class="course-card ${state.selectedPhotoContent !== 'light_wedding' ? 'disabled' : ''}" 
+                             data-id="3hrs_wedding" 
+                             onclick="${state.selectedPhotoContent === 'light_wedding' ? "selectPhotoDuration('3hrs_wedding')" : ''}">
+                            <div class="course-name">3小時(輕婚紗)</div>
+                        </div>
+                        <div class="course-card" data-id="4hrs" onclick="selectPhotoDuration('4hrs')">
+                            <div class="course-name">4小時</div>
+                        </div>
+                        <div class="course-card ${state.selectedPhotoContent !== 'light_wedding' ? 'disabled' : ''}" 
+                             data-id="4hrs_wedding" 
+                             onclick="${state.selectedPhotoContent === 'light_wedding' ? "selectPhotoDuration('4hrs_wedding')" : ''}">
+                            <div class="course-name">4小時(輕婚紗)</div>
+                        </div>
+                    `;
+                }
+            },
+            {
+                id: 'step4',
+                title: '選擇日期',
+                icon: 'calendar-days',
+                contentType: 'calendar-container',
+                generateContent: () => {
+                    return `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                            <div class="calendar-wrapper">
+                                <div class="calendar">
+                                    <div class="calendar-header">
+                                        <span>日</span>
+                                        <span>一</span>
+                                        <span>二</span>
+                                        <span>三</span>
+                                        <span>四</span>
+                                        <span>五</span>
+                                        <span>六</span>
+                                    </div>
+                                    <div class="calendar-grid" id="calendar-days">
+                                        <!-- JavaScript 將動態填充日期 -->
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="features-card">
+                                <div class="features-title">
+                                    <i data-lucide="camera"></i>
+                                    <span>攝影須知</span>
+                                </div>
+                                <ul class="features-list">
+                                    <li class="feature-item">
+                                        <i data-lucide="sun"></i>
+                                        <span>北海道日落時間：12-1月約16:00、2月約16:30、3月約17:00</span>
+                                    </li>
+                                    <li class="feature-item">
+                                        <i data-lucide="mountain-snow"></i>
+                                        <span>輕婚紗拍攝需提前預約化妝師</span>
+                                    </li>
+                                    <li class="feature-item">
+                                        <i data-lucide="camera"></i>
+                                        <span>拍攝當天請提前20分鐘到達</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                }
+            },
+            {
+                id: 'step5',
+                title: '選擇時段',
+                icon: 'clock',
+                contentId: 'timeSlots',
+                contentType: 'time-slots'
+            }
+        ];
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchBookedSlots();
+            
+            // 能力等級選擇事件
+            document.querySelectorAll('.ability-btn').forEach(btn => {
+                btn.onclick = function() {
+                    selectedAbilityLevel = this.dataset.value;
+                    document.getElementById('abilityLevelModal').style.display = 'none';
+                    goToNextStepAfterPeople();
+                }
+            });
+        });
+    </script>
+
+    <!-- 包含所有其他JavaScript功能 -->
+    <script>
+// ========== 基礎功能函數 ==========
+
+// 人數控制
+function decreasePeople() {
+    if (peopleCount > 1) {
+        peopleCount--;
+        document.getElementById('peopleCount').textContent = peopleCount;
+    }
+}
+
+function increasePeople() {
+    if (peopleCount < 6) {
+        peopleCount++;
+        document.getElementById('peopleCount').textContent = peopleCount;
+    }
+}
+
+function handleUnder6Change() {
+    hasUnder6 = document.getElementById('hasUnder6Checkbox').checked;
+}
+
+function confirmPeopleCount() {
+    const peopleCount = parseInt(document.getElementById('peopleCount').textContent);
+    const hasUnder6Checked = document.getElementById('hasUnder6Checkbox').checked;
+    
+    if (peopleCount > 1 && hasUnder6Checked) {
+        goBack('peopleModal', 'under6QuestionModal');
+    } else if (peopleCount == 1 && hasUnder6Checked) {
+        goToNextStepAfterPeople();
+    } else {
+        goBack('peopleModal', 'abilityLevelModal');
+    }
+}
+
+function handleUnder6SelfSki(canSelfSki) {
+    if (canSelfSki) {
+        goBack('under6QuestionModal', 'abilityLevelModal');
+    } else {
+        goBack('under6QuestionModal', 'under6SuggestModal');
+    }
+}
+
+function confirmUnder6Suggest() {
+    goBack('under6SuggestModal', 'peopleModal');
+    document.getElementById('peopleCount').textContent = '1';
+    document.getElementById('hasUnder6Checkbox').checked = true;
+    hasUnder6 = true;
+}
+
+function goToNextStepAfterPeople() {
+    document.getElementById('peopleModal').style.display = 'none';
+    renderSteps();
+    document.querySelector('.container').style.display = 'block';
+}
+
+// 彈窗控制
+function goBack(currentModalId, prevModalId) {
+    document.getElementById(currentModalId).style.display = 'none';
+    document.getElementById(prevModalId).style.display = 'block';
+
+    if (currentModalId === 'resortModal') {
+        document.querySelectorAll('.resort-button').forEach(btn => {
+            btn.style.display = 'inline-block';
+        });
+    }
+}
+
+function closeModal() {
+    const cartModal = document.getElementById('cartModal');
+    if (cartModal) {
+        cartModal.style.display = 'none';
+    }
+    document.body.style.overflow = 'auto';
+    
+}
+
+function openModal() {
+    const modal = document.getElementById('cartModal');
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => { modal.scrollTop = 0; }, 50);
+}
+
+// 選擇流程
+function selectCourseType(courseType) {
+    selectedCourseType = courseType;
+    document.getElementById('courseTypeModal').style.display = 'none';
+    document.getElementById('resortModal').style.display = 'block';
+
+    const resortContainer = document.querySelector('#resortModal .resort-selection');
+    resortContainer.innerHTML = ''; // 清空舊按鈕
+
+    // 動態生成雪場按鈕
+    for (const [resortCode, resortInfo] of Object.entries(RESORT_CHOICES)) {
+        const button = document.createElement('button');
+        button.textContent = resortInfo.display_name;
+        button.className = 'resort-button';
+        button.dataset.resortCode = resortCode.toLowerCase();
+        button.onclick = () => selectResort(resortCode);
+
+        // 根據課程類型決定是否顯示雪場
+        if (courseType === 'Photography') {
+            if (!PHOTO_RESORT_ALLOW.includes(resortCode.toLowerCase())) {
+                button.style.display = 'none';
+            }
+        }
+        resortContainer.appendChild(button);
+    }
+}
+
+function selectResort(resort) {
+    selectedResort = resort;
+    document.getElementById('resortModal').style.display = 'none';
+
+    if (selectedCourseType === 'Photography') {
+        goToNextStepAfterPeople();
+    } else {
+        document.getElementById('peopleModal').style.display = 'block';
+    }
+}
+
+// 工具函數
+function getCSRFToken() {
+    let csrfToken = null;
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') {
+            csrfToken = value;
+            break;
+        }
+    }
+    return csrfToken;
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.getElementById('notification');
+    notification.textContent = message;
+    notification.className = `notification ${type} show`;
+
+    setTimeout(() => {
+        notification.classList.remove('show');
+        notification.classList.add('hidden');
+    }, 5000); // 延長顯示時間到 5 秒
+}
+
+// 個人資料選單
+function toggleProfileMenu(event) {
+    event.stopPropagation();
+    const menu = document.getElementById('profileMenu');
+    menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+}
+
+document.addEventListener('click', function(event) {
+    const menu = document.getElementById('profileMenu');
+    const profileContainer = document.querySelector('.profile-container');
+    
+    if (!profileContainer.contains(event.target)) {
+        menu.style.display = 'none';
+    }
+});
+
+window.onclick = function(event) {
+    const cartModal = document.getElementById('cartModal');
+    const gmailModal = document.getElementById('gmailInputModal');
+    
+    // 只處理購物車彈窗的點擊外部關閉
+    if (event.target === cartModal) {
+        closeModal();
+    }
+    
+    // Gmail 彈窗不應該通過點擊外部關閉，只能通過按鈕關閉
+    // 這樣確保用戶不會意外關閉重要的付款彈窗
+}
+
+// 新增預約
+function addNewBooking(hardReset = false) {
+    // 檢查是否有 Gmail 彈窗正在顯示，如果有就不執行重置
+    const gmailModal = document.getElementById('gmailInputModal');
+    if (gmailModal && gmailModal.style.display === 'block') {
+        console.log('📧 Gmail 彈窗正在顯示，延遲執行新增預約');
+        setTimeout(() => addNewBooking(hardReset), 1000); // 2秒後再嘗試
+        return;
+    }
+    
+    document.querySelector('.container').style.display = 'none';
+    
+    state = {
+        selectedcoach: null,
+        selectedDate: null,
+        selectedCourse: null,
+        needEquipment: null,
+        totalTime: null,
+        selectedTimeSlotId: null,
+        selectedLanguage: null,
+        coachBookings: null,
+        selectedPhotoContent: null,
+        selectedPhotoDuration: null
+    };
+    
+    selectedResort = null;
+    selectedCourseType = null;
+    peopleCount = 1;
+
+    if (hardReset) {
+        forceCreateNew = false; // 只在硬重設時清除 flag
+    }
+    
+    updateCartActions(); // 更新按鈕狀態
+    
+    document.getElementById('courseTypeModal').style.display = 'block';
+    
+    const stepsContainer = document.getElementById('booking-steps-container');
+    if (stepsContainer) stepsContainer.innerHTML = '';
+    
+    document.getElementById('addToCartSingleButton').disabled = true;
+}
+
+// 返回人數選擇
+document.getElementById('backToPeopleButton').onclick = function() {
+    document.querySelector('.container').style.display = 'none';
+    document.getElementById('peopleModal').style.display = 'block';
+};
+
+// 預約歷史
+document.getElementById('closeModalButton').addEventListener('click', function() {
+    document.getElementById('reservationsModal').style.display = 'none';
+});
+
+document.getElementById('viewReservationsButton').addEventListener('click', async () => {
+    try {
+        const reservations = await fetchReservations();
+        renderReservations(reservations);
+    } catch (error) {
+        console.error('獲取預約失敗:', error);
+        document.getElementById('reservations-container').innerHTML = `
+            <div class="loading">
+                <i class="fas fa-exclamation-circle"></i>
+                載入失敗，請稍後再試
+            </div>
+        `;
+    }
+});
+
+async function fetchReservations() {
+    const response = await fetch('api/history_reservations');
+    const data = await response.json();
+    return data;
+}
+
+function renderReservations(reservations) {
+    const container = document.getElementById('reservations-container');
+    const cardTemplate = document.getElementById('reservation-card-template');
+    const sessionTemplate = document.getElementById('session-item-template');
+    container.innerHTML = '';
+    
+    if (!cardTemplate || !sessionTemplate) {
+        console.error('Reservation templates not found!');
+        return;
+    }
+    
+    if (reservations.length === 0) {
+        container.innerHTML = `
+            <div class="no-reservations">
+                您目前沒有任何預約紀錄。
+            </div>
+        `;
+        document.getElementById('reservationsModal').style.display = 'block';
+    } else {
+        reservations.reverse().forEach(reservation => {
+            const cardFragment = cardTemplate.content.cloneNode(true);
+            const cardElement = cardFragment.querySelector('.reservation-card');
+            
+            const statusClass = getStatusClass(reservation.status);
+            const statusElement = cardElement.querySelector('.reservation-status');
+            statusElement.textContent = reservation.status;
+            statusElement.classList.add(statusClass);
+            
+            cardElement.querySelector('[data-field="courseType"]').textContent = reservation.courseType;
+            cardElement.querySelector('[data-field="language"]').textContent = reservation.language;
+            cardElement.querySelector('[data-field="resort"]').textContent = reservation.resort;
+            
+            const sessionsList = cardElement.querySelector('.sessions-list');
+            reservation.sessions.forEach(session => {
+                const sessionFragment = sessionTemplate.content.cloneNode(true);
+                sessionFragment.querySelector('[data-field="course_name"]').textContent = session.course_name;
+                sessionFragment.querySelector('[data-field="date"]').textContent = formatDate(session.date);
+                sessionFragment.querySelector('[data-field="startTime"]').textContent = session.startTime;
+                sessionFragment.querySelector('[data-field="endTime"]').textContent = session.endTime;
+                sessionsList.appendChild(sessionFragment);
+            });
+            
+            container.appendChild(cardElement);
+            document.getElementById('reservationsModal').style.display = 'block';
+        });
+    }
+}
+
+function getStatusClass(status) {
+    switch (status) {
+        case '已付款':
+        case '已支付':
+            return 'status-completed';
+        default:
+            return 'status-cancelled';
+    }
+}
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const dayOfWeek = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][date.getDay()];
+    return `${year}年${month}月${day}日 (${dayOfWeek})`;
+}
+    </script>
+
+    <!-- 核心預約邏輯 -->
+    <script>
+// ========== 渲染函數 ==========
+function renderSteps() {
+    const container = document.getElementById('booking-steps-container');
+    container.innerHTML = '';
+    
+    const currentSteps = selectedCourseType === 'Photography' ? photoStepsConfig : stepsConfig;
+    
+    currentSteps.forEach((step, index) => {
+        const stepElement = document.createElement('div');
+        stepElement.id = step.id;
+        stepElement.className = `step ${index === 0 ? 'active' : ''}`;
+        
+        const stepHeader = document.createElement('div');
+        stepHeader.className = 'step-header';
+        stepHeader.innerHTML = `
+            <h3 class="step-title"><i data-lucide="${step.icon}" class="text-purple-600"></i>${step.title}</h3>
+            ${step.explanation ? `<div class="step-title-explanation">${step.explanation}</div>` : ''}
+        `;
+        
+        const stepContent = document.createElement('div');
+        if (step.contentType) {
+            stepContent.className = step.contentType;
+        }
+        
+        if (step.contentId) {
+            stepContent.id = step.contentId;
+        }
+        
+        if (step.generateContent) {
+            stepContent.innerHTML = step.generateContent();
+        }
+        
+        stepElement.appendChild(stepHeader);
+        stepElement.appendChild(stepContent);
+        container.appendChild(stepElement);
+    });
+    
+    if (selectedCourseType === 'Photography') {
+        initPhotoSessions();
+    } else {
+        initCourses();
+    }
+    initCalendar();
+    disableNextSteps();
+}
+
+// ========== 初始化函數 ==========
+function initCourses() {
+    const coursesContainer = document.getElementById('courses');
+    const template = document.getElementById('course-card-template');
+    
+    if (!coursesContainer || !template) {
+        return;
+    }
+    
+    coursesContainer.innerHTML = ''; // Clear existing content
+    
+    // 使用靜態課程資料
+    const availableCourses = courseTypes || [];
+    
+    // 渲染課程模板
+    availableCourses.forEach(course => {
+        const cardFragment = document.getElementById('course-card-template').content.cloneNode(true);
+        const cardDiv = cardFragment.querySelector('.course-card');
+        
+        cardDiv.dataset.id = course.id;
+        cardDiv.querySelector('.course-name').textContent = course.name;
+        cardDiv.querySelector('.course-duration').textContent = course.duration;
+        
+        if (!course.isCourseAvailable) {
+            cardDiv.classList.add('unavailable');
+        } else {
+            cardDiv.onclick = () => selectCourse(course.id);
+        }
+        
+        coursesContainer.appendChild(cardFragment);
+    });
+}
+
+function initPhotoSessions() {
+    state.selectedPhotoContent = null;
+    state.selectedPhotoDuration = null;
+    
+    const contentContainer = document.getElementById('photo-content');
+    if (contentContainer) {
+        contentContainer.innerHTML = photoStepsConfig[1].generateContent();
+    }
+    
+    const durationContainer = document.getElementById('photo-duration');
+    if (durationContainer) {
+        durationContainer.innerHTML = photoStepsConfig[2].generateContent();
+    }
+}
+
+function initCalendar() {
+    const calendarDays = document.getElementById('calendar-days');
+    if (!calendarDays) return;
+    
+    const monthYearSpan = document.createElement('div');
+    monthYearSpan.className = 'month-year';
+    monthYearSpan.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;';
+    
+    const prevButton = document.createElement('button');
+    prevButton.innerHTML = '&lt;';
+    prevButton.className = 'calendar-nav-btn';
+    prevButton.style.cssText = 'padding: 0.5rem 1rem; border: none; background: #f3e8ff; color: #6b21a8; border-radius: 0.5rem; cursor: pointer;';
+    prevButton.onclick = () => changeMonth(-1);
+    
+    const nextButton = document.createElement('button');
+    nextButton.innerHTML = '&gt;';
+    nextButton.className = 'calendar-nav-btn';
+    nextButton.style.cssText = 'padding: 0.5rem 1rem; border: none; background: #f3e8ff; color: #6b21a8; border-radius: 0.5rem; cursor: pointer;';
+    nextButton.onclick = () => changeMonth(1);
+    
+    const monthText = document.createElement('span');
+    monthText.id = 'month-year-text';
+    monthText.style.fontWeight = '500';
+    monthText.style.color = '#6b21a8';
+    
+    monthYearSpan.appendChild(prevButton);
+    monthYearSpan.appendChild(monthText);
+    monthYearSpan.appendChild(nextButton);
+    
+    const calendar = document.querySelector('.calendar');
+    if (calendar) {
+        calendar.insertBefore(monthYearSpan, calendar.firstChild);
+    }
+    
+    updateCalendarDays();
+}
+
+// ========== 日曆函數 ==========
+function changeMonth(delta) {
+    const newDate = new Date(currentYear, currentMonth + delta, 1);
+    currentMonth = newDate.getMonth();
+    currentYear = newDate.getFullYear();
+    updateCalendarDays();
+    
+    if (state.coachBookings) {
+        console.log('🔄 重新應用教練預約標記');
+        updateCalendarWithBookings(state.coachBookings);
+    }
+}
+
+function updateCalendarDays() {
+    const calendarDays = document.getElementById('calendar-days');
+    const monthYearText = document.getElementById('month-year-text');
+    const today = new Date();
+    
+    const months = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    if (monthYearText) {
+        monthYearText.textContent = `${months[currentMonth]} ${currentYear}`;
+    }
+    
+    if (calendarDays) {
+        calendarDays.innerHTML = '';
+        
+        const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+        
+        for (let i = 0; i < firstDay; i++) {
+            const dayElement = document.createElement('div');
+            dayElement.className = 'calendar-day disabled';
+            calendarDays.appendChild(dayElement);
+        }
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dayElement = document.createElement('div');
+            dayElement.className = 'calendar-day';
+            dayElement.textContent = day;
+            const date = new Date(currentYear, currentMonth, day);
+            today.setHours(0,0,0,0);
+
+            if (state.selectedDate && 
+                date.getDate() === state.selectedDate.getDate() && 
+                date.getMonth() === state.selectedDate.getMonth() && 
+                date.getFullYear() === state.selectedDate.getFullYear()) {
+                dayElement.classList.add('selected');
+            }
+            
+            if (date < today) {
+                dayElement.classList.add('disabled', 'past-date');
+                dayElement.title = '過去日期';
+            }
+            else if (state.selectedCourse && state.needEquipment !== null) {
+                // 檢查這天是否有符合的課程時段
+                const hasAny = Object.values(TIME_SLOT_CONFIG).some(slot => {
+                    // 檢查課程ID是否匹配
+                    const courseIdMatch = slot.id === state.selectedCourse;
+                    return courseIdMatch &&
+                           slot.need_equipment === state.needEquipment &&
+                           isDateWithinRange(date, slot.date);
+                });
+                
+                if (!hasAny) {
+                    dayElement.classList.add('disabled', 'no-course-available');
+                    dayElement.title = '該日期無可用課程';
+                    calendarDays.appendChild(dayElement);
+                    continue;
+                }
+            }
+
+            if (!dayElement.classList.contains('disabled')) {
+                dayElement.addEventListener('click', () => selectDate(date));
+            }
+
+            calendarDays.appendChild(dayElement);
+        }
+        
+        if (state.coachBookings) {
+            updateCalendarWithBookings(state.coachBookings);
+        }
+    }
+}
+
+function updateCalendarWithBookings(bookingData) {
+    
+    const calendarDays = document.querySelectorAll('.calendar-day');
+    
+    calendarDays.forEach((dayElement) => {
+        if (!dayElement.textContent || dayElement.textContent.trim() === '') {
+            return;
+        }
+        
+        dayElement.classList.remove('partially-booked', 'show-bookings', 'coach-unavailable', 'fully-booked');
+        
+        if (!dayElement.classList.contains('no-course-available') && !dayElement.classList.contains('past-date')) {
+            dayElement.classList.remove('disabled');
+        }
+        
+        if (!dayElement.title.includes('該日期無可用課程') && !dayElement.title.includes('過去日期')) {
+            dayElement.title = '';
+        }
+        
+        const dayNumber = parseInt(dayElement.textContent.trim());
+        if (isNaN(dayNumber) || dayNumber < 1 || dayNumber > 31) {
+            return;
+        }
+        
+        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+        
+        if (bookingData.unavailable_dates && bookingData.unavailable_dates.includes(dateStr)) {
+            dayElement.classList.add('disabled', 'coach-unavailable');
+            dayElement.title = '教練當天無法授課';
+            console.log(`❌ ${dateStr}: 教練不可授課`);
+            return;
+        }
+        
+        const dayBookings = bookingData.booked_slots && bookingData.booked_slots[dateStr];
+        if (dayBookings && Array.isArray(dayBookings) && dayBookings.length > 0) {
+            const isFullyBooked = checkIfDateFullyBooked(dateStr, dayBookings);
+            
+            if (isFullyBooked) {
+                dayElement.classList.add('fully-booked', 'disabled');
+                dayElement.title = '該日期所有時段已被預約';
+                console.log(`🚫 ${dateStr}: 完全預約 (${dayBookings.length} 個時段)`);
+            } else {
+                dayElement.classList.add('partially-booked');
+                if (showBookingsMarker) {
+                    dayElement.classList.add('show-bookings');
+                }
+                dayElement.title = `部分時段已預約 (${dayBookings.length} 個時段)`;
+                console.log(`⚠️ ${dateStr}: 部分預約 (${dayBookings.length} 個時段)`);
+            }
+        } else {
+            console.log(`✅ ${dateStr}: 完全可預約`);
+        }
+    });
+}
+
+// ========== 日期時間工具函數 ==========
+function parseDateRange(dateStr) {
+    if (dateStr.trim() === '當日') return null;
+    const clean = dateStr.replace(/^\(|\)$/g, '');
+    const parts = clean.split('~').map(s => s.trim());
+    return parts.length === 2 ? parts : null;
+}
+
+function isDateWithinRange(dateObj, dateStr) {
+    if (dateStr.trim() === '當日') return true;
+    const range = parseDateRange(dateStr);
+    if (!range) return false;
+    const [start, end] = range;
+    const [sM, sD] = start.split('/').map(Number);
+    const [eM, eD] = end.split('/').map(Number);
+    const m = dateObj.getMonth() + 1, d = dateObj.getDate();
+
+    if (sM < eM || (sM === eM && sD <= eD)) {
+        return (m > sM || (m === sM && d >= sD))
+            && (m < eM || (m === eM && d <= eD));
+    }
+    return (m > sM || (m === sM && d >= sD))
+        || (m < eM || (m === eM && d <= eD));
+}
+
+function isTimeOverlap(start1, end1, start2, end2) {
+    const [hour1, min1] = start1.split(':').map(Number);
+    const [hour2, min2] = end1.split(':').map(Number);
+    const [hour3, min3] = start2.split(':').map(Number);
+    const [hour4, min4] = end2.split(':').map(Number);
+    
+    const time1 = hour1 * 60 + min1;
+    const time2 = hour2 * 60 + min2;
+    const time3 = hour3 * 60 + min3;
+    const time4 = hour4 * 60 + min4;
+    
+    return (time1 < time4 && time2 > time3);
+}
+
+function checkIfDateFullyBooked(dateStr, dayBookings) {
+    if (!state.selectedCourse || state.needEquipment === null) {
+        return false;
+    }
+    
+    const availableSlots = [];
+    
+    // 從靜態時段配置中獲取可用時段
+    Object.values(TIME_SLOT_CONFIG).forEach(slot => {
+        const slotDate = new Date();
+        const [year, month, day] = dateStr.split('-').map(Number);
+        slotDate.setFullYear(year, month - 1, day);
+        
+        // 檢查課程ID是否匹配
+        const courseIdMatch = slot.id === state.selectedCourse;
+        
+        if (courseIdMatch &&
+            slot.need_equipment === state.needEquipment &&
+            isDateWithinRange(slotDate, slot.date)) {
+            availableSlots.push({
+                id: slot.id,
+                start: slot.mainTime.split('-')[0].trim(),
+                end: slot.mainTime.split('-')[1].split('/')[0].trim()
+            });
+        }
+    });
+    
+    const allSlotsBlocked = availableSlots.every(availableSlot => {
+        return dayBookings.some(bookedSlot => {
+            return isTimeOverlap(
+                availableSlot.start,
+                availableSlot.end,
+                bookedSlot.start_time,
+                bookedSlot.end_time
+            );
+        });
+    });
+    
+    return allSlotsBlocked;
+}
+
+// ========== 課程和教練數據獲取 ==========
+async function fetchCourseData() {
+    try {
+        console.log('使用預載入的課程資料');
+        
+        // 使用預載入的課程資料
+        const coursesData = ALL_COURSES_DATA[selectedCourseType] || [];
+        console.log('預載入的課程資料:', coursesData);
+        
+        // 更新全域變數以使用新的課程資料結構
+        window.courseData = coursesData;
+        console.log('設置 window.courseData:', window.courseData);
+        window.timeSlotConfig = {};
+        
+        // 將課程資料轉換為 TIME_SLOT_CONFIG 格式以保持向後兼容
+        if (coursesData) {
+            coursesData.forEach(course => {
+                const courseTypeKey = course.course_type;
+                
+                if (!window.timeSlotConfig[courseTypeKey]) {
+                    window.timeSlotConfig[courseTypeKey] = [];
+                }
+                
+                window.timeSlotConfig[courseTypeKey].push({
+                    id: course.id || courseTypeKey,
+                    course_type: course.course_type,
+                    course_name: course.course_name,
+                    period: course.period,
+                    date: course.date,
+                    totalTime: course.totalTime,
+                    mainTime: course.mainTime,
+                    equipmentTime: course.equipmentTime,
+                    need_equipment: course.need_equipment,
+                    start_time: course.start_time,
+                    end_time: course.end_time
+                });
+            });
+        }
+        
+        renderSteps();
+    } catch (error) {
+        console.error('Error processing course data:', error);
+        showNotification('無法處理課程數據，請稍後再試');
+    }
+}
+
+function updatecoachs(coachs) {
+    const coachsContainer = document.getElementById('coachs');
+    if (!coachsContainer) return;
+    
+    window.availableCoachs = coachs || [];
+    
+    coachsContainer.innerHTML = `
+        <div class="coach-selector" onclick="openCoachModal()">
+            <div class="coach-selector-content">
+                <i data-lucide="user-search"></i>
+                <div class="coach-selector-text">
+                    <div class="coach-selector-title">選擇教練</div>
+                    <div class="coach-selector-subtitle" id="selectedCoachDisplay">請點擊選擇教練</div>
+                </div>
+                <i data-lucide="chevron-right"></i>
+            </div>
+        </div>
+    `;
+    lucide.createIcons();
+}
+
+async function fetchBookedSlots() {
+    try {
+        window.bookedData = { booked_slots: {} };
+    } catch (error) {
+        console.error('獲取預約數據失敗:', error);
+        window.bookedData = { booked_slots: {} };
+    }
+}
+
+    </script>
+
+    <!-- 選擇功能和步驟控制 -->
+    <script>
+// ========== 選擇函數 ==========
+function selectDate(date) {
+    state.selectedDate = date;
+    document.querySelectorAll('.calendar-day').forEach(day => {
+        day.classList.remove('selected');
+    });
+    
+    const selectedDay = Array.from(document.querySelectorAll('.calendar-day:not(.disabled)'))
+        .find(day => {
+            if (!day.textContent) return false;
+            const dayNum = parseInt(day.textContent);
+            return dayNum === date.getDate() && 
+                   currentMonth === date.getMonth() && 
+                   currentYear === date.getFullYear();
+        });
+    
+    if (selectedDay) {
+        selectedDay.classList.add('selected');
+    }
+    
+    if (selectedCourseType === 'Photography') {
+        if (state.selectedPhotoContent && state.selectedPhotoDuration) {
+            updatePhotoTimeSlots();
+            enableStep(5);
+        }
+    } else {
+        if (state.selectedCourse !== null && state.needEquipment !== null) {
+            updateTimeSlots();
+            enableStep(6);
+        }
+    }
+    
+    updateAddToCartButton();
+}
+
+function selectCourse(courseId) {
+    state.selectedCourse = courseId; // 保存課程ID
+    document.querySelectorAll('.course-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    document.querySelector(`.course-card[data-id="${courseId}"]`).classList.add('selected');
+    
+    enableStep(5);
+    enableStep(6);
+    updateAddToCartButton();
+    updateTimeSlots();
+    updateCalendarDays();
+}
+
+function selectEquipment(needEquipment, equipmentId) {
+    state.needEquipment = needEquipment;
+    state.selectedEquipment = equipmentId;
+    document.querySelectorAll('.equipment-button').forEach(button => {
+        button.classList.remove('selected');
+    });
+    event.target.classList.add('selected');
+    
+    enableStep(4);
+    updateTimeSlots();
+    updateAddToCartButton();
+    updateCalendarDays();
+}
+
+function selectTimeSlot(slotId, totalTime) {
+    state.selectedTimeSlotId = slotId;
+    state.totalTime = totalTime;
+    document.querySelectorAll('.time-slot').forEach(slot => {
+        slot.classList.remove('selected');
+    });
+    event.target.closest('.time-slot').classList.add('selected');
+    updateAddToCartButton();
+}
+
+// ========== 雪地攝影相關 ==========
+function selectPhotoContent(contentId) {
+    state.selectedPhotoContent = contentId;
+    document.querySelectorAll('#photo-content .course-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    document.querySelector(`#photo-content .course-card[data-id="${contentId}"]`).classList.add('selected');
+    
+    enableStep(3);
+    
+    const durationContainer = document.getElementById('photo-duration');
+    if (durationContainer) {
+        durationContainer.innerHTML = photoStepsConfig[2].generateContent();
+    }
+    
+    updateAddToCartButton();
+}
+
+function selectPhotoDuration(durationId) {
+    state.selectedPhotoDuration = durationId;
+    state.selectedCourse = durationId;
+    
+    document.querySelectorAll('#photo-duration .course-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    const selectedCard = document.querySelector(`#photo-duration .course-card[data-id="${durationId}"]`);
+    if (selectedCard && !selectedCard.classList.contains('disabled')) {
+        selectedCard.classList.add('selected');
+        enableStep(4);
+        updateCalendarDays();
+        
+        if (state.selectedDate) {
+            updatePhotoTimeSlots();
+        }
+    }
+    updateAddToCartButton();
+}
+
+function updatePhotoTimeSlots() {
+    console.log('updatePhotoTimeSlots - 雪地攝影時段更新');
+}
+
+// ========== 步驟控制 ==========
+function disableNextSteps() {
+    const steps = document.querySelectorAll('.step:not(:first-child)');
+    steps.forEach(step => {
+        step.classList.remove('active');
+        step.style.pointerEvents = 'none';
+        step.style.opacity = '0.3';
+        
+        const clickableElements = step.querySelectorAll('button, .course-card, .time-slot, .equipment-button');
+        clickableElements.forEach(element => {
+            element.style.pointerEvents = 'none';
+        });
+    });
+}
+
+function enableStep(stepNumber) {
+    const stepId = `step${stepNumber}`;
+    const step = document.getElementById(stepId);
+    if (step) {
+        step.classList.add('active');
+        step.style.pointerEvents = 'auto';
+        step.style.opacity = '1';
+        
+        const clickableElements = step.querySelectorAll('button, .course-card, .time-slot, .equipment-button');
+        clickableElements.forEach(element => {
+            element.style.pointerEvents = 'auto';
+        });
+    }
+}
+
+function resetStepsAfter(stepNumber) {
+    for (let i = stepNumber + 1; i <= 6; i++) {
+        const stepId = `step${i}`;
+        const step = document.getElementById(stepId);
+        if (step) {
+            const selectedElements = step.querySelectorAll('.selected');
+            selectedElements.forEach(el => el.classList.remove('selected'));
+            
+            if (i === 4) {
+                state.selectedCourse = null;
+            } else if (i === 5) {
+                state.selectedDate = null;
+                updateCalendarDays();
+            } else if (i === 6) {
+                state.totalTime = null;
+                state.selectedTimeSlotId = null;
+                
+                const timeSlots = document.getElementById('timeSlots');
+                if (timeSlots) {
+                    timeSlots.innerHTML = '';
+                }
+            }
+        }
+    }
+    updateAddToCartButton();
+}
+
+// ========== 時段相關 ==========
+function getTimeSlots(courseId, needEquipment) {
+    if (!state.selectedCourse || !state.selectedDate) return [];
+    
+    // 使用靜態時段配置
+    const allTimeSlots = [];
+    
+    // 從 TIME_SLOT_CONFIG 中獲取時段
+    Object.values(TIME_SLOT_CONFIG).forEach(slot => {
+        // 檢查課程ID是否匹配
+        const courseIdMatch = slot.id === courseId;
+        
+        if (courseIdMatch &&
+            slot.need_equipment === needEquipment &&
+            isDateWithinRange(state.selectedDate, slot.date)) {
+            allTimeSlots.push({
+                id: slot.id,
+                totalTime: slot.totalTime,
+                mainTime: slot.mainTime,
+                equipmentTime: slot.equipmentTime,
+                period: slot.period,
+                date: slot.date
+            });
+        }
+    });
+    
+    return allTimeSlots;
+}
+
+function updateTimeSlots() {
+    const timeSlotsContainer = document.getElementById('timeSlots');
+    const template = document.getElementById('time-slot-template');
+    if (!timeSlotsContainer || !template) return;
+    
+    const slots = getTimeSlots(state.selectedCourse, state.needEquipment);
+    
+    timeSlotsContainer.innerHTML = ''; // 清空
+    
+    if (slots.length === 0) {
+        timeSlotsContainer.innerHTML =
+            '<div class="no-time-slot">該日期無可用時段，請選擇其他日期</div>';
+        return;
+    }
+    
+    const selectedDateStr = `${state.selectedDate.getFullYear()}-${String(state.selectedDate.getMonth() + 1).padStart(2, '0')}-${String(state.selectedDate.getDate()).padStart(2, '0')}`;
+    const dayBookings = state.coachBookings?.booked_slots?.[selectedDateStr] || [];
+    
+    slots.forEach(slot => {
+        const mainTimeParts = slot.mainTime.split('-');
+        if (mainTimeParts.length < 2) {
+            console.warn('時段格式異常:', slot.mainTime);
+            return;
+        }
+        
+        const startTime = mainTimeParts[0].trim();
+        const endTimeFull = mainTimeParts[1].trim();
+        const endTime = endTimeFull.split('/')[0].trim();
+        
+        const isBooked = dayBookings.some(bookedSlot => isTimeOverlap(startTime, endTime, bookedSlot.start_time, bookedSlot.end_time));
+        const isUnavailable = state.coachBookings?.unavailable_dates?.includes(selectedDateStr);
+        
+        const slotFragment = template.content.cloneNode(true);
+        const slotElement = slotFragment.querySelector('.time-slot');
+        
+        if (state.totalTime === slot.totalTime) slotElement.classList.add('selected');
+        if (isBooked || isUnavailable) slotElement.classList.add('disabled');
+        else slotElement.onclick = () => selectTimeSlot(slot.id, slot.totalTime);
+        
+        slotElement.querySelector('.period-text').textContent = slot.period;
+        if (isBooked) slotElement.querySelector('.booked-tag').style.display = 'inline';
+        if (isUnavailable) slotElement.querySelector('.unavailable-tag').style.display = 'inline';
+        
+        slotElement.querySelector('.time-detail-date span').textContent = selectedDateStr;
+        slotElement.querySelector('.time-detail-total span').textContent = slot.totalTime;
+        slotElement.querySelector('.time-detail-main span').textContent = slot.mainTime;
+        
+        if (slot.equipmentTime) {
+            const equipmentDiv = slotElement.querySelector('.time-detail-equipment');
+            equipmentDiv.style.display = 'block';
+            equipmentDiv.querySelector('span').textContent = slot.equipmentTime;
+        }
+        
+        timeSlotsContainer.appendChild(slotFragment);
+    });
+}
+
+// ========== 更新按鈕狀態 ==========
+function updateAddToCartButton() {
+    const cartActionsContainer = document.getElementById('cartActionsContainer');
+    if (!cartActionsContainer) return;
+
+    // 步驟 1: 永遠先更新按鈕的「可見性」
+    updateCartActions();
+
+    // 步驟 2: 判斷「動作」按鈕是否應該被啟用
+    let isDisabled = true;
+    if (selectedCourseType === 'Photography') {
+        isDisabled = !(
+            state.selectedPhotoContent && 
+            state.selectedPhotoDuration && 
+            state.selectedDate && 
+            state.selectedTimeSlotId
+        );
+    } else {
+        isDisabled = !(
+            state.selectedCourse && 
+            state.selectedDate && 
+            state.selectedTimeSlotId
+        );
+    }
+    
+    // 步驟 3: 套用啟用/禁用狀態
+    document.getElementById('addToCartSingleButton').disabled = isDisabled;
+    document.getElementById('mergeCartButton').disabled = isDisabled;
+    // 「另外建立...」按鈕作為一個重設流程的導航選項，只要可見，就永遠可以點擊
+    document.getElementById('forceNewCartButton').disabled = false;
+}
+
+function updateCartActions() {
+    const singleBtn = document.getElementById('addToCartSingleButton');
+    const mergeBtn = document.getElementById('mergeCartButton');
+    const forceNewBtn = document.getElementById('forceNewCartButton');
+
+    if (forceCreateNew) {
+        singleBtn.style.display = 'block';
+        mergeBtn.style.display = 'none';
+        forceNewBtn.style.display = 'none';
+        return;
+    }
+
+    const { isMatch } = findMatchingCourseInCart();
+
+    if (isMatch) {
+        singleBtn.style.display = 'none';
+        mergeBtn.style.display = 'block';
+        forceNewBtn.style.display = 'block';
+    } else {
+        singleBtn.style.display = 'block';
+        mergeBtn.style.display = 'none';
+        forceNewBtn.style.display = 'none';
+    }
+}
+
+
+    </script>
+
+    <!-- 購物車功能 -->
+    <script>
+
+// ========== 購物車事件監聽器 ==========
+document.getElementById('addToCartSingleButton').addEventListener('click', () => handleAddToCart(false));
+document.getElementById('mergeCartButton').addEventListener('click', () => handleAddToCart(true));
+document.getElementById('forceNewCartButton').addEventListener('click', () => {
+    forceCreateNew = true;
+    addNewBooking(false); // 啟用模式，並回到流程起點
+});
+
+
+function findMatchingCourseInCart() {
+    const courseSetting = getCourseSettings();
+    const existingCart = JSON.parse(localStorage.getItem('cart')) || { courses: [] };
+
+    // 使用 reduceRight 從後向前查找，找到第一個匹配項（即原始陣列的最後一個）
+    const lastMatchIndex = existingCart.courses.reduceRight((acc, course, index) => {
+        if (acc !== -1) return acc; // 如果已經找到，直接返回
+
+        const isMatch = course.coach === courseSetting.coach &&
+            course.equipment === courseSetting.equipment &&
+            course.language === courseSetting.language &&
+            course.resort === courseSetting.resort &&
+            course.courseType === courseSetting.courseType &&
+            course.peopleCount === courseSetting.peopleCount &&
+            course.abilityLevel === courseSetting.abilityLevel &&
+            course.photoContent === courseSetting.photoContent;
+        
+        return isMatch ? index : acc;
+    }, -1);
+
+    return { isMatch: lastMatchIndex !== -1, courseIndex: lastMatchIndex, existingCart };
+}
+
+function getCourseSettings() {
+    let courseSetting = {
+        coach: state.selectedcoach,
+        equipment: state.selectedEquipment,
+        language: state.selectedLanguage || '中文',
+        resort: selectedResort,
+        courseType: selectedCourseType,
+        peopleCount: peopleCount,
+        abilityLevel: selectedAbilityLevel,
+    };
+    
+    if (selectedCourseType === 'Photography') {
+        courseSetting.photoContent = state.selectedPhotoContent;
+        courseSetting.photoDuration = state.selectedPhotoDuration;
+    }
+    return courseSetting;
+}
+
+
+function handleAddToCart(shouldMerge) {
+    if (!state.selectedDate || !state.selectedTimeSlotId) {
+        showNotification('請選擇完整的預約資訊', 'error');
+        return;
+    }
+
+    const bookingItem = {
+        date: new Date(state.selectedDate.setHours(12, 0, 0, 0)).toISOString().split('T')[0],
+        timeSlot: state.selectedTimeSlotId,
+        course: selectedCourseType === 'Photography' ? state.selectedPhotoDuration : state.selectedTimeSlotId, // 使用時段ID作為課程ID
+    };
+
+    const { isMatch, courseIndex, existingCart } = findMatchingCourseInCart();
+
+    if (shouldMerge && isMatch && !forceCreateNew) {
+        // 合併邏輯
+        const foundCourse = existingCart.courses[courseIndex];
+        
+        const isConflict = foundCourse.booking.some(b => b.date === bookingItem.date);
+        if(isConflict) {
+            showNotification('同一天不能預約兩次相同的課程', 'error');
+            return;
+        }
+
+        foundCourse.booking.push(bookingItem);
+    } else {
+        // 新增邏輯
+        const newCourse = {
+            ...getCourseSettings(),
+            booking: [bookingItem]
+        };
+        existingCart.courses.push(newCourse);
+    }
+
+    localStorage.setItem('cart', JSON.stringify(existingCart));
+    showNotification('課程已加入購物車！', 'success');
+    
+    forceCreateNew = false; // 無論哪種操作，完成後都重設模式
+    
+    // 重設部分狀態以便選擇下一個課程
+    state.selectedDate = null;
+    state.selectedTimeSlotId = null;
+    document.querySelectorAll('.calendar-day.selected, .time-slot.selected').forEach(el => el.classList.remove('selected'));
+    
+    updateTimeSlots(); // 清空時間選擇
+    updateCartActions(); // 更新按鈕狀態
+    updateAddToCartButton(); // 禁用按鈕
+}
+
+// 查看購物車按鈕事件
+document.getElementById('viewCartButton').addEventListener('click', () => {
+    const cartData = JSON.parse(localStorage.getItem('cart'));
+    let cartDetailsHTML = '';
+
+    if (!cartData || cartData.courses.length === 0) {
+        cartDetailsHTML = '<div class="empty-cart"><p>購物車為空，請選擇課程。</p></div>';
+    } else {
+        const reservationGroups = groupCoursesByReservation(cartData.courses);
+        cartDetailsHTML += '<div class="cart-reservations">';
+        
+        reservationGroups.forEach((reservation, reservationIndex) => {
+            cartDetailsHTML += `
+                <div class="reservation-group">
+                    <div class="reservation-header">
+                        <h3>預約 ${reservationIndex + 1}</h3>
+                        <div class="reservation-settings">
+                            <p><strong>教練:</strong> ${reservation.coach === 'any' ? '不指定' : getCoachName(reservation.coach)}</p>
+                            ${reservation.equipment ? `<p><strong>裝備:</strong> ${getEquipmentLabel(reservation.equipment)}</p>` : ''}
+                            ${reservation.language ? `<p><strong>語言:</strong> ${getLanguageName(reservation.language)}</p>` : ''}
+                            <p><strong>雪場:</strong> ${getResortName(reservation.resort)}</p>
+                            <p><strong>人數:</strong> ${reservation.number_of_people || 1}</p>
+                            ${reservation.ability_level ? `<p><strong>最高能力等級:</strong> ${getAbilityLevelName(reservation.ability_level)}</p>` : ''}
+                            <p><strong>課程:</strong> ${getCourseTypeName(reservation.course_type)}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="reservation-courses">
+                        <h4>課程列表:</h4>`;
+
+            reservation.courses.forEach((course, courseIndex) => {
+                if (course.courseType === 'Photography') {
+                    if (Array.isArray(course.booking)) {
+                        course.booking.forEach((bookingItem, bookingIndex) => {
+                            cartDetailsHTML += `
+                                <div class="course-item photography-course">
+                                    <div class="course-info">
+                                        <p><strong>日期:</strong> ${bookingItem.date}</p>
+                                        <p><strong>拍攝內容:</strong> ${getPhotoContentName(course.photoContent)}</p>
+                                        <p><strong>時長:</strong> ${getPhotoDurationName(course.photoDuration)}</p>
+                                        <p><strong>時段:</strong> ${bookingItem.timeSlot}</p>
+                                    </div>
+                                    <button class="delete-btn" onclick="removeCourse(${course.originalIndex}, ${bookingIndex})">刪除課程</button>
+                                </div>`;
+                        });
+                    }
+                } else {
+                    if (Array.isArray(course.booking)) {
+                        course.booking.forEach((bookingItem, bookingIndex) => {
+                            // 從新的時段配置中獲取課程資訊
+                            let courseInfo = {};
+                            Object.values(window.timeSlotConfig).forEach(courseTypeSlots => {
+                                courseTypeSlots.forEach(slot => {
+                                    if (slot.id == bookingItem.timeSlot) {
+                                        courseInfo = slot;
+                                    }
+                                });
+                            });
+                            
+                            cartDetailsHTML += `
+                                <div class="course-item ski-course">
+                                    <div class="course-info">
+                                        <p><strong>日期:</strong> ${bookingItem.date}</p>
+                                        <p><strong>課程:</strong> ${courseInfo.course_name || '未知課程'}</p>
+                                        <p><strong>時段:</strong> ${courseInfo.mainTime || bookingItem.timeSlot}</p>
+                                    </div>
+                                    <button class="delete-btn" onclick="removeCourse(${course.originalIndex}, ${bookingIndex})">刪除課程</button>
+                                </div>`;
+                        });
+                    }
+                }
+            });
+            
+            cartDetailsHTML += `
+                    </div>
+                    <button class="delete-reservation-btn" onclick="removeReservation(${reservationIndex})">刪除整個預約</button>
+                </div>`;
+        });
+        
+        cartDetailsHTML += '</div>';
+    }
+
+    document.getElementById('cartDetails').innerHTML = cartDetailsHTML;
+    openModal();
+    
+    setTimeout(() => {
+        const modal = document.getElementById('cartModal');
+        if (modal) {
+            modal.scrollTop = 0;
+        }
+    }, 100);
+});
+
+function lockStep(stepIds) {
+    stepIds.forEach(stepId => {
+        const stepElem = document.getElementById(stepId);
+        if (stepElem) {
+            stepElem.classList.add('locked');
+            stepElem.classList.remove('active');
+        }
+    });
+}
+
+// ========== 購物車工具函數 ==========
+function getCourseTypeName(type) {
+    return COURSE_TYPE_CHOICES[type] || type;
+}
+
+function getAbilityLevelName(level) {
+    return ABILITY_LEVEL_CHOICES[level] || level;
+}
+
+function getLanguageName(code) {
+    const languages = {
+        'zh': '中文',
+        'en': '英文',
+        'yue': '粵語'
+    };
+    return languages[code] || code;
+}
+
+function getCoachName(id) {
+    const coachs = {
+        {% for coach in coachs_list %}
+            '{{ coach.pk }}': '{{ coach.name }}',
+        {% endfor %}
+    };
+    return coachs[id] || '未知教練';
+}
+
+function getEquipmentLabel(equipmentValue) {
+    return EQUIPMENT_CHOICES[equipmentValue] || equipmentValue;
+}
+
+function getResortName(id) {
+    if (RESORT_CHOICES[id] && RESORT_CHOICES[id].display_name) {
+        return RESORT_CHOICES[id].display_name;
+    }
+    return id;
+}
+
+// ========== API 錯誤處理 ==========
+async function handleApiError(response) {
+    if (response.status === 401) {
+        try {
+            const data = await response.json();
+            showNotification('您的登入已過期，將為您重新導向登入頁面...', 'error');
+            setTimeout(() => {
+                if (data.login_url) {
+                    window.location.href = data.login_url;
+                } else {
+                    window.location.reload(); // Fallback
+                }
+            }, 2000);
+        } catch (e) {
+            // JSON 解析失敗時，直接重整
+            showNotification('您的登入已過期，將為您重新導向登入頁面...', 'error');
+            setTimeout(() => window.location.reload(), 2000);
+        }
+        return true; // 表示已處理 401 錯誤
+    }
+    return false; // 表示不是 401 錯誤
+}
+
+function getPhotoContentName(contentId) {
+    const contentMap = {
+        'family': '全家福',
+        'couples': '情侶寫真',
+        'friends': '閨蜜寫真',
+        'personal_female': '個人寫真-女生',
+        'personal_male': '個人寫真-男生',
+        'skiing_shoot': '滑雪定點跟拍',
+        'light_wedding': '輕婚紗'
+    };
+    return contentMap[contentId] || contentId;
+}
+
+function getPhotoDurationName(durationId) {
+    const durationMap = {
+        '1hr': '1小時',
+        '2hrs': '2小時',
+        '3hrs': '3小時',
+        '3hrs_wedding': '3小時(輕婚紗)',
+        '4hrs': '4小時',
+        '4hrs_wedding': '4小時(輕婚紗)'
+    };
+    return durationMap[durationId] || durationId;
+}
+
+function groupCoursesByReservation(courses) {
+    // Each item in the `courses` array from localStorage is now its own "reservation group".
+    // We map it to the structure the renderer expects.
+    return courses.map((course, index) => {
+        return {
+            coach: course.coach || 'any',
+            equipment: course.equipment,
+            language: course.language,
+            resort: course.resort,
+            course_type: course.courseType,
+            number_of_people: course.peopleCount,
+            ability_level: course.abilityLevel,
+            // The renderer expects a `courses` array, inside of which is the object
+            // containing the `.booking` array and the `originalIndex`.
+            courses: [{...course, originalIndex: index}]
+        };
+    });
+}
+
+function removeReservation(reservationIndex) {
+    const cartData = JSON.parse(localStorage.getItem('cart'));
+    if (!cartData || !cartData.courses) return;
+    
+    const reservationGroups = groupCoursesByReservation(cartData.courses);
+    if (reservationIndex >= reservationGroups.length) return;
+    
+    const coursesToRemove = reservationGroups[reservationIndex].courses
+        .map(course => course.originalIndex)
+        .sort((a, b) => b - a);
+    
+    coursesToRemove.forEach(index => {
+        cartData.courses.splice(index, 1);
+    });
+    
+    localStorage.setItem('cart', JSON.stringify(cartData));
+    document.getElementById('viewCartButton').click();
+    showNotification('預約已從購物車中移除', 'success');
+}
+
+function removeCourse(courseIndex, bookingIndex) {
+    const cartData = JSON.parse(localStorage.getItem('cart'));
+    if (
+        cartData &&
+        cartData.courses &&
+        cartData.courses.length > courseIndex &&
+        Array.isArray(cartData.courses[courseIndex].booking)
+    ) {
+        cartData.courses[courseIndex].booking.splice(bookingIndex, 1);
+
+        if (cartData.courses[courseIndex].booking.length === 0) {
+            cartData.courses.splice(courseIndex, 1);
+        }
+
+        localStorage.setItem('cart', JSON.stringify(cartData));
+        document.getElementById('viewCartButton').click();
+        showNotification('課程已從購物車中移除', 'success');
+    }
+}
+
+// ========== 預約確認功能 (重構後) ==========
+
+// 處理 booking 請求的共用函式
+async function processBookingRequest(isSuperSchedule = false) {
+    const cartData = JSON.parse(localStorage.getItem('cart'));
+    let requestBody = {
+        courses: cartData.courses
+    };
+    if (isSuperSchedule) {
+        requestBody.tunnel = 'super_schedule';
+    }
+
+    try {
+        const response = await fetch('api/create_reservation/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (await handleApiError(response)) return;
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            // 統一使用建議彈窗顯示所有類型的失敗
+            displaySuggestionModal(result.details || {}, result.message);
+            return; // 停在原畫面讓使用者修改
+        }
+        
+        // 統一呼叫成功處理函式
+        handleBookingSuccess(result);
+
+    } catch (error) {
+        console.error('Error during booking process:', error);
+        showNotification('預約失敗: ' + (error.message || '未知錯誤'), 'error');
+    }
+}
+
+
+// (主按鈕) 確定預約
+async function confirmBooking() {
+    const confirmBookingButton = document.getElementById('confirmBookingButton');
+    const loadingAnimation = document.getElementById('loadingAnimation');
+    confirmBookingButton.disabled = true;
+    loadingAnimation.style.display = 'block';
+
+    await processBookingRequest(false); // 呼叫共用函式，非超級排課
+
+    confirmBookingButton.disabled = false;
+    loadingAnimation.style.display = 'none';
+}
+
+
+// (彈窗按鈕) 嘗試進階排課
+async function handleSuperSchedule() {
+    const superScheduleBtn = document.getElementById('superScheduleBtn');
+    const suggestionModal = document.getElementById('suggestionModal');
+    if (superScheduleBtn) superScheduleBtn.disabled = true;
+
+    const loadingText = document.createElement('p');
+    loadingText.textContent = '正在嘗試進階排課...';
+    loadingText.style.textAlign = 'center';
+    suggestionModal.querySelector('.suggestion-body').appendChild(loadingText);
+
+    await processBookingRequest(true); // 呼叫共用函式，是超級排課
+
+    if (superScheduleBtn) superScheduleBtn.disabled = false;
+    if(loadingText) loadingText.remove();
+}
+
+
+// 統一的成功處理函式
+function handleBookingSuccess(result) {
+    window.payment_url = `{{next_url}}payment?reservation_group=${result.group_id}`;
+    showNotification('預約成功！', 'success');
+    
+    // 關閉所有可能開啟的彈窗
+    const cartModal = document.getElementById('cartModal');
+    if (cartModal) cartModal.style.display = 'none';
+    const suggestionModal = document.getElementById('suggestionModal');
+    if (suggestionModal) suggestionModal.remove();
+
+    localStorage.removeItem('cart');
+    document.querySelector('.container').style.display = 'none';
+    
+    // 延遲一點，讓使用者能看到成功訊息
+    setTimeout(() => {
+        showGmailInputModal();
+        addNewBooking(true);
+    }, 1000);
+}
+
+function displaySuggestionModal(conflictData) {
+    // 移除可能已存在的舊彈窗
+    const oldModal = document.getElementById('suggestionModal');
+    if (oldModal) {
+        oldModal.remove();
+    }
+
+    const identifier = conflictData.identifier;
+    const suggestions = conflictData.suggestions;
+
+    let suggestionsBodyHTML = '';
+    
+    // If we have suggestions, build the HTML for them.
+    if (suggestions && Object.keys(suggestions).length > 0) {
+        for (const [date, info] of Object.entries(suggestions)) {
+            suggestionsBodyHTML += `
+                <div class="suggestion-day-block">
+                    <h4 class="suggestion-date">${date}</h4>
+                    <div class="suggestion-slots">
+            `;
+            
+            // This is the key change: handle both suggestion structures
+            const daySuggestions = info.suggestions || info;
+
+            if (daySuggestions.上午) {
+                suggestionsBodyHTML += `
+                    <div class="suggestion-slot-card">
+                        <div class="slot-period">上午</div>
+                        <div class="slot-sessions">剩餘 ${daySuggestions.上午.available_sessions} 堂</div>
+                    </div>`;
+            }
+            if (daySuggestions.下午) {
+                suggestionsBodyHTML += `
+                    <div class="suggestion-slot-card">
+                        <div class="slot-period">下午</div>
+                        <div class="slot-sessions">剩餘 ${daySuggestions.下午.available_sessions} 堂</div>
+                    </div>`;
+            }
+            if (daySuggestions.全天) {
+                 suggestionsBodyHTML += `
+                    <div class="suggestion-slot-card">
+                        <div class="slot-period">全天</div>
+                        <div class="slot-sessions">剩餘 ${daySuggestions.全天.available_sessions} 堂</div>
+                    </div>`;
+            }
+
+            suggestionsBodyHTML += `
+                    </div>
+                </div>
+            `;
+        }
+    } else {
+        suggestionsBodyHTML = "<p>目前沒有可建議的替代時段，請嘗試選擇其他日期。</p>";
+    }
+    
+    // Build the subtitle based on whether we have an identifier.
+    let subtitleHTML = '';
+    if (identifier) {
+        subtitleHTML = `
+            <p class="suggestion-subtitle">
+                抱歉，<strong>${identifier}</strong> 預約失敗，因為時段已滿。您的訂單已被自動取消，請參考以下建議調整後再試一次。
+            </p>
+        `;
+    } else {
+        subtitleHTML = `
+            <p class="suggestion-subtitle">
+                您選擇的某些時段已滿，您的訂單已被自動取消。請參考以下建議調整您的購物車內容後再試一次。
+            </p>
+        `;
+    }
+
+    const modalHTML = `
+        <div id="suggestionModal" class="modal" style="display: block;">
+            <div class="modal-content suggestion-modal-content">
+                <h3 class="suggestion-title">
+                    <i data-lucide="calendar-x"></i>
+                    預約失敗
+                </h3>
+                ${subtitleHTML}
+                <div class="suggestion-body">
+                    ${suggestionsBodyHTML}
+                </div>
+                <button class="suggestion-close-btn" onclick="document.getElementById('suggestionModal').remove()">了解，返回購物車修改</button>
+                <button id="superScheduleBtn" class="cart-button secondary" style="width: 100%; margin-top: 0.5rem;" onclick="handleSuperSchedule()">嘗試進階排課 (可能由不同教練授課)</button>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    lucide.createIcons();
+}
+
+// ========== Gmail 輸入模態框 ==========
+function showGmailInputModal() {
+    
+    // 檢查是否已存在 Gmail 彈窗
+    const existingModal = document.getElementById('gmailInputModal');
+    if (existingModal) {
+        existingModal.style.display = 'block';
+        existingModal.style.zIndex = '2000';
+        return;
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'gmailInputModal';
+    modal.style.display = 'block'; // 直接設為顯示
+    modal.style.zIndex = '2000'; // 確保在最上層
+    modal.innerHTML = `
+        <div class="gmail-modal-content">
+            <button id="closeGmailModal" class="gmail-close-button">×</button>
+            <h3 class="gmail-modal-title">請輸入您的 Gmail<br>以接收付款連結</h3>
+            <input type="email" id="gmailInput" placeholder="example@gmail.com" class="gmail-input" required>
+            <div class="gmail-button-container">
+                <button id="sendGmailButton" class="gmail-send-button">送出</button>
+                <button id="copyPaymentUrlButton" class="gmail-copy-button">複製付款連結</button>
+            </div>
+            <div id="gmailError" class="gmail-error"></div>
+        </div>
+    `;
+    
+    // 添加到 body
+    document.body.appendChild(modal);
+
+    // 設置事件監聽器
+    document.getElementById('closeGmailModal').onclick = function() {
+        modal.style.display = 'none';
+    };
+
+    // ESC 鍵關閉
+    const escHandler = function(e) {
+        if (e.key === 'Escape' && modal.style.display === 'block') {
+            modal.style.display = 'none';
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    // 送出 Gmail 按鈕
+    document.getElementById('sendGmailButton').onclick = async function() {
+        const gmail = document.getElementById('gmailInput').value.trim();
+        const errorDiv = document.getElementById('gmailError');
+        
+        if (!/^[\w.+-]+@gmail\.com$/.test(gmail)) {
+            errorDiv.textContent = '請輸入有效的 Gmail 地址';
+            errorDiv.style.display = 'block';
+            return;
+        }
+        
+        errorDiv.style.display = 'none';
+        this.disabled = true;
+        this.textContent = '寄送中...';
+
+        try {
+            const resp = await fetch('api/payment_gmail/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({
+                    payment_url: window.payment_url,
+                    gmail: gmail
+                })
+            });
+            
+            if (await handleApiError(resp)) return;
+            
+            if (!resp.ok) throw new Error('寄送失敗');
+            
+            const data = await resp.json();
+            showNotification('付款連結已寄送至您的 Gmail，請查收！', 'success');
+            modal.style.display = 'none';
+        } catch (err) {
+            console.error('📧 Gmail 發送失敗:', err);
+            errorDiv.textContent = '寄送失敗，請稍後再試';
+            errorDiv.style.display = 'block';
+        } finally {
+            this.disabled = false;
+            this.textContent = '送出';
+        }
+    };
+    
+    // 複製付款連結按鈕
+    document.getElementById('copyPaymentUrlButton').onclick = function() {
+        navigator.clipboard.writeText(window.payment_url).then(() => {
+            showNotification('付款連結已複製到剪貼簿', 'success');
+            if (confirm('付款連結已複製，是否要直接開啟付款頁面？')) {
+                window.open(window.payment_url, '_blank');
+            }
+        }).catch(err => {
+            console.error('複製失敗:', err);
+            showNotification('複製失敗，請手動複製', 'error');
+        });
+    };
+    
+    // 強制確保彈窗顯示
+    setTimeout(() => {
+        if (modal && modal.style.display !== 'block') {
+            modal.style.display = 'block';
+        }
+    }, 100);
+    
+}
+
+// ========== 教練選擇功能 ==========
+function openCoachModal() {
+    window.coachDetails = {};
+    window.availableCoachs.forEach(coach => {
+        window.coachDetails[coach.id] = {
+            name: coach.name,
+            description: coach.description,
+            specialties: coach.specialties,
+            image: coach.image,
+            languages: coach.languages
+        };
+    });
+    
+    // 顯示模態框
+    document.getElementById('coachSelectModal').style.display = 'block';
+    
+    // 設定當前選擇的語言（如果有的話）
+    const languageRadios = document.querySelectorAll('input[name="language"]');
+    languageRadios.forEach(radio => {
+        radio.checked = false; // 先清除所有選擇
+    });
+    
+    if (state.selectedLanguage) {
+        const selectedRadio = document.querySelector(`input[name="language"][value="${state.selectedLanguage}"]`);
+        if (selectedRadio) {
+            selectedRadio.checked = true;
+        }
+    }
+    
+    // 根據當前語言選擇過濾並渲染教練列表
+    filterAndRenderCoaches();
+    
+    // 清空搜尋框
+    document.getElementById('coachSearchInput').value = '';
+}
+
+// 關閉教練選擇模態框
+function closeCoachModal() {
+    document.getElementById('coachSelectModal').style.display = 'none';
+}
+
+// 渲染教練列表
+function renderCoachList(coachs) {
+    const coachListContainer = document.getElementById('coachList');
+    const template = document.getElementById('coach-item-template');
+    if (!coachListContainer || !template) return;
+    
+    coachListContainer.innerHTML = '';
+    
+    coachs.forEach(coach => {
+        const details = window.coachDetails[coach.id];
+        const coachFragment = template.content.cloneNode(true);
+        const coachElement = coachFragment.querySelector('.coach-item');
+        
+        coachElement.onclick = () => selectCoachFromModal(coach.id, coach.name);
+        coachElement.querySelector('img').src = details.image;
+        coachElement.querySelector('img').alt = coach.name;
+        coachElement.querySelector('.coach-name').textContent = coach.name;
+        coachElement.querySelector('.coach-description').textContent = details.description || '';
+        
+        const specialtiesContainer = coachElement.querySelector('.coach-specialties');
+        specialtiesContainer.innerHTML = details.specialties.map(specialty => `<span class="specialty-tag">${specialty}</span>`).join('');
+        
+        coachListContainer.appendChild(coachFragment);
+    });
+    
+    lucide.createIcons();
+}
+
+// 從模態框選擇教練
+async function selectCoachFromModal(coachId, coachName) {
+    try {
+        // 語言選擇已經在 onLanguageChange 中更新到 state.selectedLanguage
+        
+        // 關閉模態框
+        closeCoachModal();
+        
+        // 更新顯示的選中教練和語言
+        let displayText = coachName;
+        if (state.selectedLanguage) {
+            const languageNames = {
+                'zh': '中文',
+                'en': '英文', 
+                'yue': '粵語'
+            };
+            const languageDisplay = languageNames[state.selectedLanguage];
+            displayText += ` / ${languageDisplay}`;
+        }
+        
+        document.getElementById('selectedCoachDisplay').textContent = displayText;
+        
+        // 原有的選擇教練邏輯
+        // 清除之前的預約資料
+        state.selectedDate = null;
+        state.selectedCourse = null;
+        state.needEquipment = null;
+        state.totalTime = null;
+        state.selectedTimeSlotId = null;
+        updateAddToCartButton();
+
+        // 清除教練相關的日曆標記，但保留今天以前的禁用狀態
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        document.querySelectorAll('.calendar-day').forEach(day => {
+            const dayNumber = parseInt(day.textContent);
+            const date = new Date(currentYear, currentMonth, dayNumber);
+
+            if (date >= today) {
+                if (day.classList.contains('partially-booked') || day.classList.contains('show-bookings') || day.classList.contains('disabled')) {
+                    day.classList.remove('partially-booked', 'show-bookings', 'disabled');
+                    day.removeAttribute('title');
+                }
+            }
+        });
+
+        state.selectedcoach = coachId;
+
+        // 如果不是"不指定教練"，則獲取教練預約資料
+        if (coachId !== 'any') {
+            const response = await fetch(`api/coach_bookings/?coach_id=${coachId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (await handleApiError(response)) return;
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch coach bookings');
+            }
+
+            const bookingData = await response.json();
+            state.coachBookings = bookingData;
+            updateCalendarWithBookings(bookingData);
+        }
+        
+        // 啟用下一步
+        document.getElementById('step2').classList.add('active');
+        enableStep(2);
+        resetStepsAfter(2);
+        updateAddToCartButton();
+        updateTimeSlots();
+
+    } catch (error) {
+        console.error('Error selecting coach:', error);
+        showNotification('選擇教練時發生錯誤，請稍後再試');
+    }
+}
+
+// 搜尋教練
+function searchCoach() {
+    const searchTerm = document.getElementById('coachSearchInput').value.toLowerCase();
+    let filteredCoachs = window.availableCoachs;
+    
+    // 先根據語言過濾
+    if (state.selectedLanguage) {
+        const languageNames = {
+            'zh': '中文',
+            'en': '英文', 
+            'yue': '粵語'
+        };
+        const selectedLanguageName = languageNames[state.selectedLanguage];
+        
+        filteredCoachs = filteredCoachs.filter(coach => {
+            const coachDetails = window.coachDetails[coach.id];
+            return coachDetails.languages.includes(selectedLanguageName);
+        });
+    }
+    
+    // 再根據搜尋詞過濾
+    if (searchTerm) {
+        filteredCoachs = filteredCoachs.filter(coach => 
+            coach.name.toLowerCase().includes(searchTerm) ||
+            window.coachDetails[coach.id].specialties.some(specialty => 
+                specialty.toLowerCase().includes(searchTerm)
+            )
+        );
+    }
+    
+    renderCoachList(filteredCoachs);
+}
+
+// 語言選擇變更事件
+function onLanguageChange() {
+    const selectedLanguageRadio = document.querySelector('input[name="language"]:checked');
+    state.selectedLanguage = selectedLanguageRadio ? selectedLanguageRadio.value : null;
+    
+    // 重新過濾並渲染教練列表
+    filterAndRenderCoaches();
+}
+
+// 根據語言過濾教練並渲染
+function filterAndRenderCoaches() {
+    let filteredCoachs = window.availableCoachs;
+    
+    // 如果有選擇語言，過濾符合該語言的教練
+    if (state.selectedLanguage) {
+        const languageNames = {
+            'zh': '中文',
+            'en': '英文', 
+            'yue': '粵語'
+        };
+        const selectedLanguageName = languageNames[state.selectedLanguage];
+        
+        filteredCoachs = window.availableCoachs.filter(coach => {
+            const coachDetails = window.coachDetails[coach.id];
+            return coachDetails.languages.includes(selectedLanguageName);
+        });
+    }
+    
+    renderCoachList(filteredCoachs);
+}
+
+// 清除語言選擇函數
+function clearLanguageSelection() {
+    // 清除所有語言選擇
+    document.querySelectorAll('input[name="language"]').forEach(radio => {
+        radio.checked = false;
+    });
+    
+    // 更新 state
+    state.selectedLanguage = null;
+    
+    // 重新過濾並渲染教練列表
+    filterAndRenderCoaches();
+}
+
+    </script>
+
+    <!-- 教練數據獲取 -->
+    <script>
+    // ========== 教練數據獲取 ==========
+    async function fetchCoachData() {
+        try {
+            console.log('從API獲取教練資料');
+            
+            const response = await fetch(`api/courses/?resort=${selectedResort}&courseType=${selectedCourseType}&abilityLevel=${selectedAbilityLevel}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (await handleApiError(response)) return;
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch coach data');
+            }
+
+            const data = await response.json();
+            console.log('API返回的教練資料:', data);
+            
+            const coachs = [
+                { id: 'any', 
+                name: '不指定',
+                description: '系統將為您安排最適合',
+                specialties: [],
+                image: 'https://host.flashfalcon.info/static/manager/img/logo.png',
+                languages: ['中文']},
+                ...data.coach_list.map(coach => ({
+                    id: coach.pk,
+                    name: coach.name,
+                    description: coach.description,
+                    specialties: coach.specialties,
+                    image: coach.image,
+                    languages: coach.languages
+                }))
+            ];
+            renderSteps();
+            updatecoachs(coachs);
+        } catch (error) {
+            console.error('Error fetching coach data:', error);
+            showNotification('無法獲取教練數據，請稍後再試');
+        }
+    }
+    </script>
+</body>
+</html> 

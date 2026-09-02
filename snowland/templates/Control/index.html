@@ -1,0 +1,143 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+    <title></title>
+    <link rel="shortcut icon" href="{% static '/control/img/favicon.ico' %}">
+</head>
+
+<body>
+    <!-- 預設掛載點，勿改 -->
+    <div id="app"></div>
+</body>
+<script>
+    // 專案所在的根目錄，一般用在專案上線後，部署目錄不是域名指向的根目錄的情況
+    // 如果已經在根目錄，則不要修改此配置項
+    // var $baseDir = './';
+    // 配置專案的基礎資訊
+    var $proInfo = {
+        // meta中的title
+        title: '雪域創遊SNOWLAND',
+        // LOGO圖示地址，可以是本地路徑，也可以是遠端路徑
+        logo: '{% static "/img/logo.png" %}',
+        // 專案主名稱（最好是英文，簡短一些），顯示在登入頁LOGO右側和主頁面左側欄頂部
+        mainName: '雪域創遊SNOWLAND',
+        // 專案副名稱，顯示在主頁左側欄頂部
+        subName: '',
+        // 專案slogan，專案的說明文字，顯示在登入頁LOGO下方
+        slogan: '雪域創遊管理者後臺',
+        // 版權資訊，登入頁底部顯示
+        copyright: '',
+        // 備案號資訊，登入頁底部顯示
+        beian: '',
+        // 是否允許自行註冊帳號，設置為true後則登入框右上角的按鈕將變為加號的形式
+        // 如果為false則登入框右上角的按鈕變為重新整理頁面
+        reg: false
+    };
+    // 是否需要登入，預設為true
+    // 如果設置為false，將不會進行是否登入檢測，直接進入$conf.homepage設置的主頁面
+    // var $login = true;
+    // 自定義登入檢測方法
+    // 該方法會覆蓋框架內置的登入校驗，注意：最後必須明確return true或者false來表示是否登入
+    // var $checkLogin = () => {return true;}
+    // 自定義專案配置參數，可以覆蓋框架預設的配置參數
+    var $conf = {
+        devDebug: true,
+        // 啟動頁地址，登入成功後進入的主頁面右側顯示的頁面，一般為數據統計類的dashboard
+        homepage             : '/panel/dashboard',
+        // 皮膚，預設：dark，亮色可以設置為：light
+        skin                 : 'dark',
+        // 皮膚切換後的回調
+        skin_change_callback : () => {
+            $proInfo.logo = `{% static "/control/img/logo${CONF.skin === 'light' ? '_inverse' : ''}.png" %}`;
+        },
+        // 是否預設關閉選單
+        menu_close           : true,
+        // 選單始終只顯示一個，設置為false則選單打開後其他選單不會關閉
+        menu_only_show_one   : true,
+        // 關閉input的autocomplete
+        close_autocomplete   : true,
+        // 頁面內文字可選
+        allow_user_select    : true,
+        // 允許右鍵
+        allow_right_click    : true,
+        // 彈窗預設寬度
+        window_width         : 400,
+        // 彈窗預設高度
+        window_height        : 400,
+        // 彈窗預設標題
+        window_title         : '雪域創遊管理者後臺',
+        // 是否允許點擊遮罩關閉彈窗
+        window_close_by_mask : true,
+        // 導航分類的數據源類型 local、api
+        nav_data_source      : 'api',
+        // 導航分類API地址
+        nav_api_url          : 'api/manager/nav/',
+        // 全局訊息預設距離頂部的距離，單位px
+        message_top          : 60,
+        // 全局訊息預設顯示時長，單位秒
+        message_duration     : 2,
+        // 通知訊息預設顯示時長，單位秒
+        notice_duration      : 5,
+        // 缺省圖片地址
+        error_default_img    : '{% static "/control/img/default.jpg" %}',
+        // 是否固定路由，設置為true則路由不會根據頁面跳轉變化，始終會固定在進入時的地址
+        fixed_route: false,
+        // 模板檔案副檔名，預設.html
+        tmp_doc: '.html',
+        // 發送HTTP請求時的通用參數
+        http : {
+            // 通用介面地址
+            baseURL : '',
+            // 請求超時
+            timeout : 3000,
+            // 自定義請求頭
+            headers : {
+                'Content-Type' : 'application/x-www-form-urlencoded',
+                'X-CSRFToken' : '{{ csrf_token }}'
+            },
+            // API介面返回的code碼的欄位名
+            code_field   : 'code',
+            // API介面返回代表成功的code碼的值
+            code_success : 100,
+            // CODE碼統一處理
+            code_dispose : {},
+            // API介面返回的處理結果內容的欄位名
+            msg_field    : 'msg',
+            // API介面返回的數據體的欄位名
+            data_field   : 'data',
+            // API介面的鑑權欄位名
+            token_field  : 'jwt',
+            // 鑑權參數前綴
+            token_prefix : '',
+            // 數據體通用格式化，用來兼容已經固定的API介面的返回值格式
+            response : data => {
+                return data;
+            }
+        }
+    };
+    // 自定義加載的數據檔案，可以是遠端檔案，以http://或者https://開頭
+    // 也可以將需要加載的檔案放進 ./static/js/data目錄中，進行本地加載
+    // var $data = [];
+    // 自定義加載的外掛檔案，注意外掛檔案不支援遠端加載，因為第三方外掛
+    // 可能有多個檔案，遠端加載無法保存加載的順序，可能會導致異常報錯
+    // 請將第三方外掛檔案放進 ./static/js/plugin目錄中
+    // var $plugin = [];
+    // 自定義所有檔案加載完畢後的回調方法，框架會自動
+    // 調用該方法，可以在此處編寫一些前置的業務邏輯
+    var $ready = () => {
+        $proInfo = reactive($proInfo);
+        if (CONF.skin === 'light')
+            $proInfo.logo = '{% static "/control/img/logo_inverse.png" %}';
+    }
+</script>
+<!--
+    框架主檔案，帶有參數v表示版本號，框架中所有非同步加載的檔案（也包括.css樣式檔案）在加載時都將攜帶該版本號
+    如果專案上線後檔案有更改，但是因為瀏覽器快取原因無法看到最新效果，則
+    可以增加該版本號，來重置快取。
+-->
+<script src="{% static '/control/js/eui.v3.min.js' %}?v=3.5.0"></script>
+</html>

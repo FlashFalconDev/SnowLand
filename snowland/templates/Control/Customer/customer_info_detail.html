@@ -1,0 +1,30 @@
+<form id="steps" action = '/api/manager/customer_info/get/' data-submit="stepsCallback">
+    <div class="block-box">
+        <div class="col-4">
+            <div class="block">
+                <div class="form-group">
+                    <h4>管理員</h4>
+                    <div class="form-group">
+                        <label>
+                            <input
+                                name="manager_state"
+                                type="radio"
+                                data-model="switch"
+                                value="{{ manager_state }}">
+                        </label>
+                        <input type="hidden" name="mtPK" value="{{ mtPK }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+    
+<script>
+    (() => {
+        // 这里可以保留基本的设置
+        // 例如：document.getElementById('img_pic').value = "{{img_pic}}";
+        // 其他设置可以根据需要添加
+    })()
+</script>
+

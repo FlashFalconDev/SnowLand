@@ -1,0 +1,10 @@
+# Local analysis and temporary review artifacts
+_analysis/
+tmp/
+**/.claude/
+
+# Caddy runtime state and downloaded binary
+tools/caddy/caddy.exe
+tools/caddy/config/
+tools/caddy/data/
+tools/caddy/logs/

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>付款 - 滑雪預約系統</title>
+    {% load socialaccount %}
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'booking.css' %}">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+    {% if not user.is_authenticated %}
+    <!-- 登入介面 -->
+    <div id="loginContainer" class="login-container">
+        <div class="login-card">
+            <div class="login-logo">
+                <i data-lucide="mountain-snow"></i>
+            </div>
+            <h1 class="login-title">滑雪預約付款</h1>
+            <p class="login-subtitle">請先登入以繼續付款流程</p>
+            <a href="{% provider_login_url 'google' %}?next={{ next_url }}" class="google-btn">
+                <svg class="google-icon" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                使用 Google 登入
+            </a>
+        </div>
+    </div>
+    {% else %}
+    <!-- 付款主要內容 -->
+    <div id="paymentContainer" class="container">
+        <div class="content">
+            {% comment %}
+                This block handles all "final" payment statuses where the user is not expected to pay.
+                The status display logic is fully contained within this template.
+            {% endcomment %}
+            {% if payment_status != 'unpaid' and payment_status %}
+            <div id="paymentStatusSection" class="payment-section" style="display: block;">
+                
+                {% if payment_status == 'paid' %}
+                    {% with 'success' as status_type %}
+                        <div class="{{ status_type }}-header">
+                            <div class="{{ status_type }}-icon"><i data-lucide="check-circle"></i></div>
+                            <h2>付款成功！</h2>
+                            <p>感謝您的付款，您的預約已完成。</p>
+                            <button class="cart-button {{ status_type }}-btn" style="margin-top: 24px;" onclick="checkOrdererAndShowInterface()">繼續</button>
+                        </div>
+                    {% endwith %}
+                {% elif payment_status == 'zero_amount' or payment_status == 'pending_coach_approval' or payment_status == 'processing' or payment_status == 'all_cancelled' %}
+                    {% with 'info' as status_type %}
+                        <div class="{{ status_type }}-header">
+                            <div class="{{ status_type }}-icon"><i data-lucide="info"></i></div>
+                            <h2>
+                                {% if payment_status == 'zero_amount' %}無需付款
+                                {% elif payment_status == 'pending_coach_approval' %}等待教練確認中
+                                {% elif payment_status == 'processing' %}預約處理中
+                                {% elif payment_status == 'all_cancelled' %}所有預約已取消
+                                {% endif %}
+                            </h2>
+                            <p>{{ message }}</p>
+                            <a href="/booking/" class="cart-button {{status_type}}-btn" style="margin-top: 24px;">回預約首頁</a>
+                        </div>
+                    {% endwith %}
+                {% else %}
+                    {% with 'warning' as status_type %}
+                        <div class="{{ status_type }}-header">
+                            <div class="{{ status_type }}-icon">
+                                {% if payment_status == 'pending' %}<i data-lucide="clock"></i>
+                                {% else %}<i data-lucide="alert-triangle"></i>
+                                {% endif %}
+                            </div>
+                            <h2>
+                                {% if payment_status == 'pending' %}等待匯款確認！
+                                {% elif payment_status == 'expired' %}付款時間已過期
+                                {% elif payment_status == 'not_found' %}找不到您的訂單
+                                {% elif payment_status == 'no_active_reservations' %}沒有有效的預約
+                                {% elif payment_status == 'assignment_failed' %}排課失敗
+                                {% endif %}
+                            </h2>
+                            <p>
+                                {% if payment_status == 'pending' %}感謝您的付款，我們將在收到匯款後確認您的預約。
+                                {% elif payment_status == 'expired' %}很抱歉，您的付款時間已過期，請重新預約或聯絡客服協助處理。
+                                {% elif payment_status == 'not_found' %}很抱歉，我們找不到您的訂單，請重新預約或聯絡客服協助處理。
+                                {% else %}{{ message }}{% endif %}
+                            </p>
+                            <a href="/booking/" class="cart-button {{status_type}}-btn" style="margin-top: 24px;">回預約首頁</a>
+                        </div>
+                    {% endwith %}
+                {% endif %}
+            </div>
+            {% else %}
+            <!-- 藍新支付介面 -->
+            <div id="newebpaySection" class="payment-section" style="display: none;">
+                <div class="payment-header">
+                    <h2>藍新支付</h2>
+                    <p>請確認您的訂單資訊並進行付款</p>
+                </div>
+                
+                <div class="order-summary">
+                    <h3>訂單摘要</h3>
+                    <div id="orderDetails" class="order-details">
+                        {% for item in order_details %}
+                        <div class="order-item">
+                            <div class="course-info">
+                                <div class="course-header">
+                                    <span class="course-title">預約課程 {{ item.pk }}</span>
+                                </div>
+                                <div class="course-details">
+                                    {% if item.course_fee %}
+                                    <div class="fee-item">
+                                        <span class="fee-label">課程費</span>
+                                        <span class="fee-value">NT$ {{ item.course_fee }}</span>
+                                    </div>
+                                    {% endif %}
+                                    {% if item.coach_fee %}
+                                    <div class="fee-item">
+                                        <span class="fee-label">教練費</span>
+                                        <span class="fee-value">NT$ {{ item.coach_fee }}</span>
+                                    </div>
+                                    {% endif %}
+                                    {% if item.equipment_rental_fee %}
+                                    <div class="fee-item">
+                                        <span class="fee-label">器材租借費</span>
+                                        <span class="fee-value">NT$ {{ item.equipment_rental_fee }}</span>
+                                    </div>
+                                    {% endif %}
+                                    {% if item.language_fee %}
+                                    <div class="fee-item">
+                                        <span class="fee-label">語言服務費</span>
+                                        <span class="fee-value">NT$ {{ item.language_fee }}</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="total-amount">
+                        <span>總金額：</span>
+                        <span id="totalAmount" class="amount">NT$ {{ total_amount }}</span>
+                    </div>
+                </div>
+
+                <button class="cart-button" onclick="processNewebpayPayment()">
+                    確認付款
+                </button>
+            </div>
+
+            <!-- 匯款介面 -->
+            <div id="bankTransferSection" class="payment-section" style="display: none;">
+                <div class="payment-header">
+                    <h2>銀行匯款</h2>
+                    <p>請將款項匯至以下帳戶</p>
+                </div>
+
+                <div class="bank-info">
+                    <h3>匯款資訊</h3>
+                    <div class="bank-details">
+                        <div class="detail-item">
+                            <span class="detail-label">銀行名稱</span>
+                            <span class="detail-value">{{ bank_info.bank_name|default:"台灣銀行" }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">分行名稱</span>
+                            <span class="detail-value">{{ bank_info.branch_name|default:"信義分行" }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">帳戶號碼</span>
+                            <span class="detail-value">{{ bank_info.account_number|default:"123-456-789012" }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">戶名</span>
+                            <span class="detail-value">{{ bank_info.account_name|default:"滑雪預約股份有限公司" }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">匯款金額</span>
+                            <span class="detail-value amount" id="transferAmount">NT$ {{ total_amount }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="transfer-form">
+                    <h3>匯款確認</h3>
+                    <div class="form-group">
+                        <label for="senderAccount">匯款帳戶（後五碼）</label>
+                        <input type="text" id="senderAccount" placeholder="請輸入您的匯款帳戶後五碼" maxlength="5">
+                    </div>
+                </div>
+
+                <button class="cart-button" onclick="confirmBankTransfer()">
+                    確認已匯款
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    <!-- 成功後的重新綁定訂單介面 -->
+    <div id="rebindOrderSection" class="payment-section" style="display: none;">
+        <div class="success-header">
+            <div class="success-icon">
+                <i data-lucide="check-circle"></i>
+            </div>
+            <h2>您可以選擇將預約歸屬到的帳號</h2>
+        </div>
+        <div class="rebind-form">
+            <h3>歸屬設定</h3>
+            <div class="form-group">
+                <label for="accountSelector">選擇歸屬帳號</label>
+                <div class="custom-select">
+                    <select id="accountSelector">
+                        <option value="">請選擇帳號</option>
+                    </select>
+                </div>
+            </div>
+            <button class="cart-button" onclick="processRebind()" style="display: none;" id="rebindButton">
+                確認歸屬
+            </button>
+        </div>
+    </div>
+
+    <!-- 載入動畫 -->
+    <div id="loadingAnimation" class="loading-animation" style="display: none;">
+        處理中...
+    </div>
+
+    <!-- 通知訊息 -->
+    <div id="notification" class="notification"></div>
+
+    <script>
+        // 從 Django 模板傳入的資料
+        const paymentData = {
+            paymentType: '{{ payment_type }}', // 'newebpay' 或 'bank_transfer'
+            reservation_group_pk: '{{ reservation_group_pk }}',
+            amount: {{ total_amount|default:0 }},
+            orderDetails: {{ order_details|default:"[]"|safe }},
+            ordererUser: '{{ orderer_user|default:"" }}'
+        };
+        
+        let currentUser = null;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            lucide.createIcons();
+            // 檢查是否已登入
+            checkLoginStatus();
+        });
+
+        // 檢查登入狀態
+        function checkLoginStatus() {
+            {% if user.is_authenticated %}
+                currentUser = {
+                    id: {{ user.id }},
+                    name: '{{ user.get_full_name|default:user.username }}',
+                    email: '{{ user.email }}'
+                }; 
+                // 根據付款類型顯示對應介面
+                displayPaymentInterface();
+            {% endif %}
+        }
+
+        // 顯示付款介面
+        function displayPaymentInterface() {
+            if (paymentData.paymentType === 'TT') {
+                document.getElementById('bankTransferSection').style.display = 'block';
+            } else if (paymentData.paymentType === 'newebpay') {
+                document.getElementById('newebpaySection').style.display = 'block';
+            }
+        }
+        // 统一的付款处理函数
+        async function processPayment(paymentType, additionalData = {}) {
+            showLoading();
+            try {
+                const response = await fetch('/booking/api/process_payment/', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    },
+                    body: JSON.stringify({
+                        user: currentUser,
+                        reservation_group_pk: paymentData.reservation_group_pk,
+                        paymentType: paymentType,
+                        ...additionalData
+                    })
+                });
+                
+                hideLoading();
+                
+                if (response.ok) {
+                    if (paymentType === 'TT') {
+                        showNotification('匯款資訊已提交，請等待確認', 'success');
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+                    } else if (paymentType === 'newebpay') {
+                        // 獲取返回的 HTML 內容
+                        const data = await response.json();
+                        
+                        // 方案1：使用新窗口（推薦）
+                        const newWindow = window.open('', '_blank');
+                        if (newWindow) {
+                            newWindow.document.write(data.html);
+                            newWindow.document.close();
+                        } else {
+                            // 方案2：如果彈出窗口被阻止，使用隱藏的iframe
+                            const iframe = document.createElement('iframe');
+                            iframe.style.display = 'none';
+                            document.body.appendChild(iframe);
+                            
+                            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                            iframeDoc.open();
+                            iframeDoc.write(data.html);
+                            iframeDoc.close();
+                            
+                            // 等待iframe載入完成後自動提交表單
+                            iframe.onload = function() {
+                                const form = iframeDoc.getElementById('form1');
+                                if (form) {
+                                    form.target = '_parent'; // 讓表單提交到父窗口
+                                    form.submit();
+                                }
+                            };
+                        }
+                    }
+                } else {
+                    showNotification('錯誤，請稍後再試', 'error');
+                }
+                
+            } catch (error) {
+                hideLoading();
+                console.error('錯誤:', error);
+                showNotification('錯誤，請稍後再試', 'error');
+            }
+        }
+
+        // 藍新支付處理
+        function processNewebpayPayment() {
+            processPayment('newebpay');
+        }
+
+        // 銀行匯款處理
+        function confirmBankTransfer() {
+            const senderAccount = document.getElementById('senderAccount').value;
+            
+            if (!senderAccount || senderAccount.length !== 5) {
+                showNotification('請輸入正確的匯款帳戶後五碼', 'error');
+                return;
+            }
+            
+            processPayment('TT', { senderAccount });
+        }
+
+        // 檢查訂單用戶並顯示相應介面
+        function checkOrdererAndShowInterface() {
+            if (paymentData.ordererUser === currentUser.email) {
+                window.location.href = '/booking/';
+                return;
+            }
+            document.getElementById('paymentContainer').style.display = 'none';
+            document.getElementById('rebindOrderSection').style.display = 'block';
+            // 填入 option
+            var selector = document.getElementById('accountSelector');
+            if (selector) {
+                selector.innerHTML = `
+                    <option value="">請選擇帳號</option>
+                    <option value="${currentUser.id}">${currentUser.email}</option>
+                    <option value="original">${paymentData.ordererUser}</option>
+                `;
+            }
+            document.getElementById('rebindButton').style.display = 'block';
+            lucide.createIcons();
+        }
+
+        // 處理訂單歸屬
+        async function processRebind() {
+            const accountId = document.getElementById('accountSelector').value;
+            
+            if (!accountId) {
+                showNotification('請選擇歸屬帳號', 'error');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const response = await fetch('/api/rebind_order/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    },
+                    body: JSON.stringify({
+                        orderId: paymentData.orderId,
+                        accountId: accountId
+                    })
+                });
+                
+                if (!response.ok) throw new Error('綁定失敗');
+                
+                const result = await response.json();
+                hideLoading();
+                
+                if (result.success) {
+                    showNotification('訂單歸屬成功！', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/booking/';
+                    }, 2000);
+                } else {
+                    showNotification(result.message || '綁定失敗', 'error');
+                }
+                
+            } catch (error) {
+                hideLoading();
+                console.error('綁定失敗:', error);
+                showNotification('綁定失敗，請稍後再試', 'error');
+            }
+        }
+
+        // 獲取 CSRF Token
+        function getCSRFToken() {
+            return document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+                   document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        }
+
+        // 工具函數
+        function showLoading() {
+            document.getElementById('loadingAnimation').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingAnimation').style.display = 'none';
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type} show`;
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,1560 @@
+/* ===== 配色方案 ===== */
+:root {
+    /* 主要紫色系 */
+    --primary-purple: #7c3aed;
+    --primary-purple-dark: #6d28d9;
+    --primary-purple-light: #8b5cf6;
+    
+    /* 主要黃色系 */
+    --primary-yellow: #fbbf24;
+    --primary-yellow-dark: #f59e0b;
+    --primary-yellow-light: #fcd34d;
+    
+    /* 中性色系 */
+    --white: #ffffff;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #6b7280;
+    --gray-600: #4b5563;
+    --gray-700: #374151;
+    --gray-800: #1f2937;
+    --gray-900: #111827;
+    
+    /* 功能色系 */
+    --success: #10b981;
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --info: #3b82f6;
+}
+
+/* ===== 基礎樣式 ===== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+body {
+    background: linear-gradient(to bottom, #f3e8ff, var(--white));
+    min-height: 100vh;
+    padding: 2rem;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 1rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.header {
+    background: linear-gradient(to right, var(--primary-purple), var(--primary-purple-light));
+    color: var(--white);
+    padding: 1.5rem;
+    border-radius: 1rem 1rem 0 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.content {
+    padding: 2rem;
+    counter-reset: step;
+}
+
+.step {
+    margin-bottom: 2rem;
+    opacity: 0.3;
+    pointer-events: none;
+    transition: all 0.3s ease;
+    filter: grayscale(100%);
+    position: relative;
+    padding-left: 3rem;
+}
+
+.step::after {
+    content: '';
+    position: absolute;
+    left: 1.5rem;
+    top: 3rem;
+    bottom: -2rem;
+    width: 2px;
+    background: #e5e7eb;
+    z-index: 0;
+}
+
+.step:last-child::after {
+    display: none;
+}
+
+.step::before {
+    content: counter(step);
+    counter-increment: step;
+    position: absolute;
+    left: 0;
+    top: 0.5rem;
+    width: 3rem;
+    height: 3rem;
+    background: #e5e7eb;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #9ca3af;
+    z-index: 1;
+}
+
+.step.active {
+    opacity: 1;
+    pointer-events: auto;
+    filter: grayscale(0%);
+}
+
+.step.active::before {
+    background: #7c3aed;
+    color: white;
+}
+
+.step.active::after {
+    background: #7c3aed;
+}
+
+.step.locked {
+    opacity: 0.5;
+    pointer-events: none;
+    filter: grayscale(80%);
+    cursor: not-allowed;
+}
+
+.step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #f3e8ff;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    width: fit-content;
+    margin-bottom: 1rem;
+    position: relative;
+    z-index: 1;
+}
+
+.step-title {
+    color: #6b21a8;
+    font-weight: 600;
+}
+
+.step-title-explanation {
+    font-size: 0.9em;
+    color: #6b7280; /* 灰色 */
+    margin-top: 0.5em;
+    line-height: 1.4;
+}
+
+.calendar {
+    border: 2px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    background: white;
+    max-width: 300px;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.calendar-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    color: #7c3aed;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: all 0.2s ease;
+    position: relative;
+    font-size: 0.875rem;
+    color: #6b21a8;
+    background: white;
+}
+
+.calendar-day:hover:not(.disabled) {
+    background: #f3e8ff;
+}
+
+.calendar-day.selected {
+    background-color: #8b5cf6;
+    color: white;
+    font-weight: bold;
+    border: 2px solid #6b21a8;
+    transform: scale(1.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 1;
+}
+
+.calendar-day.disabled {
+    background-color: #e5e7eb;
+    color: #9ca3af;
+    cursor: not-allowed;
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.calendar-day.partially-booked {
+    position: relative;
+}
+
+.calendar-day.show-bookings.partially-booked::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    width: 4px;
+    height: 4px;
+    background-color: #f59e0b;
+    border-radius: 50%;
+}
+
+.course-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.course-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.course-card:hover:not(.disabled) {
+    border-color: #7c3aed;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.course-card.selected {
+    border-color: #7c3aed;
+    background: #f3e8ff;
+}
+
+.course-card.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.course-name {
+    color: #1f2937;
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.course-duration {
+    color: #7c3aed;
+    font-size: 0.875rem;
+}
+
+.equipment-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.equipment-button {
+    padding: 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s ease;
+    background: none;
+    font-size: 1rem;
+}
+
+.equipment-button:hover:not(.disabled) {
+    border-color: #7c3aed;
+}
+
+.equipment-button.selected {
+    background: #7c3aed;
+    color: white;
+    border-color: #7c3aed;
+}
+
+.equipment-button.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.time-slot {
+    border: 2px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.time-slot:hover:not(.disabled) {
+    border-color: #7c3aed;
+}
+
+.time-slot.selected {
+    border-color: #7c3aed;
+    background: #f3e8ff;
+}
+
+.time-slot.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.time-slot-period {
+    display: inline-block;
+    background: #f3e8ff;
+    color: #6b21a8;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+}
+
+.time-details {
+    color: #4b5563;
+    font-size: 0.875rem;
+}
+
+.coach-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.coach-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.coach-card:hover {
+    border-color: #7c3aed;
+}
+
+.coach-card.selected {
+    border-color: #7c3aed;
+    background: #f3e8ff;
+}
+
+.confirm-button {
+    width: 100%;
+    padding: 1rem;
+    background: linear-gradient(to right, #7c3aed, #6366f1);
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1.125rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 2rem;
+    opacity: 1;
+}
+
+.confirm-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.confirm-button:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.features-card {
+    background: rgba(243, 232, 255, 0.5);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+}
+
+.features-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #6b21a8;
+    font-weight: 500;
+    margin-bottom: 1rem;
+}
+
+.features-list {
+    list-style: none;
+}
+
+.feature-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #6b21a8;
+    margin-bottom: 0.75rem;
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 1rem;
+    }
+
+    .equipment-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .coach-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.calendar-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.calendar-options {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.calendar-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+    color: #6b21a8;
+    font-size: 0.875rem;
+}
+
+.calendar-checkbox input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 0.25rem;
+    border: 2px solid #7c3aed;
+    appearance: none;
+    cursor: pointer;
+    position: relative;
+}
+
+.calendar-checkbox input[type="checkbox"]:checked {
+    background-color: #7c3aed;
+}
+
+.calendar-checkbox input[type="checkbox"]:checked::after {
+    content: "✓";
+    position: absolute;
+    color: white;
+    font-size: 0.75rem;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.language-grid {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.language-button {
+    padding: 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.75rem;
+    cursor: pointer;
+    background: none;
+    color: #e5e7eb;
+    transition: all 0.2s ease;
+    font-size: 1rem;
+    text-align: center;
+    width: 100px; /* 與其他按鈕寬度一致 */
+}
+
+.language-button:hover {
+    border-color: #7c3aed;
+}
+
+.language-button.selected {
+    background: #7c3aed;
+    color: white;
+    border-color: #7c3aed;
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+}
+
+.modal-content {
+    background-color: white;
+    margin: 2% auto;
+    border-radius: 1rem;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.cart-modal-header {
+    background: linear-gradient(to right, #7c3aed, #6366f1);
+    color: white;
+    padding: 1.5rem;
+    border-radius: 1rem 1rem 0 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.cart-modal-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.cart-modal-header .close-button {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 2.5rem;
+    height: 2.5rem;
+    cursor: pointer;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+.cart-modal-header .close-button:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.cart-details {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+    max-height: calc(90vh - 200px);
+}
+
+.cart-modal-footer {
+    background: white;
+    padding: 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    border-radius: 0 0 1rem 1rem;
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.confirm-button {
+    width: 100%;
+    background: linear-gradient(to right, #7c3aed, #6366f1);
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.confirm-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15);
+}
+
+.confirm-button:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.cart-reservations {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.reservation-group {
+    border: 2px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    background: #f9fafb;
+    transition: all 0.2s ease;
+}
+
+.reservation-group:hover {
+    border-color: #7c3aed;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.reservation-header {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.reservation-header h3 {
+    color: #6b21a8;
+    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.reservation-header h4 {
+    color: #374151;
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.reservation-settings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.reservation-settings p {
+    margin: 0;
+    color: #374151;
+}
+
+.reservation-settings strong {
+    color: #6b21a8;
+}
+
+.reservation-courses {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.course-item {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 1rem;
+    transition: all 0.2s ease;
+}
+
+.course-item:hover {
+    border-color: #7c3aed;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.course-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.course-info p {
+    margin: 0;
+    color: #374151;
+}
+
+.course-info strong {
+    color: #6b21a8;
+}
+
+.ski-course {
+    border-left: 4px solid #3b82f6;
+}
+
+.photography-course {
+    border-left: 4px solid #f59e0b;
+}
+
+.delete-btn {
+    background-color: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 0.375rem;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.delete-btn:hover {
+    background-color: #dc2626;
+}
+
+.delete-reservation-btn {
+    background-color: #f97316;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-top: 1rem;
+    transition: all 0.2s ease;
+}
+
+.delete-reservation-btn:hover {
+    background-color: #ea580c;
+    transform: translateY(-1px);
+}
+
+.empty-cart {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: #6b7280;
+    font-size: 1rem;
+}
+
+.empty-cart p {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+@media (max-width: 768px) {
+    .modal-content {
+        margin: 1% auto;
+        width: 95%;
+        max-height: 95vh;
+    }
+    
+    .cart-modal-header {
+        padding: 1rem;
+    }
+    
+    .cart-details {
+        padding: 1rem;
+        max-height: calc(95vh - 180px);
+    }
+    
+    .cart-modal-footer {
+        padding: 1rem;
+    }
+    
+    .reservation-settings {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+    
+    .course-item {
+        grid-template-columns: 1fr;
+        text-align: center;
+    }
+    
+    .course-info {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+    
+    .reservation-group {
+        padding: 1rem;
+    }
+}
+
+.notification {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateY(-50%);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    opacity: 0;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    z-index: 1000;
+}
+
+.notification.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.notification.hidden {
+    opacity: 0;
+    transform: translateY(-20px);
+}
+
+.notification.info {
+    background-color: #3b82f6;
+    color: white;
+}
+
+.notification.success {
+    background-color: #10b981;
+    color: white;
+}
+
+.notification.error {
+    background-color: #ef4444;
+    color: white;
+}
+
+.course-item {
+    margin-bottom: 1rem;
+}
+
+.course-item button {
+    background-color: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.course-item button:hover {
+    background-color: #dc2626;
+}
+
+.people-modal-content, .resort-modal-content, .course-type-modal-content {
+    max-width: 400px; /* 與 people-modal-content 相同的寬度 */
+    margin: 10% auto;
+    padding: 20px;
+    background-color: #fefefe;
+    border: 1px solid #888;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.modal-title {
+    text-align: center;
+    color: #6b21a8;
+    margin-bottom: 1.5rem;
+}
+
+.people-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.people-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+}
+
+.people-button {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: #f3e8ff;
+    color: #6b21a8;
+    border-radius: 0.5rem;
+    cursor: pointer;
+}
+
+.people-count {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #6b21a8;
+}
+
+.form-template {
+    display: block;
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    max-width: 600px;
+    margin: 0 auto;
+    color: #1f2937; /* 深色文字 */
+}
+
+.member_item {
+    margin-bottom: 1.5rem; /* 增加間距 */
+}
+
+.member_item p {
+    margin-bottom: 1rem; /* 增加段落間距 */
+}
+
+.wpcf7-list-item {
+    display: inline-block; /* 改為水平排列 */
+    width: 48%; /* 每個選項佔48%的寬度，留出間距 */
+    margin-bottom: 0.5rem; /* 增加選項間距 */
+    vertical-align: top; /* 垂直對齊 */
+}
+
+.wpcf7-list-item-label {
+    font-size: 1rem; /* 調整字體大小 */
+    color: #6b21a8; /* 深色文字 */
+}
+
+.member_title {
+    font-size: 1.5rem; /* 增加標題字體大小 */
+    font-weight: bold;
+    color: #6b21a8;
+    margin-bottom: 1rem;
+}
+
+.next-button, .prev-button {
+    padding: 0.5rem 1rem;
+    background: #7c3aed;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    margin-top: 1rem;
+    display: inline-block;
+}
+
+.prev-button {
+    background: #6366f1;
+}
+
+.next-button:disabled, .prev-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.form-navigation {
+    margin-top: 2rem;
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+}
+
+.nav-button {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.prev-button {
+    background-color: #f3e8ff;
+    color: #6b21a8;
+}
+
+.next-button {
+    background-color: #6b21a8;
+    color: white;
+}
+
+.nav-button:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.form-number {
+    font-size: 1.2em;
+    color: #6b21a8;
+    font-weight: bold;
+    margin-left: 0.5rem;
+}
+
+.resort-button, .course-type-button {
+    padding: 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    background: none;
+    color: #6b21a8;
+    transition: all 0.2s ease;
+    font-size: 1rem;
+    text-align: center;
+    width: 100%; /* 使按鈕寬度填滿容器 */
+    margin-bottom: 1rem; /* 增加按鈕之間的間距 */
+}
+
+.resort-button:hover, .course-type-button:hover {
+    border-color: #7c3aed;
+    background-color: #f3e8ff;
+}
+
+.resort-button.selected, .course-type-button.selected {
+    background: #7c3aed;
+    color: white;
+    border-color: #7c3aed;
+}
+
+.checkout-modal {
+    max-width: 400px; /* 與 people-modal-content 相同的寬度 */
+    margin: 10% auto;
+    padding: 20px;
+    border-radius: 0.5rem;
+}
+
+.checkout-modal-content {
+    background-color: rgba(255, 255, 255, 0.95); /* 與其他彈窗一致的背景 */
+    color: #1f2937; /* 深色文字 */
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); /* 與其他彈窗一致的陰影 */
+    max-width: 400px;
+    width: 90%;
+    text-align: left;
+}
+
+.checkout-modal h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    color: #6b21a8; /* 與其他標題一致的顏色 */
+}
+
+.checkout-modal p {
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+}
+
+.payment-method {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.payment-method select {
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 2px solid #7c3aed;
+    background-color: #f3e8ff;
+    color: #6b21a8;
+    cursor: pointer;
+}
+
+.confirm-payment-button {
+    margin-top: 1rem;
+    padding: 0.75rem 1.5rem;
+    background-color: #7c3aed;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.confirm-payment-button:hover {
+    background-color: #5b21b6;
+}
+
+.loading-animation {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1000;
+    background-color: rgba(255, 255, 255, 0.8);
+    padding: 2rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    text-align: center;
+    font-size: 1.5rem;
+    color: #6b21a8;
+}
+
+.google-login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.login-card {
+    background-color: white;
+    border-radius: 1rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    padding: 2.5rem;
+    width: 90%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.login-logo {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 1.5rem;
+    background-color: #f3e8ff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #6b21a8;
+    margin-bottom: 0.5rem;
+}
+
+.login-subtitle {
+    font-size: 1rem;
+    color: #6b7280;
+    margin-bottom: 2rem;
+}
+
+.google-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    background-color: white;
+    color: #333;
+    border: 1px solid #ddd;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    text-decoration: none;
+}
+
+.google-btn:hover {
+    background-color: #f9fafb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.google-icon {
+    width: 24px;
+    height: 24px;
+}
+
+.profile-container {
+    position: fixed;
+    top: 2rem;
+    left: 2rem;
+    z-index: 1002;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.profile-avatar {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid var(--white);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease;
+}
+
+.profile-avatar:hover {
+    transform: scale(1.05);
+}
+
+.profile-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: var(--white);
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    padding: 0.5rem;
+    min-width: 150px;
+    display: none;
+    z-index: 1003;
+}
+
+.profile-menu.show {
+    display: block;
+}
+
+.view-reservations-button,
+.logout-button {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    background: none;
+    border: none;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    text-decoration: none;
+    color: var(--gray-700);
+    font-size: 0.875rem;
+}
+
+.view-reservations-button:hover,
+.logout-button:hover {
+    background-color: var(--gray-100);
+}
+
+.language-modal-content {
+    max-width: 500px;
+    padding: 2rem;
+}
+
+.language-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.language-description {
+    text-align: center;
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.language-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+.language-buttons {
+  display: flex;
+  justify-content: center;  /* 水平置中所有按鈕 */
+  align-items: center;      /* 垂直置中 */
+  gap: 1rem;                /* 按鈕間距 */
+}
+
+.language-type-button {
+    padding: 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: white;
+    color: #374151;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.language-type-button:hover {
+    border-color: #7c3aed;
+    color: #7c3aed;
+}
+
+.back-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: #f3e8ff;
+    color: #6b21a8;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: 2rem;
+    text-decoration: none;
+}
+
+.back-button:hover {
+    background: #e9d5ff;
+}
+
+.reservation-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    transition: all 0.2s ease;
+    background: white;
+}
+
+.reservation-card:hover {
+    border-color: #7c3aed;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.reservation-date {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #6b21a8;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.reservation-status {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 1rem;
+}
+
+.status-completed {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-cancelled {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.reservation-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.detail-label {
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.detail-value {
+    color: #1f2937;
+    font-weight: 500;
+}
+
+.student-info {
+    margin-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 1rem;
+}
+
+.student-title {
+    color: #6b21a8;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.student-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.student-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    background: #f9fafb;
+}
+
+.loading {
+    text-align: center;
+    padding: 2rem;
+    color: #6b7280;
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 1rem;
+    }
+
+    .reservation-details {
+        grid-template-columns: 1fr;
+    }
+
+    .student-list {
+        grid-template-columns: 1fr;
+    }
+}
+
+.no-reservations {
+    text-align: center;
+    padding: 2rem;
+    color: #6b7280;
+}
+
+.skip-button {
+    background-color: #f3e8ff;
+    color: #6b21a8;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+}
+
+.unavailable {
+    opacity: 0.5; /* 使其看起來晦澀 */
+    pointer-events: none; /* 禁止點擊 */
+    cursor: not-allowed; /* 顯示不可用的鼠標樣式 */
+}
+
+.resort-selection {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); /* 每个按钮最小宽度150px */
+    gap: 1rem; /* 按钮之间的间距 */
+}
+
+.no-time-slot {
+    padding: 1rem;
+    text-align: center;
+    color: #888;
+}
+
+.cart-container {
+    position: fixed;
+    top: 2rem;
+    right: 2rem;
+    z-index: 1002;
+}
+
+.view-cart-button {
+    background: linear-gradient(to right, var(--primary-purple), var(--primary-purple-light));
+    color: var(--white);
+    border: none;
+    border-radius: 50%;
+    width: 3.5rem;
+    height: 3.5rem;
+    cursor: pointer;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.view-cart-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15);
+}
+
+.view-cart-button i {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+.close-button {
+    background: var(--primary-yellow);
+    color: var(--gray-800);
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.close-button:hover {
+    background: var(--primary-yellow-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+.course-type-modal-content .close-button,
+.resort-modal-content .close-button,
+.people-modal-content .close-button {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: #f3f4f6;
+    color: #374151;
+    border: none;
+    border-radius: 50%;
+    width: 2.5rem;
+    height: 2.5rem;
+    cursor: pointer;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 10;
+}
+
+.course-type-modal-content .close-button:hover,
+.resort-modal-content .close-button:hover,
+.people-modal-content .close-button:hover {
+    background: #e5e7eb;
+    transform: scale(1.05);
+}
+
+@media (max-width: 768px) {
+    .profile-container {
+        top: 1rem;
+        left: 1rem;
+    }
+    
+    .cart-container {
+        top: 1rem;
+        right: 1rem;
+    }
+    
+    .view-cart-button {
+        width: 3rem;
+        height: 3rem;
+    }
+    
+    .profile-avatar {
+        width: 2.5rem;
+        height: 2.5rem;
+    }
+    
+    .modal-content {
+        margin: 1% auto;
+        width: 95%;
+        max-height: 95vh;
+    }
+    
+    .cart-details {
+        max-height: calc(95vh - 180px);
+    }
+}

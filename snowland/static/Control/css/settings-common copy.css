@@ -1,0 +1,1337 @@
+/* ===== 基礎樣式 ===== */
+
+.settings-container {
+    padding: 20px;
+    background: #141518;
+    min-height: 100vh;
+    color: #ffffff;
+    font-family: Arial, sans-serif;
+}
+
+/* ===== 通用變量 ===== */
+:root {
+    --primary-color: #6b26d9;
+    --primary-hover: #5a1fd9;
+    --bg-dark: #1a1a1a;
+    --bg-medium: #2a2a2a;
+    --bg-light: #1d1f25;
+    --border-color: #404040;
+    --border-hover: #555555;
+    --text-primary: #ffffff;
+    --text-secondary: #888888;
+    --text-muted: #8c95b0;
+    --shadow-light: rgba(0, 0, 0, 0.08);
+    --shadow-medium: rgba(0, 0, 0, 0.12);
+    --shadow-heavy: rgba(0, 0, 0, 0.2);
+    --border-radius: 6px;
+    --border-radius-lg: 8px;
+    --border-radius-xl: 12px;
+    --transition: all 0.3s ease;
+}
+
+/* ===== Select 元素樣式 ===== */
+select {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    position: relative !important;
+    z-index: 10 !important;
+    background: linear-gradient(135deg, var(--bg-medium) 0%, var(--bg-dark) 100%) !important;
+    color: var(--text-primary) !important;
+    border: 2px solid var(--border-color) !important;
+    border-radius: var(--border-radius-xl) !important;
+    padding: 12px 50px 12px 16px !important;
+    font-size: 15px !important;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+    font-weight: 500 !important;
+    width: 100% !important;
+    min-height: 42px !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+    box-sizing: border-box !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    letter-spacing: normal !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3e%3cpath stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m19 9-7 7-7-7'/%3e%3c/svg%3e") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 16px center !important;
+    background-size: 20px !important;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+    box-shadow: 0 2px 6px var(--shadow-light) !important;
+}
+
+/* 隱藏EUI框架的自定義select組件 */
+.select.init, .select, .select-box, .select-field, .select-content,
+.select-display, .select-placeholder, .eui-select, .eui-select-container,
+.eui-dropdown, .eui-drop, .eui-drop-container, [data-eui-select],
+[data-id="templateCourseType"], [name="templateCourseType"],
+.drop-popup, .select-option {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    position: absolute !important;
+    z-index: -1 !important;
+    pointer-events: none !important;
+}
+
+/* 隱藏非目標select元素 */
+select:not([id="templateCourseType"]):not([id="slotTemplate"]):not([id="priceTierTemplate"]):not([id="priceTierSeason"]):not([id="seasonSettingType"]):not([id="courseTypeCategory"]):not([id="sessionTemplate"]):not([id="pricingTemplate"]):not([id="pricingResort"]) {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    position: absolute !important;
+    z-index: -1 !important;
+    pointer-events: none !important;
+}
+
+/* 目標select元素樣式 */
+select[id="templateCourseType"], select[id="slotTemplate"], select[id="priceTierTemplate"],
+select[id="priceTierSeason"], select[id="seasonSettingType"], select[id="courseTypeCategory"],
+select[id="sessionTemplate"], select[id="pricingTemplate"], select[id="pricingResort"] {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    position: relative !important;
+    z-index: 10 !important;
+    pointer-events: auto !important;
+    outline: none !important;
+}
+
+/* Select 狀態樣式 */
+select:focus {
+    outline: none !important;
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 3px rgba(107, 38, 217, 0.2), 0 6px 12px var(--shadow-heavy) !important;
+}
+
+select:hover {
+    border-color: var(--border-hover) !important;
+    box-shadow: 0 4px 10px var(--shadow-medium) !important;
+}
+
+/* Select 選項樣式 */
+select option {
+    background-color: var(--bg-medium) !important;
+    color: var(--text-primary) !important;
+    padding: 12px 16px !important;
+    font-size: 14px !important;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+
+select option:hover {
+    background-color: var(--primary-color) !important;
+}
+
+select option:checked {
+    background-color: var(--primary-color) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ===== 按鈕樣式 ===== */
+.action-buttons {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 30px;
+    align-items: center;
+}
+
+.btn-primary, .btn-secondary, .btn-danger, .btn-warning {
+    padding: 12px 24px;
+    border-radius: var(--border-radius);
+    font-weight: bold;
+    transition: var(--transition);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-family: Arial, sans-serif;
+    border: 1px solid;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+    box-shadow: 0 2px 4px rgba(107, 38, 217, 0.3);
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+    box-shadow: 0 4px 8px rgba(107, 38, 217, 0.4);
+    transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+    background: #6c757d;
+    border-color: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.6;
+    box-shadow: none;
+    transform: none;
+}
+
+.btn-secondary {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+    background: rgba(107, 38, 217, 0.1);
+}
+
+.btn-danger, .btn-warning {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    gap: 6px;
+}
+
+.btn-danger {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+.btn-warning {
+    background: #fbbf24;
+    border-color: #fbbf24;
+    color: white;
+}
+
+.btn-warning:hover {
+    background: #f59e0b;
+    border-color: #f59e0b;
+}
+
+/* 深色主題下的按鈕樣式 */
+.settings-container .btn-danger {
+    background: #373d4d;
+    border-color: #373d4d;
+}
+
+.settings-container .btn-danger:hover {
+    background: #4a4f5f;
+    border-color: #4a4f5f;
+}
+
+.settings-container .btn-warning {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.settings-container .btn-warning:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+/* 載入動畫 */
+.btn-primary i.ri-loader-4-line {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ===== 標籤頁樣式 ===== */
+.tabs-container {
+    background: var(--bg-light);
+    border-radius: var(--border-radius-lg);
+    border: 1px solid #373d4d;
+    overflow: hidden;
+}
+
+.tabs-nav {
+    display: flex;
+    background: #282c38;
+    border-bottom: 1px solid #373d4d;
+}
+
+.tab-button {
+    flex: 1;
+    padding: 12px 16px;
+    background: none;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: Arial, sans-serif;
+}
+
+.tab-button.active,
+.tab-button[aria-selected="true"] {
+    background: var(--bg-light);
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-button:hover {
+    background: #2a2d35;
+    color: var(--text-primary);
+}
+
+.tab-content {
+    display: none;
+    padding: 20px;
+    background: var(--bg-light);
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* 移除重复的标签页样式 */
+.tab-button[role="tab"] {
+    position: relative;
+}
+
+.tab-button[role="tab"][aria-selected="true"] {
+    background: var(--bg-light);
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-button[role="tab"][aria-selected="false"] {
+    background: #282c38;
+    color: var(--text-muted);
+    border-bottom-color: transparent;
+}
+
+/* 增强标签页切换效果 */
+.tab-button {
+    position: relative;
+    overflow: hidden;
+}
+
+.tab-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(107, 38, 217, 0.1) 0%, rgba(107, 38, 217, 0.05) 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: -1;
+}
+
+.tab-button.active::before,
+.tab-button[aria-selected="true"]::before {
+    opacity: 1;
+}
+
+.tab-button:hover::before {
+    opacity: 0.5;
+}
+
+/* 标签页内容切换动画 */
+.tab-content {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.tab-content.active {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* 确保非激活标签页完全隐藏 */
+.tab-content:not(.active) {
+    display: none !important;
+}
+
+/* ===== 表格樣式 ===== */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    font-family: Arial, sans-serif;
+    border: 1px solid #e5e7eb;
+}
+
+/* 深色主題下的表格樣式 */
+.settings-container .data-table {
+    background: #282c38;
+    border: 1px solid #373d4d;
+    box-shadow: 0 1px 3px var(--shadow-light);
+}
+
+.data-table th {
+    background: #f9fafb;
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 14px;
+}
+
+/* 深色主題下的表格標題 */
+.settings-container .data-table th {
+    background: var(--bg-light);
+    color: var(--text-primary);
+    border-bottom: 1px solid #373d4d;
+}
+
+.data-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+    color: #374151;
+}
+
+/* 深色主題下的表格數據 */
+.settings-container .data-table td {
+    color: var(--text-primary);
+    border-bottom: 1px solid #373d4d;
+}
+
+.data-table tr:hover {
+    background: #f9fafb;
+}
+
+/* 深色主題下的hover效果 */
+.settings-container .data-table tr:hover {
+    background: rgba(107, 38, 217, 0.05);
+}
+
+.data-table tr:last-child td {
+    border-bottom: none;
+}
+
+.action-buttons-inline {
+    display: flex;
+    gap: 8px;
+}
+
+.action-buttons-inline button {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+/* ===== 徽章樣式 ===== */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.badge.active {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.badge.inactive {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+/* 舊版本的徽章樣式保持兼容 */
+.badge.primary {
+    background: var(--primary-color);
+    color: white;
+}
+
+.status-badge, .equipment-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+    min-width: 45px;
+    text-align: center;
+    font-family: Arial, sans-serif;
+    padding: 4px 8px;
+    border-radius: var(--border-radius);
+    color: white;
+}
+
+.status-badge.active, .equipment-badge.need {
+    background: #4CAF50;
+    border: none;
+}
+
+.status-badge.inactive, .equipment-badge.not-need {
+    background: #9E9E9E;
+    border: none;
+}
+
+/* ===== 模態框樣式 ===== */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.7);
+}
+
+.modal-content {
+    background: var(--bg-dark);
+    margin: 5% auto;
+    padding: 30px;
+    border-radius: var(--border-radius-lg);
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 25px var(--shadow-heavy);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    position: relative;
+    z-index: 10000;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 20px;
+    font-weight: bold;
+    font-family: Arial, sans-serif;
+}
+
+.close {
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: color 0.3s;
+    padding: 5px;
+}
+
+.close:hover {
+    color: var(--text-primary);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ===== 表單樣式 ===== */
+.group {
+    margin-bottom: 16px;
+}
+
+.group label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.group input, .group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-size: 14px;
+    box-sizing: border-box;
+    background-color: var(--bg-medium);
+    color: var(--text-primary);
+    font-family: Arial, sans-serif;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.group input:focus, .group select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(107, 38, 217, 0.25);
+}
+
+.group input::placeholder {
+    color: var(--text-secondary);
+}
+
+/* ===== Checkbox 樣式 ===== */
+.checkbox-container, .status-toggle, .custom-checkbox-wrapper, .resort-checkbox-item {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg-medium);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    transition: var(--transition);
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    z-index: 1000;
+}
+
+.checkbox-container:hover, .status-toggle:hover, .custom-checkbox-wrapper:hover, .resort-checkbox-item:hover {
+    border-color: var(--primary-color);
+    background: rgba(107, 38, 217, 0.1);
+}
+
+.status-toggle.checked, .resort-checkbox-item.checked {
+    border-color: var(--primary-color);
+    background: rgba(107, 38, 217, 0.1);
+}
+
+/* 通用checkbox樣式 */
+.checkbox-container input[type="checkbox"], .status-toggle input[type="checkbox"],
+.custom-checkbox-wrapper input[type="checkbox"], .resort-checkbox-item input[type="checkbox"] {
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0 !important;
+    cursor: pointer !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    position: relative !important;
+    z-index: 9999 !important;
+    background-color: var(--bg-medium) !important;
+    border: 2px solid var(--border-color) !important;
+    border-radius: 4px !important;
+    appearance: auto !important;
+    -webkit-appearance: auto !important;
+    -moz-appearance: auto !important;
+    vertical-align: middle !important;
+    transition: var(--transition) !important;
+    flex-shrink: 0;
+    visibility: visible !important;
+    display: inline-block !important;
+    clip: auto !important;
+    clip-path: none !important;
+    transform: none !important;
+    filter: none !important;
+}
+
+/* 雪场选择框的checkbox特殊样式 */
+.resort-checkbox-item input[type="checkbox"] {
+    width: 16px !important;
+    height: 16px !important;
+    margin-right: 8px !important;
+}
+
+/* 深色主題下的 custom-checkbox-wrapper 樣式 */
+.custom-checkbox-wrapper {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #2a2a2a;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    user-select: none;
+    position: relative !important;
+    z-index: 10 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.custom-checkbox-wrapper:hover {
+    border-color: #6b26d9;
+    background: rgba(107, 38, 217, 0.1);
+}
+
+.custom-checkbox-wrapper input[type="checkbox"] {
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0 !important;
+    cursor: pointer !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: inline-block !important;
+    pointer-events: auto !important;
+    background-color: #2a2a2a !important;
+    border: 2px solid #404040 !important;
+    border-radius: 4px !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    vertical-align: middle !important;
+    transition: all 0.3s ease !important;
+    flex-shrink: 0 !important;
+    position: relative !important;
+    z-index: 10 !important;
+}
+
+.custom-checkbox-wrapper input[type="checkbox"]:checked {
+    background-color: #6b26d9;
+    border-color: #6b26d9;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
+    background-size: 14px 14px;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.custom-checkbox-wrapper label {
+    cursor: pointer;
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #cccccc;
+    font-family: Arial, sans-serif;
+    flex: 1;
+    pointer-events: auto;
+    transition: color 0.3s ease;
+}
+
+.custom-checkbox-wrapper:hover label {
+    color: #ffffff;
+}
+
+/* Checkbox 選中狀態 */
+.checkbox-container input[type="checkbox"]:checked, .status-toggle input[type="checkbox"]:checked,
+.custom-checkbox-wrapper input[type="checkbox"]:checked, .resort-checkbox-item input[type="checkbox"]:checked {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e") !important;
+    background-size: 14px 14px !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+}
+
+/* Checkbox 焦點狀態 */
+.checkbox-container input[type="checkbox"]:focus, .status-toggle input[type="checkbox"]:focus,
+.custom-checkbox-wrapper input[type="checkbox"]:focus, .resort-checkbox-item input[type="checkbox"]:focus {
+    outline: none;
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px rgba(107, 38, 217, 0.25) !important;
+}
+
+/* 雪场选择框checkbox的悬停效果 */
+.resort-checkbox-item input[type="checkbox"]:hover {
+    border-color: var(--primary-color) !important;
+    background-color: rgba(107, 38, 217, 0.1) !important;
+}
+
+/* 標籤樣式 */
+.checkbox-container span, .status-toggle .toggle-label, .custom-checkbox-wrapper label, .resort-checkbox-item label {
+    cursor: pointer !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 14px;
+    font-weight: 500;
+    color: #cccccc;
+    font-family: Arial, sans-serif;
+    flex: 1;
+    pointer-events: auto !important;
+    transition: color 0.3s ease;
+}
+
+.checkbox-container:hover span, .status-toggle:hover .toggle-text,
+.custom-checkbox-wrapper:hover label, .resort-checkbox-item:hover label {
+    color: var(--text-primary);
+}
+
+.status-toggle:hover .toggle-text {
+    color: var(--primary-color);
+}
+
+.resort-checkbox-item.checked label {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* 隱藏EUI框架的checkbox相關元素 */
+.eui-checkbox, .eui-checkbox-container, [class*="eui-checkbox"], [data-eui-checkbox],
+.checkbox:not(.checkbox-container), .checkbox-wrapper:not(.checkbox-container) {
+    display: none !important;
+}
+
+/* 隱藏所有其他checkbox，但保留指定容器內的 */
+input[type="checkbox"]:not(.checkbox-container input[type="checkbox"]):not(.status-toggle input[type="checkbox"]):not(.custom-checkbox-wrapper input[type="checkbox"]):not(.resort-checkbox-item input[type="checkbox"]) {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    position: absolute !important;
+    z-index: -1 !important;
+    pointer-events: none !important;
+}
+
+/* ===== 狀態樣式 ===== */
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #6b7280;
+}
+
+.empty-state i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    color: #d1d5db;
+}
+
+.empty-state h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.empty-state p {
+    margin: 0;
+    font-size: 14px;
+    color: #76809d;
+}
+
+/* ===== 雪場選擇樣式 ===== */
+.resort-checkboxes-container, .template-checkboxes-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 16px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+}
+
+.resort-checkbox-item, .template-checkbox-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    margin: 4px 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #f9fafb;
+    min-height: 48px;
+    user-select: none;
+    position: relative;
+}
+
+.resort-checkbox-item:hover, .template-checkbox-item:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px var(--shadow-heavy);
+}
+
+.resort-checkbox-item.checked, .template-checkbox-item.checked {
+    background: #ede9fe;
+    border-color: #8b5cf6;
+    color: #6b21a8;
+}
+
+/* 深色主題下的雪場選擇樣式 */
+.settings-container .resort-checkbox-item, .settings-container .template-checkbox-item {
+    background: var(--bg-medium);
+    border-color: var(--border-color);
+}
+
+.settings-container .resort-checkbox-item:hover, .settings-container .template-checkbox-item:hover {
+    background: rgba(107, 38, 217, 0.05);
+    border-color: var(--primary-color);
+}
+
+.settings-container .resort-checkbox-item.checked, .settings-container .template-checkbox-item.checked {
+    background: rgba(107, 38, 217, 0.1);
+    border-color: var(--primary-color);
+}
+
+.resort-checkbox-item.checked::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(107, 38, 217, 0.1) 0%, rgba(107, 38, 217, 0.05) 100%);
+    border-radius: var(--border-radius);
+    pointer-events: none;
+    z-index: -1;
+}
+
+.resort-checkbox-item input[type="checkbox"] {
+    margin-right: 8px;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.resort-checkbox-item label {
+    cursor: pointer;
+    margin: 0;
+    flex: 1;
+    font-size: 14px;
+}
+
+/* 雪場複選框的特殊行為 */
+.resort-checkbox-item input[type="checkbox"]:hover {
+    border-color: var(--primary-color) !important;
+    background-color: rgba(107, 38, 217, 0.1) !important;
+}
+
+.resort-checkbox-item input[type="checkbox"]:focus {
+    outline: none !important;
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px rgba(107, 38, 217, 0.25) !important;
+}
+
+.resort-checkbox-item label {
+    cursor: pointer !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    font-family: Arial, sans-serif;
+    flex: 1;
+    pointer-events: auto !important;
+    transition: color 0.3s ease;
+    user-select: none;
+}
+
+/* 深色主題下的標籤樣式 */
+.settings-container .resort-checkbox-item label {
+    color: var(--text-primary);
+}
+
+.resort-checkbox-item:hover label {
+    color: var(--primary-color);
+}
+
+.resort-checkbox-item.checked label {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* ===== 課程模板雪場顯示樣式 ===== */
+.template-resorts-display {
+    padding: 12px 16px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    min-height: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.template-resorts-display .no-resort-selected {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.template-resorts-display .resort-tag {
+    background: var(--primary-color);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.template-resorts-display .resort-tag.disabled {
+    background: #6c757d;
+    opacity: 0.6;
+}
+
+/* ===== 響應式設計 ===== */
+@media (max-width: 768px) {
+    .settings-container {
+        padding: 16px;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .action-buttons .btn-primary {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .tabs-nav {
+        flex-direction: column;
+    }
+    
+    .tab-button {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+    
+    .data-table {
+        font-size: 12px;
+    }
+    
+    .data-table th, .data-table td {
+        padding: 8px 6px;
+    }
+    
+    .modal-content {
+        width: 95%;
+        margin: 2% auto;
+        padding: 16px;
+    }
+    
+    .group {
+        margin-bottom: 10px;
+    }
+    
+    .group input, .group select {
+        padding: 6px 8px;
+        font-size: 13px;
+    }
+}
+
+/* ===== 新增樣式 - 支持優化後的HTML結構 ===== */
+
+/* 表單樣式優化 */
+.modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.form-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.form-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.form-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.form-label.required::after {
+    content: " *";
+    color: #ff6b6b;
+    font-weight: bold;
+}
+
+.form-help {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* 調試按鈕樣式 */
+.debug-buttons {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-small {
+    font-size: 12px !important;
+    padding: 4px 8px !important;
+}
+
+/* 標籤頁無障礙支持 */
+.tabs-container[role="tablist"] {
+    position: relative;
+}
+
+.tab-button[role="tab"] {
+    position: relative;
+}
+
+.tab-button[role="tab"][aria-selected="true"] {
+    background: var(--bg-light);
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-button[role="tab"][aria-selected="false"] {
+    background: #282c38;
+    color: var(--text-muted);
+    border-bottom-color: transparent;
+}
+
+/* 表單輸入框樣式統一 */
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-size: 14px;
+    box-sizing: border-box;
+    background-color: var(--bg-medium);
+    color: var(--text-primary);
+    font-family: Arial, sans-serif;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(107, 38, 217, 0.25);
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+    color: var(--text-secondary);
+}
+
+/* 響應式表單佈局 */
+@media (max-width: 768px) {
+    .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .form-group {
+        flex: none;
+    }
+}
+
+/* ===== Toast 提示樣式 ===== */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.toast {
+    min-width: 300px;
+    max-width: 500px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-success { 
+    background: #16a34a; 
+    border-color: #15803d; 
+}
+.toast-error { 
+    background: #dc2626; 
+    border-color: #b91c1c; 
+}
+.toast-warning { 
+    background: #f59e0b; 
+    border-color: #d97706; 
+    color: #1a1a1a; 
+}
+.toast::before {
+    content: '';
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+    display: inline-block;
+}
+.toast-success::before {
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2316a34a"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>') center/12px no-repeat;
+}
+.toast-error::before {
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23dc2626"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>') center/12px no-repeat;
+}
+.toast-warning::before {
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23f59e0b"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>') center/12px no-repeat;
+}
+
+/* 課程設定Modal專用樣式 */
+#courseTypeModal select, #templateModal select, #sessionModal select {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    position: relative !important;
+    z-index: 10 !important;
+    background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%) !important;
+    color: #ffffff !important;
+    border: 2px solid #404040 !important;
+    border-radius: 12px !important;
+    padding: 12px 50px 12px 16px !important;
+    font-size: 15px !important;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+    font-weight: 500 !important;
+    width: 100% !important;
+    min-height: 42px !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+    box-sizing: border-box !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3e%3cpath stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m19 9-7 7-7-7'/%3e%3c/svg%3e") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 16px center !important;
+    background-size: 20px !important;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+}
+
+#courseTypeModal select:focus, #templateModal select:focus, #sessionModal select:focus {
+    outline: none !important;
+    border-color: #6b26d9 !important;
+    box-shadow: 0 0 0 3px rgba(107, 38, 217, 0.2), 0 6px 12px rgba(0, 0, 0, 0.2) !important;
+    background: #2a2a2a !important;
+}
+
+#courseTypeModal select:hover, #templateModal select:hover, #sessionModal select:hover {
+    border-color: #555555 !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12) !important;
+}
+
+#courseTypeModal select option, #templateModal select option, #sessionModal select option {
+    background-color: #2a2a2a !important;
+    color: #ffffff !important;
+    padding: 8px 12px !important;
+}
+
+
+/* Modal Loader Style */
+.modal-content .modal-loader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(20, 21, 24, 0.85);
+    z-index: 10001;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: var(--text-primary);
+    font-size: 16px;
+    border-radius: var(--border-radius-lg);
+    backdrop-filter: blur(2px);
+}
+
+/* ===== 價格預覽樣式 (Price Preview) ===== */
+.price-preview {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+}
+
+.price-preview h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.price-breakdown {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.price-item {
+    background-color: var(--bg-medium);
+    padding: 10px 12px;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    text-align: center;
+    flex-grow: 1;
+    min-width: 120px;
+}
+
+.price-item.peak {
+    border-color: var(--primary-color);
+    background-color: rgba(107, 38, 217, 0.1);
+}
+
+.price-item .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.price-item .value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
