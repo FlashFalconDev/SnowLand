@@ -130,7 +130,6 @@ function GuidesCollectionPage() {
                   src={card.image}
                   alt={card.title}
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                  loading="lazy"
                 />
               </div>
               <div className="p-5 space-y-3">

@@ -3,6 +3,10 @@ _analysis/
 tmp/
 **/.claude/
 
+# Local SnowLand database credentials
+.env.local
+snowland/.venv/
+
 # Caddy runtime state and downloaded binary
 tools/caddy/caddy.exe
 tools/caddy/config/

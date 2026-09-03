@@ -55,6 +55,14 @@ export interface Order {
   payment_method: string
   bank_account?: string | null
   created_at: string
+  order_number?: string
+  campus?: number | null
+  campus_name?: string
+  marketing_source?: string
+  marketing_source_detail?: string
+  line_group_url?: string
+  revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string }[]
+  cancellation?: { id: number; status: string; reason: string; refund_amount: number; refund_percent: string; handling_fee_percent: string } | null
 }
 
 interface ListResp {
@@ -125,4 +133,17 @@ export async function updateOrder(
 ): Promise<{ code: number; msg: string }> {
   const res = (await adminApi.put(`/orders/${id}/`, payload)) as unknown as ActionResp
   return res
+}
+
+export async function previewOrderRefund(id: number): Promise<{ original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number }> {
+  const res = await adminApi.get(`/orders/${id}/refund-preview/`) as any
+  return res.data
+}
+
+export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string } }): Promise<void> {
+  await adminApi.post(`/orders/${id}/cancel/`, payload)
+}
+
+export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded'): Promise<void> {
+  await adminApi.post(`/cancellations/${cancellationId}/process/`, { status })
 }

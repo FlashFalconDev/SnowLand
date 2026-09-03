@@ -19,6 +19,9 @@ export interface CourseTemplate {
   display_order: number
   duration_hours: number
   max_capacity: number
+  billing_mode: 'private' | 'per_person'
+  minimum_group_size: number
+  minimum_student_level: string
   is_active: boolean
   resorts: number[]
   resort_names: string[]

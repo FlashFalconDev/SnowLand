@@ -7,6 +7,7 @@ import SiteHeader from '../../components/site/SiteHeader';
 import resortLegacyData from '../../data/site/resortLegacyData';
 import skiResorts from '../../data/site/skiResorts';
 import resortNavigation from '../../data/site/resortNavigation';
+import { useSiteLink } from '../../hooks/useSiteBasePath';
 
 const slopeColors = {
   初級: "bg-[#9cccf4]",
@@ -41,7 +42,7 @@ function ResortCoursePage() {
   const [showLiftScrollIndicator, setShowLiftScrollIndicator] = useState(false);
   const liftScrollTrackWidth = 160;
   const liftScrollThumbMinWidth = 24;
-  const bookingUrl = "/booking";
+  const bookingUrl = useSiteLink('/booking');
   const fullDayOnlyPricing = {
     kamui: {
       discount: [15200, 18200, 21200, 24200, 27200, 30200],
@@ -832,7 +833,6 @@ function ResortCoursePage() {
                   src="/course/teine/course-teine-equipment.jpg"
                   alt="SnowLand手稻滑雪課程租借裝備"
                   className="absolute inset-0 h-full w-full object-cover object-[center_40%]"
-                  loading="lazy"
                 />
                 <div className="absolute inset-0 bg-[#0b1d2a]/55" />
                 <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-6 py-8 md:px-10 md:py-10 text-center text-white">

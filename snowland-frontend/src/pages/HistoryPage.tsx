@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Home, Calendar, Clock, MapPin, Users, CreditCard, ChevronDown, ChevronUp, Filter } from 'lucide-react'
+import { Home, Calendar, Clock, MapPin, Users, CreditCard, ChevronDown, ChevronUp, Filter, Copy, Repeat2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import Toast, { ToastType } from '@/components/ui/Toast'
+import { useBookingStore } from '@/store/bookingStore'
 
 interface ReservationHistory {
   reservation_group_id: number
@@ -41,6 +42,9 @@ export default function HistoryPage() {
   const { user, loading: authLoading } = useAuth()
   const [loading, setLoading] = useState(true)
   const [history, setHistory] = useState<ReservationHistory[]>([])
+  const [profile, setProfile] = useState<{ referral_code: string; points: number; level: string; alumni_verified: boolean } | null>(null)
+  const replaceCart = useBookingStore((state) => state.replaceCart)
+  const clientCode = window.location.pathname.split('/').filter(Boolean)[0] || 'snowland'
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
   const [toast, setToast] = useState<{ message: string; type: ToastType; isOpen: boolean }>({
     message: '',
@@ -72,7 +76,7 @@ export default function HistoryPage() {
     const fetchHistory = async () => {
       try {
         // 走相對路徑（同 origin）
-        const response = await fetch(`/booking/snowland/api/reservation-history/`, {
+        const response = await fetch(`/booking/${clientCode}/api/reservation-history/`, {
           credentials: 'include', // 包含 session cookies
         })
 
@@ -93,6 +97,8 @@ export default function HistoryPage() {
           .filter((group) => group.reservations.length > 0) // 如果組內沒有有效預約，則過濾掉整個組
 
         setHistory(filteredHistory)
+        const profileResponse = await fetch(`/booking/${clientCode}/api/member-center/`, { credentials: 'include' })
+        if (profileResponse.ok) setProfile(await profileResponse.json())
         setLoading(false)
       } catch (error) {
         showToast('無法連接到伺服器', 'error')
@@ -102,6 +108,16 @@ export default function HistoryPage() {
 
     fetchHistory()
   }, [authLoading, user])
+
+  const quickRebook = async (groupId: number) => {
+    try {
+      const response = await fetch(`/booking/${clientCode}/api/member-center/`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '' }, body: JSON.stringify({ quick_rebook_group_id: groupId }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || '無法複製訂單')
+      replaceCart(data.cart || [])
+      navigate('../booking')
+    } catch (error: any) { showToast(error.message || '無法複製訂單', 'error') }
+  }
 
   const toggleGroup = (groupId: number) => {
     const newExpanded = new Set(expandedGroups)
@@ -208,6 +224,7 @@ export default function HistoryPage() {
 
       {/* 主要內容 */}
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        {profile && <section className="mb-6 grid gap-4 rounded-2xl bg-white p-5 shadow-lg sm:grid-cols-[1fr_auto]"><div><p className="text-xs font-semibold uppercase tracking-wider text-gray-400">會員等級</p><h2 className="mt-1 text-xl font-bold text-gray-800">{profile.level} · {profile.points.toLocaleString()} 點</h2><p className="mt-1 text-sm text-gray-500">推薦好友訂課可累積點數；舊生資格{profile.alumni_verified ? '已確認' : '尚待確認'}。</p></div><button onClick={async () => { await navigator.clipboard.writeText(profile.referral_code); showToast('推薦碼已複製', 'success') }} className="flex items-center justify-center gap-2 rounded-xl border border-primary-200 px-5 py-3 font-mono font-bold text-primary-700"><Copy size={16} />{profile.referral_code}</button></section>}
         {/* 篩選器 */}
         {history.length > 0 && (
           <div className="mb-6 rounded-2xl bg-white p-4 shadow-lg">
@@ -439,16 +456,17 @@ export default function HistoryPage() {
                       </div>
 
                       {/* 操作按鈕 */}
+                      <div className="mt-4 flex flex-wrap justify-end gap-2">
+                        <button onClick={() => quickRebook(group.reservation_group_id)} className="flex items-center gap-2 rounded-full border border-primary-300 bg-white px-5 py-3 font-bold text-primary-700"><Repeat2 size={16} />再次預約</button>
                       {group.payment_status === 'unpaid' && (
-                        <div className="mt-4 flex justify-end">
                           <button
                             onClick={() => navigate(`../payment?reservation_group=${group.reservation_group_id}`)}
                             className="rounded-full bg-gradient-to-r from-primary-500 to-purple-500 px-6 py-3 font-bold text-white shadow-lg transition-all hover:scale-105 hover:shadow-xl"
                           >
                             前往付款
                           </button>
-                        </div>
                       )}
+                      </div>
                     </div>
                   )}
                 </div>

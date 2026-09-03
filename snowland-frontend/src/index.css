@@ -39,6 +39,18 @@ body {
   min-height: 100vh;
 }
 
+/* Native form popups do not always inherit Tailwind dark-mode colors on Windows. */
+.dark .admin-shell select,
+.dark .admin-shell input,
+.dark .admin-shell textarea {
+  color-scheme: dark;
+}
+
+.dark .admin-shell select option {
+  color: #f3f4f6;
+  background-color: #1f2937;
+}
+
 /* ===== Booking System Animations ===== */
 
 @keyframes slide-in-right {

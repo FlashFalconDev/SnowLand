@@ -55,6 +55,12 @@ class Coach(models.Model):
         null=True,  # 暫時允許為 null 以便進行 migration
         blank=True
     )
+    campuses = models.ManyToManyField(
+        'Resorts.Campus',
+        blank=True,
+        related_name='coaches',
+        verbose_name='所屬校區',
+    )
     user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, verbose_name='使用者')
     name = models.CharField(max_length=100, null=True, blank=True, default='')
     # 語言選單
@@ -245,3 +251,66 @@ class CoachLeaveRequest(models.Model):
     class Meta:
         verbose_name = '教練請假申請'
         verbose_name_plural = '教練請假申請'
+
+
+class CoachPayRule(models.Model):
+    DISCIPLINE_CHOICES = [('snowboard', '單板'), ('ski', '雙板'), ('photo', '攝影')]
+    coach = models.ForeignKey(Coach, on_delete=models.CASCADE, related_name='pay_rules')
+    course_type = models.ForeignKey('Coursekit.CourseType', on_delete=models.CASCADE, null=True, blank=True, related_name='coach_pay_rules')
+    discipline = models.CharField(max_length=20, choices=DISCIPLINE_CHOICES)
+    certification_level = models.CharField(max_length=30, blank=True, default='')
+    hourly_rate = models.PositiveIntegerField(default=0)
+    specified_fee = models.PositiveIntegerField(default=0, help_text='每組計算')
+    referral_percent = models.DecimalField(max_digits=5, decimal_places=2, default=10)
+    assistance_hour_factor = models.DecimalField(max_digits=4, decimal_places=2, default=0.5)
+    supervisor_allowance = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('coach', 'course_type', 'discipline', 'certification_level')
+
+
+class PayrollStatement(models.Model):
+    STATUS_CHOICES = [('draft', '草稿'), ('confirmed', '已確認'), ('paid', '已發放')]
+    coach = models.ForeignKey(Coach, on_delete=models.PROTECT, related_name='payroll_statements')
+    campus = models.ForeignKey('Resorts.Campus', on_delete=models.PROTECT, related_name='payroll_statements')
+    period_start = models.DateField()
+    period_end = models.DateField()
+    course_pay = models.PositiveIntegerField(default=0)
+    specified_fees = models.PositiveIntegerField(default=0)
+    referral_commission = models.PositiveIntegerField(default=0)
+    assistance_pay = models.PositiveIntegerField(default=0)
+    supervisor_allowance = models.PositiveIntegerField(default=0)
+    adjustment = models.IntegerField(default=0)
+    total_amount = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('coach', 'campus', 'period_start', 'period_end')
+
+
+class PayrollLine(models.Model):
+    LINE_TYPES = [('course', '課程時薪'), ('specified', '指定費'), ('referral', '介紹費'), ('assistance', '協助費'), ('allowance', '主管加給'), ('adjustment', '調整')]
+    statement = models.ForeignKey(PayrollStatement, on_delete=models.CASCADE, related_name='lines')
+    booking = models.ForeignKey('booking.Booking', on_delete=models.SET_NULL, null=True, blank=True, related_name='payroll_lines')
+    line_type = models.CharField(max_length=20, choices=LINE_TYPES)
+    description = models.CharField(max_length=200)
+    quantity = models.DecimalField(max_digits=8, decimal_places=2, default=1)
+    unit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total_amount = models.IntegerField(default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+
+
+class StaffIncentiveRule(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='snowland_incentive_rules')
+    campus = models.ForeignKey('Resorts.Campus', on_delete=models.CASCADE, related_name='staff_incentive_rules')
+    completed_order_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ('user', 'campus')

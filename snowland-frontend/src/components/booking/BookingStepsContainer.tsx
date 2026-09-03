@@ -198,7 +198,7 @@ export default function BookingStepsContainer({
                     step <= currentStep ? 'text-white font-semibold' : 'text-white/60'
                   }`}
                 >
-                  {STEP_TITLES[step]}
+                  {STEP_TITLES[step as BookingStep]}
                 </div>
               </div>
             ))}

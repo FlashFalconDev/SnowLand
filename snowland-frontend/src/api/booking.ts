@@ -1,5 +1,6 @@
 import api from './axios'
 import { CourseCategory, Resort, CourseType, CourseTemplate } from '@/types/booking'
+import type { CourseSession } from '@/types/booking'
 
 const DISCOUNT_PREVIEW_TIMEOUT_MS = 30000
 const RESERVATION_SUBMIT_TIMEOUT_MS = 120000
@@ -62,8 +63,8 @@ export const fetchCoaches = async (params: {
   courseTemplate?: number | string
   courseDates?: string
   timeSlot?: number | string
-}) => {
-  return api.get('/coaches/', { params })
+}): Promise<{ coach_list: any[]; courses?: any[] }> => {
+  return await api.get('/coaches/', { params }) as unknown as { coach_list: any[]; courses?: any[] }
 }
 
 // 從 Django 獲取課程模板
@@ -75,11 +76,11 @@ export const fetchCourseTemplates = async (params?: {
 }
 
 // 從 Django 獲取課程時段（可選帶 date 檢查容量+合規範）
-export const fetchCourseSessions = async (templateId?: number, date?: string) => {
+export const fetchCourseSessions = async (templateId?: number, date?: string): Promise<CourseSession[]> => {
   const params: any = {}
   if (templateId) params.template_id = templateId
   if (date) params.date = date
-  return api.get('/course-sessions/', { params })
+  return await api.get('/course-sessions/', { params }) as unknown as CourseSession[]
 }
 
 // 取得某模板某月的可預約日期清單
@@ -130,6 +131,7 @@ export const calculatePrice = async (params: CalculatePriceParams): Promise<Calc
 
 // 創建預約
 export interface CreateReservationParams {
+  staff_link?: string
   contact?: {
     name?: string
     email?: string
@@ -176,6 +178,10 @@ export interface CreateReservationParams {
     }>
     totalPrice: number | null
   }>
+}
+
+export async function resolveStaffBookingLink(token: string): Promise<{ token: string; title: string; campus: { id: number; name: string }; created_by: string }> {
+  return await api.get(`/staff-booking-link/${token}/`) as unknown as { token: string; title: string; campus: { id: number; name: string }; created_by: string }
 }
 
 export interface DiscountPreviewDiscount {

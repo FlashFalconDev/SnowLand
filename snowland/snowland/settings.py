@@ -47,6 +47,7 @@ SECRET_KEY = "django-insecure-6m9s&&mrr%$5oie!_2wc-byua$@8c*oggvsef(94lkoil0j4i*
 # SECURITY WARNING: don't run with debug turned on in production!
 # if platform.system() == 'Windows':
 DEBUG = True
+LOCAL_AUTH_BYPASS = os.getenv('SNOWLAND_LOCAL_AUTH_BYPASS', '0') == '1'
 RUN_HOST = 'https://dev.flashfalcon.info'
 PAYMENT_HOST = 'https://dev.flashfalcon.info/booking/payment/'
 # else:
@@ -116,6 +117,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "snowland.middleware.LocalAuthBypassMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
@@ -232,7 +234,7 @@ DATABASES = {
         'USER': os.getenv('Mysql_USER'),
         'PASSWORD': os.getenv('Mysql_PASSWORD'),
         'HOST': os.getenv('Mysql_HOST'),
-        'PORT': '3306',
+        'PORT': os.getenv('Mysql_PORT', '3306'),
         'OPTIONS': {
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES', default_storage_engine=INNODB"

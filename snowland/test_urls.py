@@ -2,7 +2,11 @@
 """測試 Django URL 配置"""
 import os
 import sys
+import unittest
 import django
+
+if __name__ == 'test_urls':
+    raise unittest.SkipTest('手動 URL 檢查腳本，不屬於自動化測試套件')
 
 # 設置 Django 環境
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'snowland.settings')

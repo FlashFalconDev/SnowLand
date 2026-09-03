@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SnowLand 圖文操作手冊</title>
+  <style>
+    :root{--blue:#2b5f8f;--ink:#243447;--muted:#66788b;--line:#dce5ed;--soft:#f5f8fb;--green:#1a936f;--amber:#c07b16;--purple:#7950dc}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#eef3f7;color:var(--ink);font:16px/1.65 system-ui,"Noto Sans TC",sans-serif}.wrap{max-width:1180px;margin:auto;background:#fff;min-height:100vh;box-shadow:0 0 40px #23405a1a}.pad{padding:34px clamp(18px,5vw,64px)}h1,h2,h3,p{margin-top:0}h1{font-size:clamp(32px,5vw,55px);line-height:1.15;margin-bottom:16px}h2{font-size:clamp(25px,3vw,34px);margin-bottom:8px}h3{font-size:18px;margin-bottom:5px}.hero{color:#fff;background:linear-gradient(120deg,#173c60,#2b5f8f 52%,#79bde7);position:relative;overflow:hidden}.hero:after{content:"⛷";position:absolute;right:5%;bottom:-60px;font-size:220px;opacity:.12}.eyebrow{font-size:13px;letter-spacing:.22em;font-weight:800}.lead{font-size:19px;max-width:760px;color:#e8f5ff}.actions,.jump{display:flex;flex-wrap:wrap;gap:10px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 17px;border-radius:999px;text-decoration:none;font-weight:800;color:#fff;background:var(--blue);border:1px solid var(--blue)}.hero .btn{background:#fff;color:var(--blue);border:0}.hero .btn.alt{background:transparent;color:#fff;border:1px solid #ffffff99}.jump{position:sticky;top:0;z-index:10;padding:12px clamp(18px,5vw,64px);background:#fffffff2;border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}.jump a{text-decoration:none;color:var(--blue);font-weight:800;padding:7px 12px;border-radius:999px;background:#eef5fb}.section{padding:42px clamp(18px,5vw,64px);border-bottom:1px solid var(--line)}.sub{color:var(--muted);margin-bottom:24px}.route{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.route-card{position:relative;border:1px solid var(--line);background:var(--soft);border-radius:16px;padding:18px;min-height:150px}.route-card:not(:last-child):after{content:"→";position:absolute;right:-13px;top:58px;z-index:2;width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-weight:900}.icon{font-size:33px;line-height:1;margin-bottom:12px}.num{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;font-weight:900;font-size:13px;margin-right:7px}.tip{margin-top:10px;font-size:13px;color:var(--blue);font-weight:700}.browser{border:1px solid #bfcdda;border-radius:18px;overflow:hidden;box-shadow:0 16px 40px #25445f1a;background:#fff}.browser-top{height:38px;background:#eaf0f5;display:flex;align-items:center;gap:7px;padding:0 14px}.dot{width:10px;height:10px;border-radius:50%;background:#b6c4d0}.address{margin-left:9px;background:#fff;border-radius:8px;padding:3px 13px;color:#718297;font-size:12px;flex:1}.mock{padding:24px;background:#f7f9fb}.progress{display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:22px}.progress b{width:35px;height:35px;border-radius:50%;display:grid;place-items:center;background:#e4ebf2;color:#8494a5}.progress b.on{background:var(--blue);color:white}.progress i{width:55px;height:2px;background:#d9e2ea}.choice{max-width:690px;margin:auto;background:#fff;border:1px solid var(--line);padding:20px}.choice-title{text-align:center;font:700 20px/1.4 Georgia,"Noto Serif TC",serif}.choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}.choice-card{border:2px solid #dce4eb;padding:18px}.choice-card strong{display:block;margin-bottom:5px}.callout{display:flex;align-items:flex-start;gap:10px;margin-top:16px;padding:12px 14px;border-left:4px solid var(--amber);background:#fff8e8;color:#6e521f}.screen{margin-top:20px;border:1px solid var(--line);border-radius:17px;overflow:hidden;background:#182435}.screen img{display:block;width:100%;height:auto}.caption{display:flex;gap:10px;align-items:flex-start;padding:15px 17px;background:#fff}.caption b{color:var(--blue)}.badge{flex:0 0 auto;width:28px;height:28px;display:grid;place-items:center;border-radius:50%;background:var(--purple);color:#fff;font-weight:900}.hierarchy{display:grid;grid-template-columns:1fr 64px 1.6fr;gap:13px;align-items:center}.hierarchy .arrow{font-size:32px;text-align:center;color:var(--blue)}.level{border:2px solid var(--blue);border-radius:18px;padding:20px;background:#f4f9fd}.campuses{display:grid;grid-template-columns:1fr 1fr;gap:10px}.campus{border:1px solid var(--line);border-radius:14px;padding:15px;background:#fff}.pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.pill{font-size:12px;border-radius:999px;padding:4px 9px;background:#e9f3fb;color:var(--blue);font-weight:800}.daily{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.daily .route-card{min-height:132px}.daily .route-card:after{display:none}.status{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.status div{border-radius:14px;padding:16px;border:1px solid var(--line)}.ok{background:#edf9f4;color:#157355}.outside{background:#fff8e8;color:#795719}.test{background:#eef5fb;color:#2b5f8f}.footer{padding:30px clamp(18px,5vw,64px);background:#173c60;color:#dceefa}.footer strong{color:white}.small{font-size:13px}.only-do{border:2px solid #a7cae4;background:#f4f9fd;border-radius:18px;padding:18px;margin-top:22px}.only-do strong{display:block;color:var(--blue);font-size:18px}
+    @media(max-width:850px){.route{grid-template-columns:1fr 1fr}.route-card:nth-child(2):after{display:none}.daily,.status{grid-template-columns:1fr 1fr}.hierarchy{grid-template-columns:1fr}.hierarchy .arrow{transform:rotate(90deg)}.hero:after{font-size:150px}}
+    @media(max-width:540px){.route,.daily,.status,.choice-grid,.campuses{grid-template-columns:1fr}.route-card:after{display:none}.section{padding-top:32px;padding-bottom:32px}.mock{padding:14px}.progress i{width:18px}.jump{overflow:auto;flex-wrap:nowrap}.jump a{white-space:nowrap}}
+    @media print{body{background:white}.wrap{box-shadow:none}.jump{display:none}.section{break-inside:avoid}.btn{border-color:#999;color:#222;background:#fff}}
+  </style>
+</head>
+<body><main class="wrap">
+  <header class="hero pad">
+    <div class="eyebrow">SNOWLAND · 本機操作手冊</div>
+    <h1>看圖操作，不用猜下一步</h1>
+    <p class="lead">客人從官網完成預約；員工在 Console 接手訂單、付款、排課與後續服務。照圖上的藍色順序做即可。</p>
+    <div class="actions"><a class="btn" href="http://127.0.0.1:5199/snowland/booking">① 開始客人預約</a><a class="btn alt" href="http://127.0.0.1:5199/snowland/console">② 開啟員工 Console</a></div>
+  </header>
+  <nav class="jump"><a href="#customer">客人預約</a><a href="#handoff">訂單交接</a><a href="#console">員工操作</a><a href="#campus">校區管理</a><a href="#result">測試結果</a></nav>
+
+  <section class="section" id="customer">
+    <h2>客人預約：只要走這 8 格</h2><p class="sub">每一頁只做一個決定；選完就按「下一步」。</p>
+    <div class="route">
+      <article class="route-card"><div class="icon">🎿</div><h3><span class="num">1</span>選服務</h3><p>滑雪課程或攝影服務</p><div class="tip">按整張卡片</div></article>
+      <article class="route-card"><div class="icon">🏂</div><h3><span class="num">2</span>選課程</h3><p>單板 Snowboard／雙板 Ski</p><div class="tip">選一種即可</div></article>
+      <article class="route-card"><div class="icon">🏔️</div><h3><span class="num">3</span>選雪場</h3><p>同時看見由哪個校區服務</p><div class="tip">例如：星野＋道東校區</div></article>
+      <article class="route-card"><div class="icon">👨‍👩‍👧</div><h3><span class="num">4</span>填人數程度</h3><p>人數總和必須等於程度人數</p><div class="tip">新手選「等級 0」</div></article>
+      <article class="route-card"><div class="icon">📅</div><h3><span class="num">5</span>選日期時段</h3><p>可一次選多天，再選上課時段</p><div class="tip">灰色日期不可預約</div></article>
+      <article class="route-card"><div class="icon">🧑‍🏫</div><h3><span class="num">6</span>選教練裝備</h3><p>可指定教練或交給系統安排</p><div class="tip">指定教練會顯示加價</div></article>
+      <article class="route-card"><div class="icon">🧾</div><h3><span class="num">7</span>確認資料</h3><p>填姓名、電話、通訊軟體與來源</p><div class="tip">送出前再看總金額</div></article>
+      <article class="route-card"><div class="icon">💳</div><h3><span class="num">8</span>付款完成</h3><p>銀行匯款或藍新支付</p><div class="tip">匯款後填帳號後五碼</div></article>
+    </div>
+    <figure class="screen" style="max-width:560px;margin:28px auto 0"><img src="guide-assets/booking-mobile.png" alt="手機版客人預約首頁"><figcaption class="caption"><span class="badge">1</span><span><b>手機實際畫面。</b> 點「滑雪課程」後，下方「下一步」就會變成可以按。</span></figcaption></figure>
+    <div class="callout"><b>看不懂時：</b><span>先找目前藍色圓點，再完成畫面中央唯一的選擇。右下「下一步」變藍後就可以繼續。</span></div>
+  </section>
+
+  <section class="section" id="handoff">
+    <h2>訂單送出後，資料會走到哪裡？</h2><p class="sub">客人不用另外通知員工；Console 會直接收到同一張訂單。</p>
+    <div class="hierarchy"><div class="level"><div class="icon">📱</div><h3>客人完成預約</h3><p>建立訂單 → 選付款 → 收到完成提示</p></div><div class="arrow">→</div><div class="campuses"><div class="campus"><b>🧾 訂單管理</b><p class="small">看金額、付款與排課狀態</p></div><div class="campus"><b>🔔 自動通知</b><p class="small">寄確認與提醒訊息</p></div><div class="campus"><b>🗓️ 排課管理</b><p class="small">確認教練與上課時間</p></div><div class="campus"><b>🛡️ 保險／聲明</b><p class="small">追蹤客人是否補齊資料</p></div></div></div>
+    <div class="only-do"><strong>員工每天第一件事</strong>進入「營運管理 → 訂單管理」，先處理「未付款／待確認／需人工排定」。</div>
+  </section>
+
+  <section class="section" id="console">
+    <h2>Console：先選範圍，再做事情</h2><p class="sub">右上「目前範圍」控制整個 Console 顯示哪個校區；總部選「全部校區」。</p>
+    <figure class="screen"><img src="guide-assets/console-orders.png" alt="Console 訂單管理實際畫面"><figcaption class="caption"><span class="badge">1</span><span><b>訂單送出後會直接出現在這裡。</b> 先看「付款」與「訂單狀態」，再按最右側按鈕處理。</span></figcaption></figure>
+    <figure class="screen"><img src="guide-assets/console-campus-current.png" alt="Console 校區與雪場管理實際畫面"><figcaption class="caption"><span class="badge">2</span><span><b>先看右上校區範圍，再看校區卡片。</b> 紫色鉛筆修改，紅色垃圾桶刪除。</span></figcaption></figure>
+    <h3 style="margin-top:28px">每天的處理順序</h3>
+    <div class="daily">
+      <article class="route-card"><div class="icon">🧾</div><h3>① 訂單管理</h3><p>搜尋客人，檢查付款與排課。</p><a class="btn" href="http://127.0.0.1:5199/snowland/console/orders">打開訂單</a></article>
+      <article class="route-card"><div class="icon">🛡️</div><h3>② 保險與聲明</h3><p>只處理尚未完成的人。</p><a class="btn" href="http://127.0.0.1:5199/snowland/console/insurance">打開待辦</a></article>
+      <article class="route-card"><div class="icon">🗓️</div><h3>③ 排課管理</h3><p>確認日期、雪場與教練。</p><a class="btn" href="http://127.0.0.1:5199/snowland/console/scheduling">打開排課</a></article>
+      <article class="route-card"><div class="icon">📣</div><h3>④ 自動通知</h3><p>failed 代表需要人工檢查。</p><a class="btn" href="http://127.0.0.1:5199/snowland/console/notifications">打開通知</a></article>
+      <article class="route-card"><div class="icon">⭐</div><h3>⑤ 學習評量</h3><p>下課後填程度與建議。</p><a class="btn" href="http://127.0.0.1:5199/snowland/console/evaluations">打開評量</a></article>
+      <article class="route-card"><div class="icon">💰</div><h3>⑥ 薪資結算</h3><p>月底選教練與期間後計算。</p><a class="btn" href="http://127.0.0.1:5199/snowland/console/payroll">打開薪資</a></article>
+    </div>
+  </section>
+
+  <section class="section" id="campus">
+    <h2>校區和雪場：照這張圖理解</h2><p class="sub">校區是管理單位；雪場是上課地點。同一個雪場可以給多個校區使用。</p>
+    <div class="hierarchy"><div class="level"><div class="icon">🏢</div><h3>北海道營運總部</h3><p>查看全部校區，不直接取代各校區。</p></div><div class="arrow">→</div><div class="campuses"><div class="campus"><b>道東校區</b><div class="pills"><span class="pill">星野</span><span class="pill">富良野</span></div></div><div class="campus"><b>道央校區</b><div class="pills"><span class="pill">富良野</span><span class="pill">二世谷</span></div></div></div></div>
+    <div class="callout"><b>設定原則：</b><span>營運規則先用公司預設；只有某個校區不同時，才切換該校區單獨調整。</span></div>
+  </section>
+
+  <section class="section" id="result">
+    <h2>目前測試結果</h2><p class="sub">2026-09-03，本機 SnowLand 測試資料庫。</p>
+    <div class="status"><div class="ok"><b>✓ 已通過</b><br>官網桌面／手機版、完整預約、銀行匯款、會員紀錄、Console 收單</div><div class="test"><b>測試訂單</b><br>20260903-0007<br>狀態：已排課／付款待確認</div><div class="outside"><b>△ 外部驗收</b><br>藍新真實扣款、LINE／Email 真正送出，需正式憑證後測試</div></div>
+  </section>
+  <footer class="footer"><strong>資料邊界：</strong>所有 DEMO 資料只存在本機 SnowLand 資料庫，不會寫進 FFSystem 或正式環境。</footer>
+</main></body>
+</html>

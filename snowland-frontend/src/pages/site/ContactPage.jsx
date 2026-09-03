@@ -118,13 +118,11 @@ function ContactPage() {
                       alt="Line"
                       className="h-8 w-8 transition-opacity duration-200 group-hover:opacity-0"
                       style={{ filter: "grayscale(1) brightness(0.35)" }}
-                      loading="lazy"
                     />
                     <img loading="lazy" decoding="async"
                       src={`${homepageAssetBase}/Social media_line logo-green.png`}
                       alt="Line"
                       className="absolute inset-0 h-8 w-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                      loading="lazy"
                     />
                   </a>
                   <span>@snowlandcz</span>

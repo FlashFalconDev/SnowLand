@@ -9,6 +9,7 @@ import TomamuWeatherSection from '../../components/site/TomamuWeatherSection';
 import tomamuSlopeMap from '../../assets/site/tomamu/course-map0102-cn.png';
 import skiResorts from '../../data/site/skiResorts';
 import resortNavigation from '../../data/site/resortNavigation';
+import { useSiteLink } from '../../hooks/useSiteBasePath';
 
 function TomamuCoursePage() {
   const { section } = useParams();
@@ -18,7 +19,7 @@ function TomamuCoursePage() {
   const priceSwipeStartX = useRef(null);
   const heroSectionRef = useRef(null);
   const [isHeroActive, setIsHeroActive] = useState(false);
-  const bookingUrl = "/booking";
+  const bookingUrl = useSiteLink('/booking');
   const resortCount = resortNavigation.length;
   const resortIndex = resortNavigation.findIndex((resort) => resort.slug === "tomamu");
   const activeResortIndex = resortIndex >= 0 ? resortIndex : 0;
@@ -614,7 +615,6 @@ function TomamuCoursePage() {
                       src={hotel.image}
                       alt={hotel.imageAlt}
                       className="w-full h-full object-cover"
-                      loading="lazy"
                     />
                   </div>
                   <div className={`px-6 md:px-10 ${isReversed ? "lg:order-1" : ""}`}>
@@ -1111,7 +1111,6 @@ function TomamuCoursePage() {
                 src={tomamuSlopeMap}
                 alt="星野Tomamu 雪道地圖"
                 className="w-full h-auto"
-                loading="lazy"
               />
             </div>
             <div className="mt-6 bg-white">
@@ -1226,7 +1225,6 @@ function TomamuCoursePage() {
                   src="/Course/tomamu/course-tomamu-005-lift.jpg"
                   alt="Tomamu lift"
                   className="h-full w-full object-cover"
-                  loading="lazy"
                 />
               </div>
               <div className="text-center">
@@ -1366,7 +1364,6 @@ function TomamuCoursePage() {
                   src="https://www.snowtomamu.jp/assets/ski/images/rental/map-cn.png"
                   alt="Tomamu rental area map"
                   className="w-full h-auto object-contain"
-                  loading="lazy"
                 />
               </div>
               <div className="text-sm text-[#475569]">
@@ -1505,7 +1502,6 @@ function TomamuCoursePage() {
                 src="/Course/tomamu/course-tomamu-004-equipment.jpg"
                 alt="SnowLand星野滑雪課程租借裝備"
                 className="absolute inset-0 h-full w-full object-cover object-[center_40%]"
-                loading="lazy"
               />
               <div className="absolute inset-0 bg-[#0b1d2a]/55" />
               <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-6 py-8 md:px-10 md:py-10 text-center text-white">
@@ -1553,7 +1549,6 @@ function TomamuCoursePage() {
                   src="/Course/tomamu/course-tomamu-007-nursery.jpeg"
                   alt="GAO育兒與玩雪托兒服務"
                   className="absolute inset-0 h-full w-full object-cover"
-                  loading="lazy"
                 />
               </div>
               <div className="space-y-6">
@@ -1631,7 +1626,6 @@ function TomamuCoursePage() {
                       src="/Course/tomamu/course-tomamu-access1.png"
                       alt="JR access map"
                       className="w-full h-auto"
-                      loading="lazy"
                     />
                   </div>
                   <div className="px-6 md:px-10 lg:pr-16">
@@ -1692,7 +1686,6 @@ function TomamuCoursePage() {
                       src="/Course/index_map_hokkaido_tomamu.png"
                       alt="Tomamu driving map"
                       className="w-full h-full object-contain"
-                      loading="lazy"
                     />
                   </div>
                   <div className="px-6 md:px-10 lg:pr-16">
@@ -1739,7 +1732,6 @@ function TomamuCoursePage() {
                       src="/Course/tomamu/course-tomamu-access3.jpg"
                       alt="Bus route map"
                       className="w-full h-full object-contain"
-                      loading="lazy"
                     />
                   </div>
                   <div className="px-6 md:px-10 lg:pr-16">
