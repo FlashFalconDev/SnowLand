@@ -203,6 +203,9 @@ export default function CourseTypesPage() {
     display_order: number
     duration_hours: number
     max_capacity: number
+    billing_mode: 'private' | 'per_person'
+    minimum_group_size: number
+    minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
     course_end_date: string | null
@@ -235,6 +238,9 @@ export default function CourseTypesPage() {
     display_order: number
     duration_hours: number
     max_capacity: number
+    billing_mode: 'private' | 'per_person'
+    minimum_group_size: number
+    minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
     course_end_date: string | null
@@ -746,6 +752,9 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
     display_order: number
     duration_hours: number
     max_capacity: number
+    billing_mode: 'private' | 'per_person'
+    minimum_group_size: number
+    minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
     course_end_date: string | null
@@ -760,6 +769,9 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
   const [displayOrder, setDisplayOrder] = useState(String(template?.display_order ?? 0))
   const [duration, setDuration] = useState(String(template?.duration_hours ?? 3))
   const [capacity, setCapacity] = useState(String(template?.max_capacity ?? 6))
+  const [billingMode, setBillingMode] = useState<'private' | 'per_person'>(template?.billing_mode || 'private')
+  const [minimumGroupSize, setMinimumGroupSize] = useState(String(template?.minimum_group_size ?? 1))
+  const [minimumStudentLevel, setMinimumStudentLevel] = useState(template?.minimum_student_level || '')
   const [resortIds, setResortIds] = useState<number[]>(template?.resorts || [])
   const [courseStart, setCourseStart] = useState(template?.course_start_date || '')
   const [courseEnd, setCourseEnd] = useState(template?.course_end_date || '')
@@ -787,6 +799,9 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
         display_order: Number(displayOrder) || 0,
         duration_hours: parseInt(duration, 10),
         max_capacity: parseInt(capacity, 10),
+        billing_mode: billingMode,
+        minimum_group_size: parseInt(minimumGroupSize, 10) || 1,
+        minimum_student_level: minimumStudentLevel,
         resorts: resortIds,
         course_start_date: courseStart || null,
         course_end_date: courseEnd || null,
@@ -838,6 +853,11 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
                   <input type="number" value={capacity} onChange={(e) => setCapacity(e.target.value)}
                     className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30" />
                 </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">計價方式</label><select value={billingMode} onChange={e => setBillingMode(e.target.value as 'private' | 'per_person')} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="private">包班計價</option><option value="per_person">每人計價</option></select></div>
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">最低開班人數</label><input type="number" min="1" max={capacity} value={minimumGroupSize} onChange={e => setMinimumGroupSize(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" /></div>
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">學員最低等級</label><select value={minimumStudentLevel} onChange={e => setMinimumStudentLevel(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="">不限制</option><option value="level1">等級 1</option><option value="level2">等級 2</option><option value="level3">等級 3</option><option value="level4">等級 4</option><option value="level5">等級 5</option></select></div>
               </div>
             </div>
           </section>

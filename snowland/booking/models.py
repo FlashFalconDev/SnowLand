@@ -3,6 +3,8 @@ from multiselectfield import MultiSelectField
 from django.dispatch import receiver
 from allauth.account.signals import user_signed_up
 from django.contrib.auth.models import User
+from django.utils import timezone
+import uuid
 from Resorts.models import Resorts
 from Coursekit.models import CourseType
 
@@ -32,11 +34,34 @@ class ReservationGroup(models.Model):
         blank=True
     )
     name = models.CharField(max_length=100, verbose_name='預約分組名稱', blank=True, null=True)
+    campus = models.ForeignKey(
+        'Resorts.Campus',
+        on_delete=models.PROTECT,
+        related_name='reservation_groups',
+        null=True,
+        blank=True,
+        verbose_name='訂單校區',
+    )
+    order_number = models.CharField(max_length=40, blank=True, default='', db_index=True, verbose_name='訂單編號')
+    marketing_source = models.CharField(max_length=60, blank=True, default='', verbose_name='行銷來源')
+    marketing_source_detail = models.CharField(max_length=200, blank=True, default='', verbose_name='行銷來源說明')
+    referral_user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='referred_reservation_groups', verbose_name='介紹人'
+    )
+    line_group_url = models.URLField(max_length=500, blank=True, default='', verbose_name='LINE 群組連結')
+    source_ip = models.GenericIPAddressField(null=True, blank=True, verbose_name='下單 IP')
+    source_country = models.CharField(max_length=2, blank=True, default='', verbose_name='下單國家')
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, verbose_name='使用者')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='建立時間')
 
     def __str__(self):
-        return self.name or f"ReservationGroup #{self.pk}"
+        return self.name or self.order_number or f"ReservationGroup #{self.pk}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.order_number:
+            self.order_number = f"SL-{self.created_at:%Y%m%d}-{self.pk:06d}"
+            type(self).objects.filter(pk=self.pk).update(order_number=self.order_number)
 
     class Meta:
         verbose_name = '預約分組'
@@ -363,9 +388,15 @@ class MemberDetail(models.Model):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+    guardian = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='guarded_member_details', verbose_name='家長帳號'
+    )
+    insurance_completed_at = models.DateTimeField(null=True, blank=True, verbose_name='保險資料完成時間')
+    waiver_completed_at = models.DateTimeField(null=True, blank=True, verbose_name='聲明書完成時間')
 
     def __str__(self):
-        coach_info = f"指定教練: {self.reservation.preferred_coach.name}" if self.reservation.is_preferred_coach else f"未指定教練: {self.reservation.preferred_coach.name}"
+        coach_name = self.reservation.preferred_coach.name if self.reservation.preferred_coach else "無"
+        coach_info = f"指定教練: {coach_name}" if self.reservation.is_preferred_coach else f"未指定教練: {coach_name}"
         user_name = f"{self.user.last_name}{self.user.first_name}" if self.user else "未知使用者"
         return f"課程預約者: {user_name}, {coach_info},[學員]年齡: {self.age_range}, 單板程度: {self.snowboard_skills}, 雙板程度: {self.ski_skills}"
 
@@ -384,6 +415,9 @@ class Payment(models.Model):
     PAYMENT_METHOD_CHOICES = [
         ('newebpay', '藍新支付'),
         ('TT', '匯款'),
+        ('credit_card', '信用卡'),
+        ('apple_pay', 'Apple Pay'),
+        ('google_pay', 'Google Pay'),
     ]
     reservation_group = models.ForeignKey(
         ReservationGroup,
@@ -416,6 +450,11 @@ class Payment(models.Model):
         null=True,
         verbose_name='匯款帳號'
     )
+    payment_account = models.ForeignKey(
+        'Resorts.PaymentAccount', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='payments', verbose_name='收款帳戶'
+    )
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name='付款保留到期時間')
     DataJSON = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='建立時間')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新時間')
@@ -426,6 +465,142 @@ class Payment(models.Model):
     class Meta:
         verbose_name = '付款紀錄'
         verbose_name_plural = '2-4.付款紀錄'
+
+
+def referral_code_default():
+    return uuid.uuid4().hex[:10].upper()
+
+
+class MemberProfile(models.Model):
+    LEVEL_CHOICES = [('new', '新會員'), ('alumni', '舊生'), ('silver', '銀級'), ('gold', '金級')]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='snowland_member_profile')
+    referral_code = models.CharField(max_length=20, unique=True, default=referral_code_default, verbose_name='專屬推薦碼')
+    points = models.PositiveIntegerField(default=0, verbose_name='點數')
+    level = models.CharField(max_length=20, choices=LEVEL_CHOICES, default='new', verbose_name='會員等級')
+    alumni_verified = models.BooleanField(default=False, verbose_name='舊生已審核')
+    previous_points = models.PositiveIntegerField(default=0, verbose_name='手動補登點數')
+    line_user_id = models.CharField(max_length=100, blank=True, default='', verbose_name='LINE 帳號')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user} - {self.referral_code}'
+
+
+class OrderRevision(models.Model):
+    CHANGE_CHOICES = [('create', '建立'), ('modify', '修改'), ('add', '追加'), ('reduce', '追減'), ('cancel', '取消')]
+    group = models.ForeignKey(ReservationGroup, on_delete=models.CASCADE, related_name='revisions', verbose_name='訂單')
+    version = models.PositiveIntegerField(verbose_name='版本')
+    change_type = models.CharField(max_length=20, choices=CHANGE_CHOICES, default='modify')
+    snapshot = models.JSONField(default=dict, verbose_name='當時訂單內容')
+    difference_amount = models.IntegerField(default=0, verbose_name='與上一版差額')
+    reason = models.TextField(blank=True, default='', verbose_name='修改原因')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='order_revisions')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['group', '-version']
+        unique_together = ('group', 'version')
+
+
+class CancellationRequest(models.Model):
+    STATUS_CHOICES = [('requested', '待處理'), ('approved', '已核准'), ('rejected', '已拒絕'), ('refunded', '已退款')]
+    REASON_CHOICES = [('schedule', '行程變更'), ('health', '健康因素'), ('weather', '天候因素'), ('duplicate', '重複訂單'), ('other', '其他')]
+    group = models.ForeignKey(ReservationGroup, on_delete=models.PROTECT, related_name='cancellation_requests')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='requested')
+    reason = models.CharField(max_length=30, choices=REASON_CHOICES)
+    reason_note = models.TextField(blank=True, default='')
+    original_amount = models.PositiveIntegerField(default=0)
+    days_before = models.IntegerField(default=0)
+    refund_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    handling_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=5)
+    refund_amount = models.PositiveIntegerField(default=0)
+    refund_bank_name = models.CharField(max_length=100, blank=True, default='')
+    refund_account_number = models.CharField(max_length=100, blank=True, default='')
+    refund_account_holder = models.CharField(max_length=100, blank=True, default='')
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_cancellations')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class NotificationTemplate(models.Model):
+    CHANNEL_CHOICES = [('email', 'Email'), ('line', 'LINE'), ('in_app', '站內通知')]
+    EVENT_CHOICES = [
+        ('order_created', '訂單成立'), ('payment_confirmed', '付款完成'),
+        ('pre_course', '課前提醒'), ('missing_documents', '資料未完成'),
+        ('line_group', 'LINE 群組邀請'), ('evaluation_due', '評量未完成'),
+    ]
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE, related_name='notification_templates')
+    campus = models.ForeignKey('Resorts.Campus', on_delete=models.CASCADE, null=True, blank=True, related_name='notification_templates')
+    name = models.CharField(max_length=100)
+    event = models.CharField(max_length=30, choices=EVENT_CHOICES)
+    channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES)
+    subject = models.CharField(max_length=200, blank=True, default='')
+    body = models.TextField()
+    days_before = models.IntegerField(default=0, help_text='課前幾天；事件立即發送請填 0')
+    course_templates = models.ManyToManyField('Coursekit.CourseTemplate', blank=True, related_name='notification_templates')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class NotificationDelivery(models.Model):
+    STATUS_CHOICES = [('scheduled', '已排程'), ('sent', '已發送'), ('failed', '發送失敗'), ('cancelled', '已取消')]
+    template = models.ForeignKey(NotificationTemplate, on_delete=models.PROTECT, related_name='deliveries')
+    group = models.ForeignKey(ReservationGroup, on_delete=models.CASCADE, related_name='notification_deliveries')
+    recipient = models.CharField(max_length=200)
+    scheduled_at = models.DateTimeField(db_index=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    error_message = models.TextField(blank=True, default='')
+    payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class CourseEvaluation(models.Model):
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='evaluations')
+    member = models.ForeignKey(MemberDetail, on_delete=models.CASCADE, related_name='evaluations')
+    coach = models.ForeignKey('Coach.Coach', on_delete=models.SET_NULL, null=True, blank=True, related_name='course_evaluations')
+    self_assessment = models.JSONField(default=dict, blank=True)
+    coach_assessment = models.JSONField(default=dict, blank=True)
+    learning_progress = models.JSONField(default=dict, blank=True)
+    trail_names = models.JSONField(default=list, blank=True)
+    coach_notes = models.TextField(blank=True, default='')
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('booking', 'member')
+
+
+class CourseMedia(models.Model):
+    evaluation = models.ForeignKey(CourseEvaluation, on_delete=models.CASCADE, related_name='media')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    media_type = models.CharField(max_length=10, choices=[('photo', '照片'), ('video', '影片')])
+    url = models.URLField(max_length=800)
+    caption = models.CharField(max_length=200, blank=True, default='')
+    is_public = models.BooleanField(default=False, verbose_name='可於官網顯示')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class StaffBookingLink(models.Model):
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE, related_name='staff_booking_links')
+    campus = models.ForeignKey('Resorts.Campus', on_delete=models.PROTECT, related_name='staff_booking_links')
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='staff_booking_links')
+    title = models.CharField(max_length=120, blank=True, default='')
+    cart_snapshot = models.JSONField(default=list)
+    expires_at = models.DateTimeField()
+    used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='used_staff_booking_links')
+    used_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def is_available(self):
+        return self.is_active and not self.used_at and self.expires_at > timezone.now()
 
 @receiver(user_signed_up)
 def user_signed_up_callback(request, user, **kwargs):

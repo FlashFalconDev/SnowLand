@@ -22,6 +22,7 @@ import { GlobalNotification } from '../components/GlobalNotification'
 import LoginPage from '@/pages/LoginPage'
 import { fetchAdminMe, type AdminMeResult } from '../api/auth'
 import { hasAdminPermission } from '../permissions'
+import { fetchNotificationDeliveries } from '../api/operations'
 
 // 主色 — 完全採用 console 配色（紫色 #8b5cf6）
 const PRIMARY = '#8b5cf6'
@@ -56,12 +57,17 @@ function NotificationBell() {
 
   useEffect(() => {
     if (isOpen) {
-      // TODO: 替換為 SnowLand 後端 API
-      setNotifications([
-        { id: 1, type: 'reserve', title: '新預約', message: '王小明預約了星野 Tomamu 全天課程', is_read: false, created_at: new Date().toISOString() },
-        { id: 2, type: 'member', title: '新會員加入', message: 'Lisa Chen 剛剛註冊成為會員', is_read: false, created_at: new Date(Date.now() - 3600000).toISOString() },
-        { id: 3, type: 'system', title: '系統公告', message: 'SnowLand 後台 v1.0 已上線', is_read: true, created_at: new Date(Date.now() - 86400000).toISOString() },
-      ])
+      fetchNotificationDeliveries().then((items) => {
+        setNotifications(items.slice(0, 20).map((item) => ({
+          id: item.id,
+          type: item.status === 'failed' ? 'system' : 'reserve',
+          title: item.status === 'failed' ? '通知發送失敗' : item.template_name,
+          message: `${item.order_number} · ${item.recipient}${item.error_message ? ` · ${item.error_message}` : ''}`,
+          is_read: item.status === 'sent',
+          created_at: item.sent_at || item.scheduled_at,
+          link: 'notifications',
+        })))
+      }).catch(() => setNotifications([]))
     }
   }, [isOpen])
 
@@ -388,6 +394,7 @@ function AdminLayoutContent() {
 
   // 檢查當前登入的使用者是否有 manager 權限
   const [adminCheck, setAdminCheck] = useState<AdminMeResult | null>(null)
+  const [campusScope, setCampusScope] = useState(() => localStorage.getItem('snowland_admin_campus_scope') || 'all')
   useEffect(() => {
     if (!user) {
       setAdminCheck(null)
@@ -395,6 +402,23 @@ function AdminLayoutContent() {
     }
     fetchAdminMe().then(setAdminCheck)
   }, [user])
+
+  useEffect(() => {
+    const adminUser = adminCheck?.user
+    if (!adminUser || adminUser.can_view_all_campuses || !adminUser.campuses?.length) return
+    const allowed = new Set(adminUser.campuses.map((campus) => String(campus.id)))
+    if (!allowed.has(campusScope)) {
+      const onlyCampus = String(adminUser.campuses[0].id)
+      localStorage.setItem('snowland_admin_campus_scope', onlyCampus)
+      setCampusScope(onlyCampus)
+    }
+  }, [adminCheck, campusScope])
+
+  const changeCampusScope = (value: string) => {
+    localStorage.setItem('snowland_admin_campus_scope', value)
+    setCampusScope(value)
+    window.location.reload()
+  }
 
   // 一進 console 頁面就把 pre_login_url 設好（不論有沒有登入）
   // 這樣 GoogleLoginButton 登入完一定會跳回後台
@@ -413,7 +437,13 @@ function AdminLayoutContent() {
     scheduling: 'scheduling',
     customers: 'customers',
     'chat-support': 'chat_support',
+    notifications: 'notifications',
+    payroll: 'payroll',
+    evaluations: 'evaluations',
+    insurance: 'insurance_records',
+    'booking-links': 'orders',
     resorts: 'resorts',
+    campuses: 'campuses',
     'course-types': 'course_types',
     pricing: 'pricing',
     discounts: 'discounts',
@@ -462,6 +492,11 @@ function AdminLayoutContent() {
         { id: 'orders', label: '訂單管理', path: `${basePath}/console/orders` },
         { id: 'scheduling', label: '排課管理', path: `${basePath}/console/scheduling` },
         { id: 'chat-support', label: 'AI 客服', path: `${basePath}/console/chat-support` },
+        { id: 'notifications', label: '自動通知', path: `${basePath}/console/notifications` },
+        { id: 'payroll', label: '薪資結算', path: `${basePath}/console/payroll` },
+        { id: 'evaluations', label: '學習評量', path: `${basePath}/console/evaluations` },
+        { id: 'insurance', label: '保險與聲明書', path: `${basePath}/console/insurance` },
+        { id: 'booking-links', label: '代客訂課連結', path: `${basePath}/console/booking-links` },
       ],
     },
     {
@@ -469,6 +504,7 @@ function AdminLayoutContent() {
       label: '基本設定',
       icon: Settings,
       children: [
+        { id: 'campuses', label: '校區與營運規則', path: `${basePath}/console/campuses` },
         { id: 'resorts', label: '雪場管理', path: `${basePath}/console/resorts` },
         { id: 'course-types', label: '課程架構', path: `${basePath}/console/course-types` },
         { id: 'pricing', label: '課程定價', path: `${basePath}/console/pricing` },
@@ -600,7 +636,7 @@ function AdminLayoutContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="admin-shell min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       <GlobalNotification />
 
       {mobileMenuOpen && (
@@ -709,6 +745,20 @@ function AdminLayoutContent() {
           </div>
 
           <div className="flex items-center gap-2">
+            {!!adminCheck?.user?.campuses?.length && (
+              <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title="切換後，所有管理頁只顯示這個校區的資料">
+                <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">目前範圍</span>
+                <select
+                  aria-label="目前管理校區"
+                  value={campusScope}
+                  onChange={(event) => changeCampusScope(event.target.value)}
+                  className="bg-transparent text-sm font-semibold text-gray-800 dark:text-gray-100 outline-none max-w-40"
+                >
+                  {adminCheck.user.can_view_all_campuses && <option value="all">全部校區</option>}
+                  {adminCheck.user.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
+                </select>
+              </label>
+            )}
             <button
               onClick={() => navigate(basePath || '/')}
               className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"

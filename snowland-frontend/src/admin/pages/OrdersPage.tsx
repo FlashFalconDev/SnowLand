@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Search, X, Eye, Edit2, Calendar, User, CreditCard, MapPin, Loader2, AlertCircle, Save, Zap, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
-import { fetchOrder, fetchOrdersPaged, updateOrder, type Order, type PaymentStatus } from '../api/orders'
+import { fetchOrder, fetchOrdersPaged, updateOrder, previewOrderRefund, requestOrderCancellation, processOrderCancellation, type Order, type PaymentStatus } from '../api/orders'
 import { sendOrderEmail } from '../api/extras'
 import { useNotification } from '../context'
 
@@ -382,6 +382,9 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const [editing, setEditing] = useState(false)
 
   const [emailOpen, setEmailOpen] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelForm, setCancelForm] = useState({ reason: 'schedule', reason_note: '', bank_name: '', account_number: '', account_holder: '' })
+  const { data: refundPreview } = useQuery({ queryKey: ['admin', 'orders', order.id, 'refund-preview'], queryFn: () => previewOrderRefund(order.id), enabled: cancelOpen })
   const [emailForm, setEmailForm] = useState({
     recipient_email: order.user_email || '',
     subject: `[${order.sn}] 課程通知`,
@@ -400,6 +403,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
     },
     onError: (e: any) => notify.error(e.response?.data?.msg || '寄送失敗'),
   })
+  const cancelMutation = useMutation({ mutationFn: () => requestOrderCancellation(order.id, { reason: cancelForm.reason, reason_note: cancelForm.reason_note, refund_bank: { bank_name: cancelForm.bank_name, account_number: cancelForm.account_number, account_holder: cancelForm.account_holder } }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); setCancelOpen(false); notify.success('取消申請已建立，請到訂單內確認退款金額') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '建立取消申請失敗') })
+  const processCancellation = useMutation({ mutationFn: (next: 'approved' | 'rejected' | 'refunded') => processOrderCancellation(order.cancellation!.id, next), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); notify.success('退款狀態已更新') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '更新失敗') })
 
   const saveMutation = useMutation({
     mutationFn: (action: 'save' | 'schedule') => {
@@ -464,6 +469,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                 >
                   <Mail size={12} />寄信
                 </button>
+                {!order.cancellation && <button onClick={() => setCancelOpen(true)} className="px-2.5 py-1 bg-red-500/80 hover:bg-red-500 rounded-md text-xs font-medium">取消／退款</button>}
               </>
             )}
           </div>
@@ -482,6 +488,13 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               <div className="flex justify-between"><span className="text-gray-500">姓名</span><span className="text-gray-900 dark:text-white">{order.user_name}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Email</span><span className="font-mono text-gray-900 dark:text-white">{order.user_email || '—'}</span></div>
             </div>
+          </section>
+
+          <section>
+            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">訂單歸屬與歷程</h3>
+            <div className="rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-700"><div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">校區</span><b>{order.campus_name || '未設定'}</b></div><div className="mt-2 flex justify-between"><span className="text-gray-500 dark:text-gray-400">行銷來源</span><span>{order.marketing_source || '未填寫'}{order.marketing_source_detail ? ` · ${order.marketing_source_detail}` : ''}</span></div></div>
+            <div className="mt-3 space-y-2">{order.revisions?.map(revision => <div key={revision.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-xs dark:border-gray-700"><span>第 {revision.version} 版 · {revision.change_type}{revision.reason ? ` · ${revision.reason}` : ''}</span><b className={revision.difference_amount > 0 ? 'text-red-600' : revision.difference_amount < 0 ? 'text-emerald-600' : ''}>{revision.difference_amount ? `${revision.difference_amount > 0 ? '+' : ''}NT$ ${revision.difference_amount.toLocaleString()}` : '無差額'}</b></div>)}</div>
+            {order.cancellation && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300"><div className="flex flex-wrap items-center justify-between gap-2"><span>取消狀態：{order.cancellation.status} · 預計退款 NT$ {order.cancellation.refund_amount.toLocaleString()}</span>{!readOnly && <div className="flex gap-2">{order.cancellation.status === 'requested' && <><button onClick={() => processCancellation.mutate('rejected')} className="rounded border border-red-300 px-2 py-1 text-xs dark:border-red-700">駁回</button><button onClick={() => processCancellation.mutate('approved')} className="rounded bg-red-600 px-2 py-1 text-xs text-white">核准取消</button></>}{order.cancellation.status === 'approved' && <button onClick={() => processCancellation.mutate('refunded')} className="rounded bg-emerald-600 px-2 py-1 text-xs text-white">確認已退款</button>}</div>}</div></div>}
           </section>
 
           {order.reservations.map((r, idx) => {
@@ -698,6 +711,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
       </div>
 
       {/* Email Modal */}
+      {cancelOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 animate-fadeIn"><div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800"><div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}><div><h3 className="text-lg font-semibold">取消訂單與退款試算</h3><p className="mt-0.5 text-xs text-white/80">{order.sn}</p></div><button onClick={() => setCancelOpen(false)} aria-label="關閉" className="rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div><div className="space-y-4 overflow-y-auto p-6">{refundPreview && <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300"><b className="text-lg">預計退款 NT$ {refundPreview.refund_amount.toLocaleString()}</b><p className="mt-1">距課程 {refundPreview.days_before} 天 · 退 {refundPreview.refund_percent}% · 再扣 {refundPreview.handling_fee_percent}% 手續費</p></div>}<div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">取消原因</label><select className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" value={cancelForm.reason} onChange={e => setCancelForm({ ...cancelForm, reason: e.target.value })}><option value="schedule">行程變更</option><option value="health">健康因素</option><option value="weather">天候因素</option><option value="duplicate">重複訂單</option><option value="other">其他</option></select></div><div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">補充說明</label><textarea className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" rows={3} placeholder="請說明取消原因" value={cancelForm.reason_note} onChange={e => setCancelForm({ ...cancelForm, reason_note: e.target.value })} /></div>{!['newebpay', 'credit_card', 'apple_pay', 'google_pay'].includes(order.payment_method) && <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700"><p className="text-sm font-semibold text-gray-900 dark:text-white">退款帳戶</p><input className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款銀行" value={cancelForm.bank_name} onChange={e => setCancelForm({ ...cancelForm, bank_name: e.target.value })} /><input className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款帳號" value={cancelForm.account_number} onChange={e => setCancelForm({ ...cancelForm, account_number: e.target.value })} /><input className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款戶名" value={cancelForm.account_holder} onChange={e => setCancelForm({ ...cancelForm, account_holder: e.target.value })} /></div>}</div><div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"><button onClick={() => setCancelOpen(false)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">返回</button><button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{cancelMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認建立取消申請</button></div></div></div>}
       {emailOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 animate-fadeIn">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md">

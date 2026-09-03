@@ -8,6 +8,9 @@ from .admin_views import (
     CoachAdminViewSet,
     CoachLeaveAdminViewSet,
     ResortAdminViewSet,
+    CampusAdminViewSet,
+    PaymentAccountAdminViewSet,
+    OperatingPolicyAdminViewSet,
     CourseCategoryAdminViewSet,
     CourseTypeAdminViewSet,
     CourseTemplateAdminViewSet,
@@ -16,6 +19,14 @@ from .admin_views import (
     DiscountCodeAdminViewSet,
     SeasonSettingAdminViewSet,
     OrderAdminViewSet,
+    CancellationAdminViewSet,
+    NotificationTemplateAdminViewSet,
+    NotificationDeliveryAdminViewSet,
+    CourseEvaluationAdminViewSet,
+    CoachPayRuleAdminViewSet,
+    PayrollStatementAdminViewSet,
+    StaffBookingLinkAdminViewSet,
+    InsuranceRecordAdminViewSet,
     BookingScheduleAdminViewSet,
     customers_list,
     dashboard_stats,
@@ -43,6 +54,9 @@ admin_router.register(r'site-content', SiteContentAdminViewSet, basename='admin-
 admin_router.register(r'coaches', CoachAdminViewSet, basename='admin-coaches')
 admin_router.register(r'coach-leaves', CoachLeaveAdminViewSet, basename='admin-coach-leaves')
 admin_router.register(r'resorts', ResortAdminViewSet, basename='admin-resorts')
+admin_router.register(r'campuses', CampusAdminViewSet, basename='admin-campuses')
+admin_router.register(r'payment-accounts', PaymentAccountAdminViewSet, basename='admin-payment-accounts')
+admin_router.register(r'operating-policies', OperatingPolicyAdminViewSet, basename='admin-operating-policies')
 admin_router.register(r'course-categories', CourseCategoryAdminViewSet, basename='admin-course-categories')
 admin_router.register(r'course-types', CourseTypeAdminViewSet, basename='admin-course-types')
 admin_router.register(r'course-templates', CourseTemplateAdminViewSet, basename='admin-course-templates')
@@ -51,6 +65,14 @@ admin_router.register(r'course-pricing', CoursePricingAdminViewSet, basename='ad
 admin_router.register(r'discount-codes', DiscountCodeAdminViewSet, basename='admin-discount-codes')
 admin_router.register(r'seasons', SeasonSettingAdminViewSet, basename='admin-seasons')
 admin_router.register(r'orders', OrderAdminViewSet, basename='admin-orders')
+admin_router.register(r'cancellations', CancellationAdminViewSet, basename='admin-cancellations')
+admin_router.register(r'notification-templates', NotificationTemplateAdminViewSet, basename='admin-notification-templates')
+admin_router.register(r'notification-deliveries', NotificationDeliveryAdminViewSet, basename='admin-notification-deliveries')
+admin_router.register(r'evaluations', CourseEvaluationAdminViewSet, basename='admin-evaluations')
+admin_router.register(r'coach-pay-rules', CoachPayRuleAdminViewSet, basename='admin-coach-pay-rules')
+admin_router.register(r'payroll-statements', PayrollStatementAdminViewSet, basename='admin-payroll-statements')
+admin_router.register(r'staff-booking-links', StaffBookingLinkAdminViewSet, basename='admin-staff-booking-links')
+admin_router.register(r'insurance-records', InsuranceRecordAdminViewSet, basename='admin-insurance-records')
 admin_router.register(r'bookings', BookingScheduleAdminViewSet, basename='admin-bookings')
 admin_router.register(r'chat-support', ChatSupportViewSet, basename='admin-chat-support')
 

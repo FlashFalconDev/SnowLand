@@ -44,6 +44,7 @@ import Toast, { ToastType } from '@/components/ui/Toast'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import { useBookingStore } from '@/store/bookingStore'
 import { useAuth } from '@/hooks/useAuth'
+import { useSiteLink } from '@/hooks/useSiteBasePath'
 import type { CartItem, Course } from '@/types/booking'
 import {
   fetchCourseCategories,
@@ -57,6 +58,7 @@ import {
   calculatePrice,
   previewDiscounts,
   createReservation,
+  resolveStaffBookingLink,
   superSchedule,
   cancelFailedReservations,
   type DiscountPreviewResponse,
@@ -714,7 +716,7 @@ export default function BookingFlowPage() {
   const {
     cart, replaceCart, clearCart, removeFromCart, removeCourseFromGroup,
     selectedCourseCategory, selectedCourseCategoryName, selectedCourseType,
-    selectedResort, selectedResortName,
+    selectedResort, selectedResortName, selectedCampusId, selectedCampusName,
     peopleCount, hasUnder6, under7CanSelfSki, abilityLevelCounts,
     selectedAbilityLevel, selectedCoach, selectedLanguage,
     selectedCourseTemplate, selectedDate, selectedTimeSlot,
@@ -765,6 +767,8 @@ export default function BookingFlowPage() {
   const [referrerDetail, setReferrerDetail] = useState('')
   const [messengerOptions, setMessengerOptions] = useState<SelectOption[]>(MESSENGER_OPTIONS)
   const [referralSourceOptions, setReferralSourceOptions] = useState<SelectOption[]>(REFERRAL_SOURCE_OPTIONS)
+  const staffLinkToken = useMemo(() => new URLSearchParams(window.location.search).get('staff_link') || '', [])
+  const [staffLinkInfo, setStaffLinkInfo] = useState<{ title: string; campus: { id: number; name: string }; created_by: string } | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card'>('bank')
   const [acceptedPolicy, setAcceptedPolicy] = useState(false)
 
@@ -828,6 +832,13 @@ export default function BookingFlowPage() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!staffLinkToken) return
+    resolveStaffBookingLink(staffLinkToken)
+      .then((info) => setStaffLinkInfo(info))
+      .catch(() => showToast('代客訂課連結已失效，請向工作人員索取新連結', 'error'))
+  }, [staffLinkToken])
 
   // 載入課程大類與雪場列表
   useEffect(() => {
@@ -1098,13 +1109,17 @@ export default function BookingFlowPage() {
     return selectedCategoryResortNames
       .map((name: string) => {
         const resort = resortMap.get(name)
-        return resort || {
+        const resolved = resort || {
           name,
           display_name: name,
           auto_scheduling_enabled: true,
           equipment_rental_items: [],
           equipment_time_slots: [],
         }
+        if (staffLinkInfo?.campus?.id && Array.isArray(resolved.campuses)) {
+          return { ...resolved, campuses: resolved.campuses.filter((campus: any) => campus.id === staffLinkInfo.campus.id) }
+        }
+        return resolved
       })
       .filter((resort: any) => {
         const key = String(resort.name || resort.display_name)
@@ -1112,7 +1127,7 @@ export default function BookingFlowPage() {
         seen.add(key)
         return true
       })
-  }, [resorts, selectedCategoryResortNames, selectedCourseCategoryInfo])
+  }, [resorts, selectedCategoryResortNames, selectedCourseCategoryInfo, staffLinkInfo])
 
   const handleSelectService = (type: ServiceType) => {
     if (serviceType === type) return
@@ -1157,8 +1172,8 @@ export default function BookingFlowPage() {
     setDateInfo(null)
   }
 
-  const handleSelectResort = (resort: string, resortName: string) => {
-    setSelectedResort(resort, resortName)
+  const handleSelectResort = (resort: string, resortName: string, campusId?: number, campusName?: string) => {
+    setSelectedResort(resort, resortName, campusId, campusName)
     setSelectedCourseType(null)
     setSelectedCoach(null)
     setSelectedCourseTemplate(null)
@@ -1327,7 +1342,7 @@ export default function BookingFlowPage() {
       if (!serviceType) return false
       switch (currentSkiField) {
         case 'category': return !!selectedCourseCategory && serviceCourseCategories.some((category: any) => category.id === selectedCourseCategory)
-        case 'resort': return !!selectedResort && resortsForSelectedCategory.some((resort: any) => resort.name === selectedResort)
+        case 'resort': return !!selectedResort && !!selectedCampusId && resortsForSelectedCategory.some((resort: any) => resort.name === selectedResort && resort.campuses?.some((campus: any) => campus.id === selectedCampusId))
         case 'courseType': return !!selectedCourseType
         case 'people': return peopleCount > 0 && !(hasUnder6 && !under7CanSelfSki && peopleCount > 1)
         case 'ability': return getAssignedAbilityCount(abilityLevelCounts) === peopleCount
@@ -1346,7 +1361,7 @@ export default function BookingFlowPage() {
     if (currentStep === 3) {
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
-        return cart.length > 0 && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && acceptedPolicy
+        return cart.length > 0 && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
       }
       // 3b 付款階段：銀行可先稍後匯款；若要送出已匯款資訊才需要 5 碼後綴。
       if (paymentMethod === 'bank') return senderAccount.length === 5
@@ -1356,12 +1371,12 @@ export default function BookingFlowPage() {
   }, [
     currentStep, currentSkiField, serviceType,
     selectedCourseCategory, selectedCourseType, serviceCourseCategories, resortsForSelectedCategory,
-    selectedResort, peopleCount, hasUnder6, under7CanSelfSki, abilityLevelCounts, selectedAbilityLevel, selectedCoach, selectedLanguage,
+    selectedResort, selectedCampusId, peopleCount, hasUnder6, under7CanSelfSki, abilityLevelCounts, selectedAbilityLevel, selectedCoach, selectedLanguage,
     selectedTemplateHasCoachRestriction,
     selectedCourseTemplate, selectedDate, selectedCourseDates, unavailableSelectedDates, selectedTimeSlot,
     equipmentOption, equipmentAssistanceTimeSlotId, equipmentTimeSlots,
     cart.length,
-    contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, acceptedPolicy,
+    contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, referralSourceValue, staffLinkInfo, acceptedPolicy,
     submittedReservation, paymentMethod, senderAccount,
   ])
 
@@ -1484,7 +1499,7 @@ export default function BookingFlowPage() {
     setAppendTargetGroupId(group.id)
     setServiceType(nextServiceType)
     setSelectedCourseCategory(null as any, group.courseCategory as any)
-    setSelectedResort(group.resort || null, group.resortName || group.resort || null)
+    setSelectedResort(group.resort || null, group.resortName || group.resort || null, group.campusId || null, group.campusName || null)
     setSelectedCourseType(firstCourse.courseTypeId || null)
     setPeopleCount(group.peopleCount || 1)
     setHasUnder6(false)
@@ -1493,7 +1508,10 @@ export default function BookingFlowPage() {
     Object.entries(group.abilityLevelCounts || {}).forEach(([level, count]) => {
       setAbilityLevelCount(level, Number(count) || 0)
     })
-    setSelectedCoach(group.coach === 'any' ? null : Number(group.coach))
+    setSelectedCoach(
+      group.coach === 'any' ? null : Number(group.coach),
+      group.coach === 'any' ? null : group.coachName,
+    )
     setSelectedLanguage(group.language || 'zh')
     setSelectedCourseTemplate(null)
     setSelectedDate(null)
@@ -1729,6 +1747,7 @@ export default function BookingFlowPage() {
         cart,
         contact: { ...contactInfo, referralSource: referralSourceValue },
         discount_code: discountCode.trim() || undefined,
+        staff_link: staffLinkToken || undefined,
       })
       if (response.code !== 200) {
         showToast(`預約失敗：${response.msg}`, 'error')
@@ -2138,6 +2157,7 @@ export default function BookingFlowPage() {
           </div>
 
           {/* Step Content */}
+          {staffLinkInfo && <div className="mb-4 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>工作人員協助訂課</b> · {staffLinkInfo.created_by} · 訂單固定歸屬「{staffLinkInfo.campus.name}」</div>}
           <AnimatePresence mode="wait">
             <motion.div
               key={`step-${currentStep}-${step2Index}`}
@@ -2175,7 +2195,7 @@ export default function BookingFlowPage() {
                   state={{
                     serviceType,
                     selectedCourseCategory, selectedCourseCategoryName, selectedCourseType,
-                    selectedResort, selectedResortName,
+                    selectedResort, selectedResortName, selectedCampusId, selectedCampusName,
                     peopleCount, hasUnder6, under7CanSelfSki, abilityLevelCounts, selectedAbilityLevel,
                     selectedCoach, selectedLanguage,
                     selectedCourseTemplate, selectedDate, selectedTimeSlot,
@@ -2572,19 +2592,20 @@ function Step2SkiConfiguration({
 
       {field === 'resort' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl mx-auto">
-          {resorts.map((r: any) => (
+          {resorts.flatMap((r: any) => (r.campuses || []).map((campus: any) => (
             <button
-              key={r.name}
-              onClick={() => actions.setSelectedResort(r.name, r.display_name)}
+              key={`${r.name}-${campus.id}`}
+              onClick={() => actions.setSelectedResort(r.name, r.display_name, campus.id, campus.name)}
               className={`p-4 rounded-sm border-2 text-left transition-colors ${
-                state.selectedResort === r.name
+                state.selectedResort === r.name && state.selectedCampusId === campus.id
                   ? 'border-[#2b5f8f] bg-[#e9eef3]'
                   : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
               }`}
             >
               <p className="font-semibold text-[#1f2937] font-display">{r.display_name}</p>
+              <p className="text-sm text-[#6b7280] mt-1">由 {campus.name} 服務</p>
             </button>
-          ))}
+          )))}
           {resorts.length === 0 && (
             <p className="col-span-2 text-center text-sm text-[#6b7280] py-8">
               此課程大類尚未設定可用雪場，請先到後台課程大類設定。
@@ -2890,7 +2911,7 @@ function Step2SkiConfiguration({
                 return (
                   <button
                     key={coach.pk}
-                    onClick={() => actions.setSelectedCoach(coach.pk)}
+                    onClick={() => actions.setSelectedCoach(coach.pk, coach.name)}
                     className={`p-4 rounded-sm border-2 text-left transition-all hover:-translate-y-1 ${
                       state.selectedCoach === coach.pk
                         ? 'border-[#2b5f8f] bg-[#e9eef3]'
@@ -3241,6 +3262,7 @@ function Step3Confirmation({
   submittedReservation, senderAccount, setSenderAccount,
   onRemoveGroup, onRemoveCourse, onEditGroup, onAddGroup, onAddCourseToGroup,
 }: any) {
+  const cancellationPolicyUrl = useSiteLink('/cancellation-policy')
   const cartSubtotal = cart.reduce((sum: number, g: any) => sum + (g.totalPrice || 0), 0)
   const totalCourses = cart.reduce((sum: number, g: any) => sum + (g.courses?.length || 0), 0)
   const discountTotal = submittedReservation ? 0 : (discountPreview?.discount_total || 0)
@@ -3573,7 +3595,7 @@ function Step3Confirmation({
 
           <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              從哪裡得知 / 活動來源
+              從哪裡得知 / 活動來源 <span className="text-red-500">*</span>
             </label>
             <select
               value={referrer}
@@ -3661,7 +3683,7 @@ function Step3Confirmation({
             />
             <span className="text-xs text-[#6b7280] leading-relaxed">
               我已閱讀並同意{' '}
-              <a href="../cancellation-policy" className="text-[#2b5f8f] underline">取消及更改政策</a>
+              <a href={cancellationPolicyUrl} className="text-[#2b5f8f] underline">取消及更改政策</a>
             </span>
           </label>
         )}

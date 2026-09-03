@@ -88,7 +88,6 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
                       src={article.image}
                       alt={article.title}
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                      loading="lazy"
                     />
                   </div>
                   <div className="p-5 space-y-3">

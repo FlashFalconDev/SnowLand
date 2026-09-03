@@ -6,8 +6,9 @@ URL 格式：/api/admin/<client_code>/<resource>/
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.db.models import Sum, Count, Q, Prefetch
@@ -16,10 +17,14 @@ from datetime import timedelta, datetime
 from collections import defaultdict
 
 from Client.models import SiteContent
-from Coach.models import Coach, CoachLeaveRequest
-from Resorts.models import Resorts
+from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement
+from Resorts.models import Resorts, Campus, PaymentAccount, OperatingPolicy
 from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseSession, CoursePricing, SeasonSetting, DiscountCode
-from booking.models import ReservationGroup, Reservation, Booking, MemberDetail, Payment
+from booking.models import (
+    ReservationGroup, Reservation, Booking, MemberDetail, Payment,
+    CancellationRequest, CourseEvaluation, NotificationTemplate, NotificationDelivery,
+    StaffBookingLink,
+)
 
 from .admin_serializers import (
     SiteContentAdminSerializer,
@@ -35,6 +40,18 @@ from .admin_serializers import (
     OrderAdminSerializer,
     CustomerAdminSerializer,
     BookingScheduleAdminSerializer,
+    CampusAdminSerializer,
+    PaymentAccountAdminSerializer,
+    OperatingPolicyAdminSerializer,
+    CancellationRequestAdminSerializer,
+    CourseEvaluationAdminSerializer,
+    NotificationTemplateAdminSerializer,
+    NotificationDeliveryAdminSerializer,
+    CoachPayRuleAdminSerializer,
+    PayrollStatementAdminSerializer,
+    OrderRevisionAdminSerializer,
+    StaffBookingLinkAdminSerializer,
+    InsuranceRecordAdminSerializer,
 )
 from .admin_permissions import (
     ADMIN_PERMISSION_DEFINITIONS,
@@ -75,6 +92,41 @@ def _resolve_tenant(request, view):
         return None
 
 
+HEADQUARTERS_ROLES = {'hq_admin', 'marketing', 'web_editor', 'insurance', 'assistant'}
+
+
+def _campus_scope_for_user(user, tenant):
+    if user.is_superuser:
+        return Campus.objects.filter(client=tenant, is_active=True), True
+    try:
+        profile = user.userprofile
+    except Exception:
+        return Campus.objects.none(), False
+    # 舊管理員資料尚未設定 role；維持原本可管理全公司的行為，避免升級後全部 403。
+    if profile.role in HEADQUARTERS_ROLES or not profile.role:
+        return Campus.objects.filter(client=tenant, is_active=True), True
+    return profile.campuses.filter(client=tenant, is_active=True), False
+
+
+def _resolve_campus_scope(request, tenant):
+    accessible, can_view_all = _campus_scope_for_user(request.user, tenant)
+    selected = request.headers.get('X-Campus-ID') or request.query_params.get('campus_id')
+    if selected in (None, '', 'all'):
+        request.campus_ids = list(accessible.values_list('id', flat=True))
+        request.selected_campus_id = None
+        request.can_view_all_campuses = can_view_all
+        return bool(request.campus_ids) or can_view_all
+    try:
+        selected_id = int(selected)
+    except (TypeError, ValueError):
+        return False
+    if not accessible.filter(id=selected_id).exists():
+        return False
+    request.campus_ids = [selected_id]
+    request.selected_campus_id = selected_id
+    request.can_view_all_campuses = can_view_all
+    return True
+
 class IsTenantManager(IsAuthenticated):
     """後台管理 API 權限：必須登入 + 是 manager（或 superuser） + 有 tenant"""
     def has_permission(self, request, view):
@@ -87,7 +139,7 @@ class IsTenantManager(IsAuthenticated):
 
         # superuser 直接放行
         if request.user.is_superuser:
-            return True
+            return _resolve_campus_scope(request, tenant)
 
         # 一般 user 必須有 UserProfile.is_manager
         try:
@@ -100,8 +152,7 @@ class IsTenantManager(IsAuthenticated):
         permission_key = getattr(view, 'permission_key', None)
         if permission_key and not user_has_admin_permission(request.user, permission_key):
             return False
-
-        return True
+        return _resolve_campus_scope(request, tenant)
 
 
 class IsTenantCoach(IsAuthenticated):
@@ -160,6 +211,21 @@ def _require_admin_permission(request, permission_key):
     return _permission_forbidden(permission_key)
 
 
+def _campus_ids(request):
+    return getattr(request, 'campus_ids', [])
+
+
+def _require_headquarters(request):
+    if request.user.is_superuser:
+        return
+    try:
+        if request.user.userprofile.role == 'hq_admin':
+            return
+    except Exception:
+        pass
+    raise PermissionDenied('只有總部管理員可以變更校區架構')
+
+
 def _parse_date_query(value):
     if not value:
         return None
@@ -178,7 +244,7 @@ def _format_calendar_time(value):
 def _reservation_user_name(reservation):
     try:
         user = reservation.group.user
-        return user.username if user else (reservation.group.name or '訪客')
+        return (user.get_full_name() or user.username) if user else (reservation.group.name or '訪客')
     except Exception:
         return ''
 
@@ -479,7 +545,10 @@ class CoachAdminViewSet(ModelViewSet):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
             return Coach.objects.none()
-        return Coach.objects.filter(client=tenant).order_by('-id')
+        qs = Coach.objects.filter(client=tenant)
+        if _campus_ids(self.request):
+            qs = qs.filter(campuses__id__in=_campus_ids(self.request)).distinct()
+        return qs.order_by('-id')
 
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
@@ -546,6 +615,83 @@ class CoachLeaveAdminViewSet(ModelViewSet):
 
 # ==================== Resorts ====================
 
+class CampusAdminViewSet(ModelViewSet):
+    serializer_class = CampusAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'campuses'
+
+    def get_queryset(self):
+        tenant = getattr(self.request, 'tenant', None)
+        if not tenant:
+            return Campus.objects.none()
+        qs = Campus.objects.filter(client=tenant).prefetch_related('resorts', 'staff_profiles', 'coaches')
+        if not getattr(self.request, 'can_view_all_campuses', False):
+            qs = qs.filter(id__in=_campus_ids(self.request))
+        return qs.order_by('display_order', 'id')
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), 'request': self.request}
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.filter_queryset(self.get_queryset()), self.get_serializer_class(), request, self.get_serializer_context())
+
+    def perform_create(self, serializer):
+        _require_headquarters(self.request)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        _require_headquarters(self.request)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        _require_headquarters(self.request)
+        if instance.reservation_groups.exists():
+            raise PermissionDenied('這個校區已有訂單，請改為「停用」，不能刪除')
+        instance.delete()
+
+
+class PaymentAccountAdminViewSet(ModelViewSet):
+    serializer_class = PaymentAccountAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'payment_settings'
+
+    def get_queryset(self):
+        tenant = getattr(self.request, 'tenant', None)
+        if not tenant:
+            return PaymentAccount.objects.none()
+        qs = PaymentAccount.objects.filter(client=tenant).prefetch_related('campuses', 'resorts')
+        if not getattr(self.request, 'can_view_all_campuses', False):
+            qs = qs.filter(campuses__id__in=_campus_ids(self.request)).distinct()
+        return qs.order_by('display_order', 'id')
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), 'request': self.request}
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.filter_queryset(self.get_queryset()), self.get_serializer_class(), request, self.get_serializer_context())
+
+
+class OperatingPolicyAdminViewSet(ModelViewSet):
+    serializer_class = OperatingPolicyAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'campuses'
+
+    def get_queryset(self):
+        tenant = getattr(self.request, 'tenant', None)
+        if not tenant:
+            return OperatingPolicy.objects.none()
+        qs = OperatingPolicy.objects.filter(client=tenant).select_related('campus')
+        if not getattr(self.request, 'can_view_all_campuses', False):
+            qs = qs.filter(Q(campus_id__in=_campus_ids(self.request)) | Q(campus__isnull=True))
+        return qs.order_by('campus_id', 'id')
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), 'request': self.request}
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.filter_queryset(self.get_queryset()), self.get_serializer_class(), request, self.get_serializer_context())
+
+
 class ResortAdminViewSet(ModelViewSet):
     serializer_class = ResortAdminSerializer
     permission_classes = [IsTenantManager]
@@ -555,7 +701,10 @@ class ResortAdminViewSet(ModelViewSet):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
             return Resorts.objects.none()
-        return Resorts.objects.filter(client=tenant).prefetch_related(
+        qs = Resorts.objects.filter(client=tenant)
+        if _campus_ids(self.request):
+            qs = qs.filter(campuses__id__in=_campus_ids(self.request)).distinct()
+        return qs.prefetch_related(
             'equipment_pricing_tiers',
             'equipment_rental_items',
             'equipment_assistance_time_slots',
@@ -823,7 +972,10 @@ class OrderAdminViewSet(ModelViewSet):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
             return ReservationGroup.objects.none()
-        qs = ReservationGroup.objects.filter(client=tenant).order_by('-created_at').select_related('user').prefetch_related(
+        qs = ReservationGroup.objects.filter(client=tenant)
+        if _campus_ids(self.request):
+            qs = qs.filter(campus_id__in=_campus_ids(self.request))
+        qs = qs.order_by('-created_at').select_related('user', 'campus').prefetch_related(
             Prefetch(
                 'reservations',
                 queryset=Reservation.objects.select_related(
@@ -846,7 +998,13 @@ class OrderAdminViewSet(ModelViewSet):
             # 解法:從輸入末尾抓最後一段純數字當訂單 id,可兼容新格式 / 舊 SL 格式 / 純數字
             from django.db.models import Q
             import re
-            search_q = Q(user__username__icontains=search) | Q(user__email__icontains=search) | Q(name__icontains=search)
+            search_q = (
+                Q(user__username__icontains=search)
+                | Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(name__icontains=search)
+            )
             tail_digits = re.search(r'(\d+)\s*$', search)
             if tail_digits:
                 try:
@@ -906,6 +1064,35 @@ class OrderAdminViewSet(ModelViewSet):
         )
         return Response({'code': 200, 'msg': 'OK', 'data': serializer.data})
 
+    @action(detail=True, methods=['get'], url_path='refund-preview')
+    def refund_preview(self, request, *args, **kwargs):
+        from booking.operations import calculate_refund
+        return Response({'code': 200, 'msg': 'OK', 'data': calculate_refund(self.get_object())})
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel_order(self, request, *args, **kwargs):
+        from booking.operations import request_cancellation
+        group = self.get_object()
+        reason = request.data.get('reason')
+        if reason not in dict(CancellationRequest.REASON_CHOICES):
+            return Response({'code': 400, 'msg': '請選擇取消原因'}, status=400)
+        try:
+            cancellation = request_cancellation(
+                group,
+                reason=reason,
+                reason_note=request.data.get('reason_note', ''),
+                bank=request.data.get('refund_bank'),
+                user=request.user,
+            )
+        except ValueError as exc:
+            return Response({'code': 400, 'msg': str(exc)}, status=400)
+        return Response({'code': 200, 'msg': '取消申請已建立', 'data': CancellationRequestAdminSerializer(cancellation).data})
+
+    @action(detail=True, methods=['get'], url_path='revisions')
+    def revision_history(self, request, *args, **kwargs):
+        revisions = self.get_object().revisions.select_related('created_by').all()
+        return wrap_list(revisions, OrderRevisionAdminSerializer, request)
+
     def update(self, request, *args, **kwargs):
         """
         編輯訂單：指派/變更教練、更新付款狀態
@@ -933,6 +1120,9 @@ class OrderAdminViewSet(ModelViewSet):
             )
             payment.status = payment_status
             payment.save()
+            if payment_status == 'paid':
+                from booking.operations import schedule_group_notifications
+                schedule_group_notifications(instance, 'payment_confirmed')
 
         # 2. 收集課程日期 / 時段變更
         booking_changes = []
@@ -1022,6 +1212,9 @@ class OrderAdminViewSet(ModelViewSet):
                     r.bookings.update(is_scheduled=False)
                 r.save()
 
+            from booking.operations import record_order_revision
+            record_order_revision(instance, user=request.user, change_type='modify', reason=data.get('reason', '後台修改訂單'))
+
             return Response({'code': 200, 'msg': f'已儲存（更新 {len(coach_changes) + len(booking_changes)} 筆資料）'})
 
         elif action == 'schedule':
@@ -1058,6 +1251,8 @@ class OrderAdminViewSet(ModelViewSet):
                         if r.is_preferred_coach:
                             r.is_preferred_coach = False
                             r.save(update_fields=['is_preferred_coach'])
+                    from booking.operations import record_order_revision
+                    record_order_revision(instance, user=request.user, change_type='modify', reason=data.get('reason', '後台修改並重新排課'))
                     return Response({
                         'code': 200,
                         'msg': f'排課成功！已更新 {len(coach_changes) + len(booking_changes)} 筆資料',
@@ -1154,6 +1349,209 @@ class OrderAdminViewSet(ModelViewSet):
                 pass
 
 
+class CancellationAdminViewSet(ReadOnlyModelViewSet):
+    serializer_class = CancellationRequestAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'orders'
+
+    def get_queryset(self):
+        qs = CancellationRequest.objects.filter(group__client=self.request.tenant).select_related('group', 'reviewed_by')
+        if _campus_ids(self.request):
+            qs = qs.filter(group__campus_id__in=_campus_ids(self.request))
+        return qs.order_by('-created_at')
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+
+    @action(detail=True, methods=['post'])
+    def process(self, request, *args, **kwargs):
+        cancellation = self.get_object()
+        next_status = request.data.get('status')
+        if next_status not in ('approved', 'rejected', 'refunded'):
+            return Response({'code': 400, 'msg': '無效的處理狀態'}, status=400)
+        allowed = {
+            'requested': {'approved', 'rejected'},
+            'approved': {'refunded'},
+            'rejected': set(),
+            'refunded': set(),
+        }
+        if next_status not in allowed.get(cancellation.status, set()):
+            return Response({'code': 400, 'msg': f'「{cancellation.get_status_display()}」不能改為這個狀態'}, status=400)
+        cancellation.status = next_status
+        cancellation.reviewed_by = request.user
+        cancellation.reviewed_at = timezone.now()
+        cancellation.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'updated_at'])
+        if next_status in ('approved', 'refunded'):
+            cancellation.group.reservations.update(status='cancelled')
+        if next_status == 'refunded':
+            cancellation.group.payments.update(status='refunded')
+        return Response({'code': 200, 'msg': '取消申請已更新', 'data': self.get_serializer(cancellation).data})
+
+
+class NotificationTemplateAdminViewSet(ModelViewSet):
+    serializer_class = NotificationTemplateAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'notifications'
+
+    def get_queryset(self):
+        qs = NotificationTemplate.objects.filter(client=self.request.tenant).prefetch_related('course_templates')
+        if _campus_ids(self.request) and not getattr(self.request, 'can_view_all_campuses', False):
+            qs = qs.filter(Q(campus_id__in=_campus_ids(self.request)) | Q(campus__isnull=True))
+        return qs.order_by('event', 'channel', 'id')
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), 'request': self.request}
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
+
+
+class NotificationDeliveryAdminViewSet(ReadOnlyModelViewSet):
+    serializer_class = NotificationDeliveryAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'notifications'
+
+    def get_queryset(self):
+        qs = NotificationDelivery.objects.filter(group__client=self.request.tenant).select_related('template', 'group')
+        if _campus_ids(self.request):
+            qs = qs.filter(group__campus_id__in=_campus_ids(self.request))
+        return qs.order_by('-scheduled_at')
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+
+
+class CourseEvaluationAdminViewSet(ModelViewSet):
+    serializer_class = CourseEvaluationAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'evaluations'
+
+    def get_queryset(self):
+        qs = CourseEvaluation.objects.filter(booking__reservation__group__client=self.request.tenant).select_related('booking', 'member__user', 'coach').prefetch_related('media')
+        if _campus_ids(self.request):
+            qs = qs.filter(booking__reservation__group__campus_id__in=_campus_ids(self.request))
+        return qs.order_by('-booking__date', '-id')
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+
+    @action(detail=True, methods=['post'], url_path='media')
+    def add_media(self, request, *args, **kwargs):
+        from booking.models import CourseMedia
+        evaluation = self.get_object()
+        url = (request.data.get('url') or '').strip()
+        media_type = request.data.get('media_type')
+        if not url or media_type not in ('photo', 'video'):
+            return Response({'code': 400, 'msg': '請提供照片／影片網址與類型'}, status=400)
+        media = CourseMedia.objects.create(
+            evaluation=evaluation, uploaded_by=request.user, media_type=media_type, url=url,
+            caption=request.data.get('caption', ''), is_public=bool(request.data.get('is_public', False)),
+        )
+        return Response({'code': 200, 'msg': '媒體已加入', 'data': {'id': media.id, 'url': media.url}})
+
+
+class InsuranceRecordAdminViewSet(ModelViewSet):
+    serializer_class = InsuranceRecordAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'insurance_records'
+
+    def get_queryset(self):
+        qs = MemberDetail.objects.filter(reservation__group__client=self.request.tenant).select_related(
+            'user', 'guardian', 'reservation__group__campus'
+        ).prefetch_related('reservation__bookings')
+        if _campus_ids(self.request):
+            qs = qs.filter(reservation__group__campus_id__in=_campus_ids(self.request))
+        status_filter = self.request.query_params.get('status')
+        if status_filter == 'missing':
+            qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True))
+        return qs.order_by('reservation__bookings__date', 'id').distinct()
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete(self, request, *args, **kwargs):
+        member = self.get_object()
+        field = request.data.get('field')
+        if field not in ('insurance', 'waiver'):
+            return Response({'code': 400, 'msg': '完成項目不正確'}, status=400)
+        target = 'insurance_completed_at' if field == 'insurance' else 'waiver_completed_at'
+        setattr(member, target, timezone.now())
+        member.save(update_fields=[target])
+        return Response({'code': 200, 'msg': '完成狀態已更新', 'data': self.get_serializer(member).data})
+
+
+class CoachPayRuleAdminViewSet(ModelViewSet):
+    serializer_class = CoachPayRuleAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'payroll'
+
+    def get_queryset(self):
+        qs = CoachPayRule.objects.filter(coach__client=self.request.tenant).select_related('coach', 'course_type')
+        if _campus_ids(self.request):
+            qs = qs.filter(coach__campuses__id__in=_campus_ids(self.request)).distinct()
+        return qs.order_by('coach__name', 'discipline', 'course_type_id')
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+
+
+class PayrollStatementAdminViewSet(ModelViewSet):
+    serializer_class = PayrollStatementAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'payroll'
+
+    def get_queryset(self):
+        qs = PayrollStatement.objects.filter(coach__client=self.request.tenant).select_related('coach', 'campus').prefetch_related('lines')
+        if _campus_ids(self.request):
+            qs = qs.filter(campus_id__in=_campus_ids(self.request))
+        return qs.order_by('-period_start', 'coach__name')
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+
+    @action(detail=False, methods=['post'])
+    def calculate(self, request, *args, **kwargs):
+        from Coach.payroll import calculate_payroll_statement
+        try:
+            coach = Coach.objects.get(pk=request.data.get('coach'), client=request.tenant)
+            campus = Campus.objects.get(pk=request.data.get('campus'), client=request.tenant)
+            if _campus_ids(request) and campus.id not in _campus_ids(request):
+                raise PermissionDenied('不能結算其他校區')
+            period_start = datetime.strptime(request.data.get('period_start', ''), '%Y-%m-%d').date()
+            period_end = datetime.strptime(request.data.get('period_end', ''), '%Y-%m-%d').date()
+            if period_end < period_start:
+                raise ValueError('結束日不能早於開始日')
+            statement = calculate_payroll_statement(coach=coach, campus=campus, period_start=period_start, period_end=period_end)
+        except (Coach.DoesNotExist, Campus.DoesNotExist, TypeError, ValueError) as exc:
+            return Response({'code': 400, 'msg': str(exc) or '請檢查教練、校區與日期'}, status=400)
+        return Response({'code': 200, 'msg': '薪資已計算', 'data': self.get_serializer(statement).data})
+
+
+class StaffBookingLinkAdminViewSet(ModelViewSet):
+    serializer_class = StaffBookingLinkAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_key = 'orders'
+
+    def get_queryset(self):
+        qs = StaffBookingLink.objects.filter(client=self.request.tenant).select_related('campus', 'created_by')
+        if _campus_ids(self.request):
+            qs = qs.filter(campus_id__in=_campus_ids(self.request))
+        return qs.order_by('-created_at')
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), 'request': self.request}
+
+    def perform_create(self, serializer):
+        campus = serializer.validated_data['campus']
+        if campus.client_id != self.request.tenant.id or (_campus_ids(self.request) and campus.id not in _campus_ids(self.request)):
+            raise PermissionDenied('不能為其他校區建立訂課連結')
+        serializer.save(client=self.request.tenant, created_by=self.request.user)
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
+
+
 # ==================== Customers ====================
 
 @api_view(['GET'])
@@ -1173,12 +1571,15 @@ def customers_list(request, client_code):
     tenant = request.tenant
 
     # 找出所有曾在此 client 預約過的 user
-    user_ids = ReservationGroup.objects.filter(client=tenant).values_list('user_id', flat=True).distinct()
+    scoped_groups = ReservationGroup.objects.filter(client=tenant)
+    if _campus_ids(request):
+        scoped_groups = scoped_groups.filter(campus_id__in=_campus_ids(request))
+    user_ids = scoped_groups.values_list('user_id', flat=True).distinct()
     users = User.objects.filter(id__in=[uid for uid in user_ids if uid])
 
     data = []
     for u in users:
-        groups = ReservationGroup.objects.filter(client=tenant, user=u)
+        groups = scoped_groups.filter(user=u)
         total_spent = 0
         last_visit = None
         for g in groups:
@@ -1271,6 +1672,8 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
             'reservation__course_type__category',
             'reservation__course_template',
         ).distinct().order_by('date', 'start_time')
+        if _campus_ids(self.request):
+            qs = qs.filter(reservation__group__campus_id__in=_campus_ids(self.request))
 
         # 可選 query 參數：start, end (YYYY-MM-DD)
         start = self.request.query_params.get('start')
@@ -1341,6 +1744,9 @@ def dashboard_stats(request, client_code):
     groups = ReservationGroup.objects.filter(client=tenant, created_at__gte=start)
     if period == 'yesterday':
         groups = groups.filter(created_at__lt=end)
+    campus_ids = _campus_ids(request)
+    if campus_ids:
+        groups = groups.filter(campus_id__in=campus_ids)
 
     total_orders = groups.count()
     total_revenue = 0
@@ -1366,6 +1772,19 @@ def dashboard_stats(request, client_code):
     for i, item in enumerate(top_items):
         item['id'] = i + 1
 
+    marketing_sources = {}
+    campus_summary = {}
+    for g in groups.select_related('campus').prefetch_related('reservations'):
+        amount = sum((r.payment_amount or 0) for r in g.reservations.all())
+        source = g.marketing_source or '未填寫'
+        marketing_sources.setdefault(source, {'name': source, 'orders': 0, 'revenue': 0})
+        marketing_sources[source]['orders'] += 1
+        marketing_sources[source]['revenue'] += amount
+        campus_name = g.campus.name if g.campus else '未分校區'
+        campus_summary.setdefault(campus_name, {'name': campus_name, 'orders': 0, 'revenue': 0})
+        campus_summary[campus_name]['orders'] += 1
+        campus_summary[campus_name]['revenue'] += amount
+
     # 最近訂單
     recent_orders = []
     for g in groups.order_by('-created_at')[:5]:
@@ -1373,7 +1792,7 @@ def dashboard_stats(request, client_code):
         first_r = g.reservations.first()
         recent_orders.append({
             'sn': f'SL{g.created_at.year}-{g.id:04d}',
-            'member': g.user.username if g.user else (g.name or '訪客'),
+            'member': (g.user.get_full_name() or g.user.username) if g.user else (g.name or '訪客'),
             'amount': sum((r.payment_amount or 0) for r in g.reservations.all()),
             'status': p.status if p else 'unpaid',
             'created_at': g.created_at.strftime('%Y-%m-%d %H:%M'),
@@ -1390,6 +1809,8 @@ def dashboard_stats(request, client_code):
             },
             'top_items': top_items,
             'recent_orders': recent_orders,
+            'marketing_sources': sorted(marketing_sources.values(), key=lambda item: (-item['orders'], item['name'])),
+            'campus_summary': sorted(campus_summary.values(), key=lambda item: (-item['revenue'], item['name'])),
         },
     })
 
@@ -1447,10 +1868,14 @@ def staff_list(request, client_code):
             is_manager = False if u.is_superuser else profile.is_manager
             is_coach = profile.is_coach
             admin_permissions = get_user_admin_permissions(u)
+            role = profile.role
+            campus_ids = list(profile.campuses.filter(client=request.tenant).values_list('id', flat=True))
         except Exception:
             is_manager = False
             is_coach = False
             admin_permissions = []
+            role = ''
+            campus_ids = []
 
         # 找對應的 Coach 紀錄（如果有）
         coach_record = Coach.objects.filter(user=u, client=request.tenant).first()
@@ -1468,6 +1893,8 @@ def staff_list(request, client_code):
             'is_manager': is_manager,
             'is_coach': is_coach,
             'permissions': admin_permissions,
+            'role': role,
+            'campus_ids': campus_ids,
             'has_coach_record': bool(coach_record),
             'coach_id': coach_record.id if coach_record else None,
             'coach_name': coach_record.name if coach_record else None,
@@ -1507,6 +1934,7 @@ def update_customer_permission(request, client_code, user_id):
 
     try:
         from Control.models import UserProfile
+        _require_headquarters(request)
         profile, _ = UserProfile.objects.get_or_create(user=target_user)
         was_manager = profile.is_manager
         requested_superuser = request.data.get('is_superuser', None)
@@ -1520,8 +1948,19 @@ def update_customer_permission(request, client_code, user_id):
         if target_user.is_superuser and is_manager:
             is_manager = False
         is_coach = bool(request.data.get('is_coach', False))
+        role = (request.data.get('role') or '').strip()
+        valid_roles = {choice[0] for choice in profile.ROLE_CHOICES}
+        if role and role not in valid_roles:
+            return Response({'code': 400, 'msg': '員工角色不正確'}, status=400)
+        raw_campus_ids = request.data.get('campus_ids', [])
+        if not isinstance(raw_campus_ids, list):
+            return Response({'code': 400, 'msg': '校區必須是清單'}, status=400)
+        campuses = list(Campus.objects.filter(client=request.tenant, id__in=raw_campus_ids))
+        if len(campuses) != len(set(raw_campus_ids)):
+            return Response({'code': 400, 'msg': '包含無效或其他公司的校區'}, status=400)
         profile.is_manager = is_manager
         profile.is_coach = is_coach
+        profile.role = role
         if is_manager:
             if admin_permissions is not None:
                 profile.admin_permissions = admin_permissions
@@ -1530,6 +1969,7 @@ def update_customer_permission(request, client_code, user_id):
         else:
             profile.admin_permissions = []
         profile.save()
+        profile.campuses.set(campuses)
         return Response({
             'code': 200, 'msg': '權限已更新',
             'data': {
@@ -1537,8 +1977,12 @@ def update_customer_permission(request, client_code, user_id):
                 'is_manager': profile.is_manager,
                 'is_coach': profile.is_coach,
                 'permissions': get_user_admin_permissions(target_user),
+                'role': profile.role,
+                'campus_ids': list(profile.campuses.values_list('id', flat=True)),
             },
         })
+    except PermissionDenied:
+        raise
     except Exception as e:
         return Response({'code': 500, 'msg': f'更新失敗：{e}'}, status=500)
 
@@ -1618,7 +2062,7 @@ def coach_pending_confirmations(request, client_code):
         items.append({
             'id': r.id,
             'group_id': r.group_id,
-            'user_name': r.group.user.username if r.group.user else (r.group.name or '訪客'),
+            'user_name': (r.group.user.get_full_name() or r.group.user.username) if r.group.user else (r.group.name or '訪客'),
             'resort': r.resort.display_name if r.resort else '',
             'course_type': r.course_type.name if r.course_type else '',
             'ability_level': r.max_ability_level or '',
@@ -1735,14 +2179,13 @@ def coach_my_courses(request, client_code):
         items.append({
             'id': r.id,
             'group_id': r.group_id,
-            'user_name': r.group.user.username if r.group.user else (r.group.name or '訪客'),
+            'user_name': (r.group.user.get_full_name() or r.group.user.username) if r.group.user else (r.group.name or '訪客'),
             'resort': r.resort.display_name if r.resort else '',
             'course_type': r.course_type.name if r.course_type else '',
             'ability_level': r.max_ability_level or '',
             'language': r.language,
             'number_of_people': r.number_of_people,
             'status': r.status,
-            'total_fee': r.total_fee,
             'is_preferred_coach': bool(r.is_preferred_coach),
             'bookings': [
                 {
@@ -1818,7 +2261,7 @@ def coach_my_calendar(request, client_code):
     for b in qs:
         try:
             user = b.reservation.group.user
-            user_name = user.username if user else (b.reservation.group.name or '')
+            user_name = (user.get_full_name() or user.username) if user else (b.reservation.group.name or '')
         except Exception:
             user_name = ''
         items.append({
@@ -1930,6 +2373,50 @@ def coach_apply_leave(request, client_code):
         return Response({'code': 400, 'msg': '不能申請過去的日期'}, status=400)
     if ed < sd:
         return Response({'code': 400, 'msg': '結束日期不能早於開始日期'}, status=400)
+
+    campus_id = request.data.get('campus_id')
+    campus = None
+    if campus_id:
+        campus = coach.campuses.filter(id=campus_id, client=request.tenant).first()
+        if not campus:
+            return Response({'code': 400, 'msg': '請選擇您所屬的校區'}, status=400)
+    elif coach.campuses.count() == 1:
+        campus = coach.campuses.first()
+    policy = (
+        OperatingPolicy.objects.filter(client=request.tenant, campus=campus).first()
+        if campus else None
+    ) or OperatingPolicy.objects.filter(client=request.tenant, campus__isnull=True).first()
+    if not policy:
+        policy = OperatingPolicy.objects.create(client=request.tenant)
+
+    leave_days = (ed - sd).days + 1
+    if (sd - today).days < policy.leave_advance_days:
+        return Response({
+            'code': 400,
+            'msg': f'請假需至少提前 {policy.leave_advance_days} 天；緊急狀況請聯絡主管代為核准',
+        }, status=400)
+    if leave_days > policy.leave_max_consecutive_days:
+        return Response({
+            'code': 400,
+            'msg': f'一般申請最多連續 {policy.leave_max_consecutive_days} 天；較長假期請聯絡主管特別核准',
+        }, status=400)
+
+    day = sd
+    while day <= ed:
+        daily_leaves = CoachLeaveRequest.objects.filter(
+            coach__client=request.tenant,
+            status__in=['pending', 'approved'],
+            start_date__lte=day,
+            end_date__gte=day,
+        )
+        if campus:
+            daily_leaves = daily_leaves.filter(coach__campuses=campus)
+        if daily_leaves.values('coach_id').distinct().count() >= policy.leave_daily_coach_limit:
+            return Response({
+                'code': 400,
+                'msg': f'{day} 已達每日 {policy.leave_daily_coach_limit} 位教練請假上限，請改選日期或聯絡主管',
+            }, status=400)
+        day += timedelta(days=1)
 
     # 檢查是否已有重疊的 pending/approved 請假
     overlap = CoachLeaveRequest.objects.filter(
@@ -2067,19 +2554,30 @@ def admin_me(request, client_code):
     if not request.user.is_authenticated:
         return Response({'code': 401, 'msg': '未登入'}, status=401)
 
+    tenant = _resolve_tenant(request, None)
+    if not tenant:
+        return Response({'code': 404, 'msg': '找不到公司資料'}, status=404)
+
     is_superuser = request.user.is_superuser
     is_manager = False
     is_coach = False
+    role = ''
+    assigned_campus_ids = []
 
     try:
         profile = request.user.userprofile
         is_manager = bool(profile.is_manager)
         is_coach = bool(profile.is_coach)
+        role = profile.role
+        assigned_campus_ids = list(profile.campuses.filter(client=tenant).values_list('id', flat=True))
     except Exception:
         pass
 
     if not (is_superuser or is_manager or is_coach):
         return Response({'code': 403, 'msg': '無管理員權限'}, status=403)
+
+    accessible_campuses, can_view_all = _campus_scope_for_user(request.user, tenant)
+    campus_items = list(accessible_campuses.values('id', 'name', 'code', 'is_active'))
 
     return Response({
         'code': 200,
@@ -2092,6 +2590,10 @@ def admin_me(request, client_code):
             'is_superuser': is_superuser,
             'is_manager': is_manager,
             'is_coach': is_coach,
+            'role': role,
+            'assigned_campus_ids': assigned_campus_ids,
+            'campuses': campus_items,
+            'can_view_all_campuses': can_view_all,
             'permissions': get_user_admin_permissions(request.user),
             'permission_definitions': ADMIN_PERMISSION_DEFINITIONS,
         },

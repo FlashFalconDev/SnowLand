@@ -13,6 +13,8 @@ export interface DashboardStats {
     avg_order_value: number
   }
   top_items: { id: number; name: string; quantity: number; revenue: number }[]
+  marketing_sources: { name: string; orders: number; revenue: number }[]
+  campus_summary: { name: string; orders: number; revenue: number }[]
   recent_orders: {
     sn: string
     member: string

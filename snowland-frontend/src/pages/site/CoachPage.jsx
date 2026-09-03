@@ -267,7 +267,6 @@ function CashPhotoCarousel({ images, mediaSurfaceClass, mediaShadowClass, label 
                 alt={image.alt}
                 className="block h-full w-full object-cover"
                 style={image.objectPosition ? { objectPosition: image.objectPosition } : undefined}
-                loading="lazy"
               />
             </figure>
           ))}
@@ -663,7 +662,6 @@ function CoachPage() {
                 src={image.src}
                 alt={image.alt}
                 className="block w-full h-auto object-contain"
-                loading="lazy"
               />
             </figure>
           ))}

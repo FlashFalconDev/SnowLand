@@ -17,7 +17,7 @@ export async function sendOrderEmail(
 // ==================== 客戶權限 ====================
 export async function updateCustomerPermission(
   userId: number,
-  payload: { is_superuser?: boolean; is_manager: boolean; is_coach: boolean; permissions?: string[] }
+  payload: { is_superuser?: boolean; is_manager: boolean; is_coach: boolean; permissions?: string[]; role?: string; campus_ids?: number[] }
 ): Promise<Resp> {
   const res = (await adminApi.post(`/customers/${userId}/permission/`, payload)) as unknown as Resp
   return res
@@ -35,6 +35,8 @@ export interface StaffMember {
   is_manager: boolean
   is_coach: boolean
   permissions?: string[]
+  role?: string
+  campus_ids?: number[]
   has_coach_record: boolean
   coach_id: number | null
   coach_name: string | null

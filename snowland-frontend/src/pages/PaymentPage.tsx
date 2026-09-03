@@ -19,6 +19,8 @@ interface PaymentData {
   total_amount: number
   order_details: OrderDetail[]
   payment_status: string
+  payment_methods?: string[]
+  payment_expires_at?: string | null
   bank_info?: {
     bank_name?: string
     bank_branch?: string
@@ -198,13 +200,13 @@ export default function PaymentPage() {
             <h1 className="text-2xl font-bold text-primary-700">
               雪域滑雪課程預約 - 付款
             </h1>
-            <button
+            {(paymentData.payment_methods || ['bank_transfer', 'newebpay']).includes('newebpay') && <button
               onClick={() => navigate('..')}
               className="flex items-center gap-2 rounded-full bg-gray-200 px-4 py-2 text-gray-600 transition-all hover:bg-gray-300"
             >
               <Home size={20} />
               <span>返回首頁</span>
-            </button>
+            </button>}
           </div>
         </div>
       </nav>

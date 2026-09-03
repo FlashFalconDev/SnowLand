@@ -7,9 +7,13 @@ python manage.py shell < test_optimization.py
 或在 Django shell 中逐行執行
 """
 import time
+import unittest
 from django.db import connection, reset_queries
 from django.core.cache import cache
 from booking.utils import build_course_data_optimized
+
+if __name__ == 'test_optimization':
+    raise unittest.SkipTest('手動效能檢查腳本，不屬於自動化測試套件')
 
 print("=" * 60)
 print("資料流優化效果測試")
@@ -70,7 +74,7 @@ else:
 second_call_time = time.time() - start_time
 print(f"  - 執行時間: {second_call_time:.3f} 秒")
 
-if second_call_time < first_call_time:
+if 0 < second_call_time < first_call_time:
     speedup = (first_call_time / second_call_time) - 1
     print(f"  - 速度提升: {speedup * 100:.1f}%")
 

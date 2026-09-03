@@ -21,9 +21,9 @@ from Coach.models import (
     Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest,
     ABILITY_LEVEL_CHOICES, normalize_ability_level, normalize_ability_levels,
 )
-from Resorts.models import Resorts, ResortFee, EquipmentAssistanceTimeSlot
+from Resorts.models import Resorts, ResortFee, EquipmentAssistanceTimeSlot, Campus
 from Coursekit.models import CourseType, CourseTemplate, SeasonSetting, CourseCategory, CourseSession, CoursePricing, DiscountCode
-from .models import Booking, ReservationGroup, Payment, Reservation
+from .models import Booking, ReservationGroup, Payment, Reservation, StaffBookingLink, MemberProfile
 from Control.views import login_required_control
 from .funcNewebpay import neweb_pay_request
 from snowland.settings import RUN_HOST
@@ -67,6 +67,11 @@ def get_group_payment_hold(group):
         return PENDING_COACH_CONFIRMATION_MESSAGE, 'pending_coach_approval'
     if group.reservations.filter(status='auto_assignment_failed').exists():
         return SCHEDULING_FAILED_PAYMENT_MESSAGE, 'scheduling_failed'
+    payment = group.payments.order_by('-created_at').first()
+    if payment and payment.status == 'unpaid' and payment.expires_at and payment.expires_at <= timezone.now():
+        payment.status = 'expired'
+        payment.save(update_fields=['status'])
+        return '付款保留期已結束，請聯絡客服改期或取消', 'expired'
     return None, None
 
 
@@ -734,6 +739,13 @@ def normalize_contact_info(request):
         contact.get('referrer') or
         ''
     ).strip()
+    referral_source_detail = (
+        contact.get('referralSourceDetail') or contact.get('referral_source_detail') or ''
+    ).strip()
+    metadata = getattr(request, 'META', {}) or {}
+    forwarded_for = metadata.get('HTTP_X_FORWARDED_FOR', '')
+    source_ip = (forwarded_for.split(',')[0].strip() if forwarded_for else metadata.get('REMOTE_ADDR')) or None
+    source_country = (metadata.get('HTTP_CF_IPCOUNTRY') or metadata.get('HTTP_X_COUNTRY_CODE') or '').strip().upper()[:2]
 
     if user:
         name = name or user.get_full_name() or user.username
@@ -746,6 +758,9 @@ def normalize_contact_info(request):
         'messenger_type': messenger_type,
         'messenger_id': messenger_id,
         'referral_source': referral_source,
+        'referral_source_detail': referral_source_detail,
+        'source_ip': source_ip,
+        'source_country': source_country,
     }
 
 
@@ -1537,11 +1552,16 @@ class ResortListAPI(APIView):
     permission_classes = []  # 公開 API
 
     def get(self, request, client_code=None):
-        resorts = Resorts.objects.prefetch_related(
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        resorts = Resorts.objects.filter(client=tenant, campuses__is_active=True).prefetch_related(
+            'campuses',
             'equipment_rental_items',
             'equipment_assistance_time_slots',
             'equipment_assistance_time_slots__course_templates',
-        ).all()
+        ).distinct()
 
         data = []
         for resort in resorts:
@@ -1549,6 +1569,10 @@ class ResortListAPI(APIView):
                 'name': resort.name,
                 'display_name': resort.display_name,
                 'auto_scheduling_enabled': resort.auto_scheduling_enabled,
+                'campuses': [
+                    {'id': campus.id, 'name': campus.name, 'code': campus.code}
+                    for campus in resort.campuses.all() if campus.is_active
+                ],
                 'equipment_rental_items': [
                     {
                         'id': item.id,
@@ -1702,6 +1726,9 @@ class CourseTemplateListAPI(APIView):
                 'category_name': template.category_name_value,
                 'duration_hours': template.duration_hours,
                 'max_capacity': template.max_capacity,
+                'billing_mode': template.billing_mode,
+                'minimum_group_size': template.minimum_group_size,
+                'minimum_student_level': template.minimum_student_level,
                 'display_order': template.display_order,
                 'is_active': template.is_active,
                 'resorts': list(template.resorts.values_list('name', flat=True)),
@@ -1969,6 +1996,13 @@ class CreateReservationAPI(APIView):
             request_user = get_request_user_or_none(request)
             contact_info = normalize_contact_info(request)
             cart_data = request.data.get('cart', [])
+            staff_link_token = request.data.get('staff_link')
+            staff_link = None
+            if staff_link_token:
+                staff_link = StaffBookingLink.objects.filter(token=staff_link_token, client=resolve_tenant_client(client_code)).first()
+                if not staff_link or not staff_link.is_available:
+                    return Response({'code': 400, 'msg': '這個代客訂課連結已失效，請向工作人員索取新連結'}, status=400)
+                contact_info['staff_link_token'] = str(staff_link.token)
 
             if not cart_data:
                 return Response({
@@ -2025,6 +2059,11 @@ class CreateReservationAPI(APIView):
                 created_group_ids.append(group_id)
                 created_reservations.append(reservation)
                 reservation_groups.append(group)
+
+            if staff_link:
+                staff_link.used_by = request_user
+                staff_link.used_at = timezone.now()
+                staff_link.save(update_fields=['used_by', 'used_at'])
 
             # 檢查是否需要自動排課
             # 只有當雪場啟用自動排課時才進行（包括指定教練的預約也需要檢查衝突）
@@ -2083,13 +2122,17 @@ class CreateReservationAPI(APIView):
             payment_urls = []
             for group in reservation_groups:
                 # 創建付款記錄
+                from .operations import payment_expiration_for, resolve_payment_account, schedule_group_notifications
                 payment = Payment.objects.create(
                     reservation_group=group,
                     user=request_user,
                     status='unpaid',
                     payment_method='TT',  # 預設為匯款，用戶可在付款頁面選擇
+                    payment_account=resolve_payment_account(group),
+                    expires_at=payment_expiration_for(group),
                     DataJSON={'contact': contact_info}
                 )
+                schedule_group_notifications(group, 'order_created')
 
                 # 生成付款URL
                 payment_url = PAYMENT_HOST + '?reservation_group=' + str(group.pk)
@@ -2149,11 +2192,54 @@ class CreateReservationAPI(APIView):
 
         # 創建 ReservationGroup（綁到對應的 client，後台才能依租戶過濾出來）
         contact_info = contact_info or {}
+        if not contact_info.get('referral_source') and not contact_info.get('staff_link_token'):
+            raise ValueError('請選擇「從哪裡得知／活動來源」')
         group_name = contact_info.get('name') or f"{item['courseCategory']} - {item['resortName']}"
+        try:
+            resort = Resorts.objects.get(client=tenant_client, name=item['resort'])
+        except Resorts.DoesNotExist:
+            raise ValueError(f"找不到雪場: {item['resort']}")
+        campus_options = Campus.objects.filter(client=tenant_client, is_active=True, resorts=resort)
+        staff_link = None
+        if contact_info.get('staff_link_token'):
+            staff_link = StaffBookingLink.objects.filter(
+                token=contact_info['staff_link_token'], client=tenant_client, is_active=True
+            ).select_related('campus', 'created_by').first()
+        campus_id = item.get('campusId') or item.get('campus_id')
+        if staff_link:
+            campus = staff_link.campus
+            if not campus_options.filter(id=campus.id).exists():
+                raise ValueError('代客訂課連結的校區無法使用所選雪場')
+        elif campus_id:
+            campus = campus_options.filter(id=campus_id).first()
+            if not campus:
+                raise ValueError('所選校區不能使用這個雪場')
+        elif campus_options.count() == 1:
+            campus = campus_options.first()
+        elif not campus_options.exists():
+            # 舊租戶／測試資料可能只有雪場沒有校區；自動補一個主要校區，
+            # 避免升級後既有官網與 LINE 訂課全部中斷。
+            campus, _ = Campus.objects.get_or_create(
+                client=tenant_client,
+                code='main',
+                defaults={'name': '主要校區', 'description': '系統自動建立，可在後台改名。'},
+            )
+            if not campus.is_active:
+                campus.is_active = True
+                campus.save(update_fields=['is_active', 'updated_at'])
+            campus.resorts.add(resort)
+        else:
+            raise ValueError('請先選擇校區')
         group = ReservationGroup.objects.create(
             client=tenant_client,
+            campus=campus,
             user=user,
-            name=group_name
+            name=group_name,
+            marketing_source='員工訂課連結' if staff_link else contact_info.get('referral_source', ''),
+            marketing_source_detail=staff_link.title if staff_link else contact_info.get('referral_source_detail', ''),
+            referral_user=staff_link.created_by if staff_link else None,
+            source_ip=contact_info.get('source_ip'),
+            source_country=contact_info.get('source_country', ''),
         )
 
         # 創建 Reservation
@@ -2168,7 +2254,11 @@ class CreateReservationAPI(APIView):
         for course in item['courses']:
             self._create_booking(reservation, course)
 
+        from .operations import record_order_revision
+        record_order_revision(group, user=user, change_type='create', reason='客戶建立訂單')
+
         return group.id, reservation, group
+
 
     def _create_reservation(self, group, item, discount_amount=0, applied_discounts=None):
         """創建單個預約記錄"""
@@ -2176,7 +2266,7 @@ class CreateReservationAPI(APIView):
 
         # 獲取雪場對象
         try:
-            resort = Resorts.objects.get(name=item['resort'])
+            resort = Resorts.objects.get(client=group.client, name=item['resort'])
         except Resorts.DoesNotExist:
             raise ValueError(f"找不到雪場: {item['resort']}")
 
@@ -2229,6 +2319,19 @@ class CreateReservationAPI(APIView):
 
         # 後端權威算價:逐堂重算課程費,並從 ResortFee 算附加費,完全不採用前端 price / totalPrice
         people_count = int(item.get('peopleCount', 1) or 1)
+        if course_template and people_count < course_template.minimum_group_size:
+            raise ValueError(
+                f'「{course_template.name}」至少需要 {course_template.minimum_group_size} 人才能開班'
+            )
+        if course_template and course_template.minimum_student_level:
+            levels = ['no_exp', 'level1', 'level2', 'level3', 'level4', 'level5', 'level6']
+            required_rank = levels.index(course_template.minimum_student_level) if course_template.minimum_student_level in levels else 0
+            selected_counts = item.get('abilityLevelCounts') or {}
+            selected_levels = [level for level, count in selected_counts.items() if int(count or 0) > 0]
+            if not selected_levels:
+                selected_levels = [item.get('abilityLevel') or 'no_exp']
+            if any((levels.index(level) if level in levels else 0) < required_rank for level in selected_levels):
+                raise ValueError(f'「{course_template.name}」只開放等級 {required_rank} 以上學員')
         course_fee = 0
         for course in item['courses']:
             course_fee += compute_course_price_authoritative(
@@ -2326,6 +2429,82 @@ class CreateReservationAPI(APIView):
         )
 
         return booking
+
+
+class StaffBookingLinkResolveAPI(APIView):
+    permission_classes = []
+
+    def get(self, request, token, client_code=None):
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error': str(exc)}, status=404)
+        link = StaffBookingLink.objects.filter(token=token, client=tenant).select_related('campus', 'created_by').first()
+        if not link or not link.is_available:
+            return Response({'error': '這個代客訂課連結已失效'}, status=404)
+        return Response({
+            'token': str(link.token), 'title': link.title,
+            'campus': {'id': link.campus_id, 'name': link.campus.name},
+            'created_by': link.created_by.get_full_name() or link.created_by.username,
+        })
+
+
+class MemberCenterAPI(APIView):
+    def get(self, request, client_code=None):
+        if not request.user.is_authenticated:
+            return Response({'error': '請先登入'}, status=401)
+        profile, _ = MemberProfile.objects.get_or_create(user=request.user)
+        return Response({
+            'referral_code': profile.referral_code,
+            'points': profile.points,
+            'level': profile.level,
+            'alumni_verified': profile.alumni_verified,
+            'line_linked': bool(profile.line_user_id),
+        })
+
+    def post(self, request, client_code=None):
+        if not request.user.is_authenticated:
+            return Response({'error': '請先登入'}, status=401)
+        group_id = request.data.get('quick_rebook_group_id')
+        try:
+            tenant = resolve_tenant_client(client_code)
+            group = ReservationGroup.objects.select_related('campus').prefetch_related(
+                'reservations__bookings', 'reservations__preferred_coach',
+                'reservations__resort', 'reservations__course_type__category', 'reservations__course_template',
+            ).get(id=group_id, client=tenant, user=request.user)
+        except (TenantResolutionError, ReservationGroup.DoesNotExist):
+            return Response({'error': '找不到可再次預約的訂單'}, status=404)
+        cart = []
+        for reservation in group.reservations.exclude(status='deleted'):
+            cart.append({
+                'id': f'rebook-{reservation.id}',
+                'coach': reservation.preferred_coach_id or 'any',
+                'coachName': reservation.preferred_coach.name if reservation.preferred_coach else '不指定',
+                'peopleCount': reservation.number_of_people,
+                'abilityLevel': reservation.max_ability_level or 'no_exp',
+                'abilityLevelName': reservation.get_max_ability_level_display() if reservation.max_ability_level else '無經驗',
+                'abilityLevelCounts': {reservation.max_ability_level or 'no_exp': reservation.number_of_people},
+                'equipment': reservation.need_equipment,
+                'equipmentOption': None,
+                'language': reservation.language,
+                'resort': reservation.resort.name if reservation.resort else '',
+                'resortName': reservation.resort.display_name if reservation.resort else '',
+                'campusId': group.campus_id or 0,
+                'campusName': group.campus.name if group.campus else '',
+                'courseCategory': reservation.course_type.category.name if reservation.course_type else '',
+                'courseFee': 0, 'coachFee': 0, 'languageFee': 0, 'equipmentRentalFee': 0,
+                'courses': [{
+                    'date': str(booking.date), 'courseTypeId': reservation.course_type_id,
+                    'courseTypeName': reservation.course_type.name if reservation.course_type else '',
+                    'courseTemplateId': reservation.course_template_id,
+                    'courseTemplateName': reservation.course_template.name if reservation.course_template else '',
+                    'durationHours': reservation.course_template.duration_hours if reservation.course_template else 0,
+                    'timeSlotId': 0, 'timeSlotStart': str(booking.start_time)[:5], 'timeSlotEnd': str(booking.end_time)[:5],
+                    'price': None,
+                } for booking in reservation.bookings.all()],
+                'totalPrice': None,
+            })
+        return Response({'cart': cart, 'message': '已複製上次設定，請先確認新日期與價格'})
 
 
 class SuperScheduleAPI(APIView):
@@ -2674,9 +2853,14 @@ class PaymentInfoAPI(APIView):
                     'error': '缺少預約群組ID'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+            try:
+                tenant = resolve_tenant_client(client_code)
+            except TenantResolutionError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
             # 獲取預約群組
             try:
-                group = ReservationGroup.objects.get(pk=reservation_group_id)
+                group = ReservationGroup.objects.get(pk=reservation_group_id, client=tenant)
             except ReservationGroup.DoesNotExist:
                 return Response({
                     'error': '找不到預約群組'
@@ -2737,20 +2921,36 @@ class PaymentInfoAPI(APIView):
                 order_details.append(detail)
                 total_amount += resv.payment_amount
 
-            # 取得收款銀行資訊（從 Client 上）
+            # 取得校區／雪場對應的收款帳戶，找不到時才回退公司舊設定。
             bank_info = {'bank_name': '', 'bank_branch': '', 'bank_account_number': '', 'bank_account_holder': ''}
-            if client_code:
-                try:
-                    from Client.models import Client
-                    c = Client.objects.get(internal_code=client_code, is_active=True)
+            from .operations import get_operating_policy, resolve_payment_account
+            account = resolve_payment_account(group)
+            if account:
+                bank_info = {
+                    'bank_name': account.bank_name,
+                    'bank_branch': account.bank_branch,
+                    'bank_account_number': account.account_number,
+                    'bank_account_holder': account.account_holder,
+                    'overseas_details': account.overseas_details,
+                }
+            else:
+                c = tenant
+                if c:
                     bank_info = {
                         'bank_name': c.bank_name,
                         'bank_branch': c.bank_branch,
                         'bank_account_number': c.bank_account_number,
                         'bank_account_holder': c.bank_account_holder,
                     }
-                except Client.DoesNotExist:
-                    pass
+            policy = get_operating_policy(group)
+            is_taiwan = (group.source_country or 'TW') == 'TW'
+            payment_methods = ['bank_transfer']
+            if not is_taiwan:
+                payment_methods.append('newebpay')
+                if policy.settings.get('apple_pay_enabled'):
+                    payment_methods.append('apple_pay')
+                if policy.settings.get('google_pay_enabled'):
+                    payment_methods.append('google_pay')
 
             return Response({
                 'reservation_group_id': int(reservation_group_id),
@@ -2758,6 +2958,8 @@ class PaymentInfoAPI(APIView):
                 'payment_status': payment_status,
                 'order_details': order_details,
                 'bank_info': bank_info,
+                'payment_methods': payment_methods,
+                'payment_expires_at': payment.expires_at if 'payment' in locals() and payment else None,
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -2944,9 +3146,14 @@ class ProcessPaymentAPI(APIView):
                     'error': '缺少必要參數'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+            try:
+                tenant = resolve_tenant_client(client_code)
+            except TenantResolutionError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
             # 獲取預約群組
             try:
-                group = ReservationGroup.objects.get(pk=reservation_group_id)
+                group = ReservationGroup.objects.get(pk=reservation_group_id, client=tenant)
             except ReservationGroup.DoesNotExist:
                 return Response({
                     'error': '找不到預約群組'
@@ -2959,6 +3166,9 @@ class ProcessPaymentAPI(APIView):
                     'payment_status': hold_status,
                     'requires_payment': False,
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
+                return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
 
             if payment_type == 'newebpay':
                 return self._process_newebpay(request, group)

@@ -8,6 +8,7 @@ import { Search, Shield, UserCog, Loader2, AlertCircle, Save, Crown, Star, Alert
 import { fetchStaff, updateCustomerPermission, type StaffMember } from '../api/extras'
 import { useNotification } from '../context'
 import { ADMIN_PERMISSION_DEFINITIONS, groupPermissions } from '../permissions'
+import { fetchCampuses } from '../api/campuses'
 
 const PRIMARY = '#8b5cf6'
 
@@ -318,6 +319,9 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
   const [isManager, setIsManager] = useState(staff.is_superuser ? false : staff.is_manager)
   const [isCoach, setIsCoach] = useState(staff.is_coach)
   const [permissions, setPermissions] = useState<string[]>(staff.permissions || [])
+  const [role, setRole] = useState(staff.role || '')
+  const [campusIds, setCampusIds] = useState<number[]>(staff.campus_ids || [])
+  const { data: campuses = [] } = useQuery({ queryKey: ['admin', 'campuses'], queryFn: fetchCampuses })
   const permissionGroups = groupPermissions()
   const togglePermission = (key: string) => {
     setPermissions((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key])
@@ -331,6 +335,8 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
       is_manager: isSuperuser ? false : isManager,
       is_coach: isCoach,
       permissions: !isSuperuser && isManager ? permissions : [],
+      role: isSuperuser ? 'hq_admin' : role,
+      campus_ids: isSuperuser ? [] : campusIds,
     }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['admin', 'staff'] })
@@ -402,6 +408,15 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
           </label>
 
           {!isSuperuser && isManager && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                <label className="mb-2 block text-sm font-semibold text-gray-900 dark:text-white">工作角色</label>
+                <select value={role} onChange={e => setRole(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                  <option value="">一般後台人員</option><option value="hq_admin">總部管理員</option><option value="marketing">行銷</option><option value="web_editor">網站編輯</option><option value="insurance">保險人員</option><option value="assistant">助理</option><option value="campus_principal">校區校長</option><option value="campus_manager">校區主管</option><option value="photographer">攝影人員</option>
+                </select>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">總部管理員可看全部校區；其他角色請勾選負責校區。</p>
+                {role !== 'hq_admin' && <div className="mt-3 flex flex-wrap gap-2">{campuses.map(c => <label key={c.id} className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition-colors ${campusIds.includes(c.id) ? 'border-violet-400 bg-violet-50 text-violet-700 dark:border-violet-500 dark:bg-violet-900/30 dark:text-violet-300' : 'border-gray-200 bg-white text-gray-700 hover:border-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'}`}><input type="checkbox" className="sr-only" checked={campusIds.includes(c.id)} onChange={() => setCampusIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])} />{c.name}</label>)}</div>}
+              </div>
             <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -452,6 +467,7 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
                   </div>
                 ))}
               </div>
+            </div>
             </div>
           )}
 

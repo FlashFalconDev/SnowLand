@@ -1,0 +1,28 @@
+services:
+  mysql:
+    image: "${SNOWLAND_TEST_MYSQL_IMAGE:-mysql:8.0}"
+    container_name: snowland-test-mysql
+    restart: "no"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=${SNOWLAND_TEST_DB_COLLATION:-utf8mb4_unicode_ci}
+      - --sql-mode=STRICT_TRANS_TABLES
+    environment:
+      MYSQL_ROOT_PASSWORD: "${SNOWLAND_TEST_MYSQL_ROOT_PASSWORD:?set in .env.local}"
+      MYSQL_DATABASE: "${SNOWLAND_TEST_DB_NAME:?set in .env.local}"
+      MYSQL_USER: "${SNOWLAND_TEST_DB_USER:?set in .env.local}"
+      MYSQL_PASSWORD: "${SNOWLAND_TEST_DB_PASSWORD:?set in .env.local}"
+    ports:
+      - "127.0.0.1:${SNOWLAND_TEST_DB_PORT:-3308}:3306"
+    volumes:
+      - snowland_test_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 15s
+
+volumes:
+  snowland_test_mysql_data:
+    name: snowland_test_mysql_data

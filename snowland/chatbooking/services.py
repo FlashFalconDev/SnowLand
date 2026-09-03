@@ -580,7 +580,7 @@ def build_contact(session):
         "phone": values["contact_phone"],
         "messengerType": "LINE" if session.channel == "line" else "AI客服",
         "messengerId": messenger_id,
-        "referralSource": values.get("referral_source", ""),
+        "referralSource": values.get("referral_source") or ("LINE 客服" if session.channel == "line" else "AI 客服"),
     }
 
 

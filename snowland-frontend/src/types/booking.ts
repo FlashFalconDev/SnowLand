@@ -12,6 +12,7 @@ export interface Resort {
   name: string
   display_name: string
   auto_scheduling_enabled: boolean
+  campuses?: { id: number; name: string; code: string }[]
   equipment_time_slots?: EquipmentAssistanceTimeSlot[]
 }
 
@@ -50,6 +51,9 @@ export interface CourseTemplate {
   display_order: number
   duration_hours: number
   max_capacity: number
+  billing_mode?: 'private' | 'per_person'
+  minimum_group_size?: number
+  minimum_student_level?: string
   is_active: boolean
   resorts: string[]
   booking_open_date: string | null
@@ -87,6 +91,8 @@ export type EquipmentOption = 'self_rent' | 'own_equipment' | 'class_time_help' 
 export interface BookingState {
   selectedCourseCategory: number | null
   selectedResort: string | null
+  selectedCampusId: number | null
+  selectedCampusName: string | null
   selectedCourseType: number | null
   peopleCount: number
   hasUnder6: boolean
@@ -94,6 +100,7 @@ export interface BookingState {
   abilityLevelCounts: Record<string, number>
   selectedAbilityLevel: string
   selectedCoach: number | null
+  selectedCoachName: string | null
   selectedCourseTemplate: number | null
   selectedDate: string | null
   selectedTimeSlot: number | null
@@ -137,6 +144,8 @@ export interface ReservationGroup {
   language: string | null
   resort: string
   resortName: string
+  campusId: number
+  campusName: string
   courseCategory: string
   courseFee?: number
   coachFee?: number

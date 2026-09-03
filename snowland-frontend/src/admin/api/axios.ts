@@ -47,6 +47,10 @@ adminApi.interceptors.request.use(
     if (csrfToken && config.headers) {
       config.headers['X-CSRFToken'] = csrfToken
     }
+    const campusScope = localStorage.getItem('snowland_admin_campus_scope') || 'all'
+    if (config.headers) {
+      config.headers['X-Campus-ID'] = campusScope
+    }
 
     return config
   },

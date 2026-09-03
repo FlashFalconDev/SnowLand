@@ -84,6 +84,14 @@ class CourseTemplate(models.Model):
     max_capacity = models.PositiveIntegerField(default=6, verbose_name="預設最大容量", help_text="此課程模板的預設人數限制")
     display_order = models.IntegerField(default=0, verbose_name="顯示順序", help_text="數字越小，前台排序越前面")
     is_active = models.BooleanField(default=True, verbose_name="是否啟用此課程模板")
+    billing_mode = models.CharField(
+        max_length=20,
+        choices=[('private', '包班計價'), ('per_person', '每人計價')],
+        default='private',
+        verbose_name='計價方式',
+    )
+    minimum_group_size = models.PositiveSmallIntegerField(default=1, verbose_name='最低開班人數')
+    minimum_student_level = models.CharField(max_length=20, blank=True, default='', verbose_name='學員最低等級')
     
     # 綁定雪場（多對多關係）
     resorts = models.ManyToManyField(

@@ -50,6 +50,8 @@ export default function DashboardPage() {
   const stats = data?.stats || { orders: 0, revenue: 0, members: 0, avg_order_value: 0 }
   const topItems = data?.top_items || []
   const recentOrders = data?.recent_orders || []
+  const marketingSources = data?.marketing_sources || []
+  const campusSummary = data?.campus_summary || []
   const maxQuantity = topItems.length > 0 ? Math.max(...topItems.map((i) => i.quantity)) : 1
 
   return (
@@ -104,6 +106,11 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SummaryTable title="各校區營運" empty="此時段沒有校區資料" rows={campusSummary} />
+        <SummaryTable title="客戶從哪裡來" empty="此時段沒有來源資料" rows={marketingSources} />
       </div>
 
       {/* 熱門課程 TOP 5 */}
@@ -182,6 +189,25 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function SummaryTable({ title, empty, rows }: { title: string; empty: string; rows: { name: string; orders: number; revenue: number }[] }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+      <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-700"><h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3></div>
+      {rows.length === 0 ? <p className="px-5 py-10 text-center text-sm text-gray-400">{empty}</p> : (
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
+          {rows.map((row) => (
+            <div key={row.name} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-3 text-sm">
+              <span className="truncate font-medium text-gray-900 dark:text-white">{row.name}</span>
+              <span className="text-gray-500 dark:text-gray-400">{row.orders} 筆</span>
+              <span className="min-w-24 text-right font-semibold" style={{ color: PRIMARY }}>NT$ {row.revenue.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

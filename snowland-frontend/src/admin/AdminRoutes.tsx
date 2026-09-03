@@ -4,6 +4,7 @@ import RoleGuard from './components/RoleGuard'
 import DashboardPage from './pages/DashboardPage'
 import CoachesPage from './pages/CoachesPage'
 import ResortsPage from './pages/ResortsPage'
+import CampusesPage from './pages/CampusesPage'
 import CourseTypesPage from './pages/CourseTypesPage'
 import PricingPage from './pages/PricingPage'
 import DiscountsPage from './pages/DiscountsPage'
@@ -21,6 +22,7 @@ import MyCoursesPage from './pages/my/MyCoursesPage'
 import MyCalendarPage from './pages/my/MyCalendarPage'
 import MyLeavesPage from './pages/my/MyLeavesPage'
 import ApplyLeavePage from './pages/my/ApplyLeavePage'
+import OperationsHubPage from './pages/OperationsHubPage'
 
 export default function AdminRoutes() {
   return (
@@ -45,6 +47,21 @@ export default function AdminRoutes() {
           <Route element={<RoleGuard permission="chat_support" />}>
             <Route path="chat-support" element={<ChatSupportPage />} />
           </Route>
+          <Route element={<RoleGuard permission="notifications" />}>
+            <Route path="notifications" element={<OperationsHubPage initialTab="notifications" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="payroll" />}>
+            <Route path="payroll" element={<OperationsHubPage initialTab="payroll" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="evaluations" />}>
+            <Route path="evaluations" element={<OperationsHubPage initialTab="evaluations" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="insurance_records" />}>
+            <Route path="insurance" element={<OperationsHubPage initialTab="insurance" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="orders" />}>
+            <Route path="booking-links" element={<OperationsHubPage initialTab="links" fixed />} />
+          </Route>
 
           {/* 基本設定 */}
           <Route element={<RoleGuard permission="coaches" />}>
@@ -53,6 +70,9 @@ export default function AdminRoutes() {
           </Route>
           <Route element={<RoleGuard permission="resorts" />}>
             <Route path="resorts" element={<ResortsPage />} />
+          </Route>
+          <Route element={<RoleGuard permission="campuses" />}>
+            <Route path="campuses" element={<CampusesPage />} />
           </Route>
           <Route element={<RoleGuard permission="course_types" />}>
             <Route path="course-types" element={<CourseTypesPage />} />

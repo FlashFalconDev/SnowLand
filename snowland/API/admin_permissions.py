@@ -30,6 +30,36 @@ ADMIN_PERMISSION_DEFINITIONS = [
         'description': '查看 LINE 對話、接手案件並人工回覆',
     },
     {
+        'key': 'campuses',
+        'label': '校區與營運規則',
+        'group': '基本設定',
+        'description': '管理校區、可用雪場、收款帳戶與營運規則',
+    },
+    {
+        'key': 'insurance_records',
+        'label': '保險資料',
+        'group': '營運管理',
+        'description': '查看課前保險與聲明書完成狀態',
+    },
+    {
+        'key': 'evaluations',
+        'label': '評量與課程紀錄',
+        'group': '營運管理',
+        'description': '填寫評量、學習進度與上傳課程媒體',
+    },
+    {
+        'key': 'payroll',
+        'label': '薪資結算',
+        'group': '營運管理',
+        'description': '管理教練時薪、指定費、介紹費與月結',
+    },
+    {
+        'key': 'notifications',
+        'label': '自動通知',
+        'group': '營運管理',
+        'description': '設定郵件、LINE 通知內容與發送時間',
+    },
+    {
         'key': 'resorts',
         'label': '雪場管理',
         'group': '基本設定',
@@ -87,6 +117,16 @@ ADMIN_PERMISSION_DEFINITIONS = [
 
 ADMIN_PERMISSION_KEYS = [item['key'] for item in ADMIN_PERMISSION_DEFINITIONS]
 
+ROLE_DEFAULT_PERMISSIONS = {
+    'marketing': ['analytics', 'discounts'],
+    'web_editor': ['cms', 'reviews'],
+    'insurance': ['insurance_records'],
+    'assistant': ['orders', 'scheduling', 'insurance_records', 'evaluations', 'coaches', 'cms', 'reviews'],
+    'campus_principal': ['analytics', 'orders', 'scheduling', 'coaches', 'evaluations', 'payroll'],
+    'campus_manager': ['orders', 'scheduling', 'coaches', 'evaluations'],
+    'photographer': ['evaluations', 'reviews'],
+}
+
 
 def normalize_admin_permissions(value):
     if not isinstance(value, list):
@@ -110,7 +150,9 @@ def get_user_admin_permissions(user):
 
     stored = getattr(profile, 'admin_permissions', None)
     if getattr(profile, 'is_manager', False) and stored is None:
-        return list(ADMIN_PERMISSION_KEYS)
+        if profile.role in ('', 'hq_admin'):
+            return list(ADMIN_PERMISSION_KEYS)
+        return ROLE_DEFAULT_PERMISSIONS.get(profile.role, [])
     return normalize_admin_permissions(stored)
 
 

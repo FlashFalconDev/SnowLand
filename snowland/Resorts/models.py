@@ -33,6 +33,107 @@ class Resorts(models.Model):
         verbose_name = '雪場'
         verbose_name_plural = '雪場'
 
+
+class Campus(models.Model):
+    """營運校區。校區與雪場是多對多，同一雪場可由多個校區使用。"""
+    client = models.ForeignKey(
+        'Client.Client',
+        on_delete=models.CASCADE,
+        related_name='campuses',
+        verbose_name='所屬客戶',
+    )
+    name = models.CharField(max_length=100, verbose_name='校區名稱')
+    code = models.SlugField(max_length=50, verbose_name='校區代碼')
+    resorts = models.ManyToManyField(
+        Resorts,
+        blank=True,
+        related_name='campuses',
+        verbose_name='可使用雪場',
+    )
+    description = models.TextField(blank=True, default='', verbose_name='備註')
+    is_active = models.BooleanField(default=True, verbose_name='是否啟用')
+    display_order = models.IntegerField(default=0, verbose_name='顯示順序')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '校區'
+        verbose_name_plural = '校區'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['client', 'code'], name='unique_campus_code_per_client'),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class PaymentAccount(models.Model):
+    """校區／雪場可用的收款帳戶。"""
+    client = models.ForeignKey(
+        'Client.Client',
+        on_delete=models.CASCADE,
+        related_name='payment_accounts',
+        verbose_name='所屬客戶',
+    )
+    name = models.CharField(max_length=100, verbose_name='帳戶名稱')
+    bank_name = models.CharField(max_length=100, blank=True, default='', verbose_name='銀行名稱')
+    bank_branch = models.CharField(max_length=100, blank=True, default='', verbose_name='分行')
+    account_number = models.CharField(max_length=80, blank=True, default='', verbose_name='帳號')
+    account_holder = models.CharField(max_length=100, blank=True, default='', verbose_name='戶名')
+    overseas_details = models.TextField(blank=True, default='', verbose_name='海外匯款資料')
+    campuses = models.ManyToManyField(Campus, blank=True, related_name='payment_accounts', verbose_name='適用校區')
+    resorts = models.ManyToManyField(Resorts, blank=True, related_name='payment_accounts', verbose_name='適用雪場')
+    is_default = models.BooleanField(default=False, verbose_name='預設帳戶')
+    is_active = models.BooleanField(default=True, verbose_name='是否啟用')
+    display_order = models.IntegerField(default=0, verbose_name='顯示順序')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '收款帳戶'
+        verbose_name_plural = '收款帳戶'
+        ordering = ['display_order', 'id']
+
+    def __str__(self):
+        return self.name
+
+
+def default_cancellation_rules():
+    return [
+        {'days_before': 30, 'refund_percent': 100},
+        {'days_before': 14, 'refund_percent': 80},
+        {'days_before': 7, 'refund_percent': 50},
+        {'days_before': 0, 'refund_percent': 0},
+    ]
+
+
+class OperatingPolicy(models.Model):
+    """簡報未定義細節的營運規則，以可調整設定保留。"""
+    client = models.ForeignKey(
+        'Client.Client', on_delete=models.CASCADE, related_name='operating_policies', verbose_name='所屬客戶'
+    )
+    campus = models.OneToOneField(
+        Campus, on_delete=models.CASCADE, related_name='operating_policy', null=True, blank=True, verbose_name='校區'
+    )
+    unpaid_hold_days = models.PositiveSmallIntegerField(default=3, verbose_name='未付款保留天數')
+    provisional_extra_groups = models.PositiveSmallIntegerField(default=3, verbose_name='未付款容許加排組數')
+    cancellation_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=5, verbose_name='取消手續費百分比')
+    cancellation_rules = models.JSONField(default=default_cancellation_rules, blank=True, verbose_name='退費階梯')
+    leave_advance_days = models.PositiveSmallIntegerField(default=3, verbose_name='請假需提前天數')
+    leave_daily_coach_limit = models.PositiveSmallIntegerField(default=2, verbose_name='每日請假人數上限')
+    leave_max_consecutive_days = models.PositiveSmallIntegerField(default=2, verbose_name='連續請假天數上限')
+    course_reminder_days = models.JSONField(default=list, blank=True, verbose_name='課前提醒天數')
+    settings = models.JSONField(default=dict, blank=True, verbose_name='其他營運設定')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '營運規則'
+        verbose_name_plural = '營運規則'
+
+    def __str__(self):
+        return f"{self.campus.name if self.campus else '全公司預設'}營運規則"
+
 class ResortFee(models.Model):
     """雪場費用設定模型"""
     FEE_TYPE_CHOICES = [

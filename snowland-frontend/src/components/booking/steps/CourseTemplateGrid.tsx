@@ -2,20 +2,11 @@ import { useState, useEffect } from 'react'
 import { useBookingStore } from '@/store/bookingStore'
 import { fetchCourseTemplates } from '@/api/booking'
 import { Users, MapPin } from 'lucide-react'
+import type { CourseTemplate } from '@/types/booking'
 
 interface CourseTemplateGridProps {
   onNext: () => void
   onBack: () => void
-}
-
-interface CourseTemplate {
-  id: number
-  name: string
-  duration_hours: number
-  max_capacity: number
-  course_type_name: string
-  category_name: string
-  resorts: Array<{ id: number; name: string; display_name: string }>
 }
 
 export default function CourseTemplateGrid({
@@ -135,7 +126,7 @@ export default function CourseTemplateGrid({
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <MapPin size={16} className="text-primary-500" />
                     <span>
-                      {template.resorts.map((r) => r.display_name).join('、')}
+                      {template.resorts.join('、')}
                     </span>
                   </div>
                 </div>

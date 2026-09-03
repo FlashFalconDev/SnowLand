@@ -20,6 +20,8 @@ from .api_views import (
     ReservationHistoryAPI,
     GoogleLoginAPI,
     CancelFailedReservationsAPI,
+    StaffBookingLinkResolveAPI,
+    MemberCenterAPI,
 )
 
 app_name = 'booking'
@@ -56,6 +58,8 @@ urlpatterns = [
 
     # 歷史紀錄 API
     path('<str:client_code>/api/reservation-history/', ReservationHistoryAPI.as_view(), name='api_reservation_history_client'),
+    path('<str:client_code>/api/member-center/', MemberCenterAPI.as_view(), name='api_member_center_client'),
+    path('<str:client_code>/api/staff-booking-link/<uuid:token>/', StaffBookingLinkResolveAPI.as_view(), name='api_staff_booking_link_client'),
 
     # Google 登入 API（預約系統專用，不檢查管理員權限）
     path('<str:client_code>/api/google-login/', GoogleLoginAPI.as_view(), name='api_google_login_client'),
