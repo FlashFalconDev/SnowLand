@@ -1232,6 +1232,15 @@ export default function BookingFlowPage() {
 
   const handleSelectCourseTemplate = (id: number) => {
     const template = templates.find((item: any) => Number(item.id) === Number(id))
+    const minimumGroupSize = Number(template?.minimum_group_size || 1)
+    if (template && peopleCount < minimumGroupSize) {
+      setToast({
+        message: `此課程至少 ${minimumGroupSize} 人才能預約`,
+        type: 'warning',
+        isOpen: true,
+      })
+      return
+    }
     setSelectedCourseTemplate(id)
     if (template) {
       setCalendarMonth(parseDateKey(getCalendarStartDateKey(template)))
@@ -2996,9 +3005,12 @@ function Step2SkiConfiguration({
                 <button
                   key={t.id}
                   onClick={() => actions.setSelectedCourseTemplate(t.id)}
+                  disabled={state.peopleCount < Number(t.minimum_group_size || 1)}
                   className={`p-5 rounded-sm border-2 text-left transition-colors ${
                     state.selectedCourseTemplate === t.id
                       ? 'border-[#2b5f8f] bg-[#e9eef3]'
+                      : state.peopleCount < Number(t.minimum_group_size || 1)
+                      ? 'cursor-not-allowed border-[#e5e9f2] bg-[#f8fafc] opacity-60'
                       : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
                   }`}
                 >
@@ -3006,6 +3018,20 @@ function Step2SkiConfiguration({
                   <p className="mt-2 text-xs text-[#64748b]">
                     {[t.course_type_name, `${t.duration_hours} 小時`].filter(Boolean).join(' · ')}
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium">
+                    <span className="rounded-sm bg-[#e9eef3] px-2 py-1 text-[#2b5f8f]">
+                      {t.billing_mode === 'per_person' ? '每人計價' : '包班計價'}
+                    </span>
+                    {Number(t.minimum_group_size || 1) > 1 && (
+                      <span className={`rounded-sm px-2 py-1 ${
+                        state.peopleCount < Number(t.minimum_group_size || 1)
+                          ? 'bg-red-50 text-red-700'
+                          : 'bg-emerald-50 text-emerald-700'
+                      }`}>
+                        至少 {t.minimum_group_size} 人
+                      </span>
+                    )}
+                  </div>
                 </button>
               ))}
               {templates.length === 0 && (

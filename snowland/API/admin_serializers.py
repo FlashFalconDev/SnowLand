@@ -978,6 +978,14 @@ class CoursePricingAdminSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         tiers = attrs.get('people_tiers')
         max_capacity = attrs.get('max_capacity') or getattr(self.instance, 'max_capacity', None)
+        templates = attrs.get('templates')
+        if templates is None and self.instance:
+            templates = self.instance.templates.all()
+        billing_modes = {template.billing_mode for template in (templates or [])}
+        if len(billing_modes) > 1:
+            raise serializers.ValidationError({
+                'templates': '包班計價與每人計價不能共用同一組價格，請分開設定。'
+            })
         if tiers and max_capacity:
             for tier in tiers:
                 if tier.get('is_active', True) and int(tier.get('max_people') or 0) > int(max_capacity):

@@ -48,9 +48,9 @@ class Command(BaseCommand):
             ("雙板 Ski", 2),
         ]
         template_specs = [
-            ("全天課程", 5, time(9, 0), time(15, 0), 12000),
-            ("半天上午", 3, time(9, 0), time(12, 0), 9000),
-            ("半天下午", 3, time(13, 0), time(16, 0), 9000),
+            ("全天課程", 5, time(9, 0), time(15, 0), 12000, "private", 1),
+            ("半天上午", 3, time(9, 0), time(12, 0), 9000, "private", 1),
+            ("半天下午", 3, time(13, 0), time(16, 0), 3000, "per_person", 2),
         ]
 
         for category_name, category_order in categories:
@@ -68,7 +68,7 @@ class Command(BaseCommand):
             )
             course_type.available_resorts.set([resort])
 
-            for template_order, (name, hours, start, end, base_price) in enumerate(template_specs, 1):
+            for template_order, (name, hours, start, end, base_price, billing_mode, minimum_group_size) in enumerate(template_specs, 1):
                 template, _ = CourseTemplate.objects.update_or_create(
                     course_type=course_type,
                     name=name,
@@ -76,6 +76,8 @@ class Command(BaseCommand):
                         "duration_hours": hours,
                         "max_capacity": 6,
                         "display_order": template_order,
+                        "billing_mode": billing_mode,
+                        "minimum_group_size": minimum_group_size,
                         "is_active": True,
                         "booking_open_date": date(2026, 9, 1),
                         "booking_close_date": date(2027, 4, 30),
@@ -115,7 +117,7 @@ class Command(BaseCommand):
                         min_people=people,
                         max_people=people,
                         defaults={
-                            "price": base_price + (people - 1) * 2000,
+                            "price": base_price if billing_mode == "per_person" else base_price + (people - 1) * 2000,
                             "is_active": True,
                             "display_order": people,
                         },

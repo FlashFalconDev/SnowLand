@@ -329,9 +329,13 @@ function formatPeopleTiers(pricing: CoursePricing) {
     .sort((a, b) => a.min_people - b.min_people || a.max_people - b.max_people)
 
   if (tiers.length === 0) return ''
-  return tiers
-    .map((tier) => `${tier.min_people}-${tier.max_people} 人 NT$ ${tier.price.toLocaleString()}`)
-    .join(' / ')
+  const prices = tiers.map((tier) => tier.price)
+  const minimum = Math.min(...prices)
+  const maximum = Math.max(...prices)
+  const priceRange = minimum === maximum
+    ? `NT$ ${minimum.toLocaleString()}`
+    : `NT$ ${minimum.toLocaleString()}–${maximum.toLocaleString()}`
+  return `${tiers.length} 組 · ${priceRange}`
 }
 
 function formatDate(value?: string | null) {
@@ -480,6 +484,16 @@ function PricingSection({
       notify.error('請選擇雪場')
       return
     }
+    const selectedModes = new Set(
+      courseTypes
+        .flatMap((courseType) => courseType.templates || [])
+        .filter((template) => data.templates?.includes(template.id))
+        .map((template) => template.billing_mode),
+    )
+    if (selectedModes.size > 1) {
+      notify.error('包班計價與每人計價不能共用同一組價格，請分開設定')
+      return
+    }
     if (data.base_price_off_peak == null || data.base_price_off_peak < 0) {
       notify.error('請填寫基本價格')
       return
@@ -580,7 +594,7 @@ function PricingSection({
       {allTemplates.length === 0 || courseCategories.length === 0 ? (
         <EmptyState>尚未建立課程模板，請先到「課程類型」新增課程。</EmptyState>
       ) : (
-        <div className="grid gap-4 p-4 xl:grid-cols-[260px_320px_minmax(0,1fr)]">
+        <div className="grid gap-4 p-4 2xl:grid-cols-[260px_320px_minmax(0,1fr)]">
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/30">
             <div className="mb-3 flex items-center justify-between">
               <div>
@@ -682,6 +696,9 @@ function PricingSection({
                           <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
                             <span>{template.duration_hours} 小時</span>
                             <span>最多 {template.max_capacity} 人</span>
+                            <span className="font-medium text-violet-600 dark:text-violet-300">
+                              {template.billing_mode === 'per_person' ? '每人計價' : '包班計價'}
+                            </span>
                             {state.priceStart !== null && <span>NT$ {state.priceStart.toLocaleString()} 起</span>}
                           </div>
                         </div>
@@ -795,6 +812,7 @@ function PricingSection({
                                 <PricingRow
                                   key={pricing.id}
                                   pricing={pricing}
+                                  template={selectedTemplate}
                                   compact
                                   onEdit={() => setEditing(pricing)}
                                   onDelete={() => {
@@ -823,6 +841,7 @@ function PricingSection({
                             <PricingRow
                               key={pricing.id}
                               pricing={pricing}
+                              template={selectedTemplate}
                               compact
                               warningLabel="未綁定在模板雪場"
                               onEdit={() => setEditing(pricing)}
@@ -904,12 +923,18 @@ function PricingRow({
 }) {
   const peopleTierText = formatPeopleTiers(pricing)
   const mainPrice = peopleTierText || `基本 NT$ ${pricing.base_price_off_peak.toLocaleString()}`
+  const isPerPerson = template?.billing_mode === 'per_person'
 
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-gray-50 px-3 py-3 dark:bg-gray-900/40 lg:flex-row lg:items-center lg:justify-between">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="break-words text-sm font-medium text-gray-900 dark:text-white">{pricing.resort_name}</span>
+          {template && (
+            <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-200">
+              {isPerPerson ? '每人計價' : '包班計價'}
+            </span>
+          )}
           {!pricing.is_active && (
             <span className="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
               停用
@@ -927,9 +952,9 @@ function PricingRow({
           )}
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <PriceMetric label={peopleTierText ? '人數級距' : '1 人基本價'} value={mainPrice} />
-          <PriceMetric label="旺季加價" value={`NT$ ${pricing.peak_season_surcharge.toLocaleString()}`} />
-          <PriceMetric label="每增加 1 人" value={`NT$ ${pricing.additional_person_fee.toLocaleString()}`} />
+          <PriceMetric label={peopleTierText ? (isPerPerson ? '級距每人價' : '級距包班價') : (isPerPerson ? '每人單價' : '包班基本價')} value={mainPrice} />
+          <PriceMetric label={isPerPerson ? '每人旺季加價' : '每班旺季加價'} value={`NT$ ${pricing.peak_season_surcharge.toLocaleString()}`} />
+          <PriceMetric label={isPerPerson ? '總價算法' : '每增加 1 人'} value={isPerPerson ? '單價 × 人數' : `NT$ ${pricing.additional_person_fee.toLocaleString()}`} />
           <PriceMetric label="人數上限" value={`${pricing.max_capacity} 人`} />
         </div>
         {template && (
@@ -983,6 +1008,16 @@ function PricingModal({
   })
   const [pricingMode, setPricingMode] = useState<'basic' | 'tiered'>((value.people_tiers || []).length > 0 ? 'tiered' : 'basic')
   const selectedTemplateCount = form.templates?.length || 0
+  const selectedTemplates = useMemo(
+    () => courseTypes
+      .flatMap((courseType) => courseType.templates || [])
+      .filter((template) => form.templates?.includes(template.id)),
+    [courseTypes, form.templates],
+  )
+  const selectedBillingModes = new Set(selectedTemplates.map((template) => template.billing_mode))
+  const hasMixedBillingModes = selectedBillingModes.size > 1
+  const billingMode = selectedBillingModes.size === 1 ? selectedTemplates[0]?.billing_mode : undefined
+  const isPerPerson = billingMode === 'per_person'
 
   const toggleTemplate = (id: number) => {
     const current = form.templates || []
@@ -1092,6 +1127,9 @@ function PricingModal({
                         />
                         <span className="text-sm text-gray-900 dark:text-white">{template.name}</span>
                         <span className="text-xs text-gray-500 dark:text-gray-400">{template.duration_hours} 小時</span>
+                        <span className="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                          {template.billing_mode === 'per_person' ? '每人計價' : '包班計價'}
+                        </span>
                       </label>
                     ))
                   )}
@@ -1099,30 +1137,49 @@ function PricingModal({
               ))
             )}
           </div>
+          {billingMode && !hasMixedBillingModes && (
+            <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-800 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-100">
+              <span className="font-semibold">{isPerPerson ? '每人計價：' : '包班計價：'}</span>
+              {isPerPerson ? '填每位學員的價格，系統會乘以報名人數。' : '填整班價格；增加人數時再加上每人加價。'}
+            </div>
+          )}
+          {hasMixedBillingModes && (
+            <div className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
+              包班與每人計價不能共用價格。請只勾選同一種計價方式。
+            </div>
+          )}
         </Field>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="1 人基本價">
+          <Field label={isPerPerson ? '每人單價' : '包班基本價'}>
             <NumberInput
               value={form.base_price_off_peak}
               onChange={(value) => setForm({ ...form, base_price_off_peak: value })}
               prefix="NT$"
             />
           </Field>
-          <Field label="旺季加價">
+          <Field label={isPerPerson ? '每人旺季加價' : '每班旺季加價'}>
             <NumberInput
               value={form.peak_season_surcharge}
               onChange={(value) => setForm({ ...form, peak_season_surcharge: value })}
               prefix="NT$"
             />
           </Field>
-          <Field label="每增加 1 人">
-            <NumberInput
-              value={form.additional_person_fee}
-              onChange={(value) => setForm({ ...form, additional_person_fee: value })}
-              prefix="NT$"
-            />
-          </Field>
+          {isPerPerson ? (
+            <Field label="總價算法">
+              <div className="flex h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                每人單價 × 報名人數
+              </div>
+            </Field>
+          ) : (
+            <Field label="每增加 1 人">
+              <NumberInput
+                value={form.additional_person_fee}
+                onChange={(value) => setForm({ ...form, additional_person_fee: value })}
+                prefix="NT$"
+              />
+            </Field>
+          )}
           <Field label="人數上限">
             <NumberInput
               value={form.max_capacity}
@@ -1145,7 +1202,7 @@ function PricingModal({
                 }`}
               >
                 <span className="block text-sm font-semibold">基本計價</span>
-                <span className="mt-0.5 block text-xs opacity-75">1 人基本價加上每增加 1 人費用</span>
+                <span className="mt-0.5 block text-xs opacity-75">{isPerPerson ? '每人單價乘以報名人數' : '包班基本價加上每增加 1 人費用'}</span>
               </button>
               <button
                 type="button"
@@ -1157,7 +1214,7 @@ function PricingModal({
                 }`}
               >
                 <span className="block text-sm font-semibold">人數級距</span>
-                <span className="mt-0.5 block text-xs opacity-75">直接設定每個人數區間的總價</span>
+                <span className="mt-0.5 block text-xs opacity-75">{isPerPerson ? '設定每個人數區間的每人單價' : '設定每個人數區間的整班總價'}</span>
               </button>
             </div>
           </Field>
@@ -1181,7 +1238,7 @@ function PricingModal({
                   <div className="hidden grid-cols-[1fr_1fr_1.3fr_72px_40px] gap-2 px-1 text-xs font-medium text-gray-500 dark:text-gray-400 sm:grid">
                     <span>最少人數</span>
                     <span>最多人數</span>
-                    <span>區間總價</span>
+                    <span>{isPerPerson ? '區間每人價' : '區間總價'}</span>
                     <span>狀態</span>
                     <span />
                   </div>
@@ -1234,7 +1291,13 @@ function PricingModal({
         </div>
       </div>
 
-      <ModalFooter onClose={onClose} onSave={() => onSave(form)} saveLabel="儲存價格" />
+      <ModalFooter
+        onClose={onClose}
+        onSave={() => {
+          if (!hasMixedBillingModes) onSave(form)
+        }}
+        saveLabel={hasMixedBillingModes ? '請先分開課程' : '儲存價格'}
+      />
     </ModalFrame>
   )
 }
