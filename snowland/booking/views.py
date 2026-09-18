@@ -261,6 +261,11 @@ def calculate_price_api(request, Client_Info=None):
         
         # 獲取課程模板
         template = CourseTemplate.objects.get(id=template_id)
+        if people_count < template.minimum_group_size:
+            return JsonResponse(
+                {'error': f'此課程最低開班人數為 {template.minimum_group_size} 人'},
+                status=400,
+            )
         
         # 獲取雪場
         resort = Resorts.objects.get(name=resort_name)
@@ -282,7 +287,11 @@ def calculate_price_api(request, Client_Info=None):
         is_peak_season = (season_type == 'peak')
         
         # 計算價格
-        price = pricing_strategy.calculate_price(people_count, is_peak_season)
+        price = pricing_strategy.calculate_price(
+            people_count,
+            is_peak_season,
+            billing_mode=template.billing_mode,
+        )
         
         return JsonResponse({'price': price})
         
@@ -533,6 +542,10 @@ def API(request, tunnel, Client_Info=None):
                                 except CourseSession.DoesNotExist:
                                     raise Exception(f"無效的時段ID: {slot_id}")
 
+                            if number_of_people < course_slot.template.minimum_group_size:
+                                raise Exception(
+                                    f'此課程最低開班人數為 {course_slot.template.minimum_group_size} 人'
+                                )
                             main_time_str = course_slot.main_time
                             main_segments = parse_time_ranges(main_time_str)
                             
@@ -560,7 +573,11 @@ def API(request, tunnel, Client_Info=None):
                                 ).first()
                                 if pricing_strategy:
                                     is_peak_season = (season_type == 'peak')
-                                    course_fee = pricing_strategy.calculate_price(number_of_people, is_peak_season)
+                                    course_fee = pricing_strategy.calculate_price(
+                                        number_of_people,
+                                        is_peak_season,
+                                        billing_mode=course_slot.template.billing_mode,
+                                    )
                                 else:
                                     raise Exception(f"找不到對應的價格設定: 課程='{course_slot.template.name}', 雪場='{resort_instance.name}'")
                             except Exception as e:

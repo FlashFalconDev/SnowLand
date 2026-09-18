@@ -123,6 +123,8 @@ export interface CalculatePriceResponse {
   course_type_name?: string
   course_template_name?: string
   duration_hours?: number
+  billing_mode?: 'private' | 'per_person'
+  billing_mode_label?: string
 }
 
 export const calculatePrice = async (params: CalculatePriceParams): Promise<CalculatePriceResponse> => {

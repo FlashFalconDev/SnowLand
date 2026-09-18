@@ -181,6 +181,10 @@ def compute_course_price_authoritative(*, template_id, resort_name, people_count
     except Resorts.DoesNotExist:
         raise PriceCalculationError(f'找不到雪場: {resort_name}')
 
+    people_count = int(people_count)
+    if people_count < template.minimum_group_size:
+        raise PriceCalculationError(f'此課程最低開班人數為 {template.minimum_group_size} 人')
+
     pricing = CoursePricing.objects.filter(
         templates=template,
         resort=resort,
@@ -198,7 +202,11 @@ def compute_course_price_authoritative(*, template_id, resort_name, people_count
     is_peak_season = (season_type == 'peak')
 
     try:
-        price = pricing.calculate_price(int(people_count), is_peak_season)
+        price = pricing.calculate_price(
+            people_count,
+            is_peak_season,
+            billing_mode=template.billing_mode,
+        )
     except ValueError as e:
         raise PriceCalculationError(str(e))
 
@@ -1400,6 +1408,8 @@ class CalculatePriceAPI(APIView):
                 'course_type_name': template.course_type.name,
                 'course_template_name': template.name,
                 'duration_hours': template.duration_hours,
+                'billing_mode': template.billing_mode,
+                'billing_mode_label': template.get_billing_mode_display(),
             }, status=status.HTTP_200_OK)
 
         except PriceCalculationError as e:

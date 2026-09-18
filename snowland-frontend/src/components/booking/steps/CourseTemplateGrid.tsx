@@ -19,6 +19,7 @@ export default function CourseTemplateGrid({
 
   const selectedCourseType = useBookingStore((state) => state.selectedCourseType)
   const selectedResort = useBookingStore((state) => state.selectedResort)
+  const peopleCount = useBookingStore((state) => state.peopleCount)
   const setSelectedCourseTemplate = useBookingStore(
     (state) => state.setSelectedCourseTemplate
   )
@@ -94,7 +95,8 @@ export default function CourseTemplateGrid({
             <button
               key={template.id}
               onClick={() => handleSelectTemplate(template.id)}
-              className="group relative overflow-hidden rounded-2xl border-2 border-gray-200 bg-white p-6 text-left transition-all hover:scale-105 hover:border-primary-500 hover:shadow-xl"
+              disabled={peopleCount < (template.minimum_group_size || 1)}
+              className="group relative overflow-hidden rounded-2xl border-2 border-gray-200 bg-white p-6 text-left transition-all enabled:hover:scale-105 enabled:hover:border-primary-500 enabled:hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60"
             >
               <div className="flex flex-col gap-4">
                 {/* Header */}
@@ -115,6 +117,16 @@ export default function CourseTemplateGrid({
                   <p className="mt-1 text-sm text-gray-600">
                     {template.course_type_name}
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+                    <span className="rounded-full bg-primary-50 px-2.5 py-1 text-primary-700">
+                      {template.billing_mode === 'per_person' ? '每人計價' : '包班計價'}
+                    </span>
+                    {(template.minimum_group_size || 1) > 1 && (
+                      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-700">
+                        至少 {template.minimum_group_size} 人
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Info */}
