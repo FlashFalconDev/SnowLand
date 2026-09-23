@@ -3,12 +3,18 @@ import SiteLink from './SiteLink';
 
 const markerPositions = {
   kamui: { left: "42.83%", top: "47.37%" },
+  asahikawasantapresentpark: { left: "43.9%", top: "49.2%" },
+  furano: { left: "43.8%", top: "55.2%" },
+  pippu: { left: "44.2%", top: "44.8%" },
+  canmore: { left: "46.2%", top: "48.2%" },
   tomamu: { left: "46.93%", top: "60.77%" },
   sahoro: { left: "48.49%", top: "58.34%" },
   "mt-racey": { left: "40.35%", top: "61.45%" },
   "sapporo-kokusai": { left: "34.68%", top: "60.29%" },
   teine: { left: "33.34%", top: "60.98%" },
   kiroro: { left: "31.94%", top: "60.98%" },
+  onze: { left: "31.9%", top: "58.6%" },
+  asari: { left: "32.7%", top: "60.2%" },
   rusutsu: { left: "31.77%", top: "67.61%" },
   "niseko-annupuri": { left: "29.27%", top: "65.35%" },
 };

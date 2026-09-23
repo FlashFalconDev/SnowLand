@@ -3,8 +3,8 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 import { homepageAssetBase } from '../../data/site/assetPaths';
-import legacyPages from '../../data/site/legacyPages.json';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
+import { siteContentToPage, useSiteContent } from '../../hooks/useSiteContent';
 
 const renderTextWithLinks = (text) => {
   const linkRegex = /(https?:\/\/[^\s]+)/g;
@@ -29,7 +29,8 @@ const renderTextWithLinks = (text) => {
 };
 
 function ContactPage() {
-  const page = legacyPages["contact"];
+  const { items, isLoading, error } = useSiteContent('about.contact', { limit: 1 });
+  const page = siteContentToPage(items[0]);
   const blocks = page?.blocks ?? [];
   const infoLines = Array.from(
     new Set(
@@ -52,6 +53,20 @@ function ContactPage() {
   const { scrollY } = useScroll();
   const contactBgY = useTransform(scrollY, [0, 900], ["0%", "28%"]);
 
+  if (!page) {
+    return (
+      <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
+        <SiteHeader forceTransparent forceDarkText forceLogoColor />
+        <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
+          <p className={`text-sm ${error ? "text-red-600" : "text-[#64748b]"}`}>
+            {error ? "聯絡資訊暫時無法載入，請稍後再試。" : isLoading ? "聯絡資訊載入中。" : "目前沒有已發布的聯絡資訊。"}
+          </p>
+        </main>
+        <SiteFooter />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen text-[#1f2937] flex flex-col">
       <SiteHeader forceTransparent forceDarkText forceLogoColor />
@@ -72,7 +87,7 @@ function ContactPage() {
                 Contact us
               </p>
               <h1 className="text-3xl md:text-4xl font-semibold tracking-wide text-[#111827] font-display">
-                聯絡我們
+                {page.title || "聯絡我們"}
               </h1>
               <div className="space-y-3 text-sm md:text-base text-[#475569] leading-relaxed">
                 {infoLines

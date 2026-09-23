@@ -11,11 +11,12 @@ from Coach.models import Coach, CoachPayRule
 from Coursekit.models import CourseCategory, CourseType
 from Resorts.models import Campus, OperatingPolicy, PaymentAccount, Resorts
 from booking.models import (
-    Booking, CancellationRequest, CourseEvaluation, MemberDetail, NotificationTemplate, Payment,
+    Booking, CancellationRequest, CourseEvaluation, CourseMedia, MemberDetail, NotificationTemplate, Payment,
     Reservation, ReservationGroup, StaffBookingLink,
 )
 from booking.operations import calculate_refund, request_cancellation, resolve_payment_account, schedule_group_notifications
-from Coach.payroll import calculate_payroll_statement
+from Coach.payroll import add_payroll_adjustment, calculate_payroll_statement
+from API.admin_serializers import OperatingPolicyAdminSerializer
 
 
 class OperationsTests(TestCase):
@@ -64,6 +65,38 @@ class OperationsTests(TestCase):
         self.assertEqual(values['original_amount'], 10000)
         self.assertEqual(values['refund_amount'], 9500)
 
+    def test_refund_rule_editor_rejects_duplicate_days_and_invalid_fee(self):
+        serializer = OperatingPolicyAdminSerializer(self.policy, data={
+            'cancellation_rules': [
+                {'days_before': 30, 'refund_percent': 80},
+                {'days_before': 30, 'refund_percent': 50},
+            ],
+            'cancellation_fee_percent': 101,
+        }, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('cancellation_rules', serializer.errors)
+        self.assertIn('cancellation_fee_percent', serializer.errors)
+
+    def test_member_cancel_requires_owned_paid_order_and_bank_details(self):
+        Payment.objects.create(reservation_group=self.group, user=self.user, status='paid', payment_method='bank_transfer')
+        url = f'/booking/{self.client_tenant.internal_code}/api/member-cancellations/{self.group.pk}/'
+        stranger = APIClient()
+        stranger.force_authenticate(user=User.objects.create_user('stranger'))
+        self.assertEqual(stranger.get(url).status_code, 404)
+        member = APIClient()
+        member.force_authenticate(user=self.user)
+        preview = member.get(url)
+        self.assertEqual(preview.status_code, 200)
+        self.assertTrue(preview.data['requires_bank_account'])
+        self.assertEqual(member.post(url, {'reason': 'schedule'}, format='json').status_code, 400)
+        submitted = member.post(url, {
+            'reason': 'schedule', 'bank_name': 'Test Bank',
+            'account_number': '123456', 'account_holder': 'Student',
+        }, format='json')
+        self.assertEqual(submitted.status_code, 201)
+        self.assertEqual(submitted.data['status'], 'requested')
+        self.assertEqual(member.post(url, {'reason': 'schedule'}, format='json').status_code, 400)
+
     def test_bank_transfer_cancellation_requires_refund_bank(self):
         Payment.objects.create(reservation_group=self.group, user=self.user, status='paid', payment_method='TT')
         with self.assertRaisesMessage(ValueError, '匯款訂單必須填寫'):
@@ -74,6 +107,25 @@ class OperationsTests(TestCase):
         cancellation = request_cancellation(self.group, reason='schedule')
         self.assertEqual(cancellation.refund_amount, 9500)
         self.assertEqual(self.group.revisions.count(), 1)
+
+    def test_staff_can_choose_configured_refund_rule(self):
+        Payment.objects.create(reservation_group=self.group, user=self.user, status='paid', payment_method='credit_card')
+        cancellation = request_cancellation(self.group, reason='schedule', selected_rule_days_before=14)
+        self.assertEqual(cancellation.calculation_mode, 'rule')
+        self.assertEqual(cancellation.refund_percent, 80)
+        self.assertEqual(cancellation.refund_amount, 7500)
+        self.assertEqual(cancellation.selected_rule_days_before, 14)
+
+    def test_staff_can_enter_special_refund_but_not_overpay(self):
+        Payment.objects.create(reservation_group=self.group, user=self.user, status='paid', payment_method='credit_card')
+        with self.assertRaisesMessage(ValueError, '不可超過訂單金額'):
+            request_cancellation(self.group, reason='weather', manual_refund_amount=10001)
+        with self.assertRaisesMessage(ValueError, '不在目前營運規則中'):
+            request_cancellation(self.group, reason='weather', selected_rule_days_before=99)
+        cancellation = request_cancellation(self.group, reason='weather', manual_refund_amount=9800)
+        self.assertEqual(cancellation.calculation_mode, 'manual')
+        self.assertEqual(cancellation.refund_amount, 9800)
+        self.assertEqual(cancellation.handling_fee_percent, 0)
 
     def test_payment_account_prefers_matching_resort_and_campus(self):
         fallback = PaymentAccount.objects.create(client=self.client_tenant, name='全域', is_default=True)
@@ -117,6 +169,16 @@ class OperationsTests(TestCase):
         self.assertEqual(statement.supervisor_allowance, 300)
         self.assertEqual(statement.total_amount, 5700)
 
+    def test_manual_payroll_items_survive_recalculation_and_are_itemized(self):
+        CoachPayRule.objects.create(coach=self.coach, discipline='snowboard', hourly_rate=1000, referral_percent=0)
+        args = dict(coach=self.coach, campus=self.campus, period_start=self.booking_1.date, period_end=self.booking_2.date)
+        statement = calculate_payroll_statement(**args)
+        add_payroll_adjustment(statement=statement, description='本月日文協助費', amount=1200)
+        statement = calculate_payroll_statement(**args)
+        self.assertEqual(statement.adjustment, 1200)
+        self.assertEqual(statement.total_amount, 5200)
+        self.assertEqual(statement.lines.filter(line_type='adjustment', description='本月日文協助費').count(), 1)
+
     def test_cross_tenant_pay_rule_is_rejected(self):
         other_tenant = Client.objects.create(name='Other', internal_code='other')
         other_coach = Coach.objects.create(client=other_tenant, name='外部教練')
@@ -142,6 +204,67 @@ class OperationsTests(TestCase):
             'quick_rebook_group_id': self.group.id,
         }, format='json')
         self.assertEqual(response.status_code, 404)
+
+    def test_member_center_returns_real_orders_forms_and_learning_records(self):
+        member = MemberDetail.objects.create(
+            reservation=self.reservation,
+            user=self.user,
+            age_range='25-35y',
+            snowboard_skills=['雪場S turn'],
+        )
+        evaluation = CourseEvaluation.objects.create(
+            booking=self.booking_1,
+            member=member,
+            coach=self.coach,
+            learning_progress={'before': '等級 1', 'after': '等級 2'},
+            coach_notes='轉彎控制已有明顯進步。',
+            completed_at=timezone.now(),
+        )
+        CourseMedia.objects.create(
+            evaluation=evaluation,
+            media_type='photo',
+            url='https://example.com/lesson.jpg',
+            is_public=True,
+        )
+        CourseMedia.objects.create(
+            evaluation=evaluation,
+            media_type='photo',
+            url='https://example.com/private.jpg',
+            is_public=False,
+        )
+        api = APIClient(); api.force_authenticate(self.user)
+
+        response = api.get('/booking/snowland/api/member-center/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['member']['email'], 'student@example.com')
+        self.assertEqual(response.data['orders'][0]['id'], self.group.id)
+        self.assertEqual(response.data['orders'][0]['reservations'][0]['resort'], 'Tomamu')
+        self.assertEqual(response.data['pre_course_forms'][0]['age_range'], '25-35y')
+        self.assertEqual(response.data['learning_records'][0]['coach_notes'], '轉彎控制已有明顯進步。')
+        self.assertEqual(response.data['learning_records'][0]['media'][0]['url'], 'https://example.com/lesson.jpg')
+        self.assertEqual(len(response.data['learning_records'][0]['media']), 1)
+
+    def test_member_email_registration_and_login_use_real_django_session(self):
+        api = APIClient()
+        registered = api.post('/booking/snowland/api/member-auth/', {
+            'action': 'register',
+            'email': 'new-member@example.com',
+            'password': 'secure-pass-123',
+        }, format='json')
+        self.assertEqual(registered.status_code, 201)
+        self.assertTrue(User.objects.get(email='new-member@example.com').check_password('secure-pass-123'))
+        self.assertEqual(api.get('/booking/snowland/api/member-center/').status_code, 200)
+
+        api.post('/control/api/logout/', {}, format='json')
+        rejected = api.post('/booking/snowland/api/member-auth/', {
+            'action': 'login', 'email': 'new-member@example.com', 'password': 'wrong-password',
+        }, format='json')
+        self.assertEqual(rejected.status_code, 400)
+        logged_in = api.post('/booking/snowland/api/member-auth/', {
+            'action': 'login', 'email': 'new-member@example.com', 'password': 'secure-pass-123',
+        }, format='json')
+        self.assertEqual(logged_in.status_code, 200)
 
     def test_staff_booking_link_resolves_only_before_use_and_expiry(self):
         link = StaffBookingLink.objects.create(

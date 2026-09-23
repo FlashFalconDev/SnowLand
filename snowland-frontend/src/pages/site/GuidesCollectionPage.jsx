@@ -3,15 +3,17 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import legacyPages from '../../data/site/legacyPages.json';
-import guidesArticles from '../../data/site/guidesArticles';
+import { siteContentToArticle, siteContentToPage, useSiteContent } from '../../hooks/useSiteContent';
 
 function GuidesCollectionPage() {
   const { category } = useParams();
   const navigate = useNavigate();
   const categoryLabels = ["All", "滑雪初心者", "北海道滑雪場", "行程規劃與實戰攻略", "裝備與技巧", "北海道生活", "限時活動"];
   const [activeCategory, setActiveCategory] = useState(categoryLabels[0]);
-  const page = legacyPages["guides"];
+  const { items: pageItems } = useSiteContent('guides.index', { limit: 1 });
+  const { items: articleItems, isLoading, error } = useSiteContent('guides.articles');
+  const page = siteContentToPage(pageItems[0]);
+  const guidesArticles = articleItems.map(siteContentToArticle);
   const categoryBadgeStyles = {
     "滑雪初心者": "bg-[var(--tag-beginner-bg)] text-[var(--tag-beginner-text)]",
     "北海道滑雪場": "bg-[var(--tag-resort-bg)] text-[var(--tag-resort-text)]",
@@ -112,6 +114,21 @@ function GuidesCollectionPage() {
           </div>
         </div>
         <section className="mt-12 grid w-full max-w-4xl mx-auto gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {isLoading && (
+            <p className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-[#64748b]">
+              正在載入文章…
+            </p>
+          )}
+          {!isLoading && error && (
+            <p className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-red-600">
+              文章暫時無法載入，請稍後再試。
+            </p>
+          )}
+          {!isLoading && !error && cards.length === 0 && (
+            <p className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-[#64748b]">
+              目前沒有已發布的文章。
+            </p>
+          )}
           {cards.map((card) => {
             const localRoute = localArticleRoutes[card.url];
             const CardWrapper = localRoute ? SiteLink : "div";

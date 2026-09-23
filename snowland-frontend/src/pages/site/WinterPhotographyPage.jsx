@@ -366,7 +366,7 @@ function WinterPhotographyPage() {
                     <p>・適合單一地點拍攝</p>
                   </div>
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
                     立即預約 →
@@ -405,7 +405,7 @@ function WinterPhotographyPage() {
                     <p>・適合家庭、情侶或多場景拍攝</p>
                   </div>
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
                     立即預約 →
@@ -439,7 +439,7 @@ function WinterPhotographyPage() {
                     <p>・適合滑雪側拍 + 外景寫真</p>
                   </div>
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
                     立即預約 →
@@ -655,7 +655,7 @@ function WinterPhotographyPage() {
             </div>
             <div className="mt-10 flex justify-center">
               <SiteLink
-                to="/photography/how-to-book"
+                to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
                 查看預約流程細節
@@ -744,7 +744,7 @@ function WinterPhotographyPage() {
                 })}
                 <div className="pt-4">
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
                     查看更多常見問題

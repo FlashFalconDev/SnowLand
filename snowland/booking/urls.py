@@ -19,9 +19,11 @@ from .api_views import (
     ProcessPaymentAPI,
     ReservationHistoryAPI,
     GoogleLoginAPI,
+    MemberAuthAPI,
     CancelFailedReservationsAPI,
     StaffBookingLinkResolveAPI,
     MemberCenterAPI,
+    MemberCancellationAPI,
 )
 
 app_name = 'booking'
@@ -58,11 +60,13 @@ urlpatterns = [
 
     # 歷史紀錄 API
     path('<str:client_code>/api/reservation-history/', ReservationHistoryAPI.as_view(), name='api_reservation_history_client'),
+    path('<str:client_code>/api/member-cancellations/<int:group_id>/', MemberCancellationAPI.as_view(), name='api_member_cancellation_client'),
     path('<str:client_code>/api/member-center/', MemberCenterAPI.as_view(), name='api_member_center_client'),
     path('<str:client_code>/api/staff-booking-link/<uuid:token>/', StaffBookingLinkResolveAPI.as_view(), name='api_staff_booking_link_client'),
 
     # Google 登入 API（預約系統專用，不檢查管理員權限）
     path('<str:client_code>/api/google-login/', GoogleLoginAPI.as_view(), name='api_google_login_client'),
+    path('<str:client_code>/api/member-auth/', MemberAuthAPI.as_view(), name='api_member_auth_client'),
 
     # ========== 向後相容的 API 端點（無 client_code） ==========
     path('api/course-categories/', CourseCategoryListAPI.as_view(), name='api_course_categories'),
@@ -83,6 +87,7 @@ urlpatterns = [
     path('api/process-payment/', ProcessPaymentAPI.as_view(), name='api_process_payment'),
     path('api/reservation-history/', ReservationHistoryAPI.as_view(), name='api_reservation_history'),
     path('api/google-login/', GoogleLoginAPI.as_view(), name='api_google_login'),
+    path('api/member-auth/', MemberAuthAPI.as_view(), name='api_member_auth'),
 
     # ========== 舊的 API 端點（逐步棄用） ==========
     path('api/calculate_price/', views.calculate_price_api, name='calculate_price_legacy'),

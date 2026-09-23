@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Calendar,
@@ -693,10 +693,14 @@ const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []
 
 export default function BookingFlowPage() {
   const { user, loading: authLoading } = useAuth()
+  const [searchParams] = useSearchParams()
+  const requestedService = searchParams.get('service')
 
   // ===== 流程狀態 =====
   const [currentStep, setCurrentStep] = useState<MainStep>(1)
-  const [serviceType, setServiceType] = useState<ServiceType | ''>('')
+  const [serviceType, setServiceType] = useState<ServiceType | ''>(
+    requestedService === 'photo' || requestedService === 'ski' ? requestedService : ''
+  )
   const [step2Index, setStep2Index] = useState(0) // Step 2 的子欄位索引
   const [appendTargetGroupId, setAppendTargetGroupId] = useState<string | null>(null)
 

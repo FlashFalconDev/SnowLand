@@ -4,10 +4,8 @@ import SiteLink from '../../components/site/SiteLink';
 import HokkaidoMap from '../../components/site/HokkaidoMap';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import resortLegacyData from '../../data/site/resortLegacyData';
-import skiResorts from '../../data/site/skiResorts';
-import resortNavigation from '../../data/site/resortNavigation';
 import { useSiteLink } from '../../hooks/useSiteBasePath';
+import { siteContentToResort, useCoursePricing, useSiteContent } from '../../hooks/useSiteContent';
 
 const slopeColors = {
   初級: "bg-[#9cccf4]",
@@ -21,10 +19,22 @@ function ResortCoursePage() {
   const { resort, section } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const resortInfo = resortLegacyData[resort];
+  const { items: resortDetailItems, isLoading: detailLoading, error: detailError } = useSiteContent('course.resort-pages');
+  const { items: resortItems, isLoading: resortsLoading } = useSiteContent('course.resorts');
+  const { pricing, isLoading: pricingLoading, error: pricingError } = useCoursePricing(resort);
+  const resortDetailItem = resortDetailItems.find((item) => item.external_id === resort);
+  const storedResortInfo = resortDetailItem?.metadata?.resort;
+  const resortInfo = storedResortInfo ? {
+    ...storedResortInfo,
+    description: resortDetailItem.summary || storedResortInfo.description,
+    heroImage: resortDetailItem.image_url || storedResortInfo.heroImage,
+    tags: resortDetailItem.tags?.length ? resortDetailItem.tags : storedResortInfo.tags,
+  } : null;
+  const skiResorts = resortItems.map(siteContentToResort);
+  const resortNavigation = skiResorts;
   const resortMeta = useMemo(
     () => skiResorts.find((item) => item.slug === resort),
-    [resort]
+    [resort, skiResorts]
   );
   const resortCount = resortNavigation.length;
   const resortIndex = resortNavigation.findIndex((item) => item.slug === resort);
@@ -43,76 +53,18 @@ function ResortCoursePage() {
   const liftScrollTrackWidth = 160;
   const liftScrollThumbMinWidth = 24;
   const bookingUrl = useSiteLink('/booking');
-  const fullDayOnlyPricing = {
-    kamui: {
-      discount: [15200, 18200, 21200, 24200, 27200, 30200],
-      regular: [19200, 22200, 25200, 28200, 31200, 34200],
-    },
-    "mt-racey": {
-      discount: [15200, 18200, 21200, 24200, 27200, 30200],
-      regular: [19200, 22200, 25200, 28200, 31200, 34200],
-    },
-    rusutsu: {
-      discount: [16000, 18500, 21000, 23500, 26000, 28500],
-      regular: [19000, 21500, 24000, 26500, 29000, 31500],
-    },
-    teine: {
-      discount: [13000, 15000, 17000, 19000, 21000, 23000],
-      regular: [15000, 17000, 19000, 21000, 23000, 25000],
-    },
-    "sapporo-kokusai": {
-      discount: [13000, 15000, 17000, 19000, 21000, 23000],
-      regular: [15000, 17000, 19000, 21000, 23000, 25000],
-    },
+  const pricePlan = pricing?.plans?.[priceTab] ?? null;
+  const showHalfDay = pricing?.columns?.includes('half') ?? false;
+  const formatPrice = (value) => {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'number') return `${pricing?.currency ?? 'NT$'}${value.toLocaleString('en-US')}`;
+    return String(value);
   };
-  const isFullDayOnly = Boolean(fullDayOnlyPricing[resort]);
-  const showHalfDay = resort !== "sahoro" && !isFullDayOnly;
-  const regularPriceTableRows = [
-    { label: "1人", full: 19200, half: 14400 },
-    { label: "2人", full: 22200, half: 17400 },
-    { label: "3人", full: 25200, half: 20400 },
-    { label: "4人", full: 28200, half: 23400 },
-    { label: "5人", full: 31200, half: 26400 },
-    { label: "6人", full: 34200, half: 29400 },
-  ];
-  const sahoroPriceRows = {
-    discount: [
-      { label: "1人", full: 15200 },
-      { label: "2人", full: 18200 },
-      { label: "3人", full: 21200 },
-      { label: "4人", full: 24200 },
-      { label: "5人", full: 27200 },
-      { label: "6人", full: 30200 },
-    ],
-    regular: [
-      { label: "1人", full: 19200 },
-      { label: "2人", full: 22200 },
-      { label: "3人", full: 25200 },
-      { label: "4人", full: 28200 },
-      { label: "5人", full: 31200 },
-      { label: "6人", full: 34200 },
-    ],
-  };
-  const priceTableRows = resort === "sahoro"
-    ? sahoroPriceRows[priceTab].map((row) => ({
-      label: row.label,
-      full: `NT$${row.full.toLocaleString("en-US")}`,
-    }))
-    : isFullDayOnly
-      ? fullDayOnlyPricing[resort][priceTab].map((price, index) => ({
-        label: `${index + 1}人`,
-        full: `NT$${price.toLocaleString("en-US")}`,
-      }))
-      : regularPriceTableRows.map((row, index) => {
-        const fullDiscount = priceTab === "discount" ? 4000 : 0;
-        const halfDiscount =
-          priceTab === "discount" ? (index < 2 ? 3000 : 2000) : 0;
-        return {
-          label: row.label,
-          full: `NT$${(row.full - fullDiscount).toLocaleString("en-US")}`,
-          half: `NT$${(row.half - halfDiscount).toLocaleString("en-US")}`,
-        };
-      });
+  const priceTableRows = (pricePlan?.rows ?? []).map((row) => ({
+    label: row.label,
+    full: formatPrice(row.full),
+    half: formatPrice(row.half),
+  }));
   const priceAccent = priceTab === "discount" ? "#F7941D" : "#2b5f8f";
   const priceTextColor = "#1f2937";
   const priceAccentText = priceTab === "discount" ? "#F7941D" : "#2b5f8f";
@@ -227,7 +179,13 @@ function ResortCoursePage() {
       <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
         <SiteHeader forceTransparent forceDarkText forceLogoColor />
         <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
-          <p className="text-sm text-[#64748b]">內容載入中。</p>
+          <p className={`text-sm ${detailError ? "text-red-600" : "text-[#64748b]"}`}>
+            {detailError
+              ? "雪場資料暫時無法載入，請稍後再試。"
+              : detailLoading || resortsLoading
+                ? "雪場資料載入中。"
+                : "目前沒有已發布的雪場資料。"}
+          </p>
         </main>
         <SiteFooter />
       </div>
@@ -289,6 +247,16 @@ function ResortCoursePage() {
     ) : null;
   const renderTabBody = () => {
     const legacyHtml = activeTabContent?.html ?? "";
+    if (activeTabContent?.presentation === 'cms') {
+      return (
+        <div className="mx-auto max-w-4xl rounded-sm border border-[#e2e8f0] bg-white p-5 shadow-sm md:p-8">
+          <div
+            className="legacy-tab-content text-sm leading-7 text-[#475569] md:text-base"
+            dangerouslySetInnerHTML={{ __html: legacyHtml }}
+          />
+        </div>
+      );
+    }
     const firstImage = extractFirstImage(legacyHtml);
     const firstTable = extractFirstTable(legacyHtml);
     const firstLink = extractFirstLink(legacyHtml);
@@ -1480,12 +1448,10 @@ function ResortCoursePage() {
                         <div className="text-center">
                           <p className="text-[#1f2937]">
                             <span className="text-xl font-semibold">
-                              25-26 SEASON ｜{" "}
+                              {pricing?.season_label || '課程價格'} ｜{" "}
                             </span>
                             <span className="text-lg font-semibold" style={{ color: priceAccentText }}>
-                              {priceTab === "discount"
-                                ? "季初 ~ 2025/12/15 & 2026/03/04 ~ 季末"
-                                : "2025/12/16 ~ 2026/03/03"}
+                              {pricePlan?.period || '請洽客服確認適用日期'}
                             </span>
                           </p>
                         </div>
@@ -1523,16 +1489,22 @@ function ResortCoursePage() {
                             人數
                           </div>
                           <div className="px-4 py-3 text-center">
-                            全天5hrs
+                            {pricing?.column_labels?.full || '全天'}
                           </div>
                           {showHalfDay && (
                             <div className="px-4 py-3 text-center">
-                              半天3hrs
+                              {pricing?.column_labels?.half || '半天'}
                             </div>
                           )}
                         </div>
                           <div className="text-sm text-[#475569]">
-                            {priceTableRows.map((row, index) => (
+                            {pricingLoading ? (
+                              <div className="px-4 py-8 text-center text-[#64748b]">價目載入中。</div>
+                            ) : pricingError || !pricing ? (
+                              <div className="px-4 py-8 text-center text-red-600">價目暫時無法載入，請稍後再試。</div>
+                            ) : priceTableRows.length === 0 ? (
+                              <div className="px-4 py-8 text-center text-[#64748b]">目前尚未設定此時段價格。</div>
+                            ) : priceTableRows.map((row, index) => (
                               <div
                                 key={row.label}
                                 className={`grid ${showHalfDay ? "grid-cols-3" : "grid-cols-2"}`}
@@ -1572,83 +1544,24 @@ function ResortCoursePage() {
                     </div>
 
                     <div className="grid gap-6 md:grid-cols-3">
-                      <div
-                        className="rounded-sm border bg-white shadow-sm flex h-full flex-col"
-                        style={{ borderColor: priceDividerColor }}
-                      >
-                        <div
-                          className={`px-4 py-3 text-center text-sm font-semibold font-display ${
-                            priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"
-                          }`}
-                          style={{ backgroundColor: priceDividerColor }}
-                        >
-                          協助租借裝備加購
-                        </div>
-                        <div className="relative flex-1 grid grid-cols-2 py-5 text-sm text-[#475569] items-stretch">
-                          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[#e2e8f0]" />
-                          <div className="flex flex-col items-center gap-4 px-4 py-6 text-center">
-                            <p>1~3人</p>
-                            <p>4~6人</p>
+                      {(pricing?.addons ?? []).map((addon) => (
+                        <div key={addon.title} className="rounded-sm border bg-white shadow-sm flex h-full flex-col" style={{ borderColor: priceDividerColor }}>
+                          <div
+                            className={`px-4 py-3 text-center text-sm font-semibold font-display ${priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"}`}
+                            style={{ backgroundColor: priceDividerColor }}
+                          >
+                            {addon.title}
                           </div>
-                          <div className="flex h-full flex-col items-center gap-4 px-4 py-6 text-center">
-                            <p>+NT$1,000</p>
-                            <p>+NT$2,000</p>
+                          <div className="grid flex-1 grid-cols-2 divide-x divide-[#e2e8f0] text-sm text-[#475569]">
+                            <div className="space-y-4 px-4 py-5 text-center">
+                              {(addon.rows ?? []).map(([label]) => <p key={label}>{label}</p>)}
+                            </div>
+                            <div className="space-y-4 px-4 py-5 text-center">
+                              {(addon.rows ?? []).map(([label, value]) => <p key={label}>{value}</p>)}
+                            </div>
                           </div>
                         </div>
-                      </div>
-
-                      <div
-                        className="rounded-sm border bg-white shadow-sm flex flex-col"
-                        style={{ borderColor: priceDividerColor }}
-                      >
-                        <div
-                          className={`px-4 py-3 text-center text-sm font-semibold font-display ${
-                            priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"
-                          }`}
-                          style={{ backgroundColor: priceDividerColor }}
-                        >
-                          語言指定
-                        </div>
-                        <div className="relative grid h-full flex-1 grid-cols-2 text-sm text-[#475569] items-stretch">
-                          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[#e2e8f0]" />
-                          <div className="flex h-full flex-col justify-center space-y-4 px-4 py-5 text-left">
-                            <p>中文</p>
-                            <p>粵語</p>
-                            <p>英語</p>
-                          </div>
-                          <div className="flex h-full items-center px-4 py-5 text-center">
-                            <p>依照指定教練等級加指定費</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        className="rounded-sm border bg-white shadow-sm"
-                        style={{ borderColor: priceDividerColor }}
-                      >
-                        <div
-                          className={`px-4 py-3 text-center text-sm font-semibold font-display ${
-                            priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"
-                          }`}
-                          style={{ backgroundColor: priceDividerColor }}
-                        >
-                          教練指定費
-                        </div>
-                        <div className="grid grid-cols-2 divide-x divide-[#e2e8f0] text-sm text-[#475569]">
-                          <div className="space-y-4 px-4 py-5 text-center">
-                            <p>一般教練</p>
-                            <p>Lv 2教練</p>
-                            <p>Lv 3教練</p>
-                            <p>校長/總監</p>
-                          </div>
-                          <div className="space-y-4 px-4 py-5 text-center">
-                            <p>+NT$1,000</p>
-                            <p>+NT$1,800</p>
-                            <p>+NT$3,000</p>
-                            <p>+NT$3,000</p>
-                          </div>
-                        </div>
-                      </div>
+                      ))}
                     </div>
 
                   </div>
@@ -1659,29 +1572,21 @@ function ResortCoursePage() {
                         <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
                           <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">優惠</h3>
                           <ul className="space-y-3 text-sm text-[#475569] list-disc pl-5">
-                            <li className="space-y-2">
-                              <span>早早鳥即日起至2025/6/30</span>
-                              <ul className="space-y-1 pl-0">
-                                <li>全日折扣500/人</li>
-                                <li>半天折扣300/人</li>
-                              </ul>
-                            </li>
-                            <li className="space-y-2">
-                              <span>早鳥2025/7/1~2025/9/30</span>
-                              <ul className="space-y-1 pl-0">
-                                <li>全日折扣300/人</li>
-                                <li>半天折扣200/人</li>
-                              </ul>
-                            </li>
+                            {(pricing?.promotions ?? []).map((promotion) => (
+                              <li key={promotion.title} className="space-y-2">
+                                <span>{promotion.title}</span>
+                                <ul className="space-y-1 pl-0">
+                                  {(promotion.lines ?? []).map((line) => <li key={line}>{line}</li>)}
+                                </ul>
+                              </li>
+                            ))}
                           </ul>
                         </div>
 
                         <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] py-8">
                           <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程費用</h3>
                           <ul className="space-y-2 text-sm text-[#475569] list-disc pl-5">
-                            <li>包含教學費</li>
-                            <li>不含纜車費，雪具租賃等費用</li>
-                            <li>贈送課程時段特殊活動意外險</li>
+                            {(pricing?.fee_notes ?? []).map((note) => <li key={note}>{note}</li>)}
                           </ul>
                         </div>
 

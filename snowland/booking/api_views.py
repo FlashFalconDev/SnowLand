@@ -14,6 +14,12 @@ from django.db import connection, transaction
 from django.db.utils import OperationalError, ProgrammingError
 from django.db.models import F, Q
 from django.utils import timezone
+from django.contrib.auth import authenticate, login
+from django.contrib.auth.models import User
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from datetime import datetime, timedelta
 
 from Client.models import SiteContent
@@ -23,7 +29,10 @@ from Coach.models import (
 )
 from Resorts.models import Resorts, ResortFee, EquipmentAssistanceTimeSlot, Campus
 from Coursekit.models import CourseType, CourseTemplate, SeasonSetting, CourseCategory, CourseSession, CoursePricing, DiscountCode
-from .models import Booking, ReservationGroup, Payment, Reservation, StaffBookingLink, MemberProfile
+from .models import (
+    Booking, CourseEvaluation, MemberDetail, MemberProfile, Payment, Reservation,
+    ReservationGroup, StaffBookingLink,
+)
 from Control.views import login_required_control
 from .funcNewebpay import neweb_pay_request
 from snowland.settings import RUN_HOST
@@ -2463,13 +2472,139 @@ class MemberCenterAPI(APIView):
     def get(self, request, client_code=None):
         if not request.user.is_authenticated:
             return Response({'error': '請先登入'}, status=401)
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error': str(exc)}, status=404)
+
         profile, _ = MemberProfile.objects.get_or_create(user=request.user)
+        groups = ReservationGroup.objects.filter(
+            client=tenant, user=request.user,
+        ).select_related('campus').prefetch_related(
+            'payments',
+            'reservations__resort',
+            'reservations__course_type__category',
+            'reservations__course_template',
+            'reservations__preferred_coach',
+            'reservations__bookings',
+            'reservations__members',
+        ).order_by('-created_at')
+
+        orders = []
+        for group in groups:
+            reservations = []
+            for reservation in group.reservations.exclude(status='deleted'):
+                bookings = [{
+                    'id': booking.id,
+                    'course_name': booking.course_name,
+                    'date': str(booking.date),
+                    'start_time': str(booking.start_time)[:5],
+                    'end_time': str(booking.end_time)[:5],
+                    'is_scheduled': booking.is_scheduled,
+                } for booking in reservation.bookings.all().order_by('date', 'start_time')]
+                reservations.append({
+                    'id': reservation.id,
+                    'resort': reservation.resort.display_name if reservation.resort else '未指定',
+                    'course_type': reservation.course_type.name if reservation.course_type else '',
+                    'course_template': reservation.course_template.name if reservation.course_template else '',
+                    'coach': reservation.preferred_coach.name if reservation.preferred_coach else '安排中',
+                    'status': reservation.status,
+                    'people': reservation.number_of_people,
+                    'bookings': bookings,
+                })
+            payment = group.payments.order_by('-created_at').first()
+            orders.append({
+                'id': group.id,
+                'order_number': group.order_number,
+                'name': group.name or group.order_number,
+                'campus': group.campus.name if group.campus else '',
+                'created_at': group.created_at.isoformat(),
+                'payment_status': payment.status if payment else 'unpaid',
+                'total_amount': sum(
+                    reservation.payment_amount
+                    for reservation in group.reservations.exclude(status__in=['deleted', 'cancelled'])
+                ),
+                'reservations': reservations,
+            })
+
+        member_details = MemberDetail.objects.filter(
+            Q(user=request.user) | Q(guardian=request.user),
+            reservation__group__client=tenant,
+        ).select_related('reservation__group', 'user').order_by('-created_at')
+        pre_course_forms = [{
+            'id': member.id,
+            'order_id': member.reservation.group_id,
+            'order_number': member.reservation.group.order_number,
+            'member_name': (
+                member.user.get_full_name() or member.user.username
+                if member.user else '學員'
+            ),
+            'age_range': member.age_range,
+            'snowboard_skills': list(member.snowboard_skills or []),
+            'ski_skills': list(member.ski_skills or []),
+            'insurance_completed': bool(member.insurance_completed_at),
+            'waiver_completed': bool(member.waiver_completed_at),
+        } for member in member_details]
+
+        evaluations = CourseEvaluation.objects.filter(
+            Q(member__user=request.user) | Q(member__guardian=request.user),
+            booking__reservation__group__client=tenant,
+        ).select_related(
+            'booking__reservation__group', 'booking__reservation__resort', 'member__user', 'coach',
+        ).prefetch_related('media').order_by('-booking__date', '-created_at')
+        learning_records = [{
+            'id': evaluation.id,
+            'order_id': evaluation.booking.reservation.group_id,
+            'order_number': evaluation.booking.reservation.group.order_number,
+            'date': str(evaluation.booking.date),
+            'course_name': evaluation.booking.course_name,
+            'resort': (
+                evaluation.booking.reservation.resort.display_name
+                if evaluation.booking.reservation.resort else '未指定'
+            ),
+            'member_name': (
+                evaluation.member.user.get_full_name() or evaluation.member.user.username
+                if evaluation.member.user else '學員'
+            ),
+            'coach': evaluation.coach.name if evaluation.coach else '教練',
+            'self_assessment': evaluation.self_assessment,
+            'coach_assessment': evaluation.coach_assessment,
+            'learning_progress': evaluation.learning_progress,
+            'trail_names': evaluation.trail_names,
+            'coach_notes': evaluation.coach_notes,
+            'completed_at': evaluation.completed_at.isoformat() if evaluation.completed_at else None,
+            'media': [{
+                'id': media.id,
+                'type': media.media_type,
+                'url': media.url,
+                'caption': media.caption,
+            } for media in evaluation.media.all() if media.is_public],
+        } for evaluation in evaluations]
+
+        completed_dates = {
+            item['date'] for item in learning_records if item['completed_at']
+        }
+        visited_resorts = {
+            item['resort'] for item in learning_records if item['resort'] != '未指定'
+        }
         return Response({
+            'member': {
+                'email': request.user.email,
+                'name': request.user.get_full_name() or request.user.username,
+            },
             'referral_code': profile.referral_code,
             'points': profile.points,
             'level': profile.level,
             'alumni_verified': profile.alumni_verified,
             'line_linked': bool(profile.line_user_id),
+            'orders': orders,
+            'pre_course_forms': pre_course_forms,
+            'learning_records': learning_records,
+            'journey': {
+                'completed_course_days': len(completed_dates),
+                'resorts': len(visited_resorts),
+                'seasons': len({date_value[:4] for date_value in completed_dates}),
+            },
         })
 
     def post(self, request, client_code=None):
@@ -2515,6 +2650,58 @@ class MemberCenterAPI(APIView):
                 'totalPrice': None,
             })
         return Response({'cart': cart, 'message': '已複製上次設定，請先確認新日期與價格'})
+
+
+class MemberCancellationAPI(APIView):
+    """A member may request cancellation of their own paid order; staff approves it later."""
+
+    def _group(self, request, client_code, group_id):
+        if not request.user.is_authenticated:
+            return None, Response({'error': '請先登入'}, status=401)
+        try:
+            tenant = resolve_tenant_client(client_code)
+            group = ReservationGroup.objects.get(pk=group_id, client=tenant, user=request.user)
+        except (TenantResolutionError, ReservationGroup.DoesNotExist):
+            return None, Response({'error': '找不到您的訂單'}, status=404)
+        payment = group.payments.order_by('-created_at').first()
+        if not payment or payment.status != 'paid':
+            return None, Response({'error': '目前僅已付款訂單可申請退款，其他情況請聯絡客服'}, status=400)
+        return group, None
+
+    def get(self, request, client_code, group_id):
+        from .operations import calculate_refund
+
+        group, error = self._group(request, client_code, group_id)
+        if error:
+            return error
+        existing = group.cancellation_requests.order_by('-created_at').first()
+        preview = calculate_refund(group)
+        payment = group.payments.order_by('-created_at').first()
+        return Response({
+            **preview,
+            'requires_bank_account': payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay'),
+            'request_status': existing.status if existing else None,
+        })
+
+    def post(self, request, client_code, group_id):
+        from .operations import request_cancellation
+
+        group, error = self._group(request, client_code, group_id)
+        if error:
+            return error
+        reason = request.data.get('reason')
+        if reason not in ('schedule', 'health', 'weather', 'duplicate', 'other'):
+            return Response({'error': '請選擇取消原因'}, status=400)
+        try:
+            cancellation = request_cancellation(
+                group, reason=reason,
+                reason_note=str(request.data.get('reason_note') or '')[:1000],
+                bank={key: str(request.data.get(key) or '').strip()[:100] for key in ('bank_name', 'account_number', 'account_holder')},
+                user=request.user,
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=400)
+        return Response({'id': cancellation.id, 'status': cancellation.status, 'refund_amount': cancellation.refund_amount}, status=201)
 
 
 class SuperScheduleAPI(APIView):
@@ -2952,15 +3139,10 @@ class PaymentInfoAPI(APIView):
                         'bank_account_number': c.bank_account_number,
                         'bank_account_holder': c.bank_account_holder,
                     }
-            policy = get_operating_policy(group)
             is_taiwan = (group.source_country or 'TW') == 'TW'
             payment_methods = ['bank_transfer']
             if not is_taiwan:
                 payment_methods.append('newebpay')
-                if policy.settings.get('apple_pay_enabled'):
-                    payment_methods.append('apple_pay')
-                if policy.settings.get('google_pay_enabled'):
-                    payment_methods.append('google_pay')
 
             return Response({
                 'reservation_group_id': int(reservation_group_id),
@@ -3032,8 +3214,9 @@ class ReservationHistoryAPI(APIView):
             user = request.user
 
             # 獲取用戶的所有預約組（按創建時間倒序）
+            tenant = resolve_tenant_client(client_code)
             reservation_groups = ReservationGroup.objects.filter(
-                user=user
+                user=user, client=tenant
             ).order_by('-created_at')
 
             history_data = []
@@ -3298,6 +3481,90 @@ def get_booked_slots(coach_instance):
     return booked_slots
 
 
+class MemberAuthAPI(APIView):
+    """Email/password authentication used by the public SnowLand member area."""
+
+    permission_classes = []
+
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
+    def post(self, request, client_code=None):
+        action = str(request.data.get('action') or '').strip()
+        email = str(request.data.get('email') or '').strip().lower()
+
+        if action == 'register':
+            password = str(request.data.get('password') or '')
+            if not email or '@' not in email:
+                return Response({'error': '請輸入正確的電子郵件'}, status=400)
+            if len(password) < 8:
+                return Response({'error': '密碼至少需要 8 個字元'}, status=400)
+            if User.objects.filter(email__iexact=email).exists():
+                return Response({'error': '此電子郵件已註冊，請直接登入'}, status=400)
+            with transaction.atomic():
+                user = User.objects.create_user(username=email, email=email, password=password)
+                MemberProfile.objects.get_or_create(user=user)
+            user.backend = 'django.contrib.auth.backends.ModelBackend'
+            login(request, user)
+            return Response({'member': self._member(user)}, status=201)
+
+        if action == 'login':
+            password = str(request.data.get('password') or '')
+            user_record = User.objects.filter(email__iexact=email).first()
+            user = authenticate(
+                request,
+                username=user_record.username if user_record else email,
+                password=password,
+            )
+            if not user:
+                return Response({'error': '電子郵件或密碼不正確'}, status=400)
+            login(request, user)
+            MemberProfile.objects.get_or_create(user=user)
+            return Response({'member': self._member(user)})
+
+        if action == 'request_reset':
+            user = User.objects.filter(email__iexact=email).first()
+            if user:
+                uid = urlsafe_base64_encode(force_bytes(user.pk))
+                token = default_token_generator.make_token(user)
+                reset_url = request.build_absolute_uri(
+                    f'/{client_code or "snowland"}/membership?reset_uid={uid}&reset_token={token}'
+                )
+                send_mail(
+                    'SnowLand 會員密碼重設',
+                    f'請開啟以下連結重設密碼：\n{reset_url}',
+                    None,
+                    [user.email],
+                    fail_silently=True,
+                )
+            return Response({'message': '若此信箱已註冊，密碼重設信已寄出'})
+
+        if action == 'reset_password':
+            try:
+                user = User.objects.get(pk=force_str(urlsafe_base64_decode(request.data.get('uid') or '')))
+            except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+                user = None
+            token = str(request.data.get('token') or '')
+            password = str(request.data.get('password') or '')
+            if not user or not default_token_generator.check_token(user, token):
+                return Response({'error': '重設連結已失效，請重新申請'}, status=400)
+            if len(password) < 8:
+                return Response({'error': '密碼至少需要 8 個字元'}, status=400)
+            user.set_password(password)
+            user.save(update_fields=['password'])
+            return Response({'message': '密碼已更新，請使用新密碼登入'})
+
+        return Response({'error': '不支援的會員操作'}, status=400)
+
+    @staticmethod
+    def _member(user):
+        return {
+            'email': user.email,
+            'name': user.get_full_name() or user.username,
+        }
+
+
 class GoogleLoginAPI(APIView):
     """
     POST /booking/<client_code>/api/google-login/
@@ -3332,19 +3599,6 @@ class GoogleLoginAPI(APIView):
 
     def get(self, request, client_code=None):
         """檢查當前 session 是否有登入（給前端 useAuth 用）"""
-        # === 🔍 DEBUG: 印出 cookie / session / user 狀態 ===
-        print('=' * 60)
-        print(f'[GoogleLoginAPI.GET] client_code={client_code}')
-        print(f'  Cookies received: {dict(request.COOKIES)}')
-        print(f'  session_key: {request.session.session_key}')
-        print(f'  session items: {dict(request.session)}')
-        print(f'  user.is_authenticated: {request.user.is_authenticated}')
-        print(f'  user: {request.user}')
-        print(f'  Origin header: {request.META.get("HTTP_ORIGIN")}')
-        print(f'  Referer: {request.META.get("HTTP_REFERER")}')
-        print('=' * 60)
-        # === END DEBUG ===
-
         if not request.user.is_authenticated:
             return Response({'code': 401, 'msg': '未登入'}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -3391,12 +3645,14 @@ class GoogleLoginAPI(APIView):
                 from google.auth.transport import requests as google_requests
 
                 # 驗證 Google JWT token
-                GOOGLE_CLIENT_ID = "754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com"
+                google_client_id = settings.GOOGLE_OAUTH_CLIENT_ID
+                if not google_client_id:
+                    return Response({'code': 503, 'msg': 'Google 登入尚未完成設定'}, status=503)
 
                 idinfo = id_token.verify_oauth2_token(
                     credential,
                     google_requests.Request(),
-                    GOOGLE_CLIENT_ID
+                    google_client_id
                 )
 
                 # 獲取用戶資訊
@@ -3431,20 +3687,9 @@ class GoogleLoginAPI(APIView):
                 user.backend = 'django.contrib.auth.backends.ModelBackend'
                 login(request, user)
 
-                # === 🔍 DEBUG: 確認 session 真的建起來 ===
                 # 強制 save session（避免被 lazy save 跳過）
                 request.session.save()
                 request.session.modified = True
-                print('=' * 60)
-                print(f'[GoogleLoginAPI.POST] login() 完成')
-                print(f'  user_id={user.id} email={email}')
-                print(f'  session_key (login 後): {request.session.session_key}')
-                print(f'  session.modified: {request.session.modified}')
-                print(f'  session items: {dict(request.session)}')
-                print(f'  Origin: {request.META.get("HTTP_ORIGIN")}')
-                print(f'  收到的 cookies: {dict(request.COOKIES)}')
-                print('=' * 60)
-                # === END DEBUG ===
 
                 # 生成 JWT token
                 jwt_token = f'1|{email}'

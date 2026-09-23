@@ -4,8 +4,7 @@ interface GoogleLoginButtonProps {
   onLogin?: () => void
 }
 
-// 🔥 Google Client ID (請在 Google Cloud Console 設定)
-const GOOGLE_CLIENT_ID = '754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com'
+const GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim()
 
 declare global {
   interface Window {
@@ -13,25 +12,22 @@ declare global {
   }
 }
 
+let googleSdkInitialized = false
+let activeCredentialHandler: ((response: any) => void) | null = null
+
 export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
   const googleButtonRef = useRef<HTMLDivElement>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleCredentialResponse = async (response: any) => {
-    console.log('=== Google Login Response ===')
-    console.log('Response:', response)
     setIsLoading(true)
     setError(null)
 
     try {
-      console.log('Sending credential to backend:', response.credential)
-
       const requestBody = JSON.stringify({
         credential: response.credential, // Google JWT token
       })
-
-      console.log('Request body:', requestBody)
 
       // 走相對路徑（同 origin），由 vite proxy / nginx 轉到後端
       const clientCode = localStorage.getItem('client_code') || 'snowland'
@@ -44,9 +40,7 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
         body: requestBody,
       })
 
-      console.log('Response status:', res.status)
       const responseText = await res.text()
-      console.log('Response text:', responseText)
 
       const data = JSON.parse(responseText)
 
@@ -79,14 +73,27 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
   }
 
   useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) {
+      setError('Google 登入尚未完成設定')
+      return
+    }
+
+    let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    activeCredentialHandler = handleCredentialResponse
+
     // 等待 Google SDK 載入
     const initializeGoogleSignIn = () => {
+      if (cancelled) return
       if (window.google) {
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: handleCredentialResponse,
-          auto_select: false,
-        })
+        if (!googleSdkInitialized) {
+          window.google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: (response: any) => activeCredentialHandler?.(response),
+            auto_select: false,
+          })
+          googleSdkInitialized = true
+        }
 
         // 渲染 Google 登入按鈕
         if (googleButtonRef.current) {
@@ -103,11 +110,15 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
         }
       } else {
         // Google SDK 還沒載入,等待一下再試
-        setTimeout(initializeGoogleSignIn, 100)
+        retryTimer = setTimeout(initializeGoogleSignIn, 100)
       }
     }
 
     initializeGoogleSignIn()
+    return () => {
+      cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
+    }
   }, [])
 
   return (

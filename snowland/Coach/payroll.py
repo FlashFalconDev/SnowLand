@@ -48,7 +48,7 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
     )
     if statement.status == 'paid':
         raise ValueError('已發放的薪資單不能重新計算')
-    statement.lines.all().delete()
+    statement.lines.exclude(line_type='adjustment').delete()
 
     totals = {'course': 0, 'specified': 0, 'referral': 0, 'assistance': 0, 'allowance': 0}
     bookings = Booking.objects.filter(
@@ -119,6 +119,38 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
     statement.referral_commission = totals['referral']
     statement.assistance_pay = totals['assistance']
     statement.supervisor_allowance = totals['allowance']
+    statement.adjustment = sum(statement.lines.filter(line_type='adjustment').values_list('total_amount', flat=True))
     statement.total_amount = sum(totals.values()) + statement.adjustment
+    if statement.total_amount < 0:
+        raise ValueError('既有手動扣款超過重新計算後的薪資，請先核對')
     statement.save()
     return statement
+
+
+@transaction.atomic
+def add_payroll_adjustment(*, statement, description, amount):
+    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    if statement.status != 'draft':
+        raise ValueError('僅草稿薪資單可新增手動項目')
+    description = str(description).strip()
+    if not description or len(description) > 200:
+        raise ValueError('請填寫 200 字以內的項目說明')
+    try:
+        raw_amount = amount
+        amount = int(raw_amount)
+    except (TypeError, ValueError):
+        raise ValueError('金額須為整數')
+    if isinstance(raw_amount, bool) or str(amount) != str(raw_amount).strip():
+        raise ValueError('金額須為整數')
+    if amount == 0 or abs(amount) > 10000000:
+        raise ValueError('金額須介於 -1000 萬至 1000 萬，且不可為 0')
+    if statement.total_amount + amount < 0:
+        raise ValueError('調整後應付薪資不可小於 0')
+    line = PayrollLine.objects.create(
+        statement=statement, line_type='adjustment', description=description,
+        quantity=1, unit_amount=amount, total_amount=amount,
+    )
+    statement.adjustment += amount
+    statement.total_amount += amount
+    statement.save(update_fields=['adjustment', 'total_amount', 'updated_at'])
+    return line

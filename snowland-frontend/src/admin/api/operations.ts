@@ -24,6 +24,7 @@ export interface PayrollStatement {
   period_start: string; period_end: string; course_pay: number; specified_fees: number
   referral_commission: number; assistance_pay: number; supervisor_allowance: number
   adjustment: number; total_amount: number; status: string
+  lines: { id: number; line_type: string; description: string; quantity: string; unit_amount: string; total_amount: number }[]
 }
 
 export interface Evaluation {
@@ -72,6 +73,11 @@ export async function savePayRule(data: Partial<PayRule>) {
 
 export async function calculatePayroll(data: { coach: number; campus: number; period_start: string; period_end: string }) {
   const response = await adminApi.post('/payroll-statements/calculate/', data)
+  return (response as unknown as DetailResponse<PayrollStatement>).data
+}
+
+export async function addPayrollAdjustment(id: number, data: { description: string; amount: number }) {
+  const response = await adminApi.post(`/payroll-statements/${id}/adjustments/`, data)
   return (response as unknown as DetailResponse<PayrollStatement>).data
 }
 

@@ -167,6 +167,10 @@ function PolicyCard({ policies, policy, onSelect, onSaved }: { policies: Operati
   const [draft, setDraft] = useState(policy)
   const mutation = useMutation({ mutationFn: () => updateOperatingPolicy(policy.id, draft), onSuccess: () => { notification.success('營運規則已儲存'); onSaved() }, onError: (error) => notification.error(errorMessage(error, '儲存失敗')) })
   useEffect(() => setDraft(policy), [policy])
+  const refundRulesValid = draft.cancellation_rules.length > 0 && draft.cancellation_rules.every((rule, index) =>
+    Number.isInteger(rule.days_before) && rule.days_before >= 0 && Number.isInteger(rule.refund_percent) && rule.refund_percent >= 0 && rule.refund_percent <= 100 &&
+    draft.cancellation_rules.findIndex(other => other.days_before === rule.days_before) === index)
+  const feeValid = Number(draft.cancellation_fee_percent) >= 0 && Number(draft.cancellation_fee_percent) <= 100
   const numberField = (key: keyof OperatingPolicy, label: string, suffix: string) => (
     <label className="block">
       <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{label}</span>
@@ -186,7 +190,21 @@ function PolicyCard({ policies, policy, onSelect, onSaved }: { policies: Operati
         <select value={policy.id} onChange={(e) => onSelect(Number(e.target.value))} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">{policies.map((item) => <option key={item.id} value={item.id}>{item.campus_name || '全公司預設'}</option>)}</select>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{numberField('unpaid_hold_days', '未付款保留', '天')}{numberField('provisional_extra_groups', '未付款可加排', '組')}{numberField('leave_advance_days', '請假需提前', '天')}{numberField('leave_daily_coach_limit', '每日請假上限', '人')}</div>
-      <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700"><button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">儲存營運規則<ChevronRight size={16} /></button></div>
+      <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700">
+        <h3 className="font-semibold text-gray-900 dark:text-white">取消退費規則</h3>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">訂單管理取消時，系統依距上課天數選擇符合的級距；手續費依原訂單金額另扣。特殊情況可在該訂單手動指定。</p>
+        <label className="mt-4 block max-w-xs text-sm text-gray-700 dark:text-gray-300">退款手續費（原價百分比）
+          <input type="number" min="0" max="100" step="0.01" aria-label="退款手續費百分比" value={draft.cancellation_fee_percent} onChange={e => setDraft({ ...draft, cancellation_fee_percent: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+        </label>
+        <div className="mt-4 space-y-2">{draft.cancellation_rules.map((rule, index) => <div key={index} className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <span>課前至少</span><input aria-label={`第 ${index + 1} 級距天數`} type="number" min="0" step="1" value={rule.days_before} onChange={e => setDraft({ ...draft, cancellation_rules: draft.cancellation_rules.map((item, position) => position === index ? { ...item, days_before: Number(e.target.value) } : item) })} className="w-24 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white" /><span>天，退</span>
+          <input aria-label={`第 ${index + 1} 級距比例`} type="number" min="0" max="100" step="1" value={rule.refund_percent} onChange={e => setDraft({ ...draft, cancellation_rules: draft.cancellation_rules.map((item, position) => position === index ? { ...item, refund_percent: Number(e.target.value) } : item) })} className="w-24 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white" /><span>%</span>
+          <button aria-label={`移除第 ${index + 1} 級距`} disabled={draft.cancellation_rules.length <= 1} onClick={() => setDraft({ ...draft, cancellation_rules: draft.cancellation_rules.filter((_, position) => position !== index) })} className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-40 dark:border-gray-600">移除</button>
+        </div>)}</div>
+        <button onClick={() => setDraft({ ...draft, cancellation_rules: [...draft.cancellation_rules, { days_before: Math.max(...draft.cancellation_rules.map(rule => rule.days_before)) + 1, refund_percent: 100 }] })} className="mt-3 rounded-lg border border-violet-400 px-3 py-2 text-sm text-violet-700 dark:text-violet-300">＋ 新增退費級距</button>
+        {(!refundRulesValid || !feeValid) && <p role="alert" className="mt-2 text-sm text-red-600">請確認天數不重複且為非負整數、退費比例與手續費介於 0～100%。</p>}
+      </div>
+      <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700"><button onClick={() => mutation.mutate()} disabled={mutation.isPending || !refundRulesValid || !feeValid} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">儲存營運規則<ChevronRight size={16} /></button></div>
     </section>
   )
 }

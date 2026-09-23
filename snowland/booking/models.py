@@ -505,6 +505,7 @@ class OrderRevision(models.Model):
 
 class CancellationRequest(models.Model):
     STATUS_CHOICES = [('requested', '待處理'), ('approved', '已核准'), ('rejected', '已拒絕'), ('refunded', '已退款')]
+    CALCULATION_CHOICES = [('auto', '依訂單日期'), ('rule', '指定退費方案'), ('manual', '特殊金額')]
     REASON_CHOICES = [('schedule', '行程變更'), ('health', '健康因素'), ('weather', '天候因素'), ('duplicate', '重複訂單'), ('other', '其他')]
     group = models.ForeignKey(ReservationGroup, on_delete=models.PROTECT, related_name='cancellation_requests')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='requested')
@@ -515,6 +516,8 @@ class CancellationRequest(models.Model):
     refund_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     handling_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=5)
     refund_amount = models.PositiveIntegerField(default=0)
+    calculation_mode = models.CharField(max_length=10, choices=CALCULATION_CHOICES, default='auto')
+    selected_rule_days_before = models.IntegerField(null=True, blank=True)
     refund_bank_name = models.CharField(max_length=100, blank=True, default='')
     refund_account_number = models.CharField(max_length=100, blank=True, default='')
     refund_account_holder = models.CharField(max_length=100, blank=True, default='')

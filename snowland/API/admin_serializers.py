@@ -121,14 +121,24 @@ class OperatingPolicyAdminSerializer(TenantRelationValidationMixin, serializers.
         return value
 
     def validate_cancellation_rules(self, value):
-        if not isinstance(value, list):
-            raise serializers.ValidationError('退費規則必須是清單')
+        if not isinstance(value, list) or not value:
+            raise serializers.ValidationError('至少需要一條退費規則')
+        seen_days = set()
         for rule in value:
             if not isinstance(rule, dict) or 'days_before' not in rule or 'refund_percent' not in rule:
                 raise serializers.ValidationError('每條規則需要 days_before 與 refund_percent')
-            if not 0 <= int(rule['refund_percent']) <= 100:
-                raise serializers.ValidationError('退費比例必須介於 0 到 100')
+            days, percent = rule['days_before'], rule['refund_percent']
+            if type(days) is not int or days < 0 or days in seen_days:
+                raise serializers.ValidationError('天數須為不重複的非負整數')
+            if type(percent) is not int or not 0 <= percent <= 100:
+                raise serializers.ValidationError('退費比例須為 0 到 100 的整數')
+            seen_days.add(days)
         return sorted(value, key=lambda item: int(item['days_before']), reverse=True)
+
+    def validate_cancellation_fee_percent(self, value):
+        if not 0 <= value <= 100:
+            raise serializers.ValidationError('手續費百分比須介於 0 到 100')
+        return value
 
     def validate(self, attrs):
         campus = attrs.get('campus', getattr(self.instance, 'campus', None))
@@ -1283,12 +1293,14 @@ class CancellationRequestAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'group', 'order_number', 'status', 'reason', 'reason_note', 'original_amount',
             'days_before', 'refund_percent', 'handling_fee_percent', 'refund_amount',
+            'calculation_mode', 'selected_rule_days_before',
             'refund_bank_name', 'refund_account_number', 'refund_account_holder',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'order_number', 'original_amount', 'days_before', 'refund_percent',
             'handling_fee_percent', 'refund_amount', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
+            'calculation_mode', 'selected_rule_days_before',
         ]
 
 

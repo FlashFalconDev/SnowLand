@@ -87,6 +87,9 @@ const DEFAULT_GROUPS: GroupInfo[] = [
       { key: 'course.off-piste-guide', label: '野雪嚮導', hint: '野雪嚮導課程頁內容', type: 'page' },
       { key: 'course.hokkaido', label: '北海道其他雪場課程', hint: '其他雪場課程頁內容', type: 'page' },
       { key: 'course.how-to-book', label: '預約流程', hint: '滑雪課程預約流程說明', type: 'page' },
+      { key: 'course.resorts', label: '雪場列表', hint: '前台雪場名稱、圖片、標籤與排序', type: 'page' },
+      { key: 'course.resort-pages', label: '各雪場介紹', hint: '各雪場的雪道、租借、雪票、住宿與交通內容', type: 'page' },
+      { key: 'course.pricing', label: '官網課程價目', hint: '各雪場課程頁的季別、適用日期、人數價格與加購費', type: 'setting' },
       { key: 'course.info', label: '價目表與說明資訊', hint: '每年會微調的課程價目表與補充說明', type: 'page' },
       { key: 'course.open-dates', label: '雪場開放日期', hint: '每年雪場開放期間', type: 'page' },
       { key: 'course.lift-ticket', label: '雪票價格', hint: '每年雪票價格', type: 'page' },
@@ -109,10 +112,12 @@ const DEFAULT_GROUPS: GroupInfo[] = [
     description: '行前須知、裝備、常見問題與攻略文章',
     locations: [
       { key: 'guides.skiresorts', label: '雪場攻略', hint: '雪場介紹、區域攻略與相關文章入口', type: 'page' },
+      { key: 'guides.index', label: '攻略首頁', hint: '攻略列表頁的標題與說明', type: 'page' },
       { key: 'guides.preparation', label: '行前須知', hint: '出發前提醒與注意事項', type: 'page' },
       { key: 'guides.packing', label: '滑雪裝備', hint: '裝備清單與租借提醒', type: 'page' },
       { key: 'guides.faq', label: '常見問題', hint: 'FAQ 問答內容', type: 'faq' },
       { key: 'guides.articles', label: '精選文章', hint: '攻略文章列表', type: 'article' },
+      { key: 'guides.article-pages', label: '文章內頁', hint: '攻略文章的完整內文', type: 'article' },
     ],
   },
   {
@@ -357,6 +362,9 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'course.off-piste-guide': { path: '/course/off-piste-guide' },
   'course.hokkaido': { path: '/course/hokkaido' },
   'course.how-to-book': { path: '/course/how-to-book' },
+  'course.resorts': { path: '/course/hokkaido' },
+  'course.resort-pages': { path: '/course/hokkaido' },
+  'course.pricing': { path: '/course/tomamu/price' },
   'course.info': { path: '/course/tomamu' },
   'course.lift-ticket': { path: '/course/tomamu' },
   'course.open-dates': { path: '/course/tomamu' },
@@ -373,10 +381,12 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'news.facebook': { path: '/news' },
   'news.articles': { path: '/news' },
   'guides.skiresorts': { path: '/guides/skiresorts' },
+  'guides.index': { path: '/guides' },
   'guides.preparation': { path: '/guides/preparation' },
   'guides.packing': { path: '/guides/packing-checklist' },
   'guides.faq': { path: '/faq' },
   'guides.articles': { path: '/guides' },
+  'guides.article-pages': { path: '/guides' },
   'about.snowland': { path: '/about' },
   'about.coaches': { path: '/coach' },
   'about.join-us': { path: '/join-us' },
@@ -1012,6 +1022,127 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`inline-flex shrink-0 rounded-full px-2 py-1 text-xs font-semibold ${cls}`}>{getStatusLabel(status)}</span>
 }
 
+function CoursePricingEditor({
+  metadata,
+  onChange,
+}: {
+  metadata: Record<string, unknown>
+  onChange: (metadata: Record<string, unknown>) => void
+}) {
+  const pricing = isRecord(metadata.pricing) ? metadata.pricing : {}
+  const plans = isRecord(pricing.plans) ? pricing.plans : {}
+  const columns = Array.isArray(pricing.columns) ? pricing.columns.map(String) : ['full', 'half']
+  const addons = Array.isArray(pricing.addons) ? pricing.addons.filter(isRecord) : []
+  const promotions = Array.isArray(pricing.promotions) ? pricing.promotions.filter(isRecord) : []
+  const feeNotes = Array.isArray(pricing.fee_notes) ? pricing.fee_notes.map(String) : []
+
+  const updatePricing = (patch: Record<string, unknown>) => onChange({
+    ...metadata,
+    pricing: { ...pricing, ...patch },
+  })
+  const updatePlan = (key: 'discount' | 'regular', patch: Record<string, unknown>) => {
+    const current = isRecord(plans[key]) ? plans[key] : {}
+    updatePricing({ plans: { ...plans, [key]: { ...current, ...patch } } })
+  }
+  const updatePlanRow = (key: 'discount' | 'regular', index: number, field: 'label' | 'full' | 'half', value: string) => {
+    const current = isRecord(plans[key]) ? plans[key] : {}
+    const rows = Array.isArray(current.rows) ? current.rows.map((row) => isRecord(row) ? { ...row } : {}) : []
+    rows[index] = { ...rows[index], [field]: field === 'label' ? value : value === '' ? '' : Number(value) || value }
+    updatePlan(key, { rows })
+  }
+  const showHalfDay = columns.includes('half')
+
+  return (
+    <FormSection title="3. 官網價目設定">
+      <div className="grid gap-4 md:grid-cols-2">
+        <TextInput label="雪季標題" value={String(pricing.season_label || '')} placeholder="25-26 SEASON" onChange={(value) => updatePricing({ season_label: value })} />
+        <TextInput label="幣別" value={String(pricing.currency || 'NT$')} placeholder="NT$" onChange={(value) => updatePricing({ currency: value })} />
+      </div>
+      <label className="mt-4 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+        <input
+          type="checkbox"
+          checked={showHalfDay}
+          onChange={(event) => updatePricing({ columns: event.target.checked ? ['full', 'half'] : ['full'] })}
+          className="h-4 w-4 rounded border-gray-300 text-[#8b5cf6] focus:ring-[#8b5cf6]"
+        />
+        顯示半天價格
+      </label>
+
+      {(['discount', 'regular'] as const).map((key) => {
+        const plan = isRecord(plans[key]) ? plans[key] : {}
+        const rows = Array.isArray(plan.rows) ? plan.rows.filter(isRecord) : []
+        return (
+          <div key={key} className="mt-5 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <div className="grid gap-3 md:grid-cols-2">
+              <TextInput label={key === 'discount' ? '優惠時段名稱' : '一般時段名稱'} value={String(plan.label || '')} onChange={(value) => updatePlan(key, { label: value })} />
+              <TextInput label="適用日期" value={String(plan.period || '')} onChange={(value) => updatePlan(key, { period: value })} />
+            </div>
+            <div className={`mt-3 grid gap-2 ${showHalfDay ? 'grid-cols-[1fr_1fr_1fr]' : 'grid-cols-[1fr_1fr]'}`}>
+              <span className="text-xs font-semibold text-gray-500">人數</span>
+              <span className="text-xs font-semibold text-gray-500">全天價格</span>
+              {showHalfDay && <span className="text-xs font-semibold text-gray-500">半天價格</span>}
+              {rows.map((row, index) => (
+                <div key={`${key}-${index}`} className="contents">
+                  <input aria-label={`${key} 第 ${index + 1} 列人數`} className={inputClass} value={String(row.label || '')} onChange={(event) => updatePlanRow(key, index, 'label', event.target.value)} />
+                  <input aria-label={`${key} 第 ${index + 1} 列全天價格`} type="number" min="0" className={inputClass} value={String(row.full ?? '')} onChange={(event) => updatePlanRow(key, index, 'full', event.target.value)} />
+                  {showHalfDay && <input aria-label={`${key} 第 ${index + 1} 列半天價格`} type="number" min="0" className={inputClass} value={String(row.half ?? '')} onChange={(event) => updatePlanRow(key, index, 'half', event.target.value)} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">優惠說明（每行一項）</span>
+          <textarea
+            className={`${inputClass} min-h-[120px]`}
+            value={promotions.map((promotion) => `${String(promotion.title || '')}｜${Array.isArray(promotion.lines) ? promotion.lines.map(String).join('；') : ''}`).join('\n')}
+            onChange={(event) => updatePricing({
+              promotions: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+                const [title, details = ''] = line.split('｜')
+                return { title: title.trim(), lines: details.split('；').map((item) => item.trim()).filter(Boolean) }
+              }),
+            })}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">課程費用說明（每行一項）</span>
+          <textarea className={`${inputClass} min-h-[120px]`} value={feeNotes.join('\n')} onChange={(event) => updatePricing({ fee_notes: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean) })} />
+        </label>
+      </div>
+
+      <details className="mt-5 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-200">加購與指定費</summary>
+        <div className="mt-3 space-y-4">
+          {addons.map((addon, addonIndex) => {
+            const rows = Array.isArray(addon.rows) ? addon.rows : []
+            return (
+              <div key={addonIndex} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+                <TextInput label="項目名稱" value={String(addon.title || '')} onChange={(value) => {
+                  const next = addons.map((item, index) => index === addonIndex ? { ...item, title: value } : item)
+                  updatePricing({ addons: next })
+                }} />
+                <textarea
+                  className={`${inputClass} mt-2 min-h-[88px]`}
+                  aria-label={`${String(addon.title || '加購')}明細`}
+                  value={rows.map((row) => Array.isArray(row) ? row.map(String).join('｜') : '').join('\n')}
+                  onChange={(event) => {
+                    const nextRows = event.target.value.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => line.split('｜').map((part) => part.trim()))
+                    const next = addons.map((item, index) => index === addonIndex ? { ...item, rows: nextRows } : item)
+                    updatePricing({ addons: next })
+                  }}
+                />
+              </div>
+            )
+          })}
+        </div>
+      </details>
+    </FormSection>
+  )
+}
+
 function ContentDrawer({
   groups,
   group,
@@ -1154,9 +1285,13 @@ function ContentDrawer({
               </label>
             </FormSection>
 
-            <FormSection title="3. 正文區塊（可圖字交錯）">
-              <ContentBlocksEditor blocks={draftBlocks} onChange={setDraftBlocks} />
-            </FormSection>
+            {form.location_key === 'course.pricing' ? (
+              <CoursePricingEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
+            ) : (
+              <FormSection title="3. 正文區塊（可圖字交錯）">
+                <ContentBlocksEditor blocks={draftBlocks} onChange={setDraftBlocks} />
+              </FormSection>
+            )}
 
             <FormSection title="4. 連結與顯示順序">
               <div className="grid gap-4 md:grid-cols-2">

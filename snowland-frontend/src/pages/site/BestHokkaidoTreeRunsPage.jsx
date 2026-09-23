@@ -1,12 +1,27 @@
 import React, { useState } from 'react';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import guideArticlesContent from '../../data/site/guideArticlesContent';
-import guidesArticles from '../../data/site/guidesArticles';
+import { siteContentToArticle, useSiteContent } from '../../hooks/useSiteContent';
 
 function BestHokkaidoTreeRunsPage() {
-  const article = guideArticlesContent["best-hokkaido-tree-runs"];
   const [isTocOpen, setIsTocOpen] = useState(true);
+  const { items: articleItems, isLoading, error } = useSiteContent('guides.article-pages');
+  const { items: relatedItems } = useSiteContent('guides.articles');
+  const article = articleItems.find((item) => item.external_id === 'best-hokkaido-tree-runs')?.metadata?.article;
+  const guidesArticles = relatedItems.map(siteContentToArticle);
+  if (!article) {
+    return (
+      <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
+        <SiteHeader forceTransparent forceDarkText forceLogoColor />
+        <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
+          <p className={`text-sm ${error ? "text-red-600" : "text-[#64748b]"}`}>
+            {error ? "文章暫時無法載入，請稍後再試。" : isLoading ? "文章載入中。" : "目前沒有已發布的文章。"}
+          </p>
+        </main>
+        <SiteFooter />
+      </div>
+    );
+  }
   const categoryBadgeStyles = {
     "滑雪初心者": "bg-[var(--tag-beginner-bg)] text-[var(--tag-beginner-text)]",
     "北海道滑雪場": "bg-[var(--tag-resort-bg)] text-[var(--tag-resort-text)]",
