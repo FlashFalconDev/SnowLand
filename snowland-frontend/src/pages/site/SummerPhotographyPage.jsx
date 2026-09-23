@@ -859,7 +859,7 @@ function SummerPhotographyPage() {
             </div>
             <div className="mt-10 flex justify-center">
               <SiteLink
-                to="/photography/how-to-book"
+                to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
                 查看預約流程細節
@@ -924,7 +924,7 @@ function SummerPhotographyPage() {
                 })}
                 <div className="pt-4">
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
                     查看更多常見問題

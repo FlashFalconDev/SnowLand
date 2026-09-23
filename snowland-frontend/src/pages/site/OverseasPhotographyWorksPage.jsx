@@ -2,171 +2,54 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
+import SiteLink from '../../components/site/SiteLink';
+import { useSiteContent } from '../../hooks/useSiteContent';
 
 function OverseasPhotographyWorksPage() {
   const baseUrl = import.meta.env.BASE_URL ?? "/";
   const withBaseUrl = (path) =>
     `${baseUrl}${path.startsWith("/") ? path.slice(1) : path}`;
+  const { items: galleryItems, isLoading, error } = useSiteContent('photography.gallery');
   const categories = ["All", "影片", "地點", "拍攝類型"];
-  const locationCategories = ["星野", "富良野", "旭岳"];
-  const shootTypeCategories = ["親子", "滑雪側拍", "個人寫真"];
-  const hoshinoCategories = [
-    "霧冰平台",
-    "CENTER",
-    "高農場騎馬",
-    "高農場冰滑梯",
-    "溜滑梯公園",
-    "螢火蟲餐廳街",
-    "森林餐廳",
-    "Club Med",
-    "冰上釣魚",
-  ];
-  const hoshinoPhotos = useMemo(
-    () => ({
-      "霧冰平台": [
-        "/photography-gallery/gallery-001.jpg",
-        "/photography-gallery/gallery-002.jpg",
-        "/photography-gallery/gallery-003.jpg",
-        "/photography-gallery/gallery-004.jpg",
-        "/photography-gallery/gallery-005.jpg",
-        "/photography-gallery/gallery-006.jpg",
-        "/photography-gallery/gallery-007.jpg",
-        "/photography-gallery/gallery-008.jpg",
-      ],
-      CENTER: [
-        "/photography-gallery/gallery-009.jpg",
-        "/photography-gallery/gallery-010.jpg",
-        "/photography-gallery/gallery-011.jpg",
-        "/photography-gallery/gallery-012.jpg",
-        "/photography-gallery/gallery-013.jpg",
-        "/photography-gallery/gallery-014.jpg",
-        "/photography-gallery/gallery-015.jpg",
-        "/photography-gallery/gallery-016.jpg",
-      ],
-      "高農場騎馬": [
-        "/photography-gallery/gallery-017.jpg",
-        "/photography-gallery/gallery-018.jpg",
-        "/photography-gallery/gallery-019.jpg",
-        "/photography-gallery/gallery-020.jpg",
-        "/photography-gallery/gallery-021.jpg",
-        "/photography-gallery/gallery-022.jpg",
-        "/photography-gallery/gallery-023.jpg",
-        "/photography-gallery/gallery-024.jpg",
-      ],
-      "高農場冰滑梯": [
-        "/photography-gallery/gallery-025.jpg",
-        "/photography-gallery/gallery-026.jpg",
-        "/photography-gallery/gallery-027.jpg",
-        "/photography-gallery/gallery-028.jpg",
-        "/photography-gallery/gallery-029.jpg",
-        "/photography-gallery/gallery-030.jpg",
-        "/photography-gallery/gallery-031.jpg",
-        "/photography-gallery/gallery-032.jpg",
-      ],
-      "溜滑梯公園": [
-        "/photography-gallery/gallery-033.jpg",
-        "/photography-gallery/gallery-034.jpg",
-        "/photography-gallery/gallery-035.jpg",
-        "/photography-gallery/gallery-036.jpg",
-        "/photography-gallery/gallery-037.jpg",
-        "/photography-gallery/gallery-038.jpg",
-        "/photography-gallery/gallery-039.jpg",
-        "/photography-gallery/gallery-040.jpg",
-      ],
-      "螢火蟲餐廳街": [
-        "/photography-gallery/gallery-041.jpg",
-        "/photography-gallery/gallery-042.jpg",
-        "/photography-gallery/gallery-043.jpg",
-        "/photography-gallery/gallery-044.jpg",
-        "/photography-gallery/gallery-045.jpg",
-        "/photography-gallery/gallery-046.jpg",
-        "/photography-gallery/gallery-047.jpg",
-        "/photography-gallery/gallery-048.jpg",
-      ],
-      "森林餐廳": [
-        "/photography-gallery/gallery-049.jpg",
-        "/photography-gallery/gallery-050.jpg",
-        "/photography-gallery/gallery-051.jpg",
-        "/photography-gallery/gallery-052.jpg",
-        "/photography-gallery/gallery-053.jpg",
-        "/photography-gallery/gallery-054.jpg",
-        "/photography-gallery/gallery-055.jpg",
-        "/photography-gallery/gallery-056.jpg",
-      ],
-      "Club Med": [
-        "/photography-gallery/gallery-057.jpg",
-        "/photography-gallery/gallery-058.jpg",
-        "/photography-gallery/gallery-059.jpg",
-        "/photography-gallery/gallery-060.jpg",
-        "/photography-gallery/gallery-061.jpg",
-        "/photography-gallery/gallery-062.jpg",
-        "/photography-gallery/gallery-063.jpg",
-        "/photography-gallery/gallery-064.jpg",
-      ],
-      "冰上釣魚": [
-        "/photography-gallery/gallery-065.jpg",
-        "/photography-gallery/gallery-066.jpg",
-        "/photography-gallery/gallery-067.jpg",
-        "/photography-gallery/gallery-068.jpg",
-        "/photography-gallery/gallery-069.jpg",
-        "/photography-gallery/gallery-070.jpg",
-        "/photography-gallery/gallery-071.jpg",
-        "/photography-gallery/gallery-072.jpg",
-      ],
-    }),
-    []
-  );
-  const expandIndices = (items) => {
-    const result = [];
-    items.forEach((item) => {
-      if (Array.isArray(item)) {
-        const [start, end] = item;
-        for (let i = start; i <= end; i += 1) {
-          result.push(i);
-        }
-        return;
-      }
-      result.push(item);
-    });
-    return result;
-  };
-  const shootTypeIndexMap = useMemo(
-    () => ({
-      親子: expandIndices([5, 6, 7, 8, [13, 24], [27, 43], 47, 48]),
-      滑雪側拍: expandIndices([44, 45, 46]),
-      個人寫真: expandIndices([1, 2, 3, 4, [9, 12], 25, 26, [49, 64]]),
-    }),
-    []
-  );
-  const videos = useMemo(
-    () => [
-      { id: "nPFLW9HsjdU", title: "Gallery Video 01" },
-      { id: "s5OAiq3woco", title: "Gallery Video 02" },
-      { id: "RM7SCH0oxAo", title: "Gallery Video 03" },
-      { id: "nDpetYyg6M4", title: "Gallery Video 04" },
-    ],
-    []
-  );
+  const photoItems = galleryItems.filter((item) => item.metadata?.media_type === 'photo');
+  const locationCategories = [...new Set(photoItems.map((item) => item.metadata?.location).filter(Boolean))];
+  const shootTypeCategories = [...new Set(photoItems.flatMap((item) => item.metadata?.shoot_types ?? []))];
+  const hoshinoCategories = [...new Set(
+    photoItems
+      .filter((item) => item.metadata?.location === '星野')
+      .map((item) => item.metadata?.section)
+      .filter(Boolean)
+  )];
+  const hoshinoPhotos = photoItems.reduce((groups, item) => {
+    if (item.metadata?.location !== '星野' || !item.metadata?.section) return groups;
+    groups[item.metadata.section] ??= [];
+    groups[item.metadata.section].push(item.image_url);
+    return groups;
+  }, {});
+  const videos = galleryItems
+    .filter((item) => item.metadata?.media_type === 'video')
+    .map((item) => ({ id: item.metadata.video_id, title: item.title }));
   const [activeCategory, setActiveCategory] = useState("All");
   const [activeLocationCategory, setActiveLocationCategory] = useState(
-    locationCategories[0]
+    "星野"
   );
   const [activeShootTypeCategory, setActiveShootTypeCategory] = useState(
-    shootTypeCategories[0]
+    "親子"
   );
   const [isLocationExpanded, setIsLocationExpanded] = useState(false);
   const [isShootTypeExpanded, setIsShootTypeExpanded] = useState(false);
   const [isHoshinoExpanded, setIsHoshinoExpanded] = useState(false);
   const [activeHoshinoCategory, setActiveHoshinoCategory] = useState(
-    hoshinoCategories[0]
+    "霧冰平台"
   );
-  const [activeVideoId, setActiveVideoId] = useState(videos[0].id);
+  const [activeVideoId, setActiveVideoId] = useState(null);
   const [lightboxIndex, setLightboxIndex] = useState(null);
 
-  const allPhotos = useMemo(
-    () => Object.values(hoshinoPhotos).flat(),
-    [hoshinoPhotos]
-  );
+  useEffect(() => {
+    if (!activeVideoId && videos[0]?.id) setActiveVideoId(videos[0].id);
+  }, [activeVideoId, videos]);
+
+  const allPhotos = photoItems.map((item) => item.image_url);
   const activePhotos = useMemo(() => {
     if (activeCategory === "地點") {
       if (activeLocationCategory === "星野") {
@@ -175,10 +58,9 @@ function OverseasPhotographyWorksPage() {
       return [];
     }
     if (activeCategory === "拍攝類型") {
-      const indices = new Set(
-        shootTypeIndexMap[activeShootTypeCategory] ?? []
-      );
-      return allPhotos.filter((_, index) => indices.has(index + 1));
+      return photoItems
+        .filter((item) => item.metadata?.shoot_types?.includes(activeShootTypeCategory))
+        .map((item) => item.image_url);
     }
     if (activeCategory === "All") {
       return allPhotos;
@@ -191,7 +73,7 @@ function OverseasPhotographyWorksPage() {
     hoshinoPhotos,
     allPhotos,
     activeShootTypeCategory,
-    shootTypeIndexMap,
+    photoItems,
   ]);
   const isFullBleedGallery = activeCategory !== "影片";
 
@@ -234,6 +116,13 @@ function OverseasPhotographyWorksPage() {
             攝影作品
           </h1>
         </div>
+        {isLoading && <p className="py-16 text-center text-sm text-[#64748b]">正在載入攝影作品…</p>}
+        {!isLoading && error && <p className="py-16 text-center text-sm text-red-600">攝影作品暫時無法載入，請稍後再試。</p>}
+        {!isLoading && !error && galleryItems.length === 0 && (
+          <p className="py-16 text-center text-sm text-[#64748b]">目前沒有已發布的攝影作品。</p>
+        )}
+        {galleryItems.length > 0 && (
+          <>
         <div className="mt-10 flex flex-wrap justify-center gap-y-2 text-sm font-semibold text-[#1f2937] font-display">
           {categories.map((category, index) => (
             <span key={category} className="flex items-center">
@@ -459,14 +348,16 @@ function OverseasPhotographyWorksPage() {
               ))}
             </div>
             <div className="mt-12 flex justify-center">
-              <a
-                href="#"
+              <SiteLink
+                to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
                 預約攝影
-              </a>
+              </SiteLink>
             </div>
           </div>
+        )}
+          </>
         )}
       </main>
       <SiteFooter />

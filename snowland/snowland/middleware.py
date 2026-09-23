@@ -58,6 +58,8 @@ class LocalAuthBypassMiddleware:
         fields_to_update = []
         for field, value in (
             ("email", LOCAL_DEV_EMAIL),
+            ("first_name", "Local"),
+            ("last_name", "Developer"),
             ("is_active", True),
             ("is_staff", True),
             ("is_superuser", True),

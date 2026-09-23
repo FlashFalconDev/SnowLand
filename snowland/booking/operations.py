@@ -111,14 +111,46 @@ def calculate_refund(group):
         'refund_percent': refund_percent,
         'handling_fee_percent': policy.cancellation_fee_percent,
         'refund_amount': int(refund_amount),
+        'available_rules': rules,
     }
 
 
 @transaction.atomic
-def request_cancellation(group, *, reason, reason_note='', bank=None, user=None):
+def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
+                         selected_rule_days_before=None, manual_refund_amount=None):
     if group.cancellation_requests.filter(status__in=['requested', 'approved']).exists():
         raise ValueError('這張訂單已有待處理的取消申請')
-    values = calculate_refund(group)
+    preview = calculate_refund(group)
+    rules = preview.pop('available_rules')
+    values = preview
+    calculation_mode = 'auto'
+    if manual_refund_amount is not None and selected_rule_days_before is not None:
+        raise ValueError('指定方案與手動金額只能選一種')
+    if selected_rule_days_before is not None:
+        try:
+            selected_rule_days_before = int(selected_rule_days_before)
+        except (TypeError, ValueError):
+            raise ValueError('退費方案格式錯誤')
+        selected = next((rule for rule in rules if int(rule['days_before']) == selected_rule_days_before), None)
+        if selected is None:
+            raise ValueError('退費方案不在目前營運規則中')
+        percent = int(selected['refund_percent'])
+        fee = Decimal(preview['original_amount']) * Decimal(preview['handling_fee_percent']) / 100
+        amount = Decimal(preview['original_amount']) * Decimal(percent) / 100 - fee
+        values['refund_percent'] = percent
+        values['refund_amount'] = int(max(Decimal(0), amount).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        calculation_mode = 'rule'
+    elif manual_refund_amount is not None:
+        try:
+            amount = int(manual_refund_amount)
+        except (TypeError, ValueError):
+            raise ValueError('手動退款金額須為整數')
+        if str(amount) != str(manual_refund_amount).strip() or not 0 <= amount <= preview['original_amount']:
+            raise ValueError('手動退款金額不可超過訂單金額，也不可小於 0')
+        values['refund_amount'] = amount
+        values['handling_fee_percent'] = 0
+        values['refund_percent'] = 0
+        calculation_mode = 'manual'
     payment = group.payments.order_by('-created_at').first()
     if payment and payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay'):
         bank = bank or {}
@@ -132,6 +164,8 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None)
         refund_bank_name=bank.get('bank_name', ''),
         refund_account_number=bank.get('account_number', ''),
         refund_account_holder=bank.get('account_holder', ''),
+        calculation_mode=calculation_mode,
+        selected_rule_days_before=selected_rule_days_before if calculation_mode == 'rule' else None,
         **values,
     )
     record_order_revision(group, user=user, change_type='cancel', reason=reason_note or reason)

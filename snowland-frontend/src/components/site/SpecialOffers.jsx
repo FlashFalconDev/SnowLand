@@ -1,58 +1,19 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import SiteLink from './SiteLink';
-import { homepageAssetBase } from '../../data/site/assetPaths';
-import { fetchSiteContent } from '../../api/booking';
+import { useSiteContent } from '../../hooks/useSiteContent';
 
 const SpecialOffers = () => {
-    const [cmsOffers, setCmsOffers] = React.useState([]);
-
-    React.useEffect(() => {
-        let mounted = true;
-        fetchSiteContent({ content_type: 'offer', location_key: 'homepage.offers', limit: 6, include_ended: true })
-            .then((items) => {
-                if (mounted) setCmsOffers(Array.isArray(items) ? items : []);
-            })
-            .catch(() => {
-                if (mounted) setCmsOffers([]);
-            });
-        return () => {
-            mounted = false;
-        };
-    }, []);
-
-    const fallbackOffers = [
-        {
-            title: '25-26雪季早鳥優惠',
-            subtitle: '7.01 - 9.30日止',
-            image_url: `${homepageAssetBase}/Special offers-early bird.jpg`,
-            link_url: '/specialoffers/earlybird',
-            badge: '已結束',
-            badgeClassName: 'bg-white/90 text-[#1f2937]',
-            delay: 0,
-        },
-        {
-            title: '舊生帶新生優惠',
-            subtitle: '優惠內容整理中。',
-            image_url: `${homepageAssetBase}/Special offers-referal.jpg`,
-            link_url: '/specialoffers/referral',
-            badge: '進行中',
-            badgeClassName: 'bg-brand-orange text-white',
-            delay: 0.2,
-        },
-    ];
-
-    const offers = cmsOffers.length > 0
-        ? cmsOffers.map((item, index) => ({
+    const { items: cmsOffers, isLoading, error } = useSiteContent('homepage.offers', { limit: 6, includeEnded: true });
+    const offers = cmsOffers.map((item, index) => ({
             title: item.title || '限定優惠',
             subtitle: item.subtitle || item.summary || item.body || '',
-            image_url: item.image_url || `${homepageAssetBase}/Special offers-referal.jpg`,
+            image_url: item.image_url,
             link_url: item.link_url || '/specialoffers',
             badge: item.metadata?.badge || (item.status === 'ended' ? '已結束' : '進行中'),
             badgeClassName: item.status === 'ended' ? 'bg-white/90 text-[#1f2937]' : 'bg-brand-orange text-white',
             delay: index * 0.12,
-        }))
-        : fallbackOffers;
+        }));
 
     return (
         <section id="homepage-offers" className="bg-[#f6f8fb] py-16 md:py-24 scroll-mt-24">
@@ -70,6 +31,9 @@ const SpecialOffers = () => {
 
                 {/* Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 max-w-[680px] mx-auto">
+                    {isLoading && <p className="md:col-span-2 py-12 text-center text-sm text-[#64748b]">正在載入優惠…</p>}
+                    {!isLoading && error && <p className="md:col-span-2 py-12 text-center text-sm text-red-600">優惠暫時無法載入，請稍後再試。</p>}
+                    {!isLoading && !error && offers.length === 0 && <p className="md:col-span-2 py-12 text-center text-sm text-[#64748b]">目前沒有進行中的優惠。</p>}
                     {offers.map((offer) => (
                         <SiteLink key={`${offer.title}-${offer.link_url}`} to={offer.link_url} aria-label={offer.title} className="block">
                             <motion.div

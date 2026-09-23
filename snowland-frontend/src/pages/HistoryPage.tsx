@@ -37,6 +37,16 @@ interface BookingDetail {
   end_time: string
 }
 
+interface CancellationPreview {
+  original_amount: number
+  refund_amount: number
+  refund_percent: number
+  handling_fee_percent: number
+  days_before: number
+  requires_bank_account: boolean
+  request_status: string | null
+}
+
 export default function HistoryPage() {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
@@ -46,6 +56,10 @@ export default function HistoryPage() {
   const replaceCart = useBookingStore((state) => state.replaceCart)
   const clientCode = window.location.pathname.split('/').filter(Boolean)[0] || 'snowland'
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
+  const [cancellationGroupId, setCancellationGroupId] = useState<number | null>(null)
+  const [cancellationPreview, setCancellationPreview] = useState<CancellationPreview | null>(null)
+  const [cancellationLoading, setCancellationLoading] = useState(false)
+  const [cancellationForm, setCancellationForm] = useState({ reason: 'schedule', reason_note: '', bank_name: '', account_number: '', account_holder: '' })
   const [toast, setToast] = useState<{ message: string; type: ToastType; isOpen: boolean }>({
     message: '',
     type: 'info',
@@ -117,6 +131,44 @@ export default function HistoryPage() {
       replaceCart(data.cart || [])
       navigate('../booking')
     } catch (error: any) { showToast(error.message || '無法複製訂單', 'error') }
+  }
+
+  const openCancellation = async (groupId: number) => {
+    setCancellationGroupId(groupId)
+    setCancellationPreview(null)
+    setCancellationForm({ reason: 'schedule', reason_note: '', bank_name: '', account_number: '', account_holder: '' })
+    setCancellationLoading(true)
+    try {
+      const response = await fetch(`/booking/${clientCode}/api/member-cancellations/${groupId}/`, { credentials: 'include' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || '無法取得退費試算')
+      setCancellationPreview(data)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '無法取得退費試算', 'error')
+      setCancellationGroupId(null)
+    } finally {
+      setCancellationLoading(false)
+    }
+  }
+
+  const submitCancellation = async () => {
+    if (!cancellationGroupId || !cancellationPreview) return
+    setCancellationLoading(true)
+    try {
+      const response = await fetch(`/booking/${clientCode}/api/member-cancellations/${cancellationGroupId}/`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '' },
+        body: JSON.stringify(cancellationForm),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || '送出失敗')
+      setCancellationGroupId(null)
+      showToast('取消申請已送出，請等待客服審核；這不是立即退款', 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '送出失敗', 'error')
+    } finally {
+      setCancellationLoading(false)
+    }
   }
 
   const toggleGroup = (groupId: number) => {
@@ -324,7 +376,7 @@ export default function HistoryPage() {
                           </h3>
                           {getPaymentStatusBadge(group.payment_status)}
                         </div>
-                        <div className="flex items-center gap-6 text-sm text-gray-600">
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
                           <div className="flex items-center gap-1">
                             <Calendar size={16} />
                             <span>{new Date(group.created_at).toLocaleDateString('zh-TW')}</span>
@@ -458,6 +510,7 @@ export default function HistoryPage() {
                       {/* 操作按鈕 */}
                       <div className="mt-4 flex flex-wrap justify-end gap-2">
                         <button onClick={() => quickRebook(group.reservation_group_id)} className="flex items-center gap-2 rounded-full border border-primary-300 bg-white px-5 py-3 font-bold text-primary-700"><Repeat2 size={16} />再次預約</button>
+                      {group.payment_status === 'paid' && <button onClick={() => openCancellation(group.reservation_group_id)} className="rounded-full border border-red-300 bg-white px-5 py-3 font-bold text-red-700 hover:bg-red-50">申請取消／退款</button>}
                       {group.payment_status === 'unpaid' && (
                           <button
                             onClick={() => navigate(`../payment?reservation_group=${group.reservation_group_id}`)}
@@ -475,6 +528,22 @@ export default function HistoryPage() {
           </div>
         )}
       </main>
+
+      {cancellationGroupId !== null && <div role="dialog" aria-modal="true" aria-label="申請取消與退款" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+          <h2 className="text-xl font-bold text-gray-900">申請取消與退款</h2>
+          <p className="mt-1 text-sm text-gray-600">訂單 #{cancellationGroupId}；送出後需由客服審核，不會立即取消課程或退款。</p>
+          {cancellationLoading && !cancellationPreview ? <p className="mt-5 text-gray-600">正在計算退費金額…</p> : cancellationPreview && <div className="mt-5 space-y-4">
+            <div className="rounded-xl bg-violet-50 p-4 text-violet-950"><b>預計退款 NT$ {cancellationPreview.refund_amount.toLocaleString()}</b><p className="mt-1 text-sm">距課程 {cancellationPreview.days_before} 天 · 退 {cancellationPreview.refund_percent}% · 再扣原價的 {cancellationPreview.handling_fee_percent}% 手續費</p></div>
+            {cancellationPreview.request_status && cancellationPreview.request_status !== 'rejected' ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">此訂單已有取消申請，狀態：{{ requested: '待客服審核', approved: '已核准', refunded: '已退款' }[cancellationPreview.request_status] || cancellationPreview.request_status}。請聯絡客服查詢。</p> : <>
+              <label className="block text-sm font-medium text-gray-700">取消原因<select value={cancellationForm.reason} onChange={e => setCancellationForm({ ...cancellationForm, reason: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 bg-white p-2 text-gray-900"><option value="schedule">行程變更</option><option value="health">健康因素</option><option value="weather">天候因素</option><option value="duplicate">重複訂單</option><option value="other">其他</option></select></label>
+              <label className="block text-sm font-medium text-gray-700">補充說明<textarea value={cancellationForm.reason_note} onChange={e => setCancellationForm({ ...cancellationForm, reason_note: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-gray-900" rows={2} /></label>
+              {cancellationPreview.requires_bank_account && <fieldset className="space-y-2 rounded-xl border border-gray-200 p-4"><legend className="px-1 font-medium text-gray-800">退款帳戶（匯款訂單必填）</legend>{([['bank_name', '銀行名稱'], ['account_number', '退款帳號'], ['account_holder', '戶名']] as const).map(([key, label]) => <label key={key} className="block text-sm text-gray-700">{label}<input value={cancellationForm[key]} onChange={e => setCancellationForm({ ...cancellationForm, [key]: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-gray-900" /></label>)}</fieldset>}
+            </>}
+          </div>}
+          <div className="mt-6 flex justify-end gap-2"><button onClick={() => setCancellationGroupId(null)} className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700">關閉</button>{cancellationPreview && (!cancellationPreview.request_status || cancellationPreview.request_status === 'rejected') && <button onClick={submitCancellation} disabled={cancellationLoading || (cancellationPreview.requires_bank_account && !cancellationForm.bank_name.trim() || cancellationPreview.requires_bank_account && !cancellationForm.account_number.trim() || cancellationPreview.requires_bank_account && !cancellationForm.account_holder.trim())} className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white disabled:opacity-40">送出取消申請</button>}</div>
+        </div>
+      </div>}
 
       {/* Toast 通知 */}
       <Toast

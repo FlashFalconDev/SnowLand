@@ -1083,6 +1083,8 @@ class OrderAdminViewSet(ModelViewSet):
                 reason_note=request.data.get('reason_note', ''),
                 bank=request.data.get('refund_bank'),
                 user=request.user,
+                selected_rule_days_before=request.data.get('selected_rule_days_before'),
+                manual_refund_amount=request.data.get('manual_refund_amount'),
             )
         except ValueError as exc:
             return Response({'code': 400, 'msg': str(exc)}, status=400)
@@ -1500,6 +1502,10 @@ class PayrollStatementAdminViewSet(ModelViewSet):
     serializer_class = PayrollStatementAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'payroll'
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def create(self, request, *args, **kwargs):
+        return Response({'code': 405, 'msg': '請使用薪資結算操作'}, status=405)
 
     def get_queryset(self):
         qs = PayrollStatement.objects.filter(coach__client=self.request.tenant).select_related('coach', 'campus').prefetch_related('lines')
@@ -1509,6 +1515,21 @@ class PayrollStatementAdminViewSet(ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+
+    @action(detail=True, methods=['post'], url_path='adjustments')
+    def adjustments(self, request, *args, **kwargs):
+        from Coach.payroll import add_payroll_adjustment
+        try:
+            statement = self.get_object()
+            add_payroll_adjustment(
+                statement=statement,
+                description=request.data.get('description', ''),
+                amount=request.data.get('amount'),
+            )
+            statement.refresh_from_db()
+        except ValueError as exc:
+            return Response({'code': 400, 'msg': str(exc)}, status=400)
+        return Response({'code': 200, 'msg': '已加入手動項目', 'data': self.get_serializer(statement).data})
 
     @action(detail=False, methods=['post'])
     def calculate(self, request, *args, **kwargs):

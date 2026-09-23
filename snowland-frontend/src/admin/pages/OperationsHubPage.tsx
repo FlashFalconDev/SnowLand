@@ -6,7 +6,7 @@ import { fetchCampuses } from '../api/campuses'
 import { fetchCoaches } from '../api/coaches'
 import {
   calculatePayroll, createStaffBookingLink, fetchEvaluations, fetchNotificationDeliveries,
-  fetchNotificationTemplates, fetchPayrollStatements, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, savePayRule,
+  fetchNotificationTemplates, fetchPayrollStatements, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, savePayRule, addPayrollAdjustment,
   fetchInsuranceRecords, completeInsuranceRecord,
   updateEvaluation, addEvaluationMedia, type Evaluation,
 } from '../api/operations'
@@ -87,6 +87,10 @@ function PayrollPanel() {
   const now = new Date(); const first = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`; const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
   const [form, setForm] = useState({ coach: '', campus: '', period_start: first, period_end: last })
   const [rule, setRule] = useState({ coach: '', discipline: 'snowboard', certification_level: '', hourly_rate: '', specified_fee: '0', referral_percent: '10', assistance_hour_factor: '0.5', supervisor_allowance: '0' })
+  const [detailId, setDetailId] = useState<number | null>(null)
+  const [manual, setManual] = useState({ description: '', amount: '' })
+  const detail = statements.find(statement => statement.id === detailId)
+  const addManual = useMutation({ mutationFn: () => addPayrollAdjustment(detailId!, { description: manual.description, amount: Number(manual.amount) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'payroll'] }); setManual({ description: '', amount: '' }); notify.success('手動項目已加入薪資單') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '新增項目失敗') })
   const run = useMutation({ mutationFn: () => calculatePayroll({ coach: Number(form.coach), campus: Number(form.campus), period_start: form.period_start, period_end: form.period_end }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'payroll'] }); notify.success('薪資已重新計算') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '計算失敗') })
   const saveRule = useMutation({ mutationFn: () => savePayRule({ ...rule, coach: Number(rule.coach), hourly_rate: rule.hourly_rate, specified_fee: Number(rule.specified_fee), referral_percent: rule.referral_percent, assistance_hour_factor: rule.assistance_hour_factor, supervisor_allowance: Number(rule.supervisor_allowance), is_active: true }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'pay-rules'] }); notify.success('教練薪資規則已儲存') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '規則儲存失敗') })
   const total = useMemo(() => statements.reduce((sum, s) => sum + s.total_amount, 0), [statements])
@@ -107,7 +111,18 @@ function PayrollPanel() {
     <Field label="結算結束日"><input className={inputClass} type="date" value={form.period_end} onChange={e => setForm({ ...form, period_end: e.target.value })} /></Field>
     <button disabled={!form.coach || !form.campus || run.isPending} onClick={() => run.mutate()} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}>{run.isPending ? '計算中…' : '開始計算'}</button>
   </div></section>
-    <section className={cardClass}><div className="mb-4 flex justify-between"><h2 className="font-semibold text-gray-900 dark:text-white">薪資單</h2><b className="text-violet-600">合計 NT$ {total.toLocaleString()}</b></div>{isLoading ? <Loader2 className="animate-spin" /> : <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="text-xs text-gray-500 dark:text-gray-400"><tr><th className="py-2">教練／校區</th><th>期間</th><th>課程</th><th>指定＋介紹＋協助＋加給</th><th className="text-right">應付</th></tr></thead><tbody>{statements.map(s => <tr key={s.id} className="border-t border-gray-100 dark:border-gray-700"><td className="py-3"><b>{s.coach_name}</b><p className="text-xs text-gray-500 dark:text-gray-400">{s.campus_name}</p></td><td>{s.period_start}～{s.period_end}</td><td>NT$ {s.course_pay.toLocaleString()}</td><td>NT$ {(s.specified_fees + s.referral_commission + s.assistance_pay + s.supervisor_allowance).toLocaleString()}</td><td className="text-right font-bold">NT$ {s.total_amount.toLocaleString()}</td></tr>)}</tbody></table>{!statements.length && <Empty text="尚無薪資單。選擇校區、教練與期間後開始計算。" />}</div>}</section></div>
+    <section className={cardClass}>
+      <div className="mb-4 flex justify-between"><h2 className="font-semibold text-gray-900 dark:text-white">薪資單</h2><b className="text-violet-600">合計 NT$ {total.toLocaleString()}</b></div>
+      {isLoading ? <Loader2 className="animate-spin" /> : <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="text-xs text-gray-500 dark:text-gray-400"><tr><th className="py-2">教練／校區</th><th>期間</th><th>課程</th><th>指定＋介紹＋協助＋加給</th><th className="text-right">應付</th><th className="text-right">操作</th></tr></thead><tbody>{statements.map(s => <tr key={s.id} className="border-t border-gray-100 dark:border-gray-700"><td className="py-3"><b>{s.coach_name}</b><p className="text-xs text-gray-500 dark:text-gray-400">{s.campus_name}</p></td><td>{s.period_start}～{s.period_end}</td><td>NT$ {s.course_pay.toLocaleString()}</td><td>NT$ {(s.specified_fees + s.referral_commission + s.assistance_pay + s.supervisor_allowance).toLocaleString()}</td><td className="text-right font-bold">NT$ {s.total_amount.toLocaleString()}</td><td className="text-right"><button className="rounded-lg border border-violet-200 px-3 py-1 text-violet-700 dark:text-violet-300" onClick={() => setDetailId(s.id)}>查看明細</button></td></tr>)}</tbody></table>{!statements.length && <Empty text="尚無薪資單。選擇校區、教練與期間後開始計算。" />}</div>}
+    </section>
+    {detail && <section className={cardClass} aria-label="薪資明細">
+      <div className="flex items-center justify-between"><h2 className="font-semibold text-gray-900 dark:text-white">{detail.coach_name} · {detail.period_start}～{detail.period_end}</h2><button onClick={() => setDetailId(null)} className="text-sm text-gray-500">關閉</button></div>
+      <p className="my-2 text-xs text-gray-500 dark:text-gray-400">各項顯示數量、單價與金額。介紹費為折扣後課程費乘以比例。法定稅費尚未自動扣除，請先由會計核對。</p>
+      <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="text-gray-500"><th className="py-2">項目</th><th>計算</th><th className="text-right">金額</th></tr></thead><tbody>{detail.lines?.map(line => <tr key={line.id} className="border-t border-gray-100 dark:border-gray-700"><td className="py-2">{line.description}</td><td>{line.line_type === 'referral' ? `NT$ ${Number(line.unit_amount).toLocaleString()} × ${line.quantity}%` : `${line.quantity} × NT$ ${Number(line.unit_amount).toLocaleString()}`}</td><td className="text-right">NT$ {line.total_amount.toLocaleString()}</td></tr>)}</tbody></table></div>
+      <p className="mt-3 text-right font-semibold text-gray-900 dark:text-white">應付合計 NT$ {detail.total_amount.toLocaleString()}</p>
+      {detail.status === 'draft' && <div className="mt-4 grid gap-2 border-t border-gray-200 pt-4 dark:border-gray-700 sm:grid-cols-[1fr_150px_auto]"><input aria-label="手動薪資項目說明" className={inputClass} placeholder="項目說明，例如本月日文協助費" value={manual.description} onChange={e => setManual({ ...manual, description: e.target.value })} /><input aria-label="手動薪資項目金額" className={inputClass} type="number" step="1" placeholder="金額，可填負數" value={manual.amount} onChange={e => setManual({ ...manual, amount: e.target.value })} /><button disabled={!manual.description.trim() || !manual.amount || !Number.isInteger(Number(manual.amount)) || addManual.isPending} onClick={() => addManual.mutate()} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">新增手動項目</button></div>}
+    </section>}
+  </div>
 }
 
 function EvaluationsPanel() {

@@ -1,1006 +1,206 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
-import SiteLink from '../../components/site/SiteLink';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { CalendarDays, ChevronRight, ClipboardCheck, Gift, GraduationCap, LogOut, ShoppingBag, UserRound } from 'lucide-react';
+import GoogleLoginButton from '../../components/auth/GoogleLoginButton';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
+import SiteLink, { SiteBasePathContext } from '../../components/site/SiteLink';
+import { useBookingStore } from '../../store/bookingStore';
 
-const dashboardTabs = [
-  { key: "overview", label: "會員總覽", path: "/membership" },
-  { key: "orders", label: "我的訂單", path: "/membership/orders" },
-  { key: "order-history", label: "歷史訂單", path: "/membership/order-history" },
-  { key: "offers", label: "專屬優惠", path: "/membership/offers" },
-  { key: "account-detail", label: "基本資料", path: "/membership/account-detial" },
+const navItems = [
+  { key: 'overview', label: '會員總覽', path: '/membership', icon: UserRound },
+  { key: 'orders', label: '我的訂單', path: '/membership/orders', icon: ShoppingBag },
+  { key: 'offers', label: '專屬優惠', path: '/membership/offers', icon: Gift },
+  { key: 'forms', label: '課前資料', path: '/membership/pre-course-forms', icon: ClipboardCheck },
+  { key: 'journey', label: '課程評量', path: '/membership/my-skiing-journey', icon: GraduationCap },
 ];
 
-const orderHistorySubtabs = ["訂單資訊", "訂單成員", "課程紀錄", "上課評量表"];
+const sectionFromPath = (path) => path.includes('/orders') ? 'orders'
+  : path.includes('/offers') ? 'offers'
+  : path.includes('/pre-course-forms') ? 'forms'
+  : path.includes('/my-skiing-journey') ? 'journey' : 'overview';
 
-const dashboardCopy = {
-  overview: {
-    eyebrow: "MEMBERSHIP",
-    title: "會員總覽",
-    description: "",
-  },
-  orders: {
-    eyebrow: "ORDERS",
-    title: "我的訂單",
-    description: "這裡會放進行中的訂單與預約明細。",
-  },
-  "order-history": {
-    eyebrow: "ORDER HISTORY",
-    title: "歷史訂單",
-    description: "",
-  },
-  offers: {
-    eyebrow: "SPECIAL OFFER",
-    title: "專屬優惠",
-    description: "",
-  },
-  "account-detail": {
-    eyebrow: "ACCOUNT DETAIL",
-    title: "基本資料",
-    description: "",
-  },
-};
+const formatDate = (value) => value
+  ? new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(`${value}T00:00:00`))
+  : '日期安排中';
 
-const mockOrders = [
-  {
-    id: "order-20260312",
-    startDate: "2026-03-12",
-    resort: "星野 Tomamu",
-    coach: "Cash",
-    skiType: "單板",
-    people: "2 人",
-    days: "3 天",
-    status: "預約尚未完成",
-  },
-  {
-    id: "order-20260216",
-    startDate: "2026-02-16",
-    resort: "新雪谷 Niseko",
-    coach: "Lily",
-    skiType: "雙板",
-    people: "1 人",
-    days: "2 天",
-    status: "即將到來",
-  },
-  {
-    id: "order-20260108",
-    startDate: "2026-01-08",
-    resort: "富良野 Furano",
-    coach: "Dylan",
-    skiType: "單板",
-    people: "4 人",
-    days: "1 天",
-    status: "即將到來",
-  },
-];
+const paymentLabels = { unpaid: '待付款', pending: '付款確認中', paid: '已付款', expired: '付款已逾期', refunded: '已退款' };
 
-function resolveDashboardTab(pathname) {
-  if (pathname === "/membership" || pathname === "/membership/") {
-    return "overview";
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, { credentials: 'include', ...options });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || data.detail || '資料載入失敗');
+    error.status = response.status;
+    throw error;
   }
-  if (pathname.startsWith("/membership/orders")) {
-    return "orders";
-  }
-  if (pathname.startsWith("/membership/order-history")) {
-    return "order-history";
-  }
-  if (pathname.startsWith("/membership/offers")) {
-    return "offers";
-  }
-  if (pathname.startsWith("/membership/account-detial") || pathname.startsWith("/membership/account-detail")) {
-    return "account-detail";
-  }
-  return "overview";
+  return data;
 }
 
-function MembershipAvatar({ src, alt, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group relative mx-auto flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-[#d8e1ea] bg-[#edf2f7] shadow-[0_12px_24px_rgba(15,23,42,0.08)] transition-transform duration-200 hover:scale-[1.02]"
-      aria-label="編輯頭像"
-    >
-      {src ? (
-        <img loading="lazy" decoding="async" src={src} alt={alt} className="h-full w-full object-cover" />
-      ) : (
-        <svg
-          viewBox="0 0 96 96"
-          fill="none"
-          className="h-14 w-14 text-[#94a3b8]"
-          aria-hidden="true"
-        >
-          <circle cx="48" cy="36" r="16" stroke="currentColor" strokeWidth="4" />
-          <path
-            d="M20 78c4.8-11.2 14.4-18 28-18s23.2 6.8 28 18"
-            stroke="currentColor"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-        </svg>
-      )}
-      <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#0f172a]/0 opacity-0 transition-all duration-200 group-hover:bg-[#0f172a]/18 group-hover:opacity-100">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          className="h-9 w-9 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]"
-          aria-hidden="true"
-        >
-          <path
-            d="M9 5l1.2-2h3.6L15 5h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h3Z"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinejoin="round"
-          />
-          <circle cx="12" cy="13" r="3.25" stroke="currentColor" strokeWidth="1.6" />
-        </svg>
-      </span>
-    </button>
-  );
+function EmptyState({ title, description, action }) {
+  return <div className="rounded-sm border border-dashed border-[#cbd5e1] bg-white px-6 py-14 text-center">
+    <p className="text-xl font-semibold text-[#1f2937]">{title}</p>
+    {description && <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[#64748b]">{description}</p>}
+    {action}
+  </div>;
 }
 
-function formatOrderDate(dateString) {
-  return new Intl.DateTimeFormat("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(dateString));
-}
+function AuthPanel({ onAuthenticated }) {
+  const params = new URLSearchParams(window.location.search);
+  const resetUid = params.get('reset_uid');
+  const resetToken = params.get('reset_token');
+  const [mode, setMode] = useState(resetUid && resetToken ? 'reset' : 'login');
+  const [email, setEmail] = useState(localStorage.getItem('remembered_member_email') || '');
+  const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(Boolean(localStorage.getItem('remembered_member_email')));
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
-function OrderField({ label, value }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-xs font-semibold tracking-[0.24em] uppercase text-[#94a3b8] font-display">
-        {label}
-      </p>
-      <p className="text-sm md:text-base font-semibold text-[#1f2937] font-display">
-        {value}
-      </p>
-    </div>
-  );
-}
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const action = mode === 'forgot' ? 'request_reset' : mode === 'reset' ? 'reset_password' : mode;
+      const payload = { action, email: email.trim(), password };
+      if (mode === 'reset') Object.assign(payload, { uid: resetUid, token: resetToken });
+      const data = await requestJson('/booking/snowland/api/member-auth/', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      if (mode === 'forgot') setMessage(data.message);
+      else if (mode === 'reset') {
+        window.history.replaceState({}, '', window.location.pathname);
+        setMode('login'); setPassword(''); setMessage(data.message);
+      } else {
+        if (remember) localStorage.setItem('remembered_member_email', email.trim());
+        else localStorage.removeItem('remembered_member_email');
+        localStorage.setItem('user', JSON.stringify(data.member));
+        await onAuthenticated();
+      }
+    } catch (submitError) { setError(submitError.message); }
+    finally { setBusy(false); }
+  };
 
-function AuthSection({ activeTab, setActiveTab, authErrors, setAuthErrors, loginEmail, setLoginEmail, loginPassword, setLoginPassword, registerEmail, setRegisterEmail, registerPassword, setRegisterPassword, showPassword, setShowPassword, onLogin, onRegister }) {
-  const inputBase =
-    "mt-2 w-full rounded-sm border border-transparent bg-[#f3f4f6] px-4 py-3 text-base md:text-sm text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30";
-
-  return (
-    <section className="mt-12">
-      <div className="mx-auto max-w-3xl px-6 md:px-12">
-        <div className="border-b border-[#e2e8f0]">
-          <div className="flex flex-wrap items-center justify-center gap-12 md:gap-16 text-base md:text-lg font-semibold text-[#6b7280] font-display">
-            <button
-              type="button"
-              onClick={() => setActiveTab("login")}
-              className={`group relative pb-4 transition-colors duration-200 ${
-                activeTab === "login" ? "text-[#111827]" : "hover:text-[#2b5f8f]"
-              }`}
-              aria-current={activeTab === "login" ? "page" : undefined}
-            >
-              會員登入
-              <span
-                className={`absolute left-0 -bottom-[1px] h-0.5 transition-all duration-300 ${
-                  activeTab === "login"
-                    ? "w-full bg-[#111827]"
-                    : "w-0 bg-[#2b5f8f] group-hover:w-full"
-                }`}
-              />
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("register")}
-              className={`group relative pb-4 transition-colors duration-200 ${
-                activeTab === "register" ? "text-[#111827]" : "hover:text-[#2b5f8f]"
-              }`}
-              aria-current={activeTab === "register" ? "page" : undefined}
-            >
-              註冊會員
-              <span
-                className={`absolute left-0 -bottom-[1px] h-0.5 transition-all duration-300 ${
-                  activeTab === "register"
-                    ? "w-full bg-[#111827]"
-                    : "w-0 bg-[#2b5f8f] group-hover:w-full"
-                }`}
-              />
-            </button>
-          </div>
+  return <div className="min-h-screen bg-[#f7f8fa]">
+    <SiteHeader forceTransparent forceDarkText={false} forceLogoColor={false} />
+    <section className="bg-gradient-to-br from-[#1c3b5f] via-[#2b5f8f] to-[#7bbbe7] px-6 pb-20 pt-32 text-center text-white">
+      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/75">Membership</p>
+      <h1 className="mt-4 text-3xl font-semibold md:text-4xl">會員專區</h1>
+      <p className="mt-3 text-sm text-white/80">查看訂單、課前資料與每一次滑雪學習紀錄</p>
+    </section>
+    <section className="mx-auto -mt-8 max-w-2xl px-5 pb-24">
+      <div className="relative rounded-sm border border-[#dbe3ec] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.10)] md:p-10">
+        {!['forgot', 'reset'].includes(mode) && <div className="grid grid-cols-2 border-b border-[#e2e8f0]">
+          {['login', 'register'].map((key) => <button key={key} type="button" onClick={() => { setMode(key); setError(''); setMessage(''); }}
+            className={`border-b-2 px-4 py-4 text-base font-semibold ${mode === key ? 'border-[#2b5f8f] text-[#1f2937]' : 'border-transparent text-[#94a3b8]'}`}>
+            {key === 'login' ? '會員登入' : '註冊會員'}
+          </button>)}
+        </div>}
+        <div className="mb-6 mt-7 text-center">
+          <h2 className="text-xl font-semibold text-[#1f2937]">{mode === 'forgot' ? '忘記密碼' : mode === 'reset' ? '設定新密碼' : mode === 'register' ? '建立 SnowLand 帳號' : '歡迎回來'}</h2>
+          <p className="mt-2 text-sm text-[#64748b]">{mode === 'forgot' ? '輸入註冊信箱，我們會寄送重設連結。' : mode === 'reset' ? '新密碼至少需要 8 個字元。' : '登入後即可查看只屬於您的課程資料。'}</p>
         </div>
-
-        {activeTab === "login" ? (
-          <form
-            className="mt-10 space-y-6"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onLogin();
-            }}
-          >
-            <label className="block text-sm font-semibold text-[#1f2937]">
-              電子郵件<span className="text-[#ef4444]">*</span>
-              <input
-                type="text"
-                value={loginEmail}
-                  onChange={(event) => {
-                    setLoginEmail(event.target.value);
-                    if (authErrors.loginEmail) {
-                      setAuthErrors((prev) => ({ ...prev, loginEmail: "" }));
-                    }
-                  }}
-                  autoComplete="username"
-                  className={inputBase}
-                />
-              {authErrors.loginEmail && (
-                <p className="mt-2 text-xs text-[#ef4444]">{authErrors.loginEmail}</p>
-              )}
-            </label>
-            <label className="block text-sm font-semibold text-[#1f2937]">
-              密碼<span className="text-[#ef4444]">*</span>
-              <span className="relative mt-2 block">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={loginPassword}
-                  onChange={(event) => {
-                    setLoginPassword(event.target.value);
-                    if (authErrors.loginPassword) {
-                      setAuthErrors((prev) => ({ ...prev, loginPassword: "" }));
-                    }
-                  }}
-                  autoComplete="current-password"
-                  className="w-full rounded-sm border border-transparent bg-[#f3f4f6] px-4 py-3 pr-12 text-base md:text-sm text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6b7280]"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      />
-                      <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      />
-                      <path d="M4 4l16 16" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                  )}
-                </button>
-              </span>
-              {authErrors.loginPassword && (
-                <p className="mt-2 text-xs text-[#ef4444]">{authErrors.loginPassword}</p>
-              )}
-            </label>
-            <div className="flex items-center justify-center gap-6 text-sm">
-              <label className="flex items-center gap-2 text-[#475569]">
-                <input type="checkbox" className="h-4 w-4" />
-                記住此帳號
-              </label>
-              <a
-                href="https://www.powderlife.com/my-account/lost-password/"
-                className="text-[#7b93a7] hover:text-[#2b5f8f]"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                忘記密碼
-              </a>
-            </div>
-            <div className="flex justify-center">
-              <button
-                type="submit"
-                className="group relative inline-flex items-center justify-center px-10 py-4 text-sm font-bold text-white transition-all duration-300 bg-[#8ec8f0] rounded-full hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
-              >
-                <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                <span className="relative z-10">會員登入</span>
-              </button>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <a
-                href="https://www.powderlife.com/?wc-api=auth&start=google&return=https%3A%2F%2Fwww.powderlife.com%2Fmy-account%2F"
-                className="flex items-center justify-center gap-3 rounded-lg bg-black px-4 py-2.5 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="flex h-7 w-7 items-center justify-center rounded bg-white text-black font-bold">
-                  G
-                </span>
-                以Google帳號登入
-              </a>
-              <a
-                href="https://www.powderlife.com/?wc-api=auth&start=line&return=https%3A%2F%2Fwww.powderlife.com%2Fmy-account%2F"
-                className="flex items-center justify-center gap-3 rounded-lg bg-[#06c755] px-4 py-2.5 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="flex h-7 w-7 items-center justify-center rounded bg-white text-[#06c755] font-bold">
-                  L
-                </span>
-                以Line帳號登入
-              </a>
-            </div>
-          </form>
-        ) : (
-          <form
-            className="mt-10 space-y-6"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onRegister();
-            }}
-          >
-            <label className="block text-sm font-semibold text-[#1f2937]">
-              電子郵件<span className="text-[#ef4444]">*</span>
-              <input
-                type="email"
-                value={registerEmail}
-                  onChange={(event) => {
-                    setRegisterEmail(event.target.value);
-                    if (authErrors.registerEmail) {
-                      setAuthErrors((prev) => ({ ...prev, registerEmail: "" }));
-                    }
-                  }}
-                  autoComplete="email"
-                  className={inputBase}
-                />
-              {authErrors.registerEmail && (
-                <p className="mt-2 text-xs text-[#ef4444]">{authErrors.registerEmail}</p>
-              )}
-            </label>
-            <label className="block text-sm font-semibold text-[#1f2937]">
-              密碼<span className="text-[#ef4444]">*</span>
-              <span className="relative mt-2 block">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={registerPassword}
-                  onChange={(event) => {
-                    setRegisterPassword(event.target.value);
-                    if (authErrors.registerPassword) {
-                      setAuthErrors((prev) => ({ ...prev, registerPassword: "" }));
-                    }
-                  }}
-                  autoComplete="new-password"
-                  className="w-full rounded-sm border border-transparent bg-[#f3f4f6] px-4 py-3 pr-12 text-base md:text-sm text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6b7280]"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      />
-                      <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      />
-                      <path d="M4 4l16 16" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                  )}
-                </button>
-              </span>
-              {authErrors.registerPassword && (
-                <p className="mt-2 text-xs text-[#ef4444]">{authErrors.registerPassword}</p>
-              )}
-            </label>
-            <p className="text-sm text-[#475569]">
-              您的個人資料將用於提供您在本站的體驗、管理帳號存取，以及我們{" "}
-              <SiteLink to="/privacy-policy" className="text-[#2b5f8f] underline underline-offset-2">
-                隱私權政策
-              </SiteLink>
-              {" "}中所述之用途。
-            </p>
-            <div className="flex justify-center">
-              <button
-                type="submit"
-                className="group relative inline-flex items-center justify-center px-10 py-4 text-sm font-bold text-white transition-all duration-300 bg-[#8ec8f0] rounded-full hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
-              >
-                <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                <span className="relative z-10">註冊</span>
-              </button>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <a
-                href="https://www.powderlife.com/?wc-api=auth&start=google&return=https%3A%2F%2Fwww.powderlife.com%2Fmy-account%2F"
-                className="flex items-center justify-center gap-3 rounded-lg bg-black px-4 py-2.5 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="flex h-7 w-7 items-center justify-center rounded bg-white text-black font-bold">
-                  G
-                </span>
-                以Google帳號註冊
-              </a>
-              <a
-                href="https://www.powderlife.com/?wc-api=auth&start=line&return=https%3A%2F%2Fwww.powderlife.com%2Fmy-account%2F"
-                className="flex items-center justify-center gap-3 rounded-lg bg-[#06c755] px-4 py-2.5 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="flex h-7 w-7 items-center justify-center rounded bg-white text-[#06c755] font-bold">
-                  L
-                </span>
-                以Line帳號註冊
-              </a>
-            </div>
-          </form>
-        )}
+        <form onSubmit={submit} className="space-y-5">
+          {mode !== 'reset' && <label className="block text-sm font-semibold text-[#334155]">電子郵件
+            <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="mt-2 w-full rounded-sm border border-[#cbd5e1] bg-[#f8fafc] px-4 py-3 text-base outline-none focus:border-[#2b5f8f] focus:ring-2 focus:ring-[#2b5f8f]/15" />
+          </label>}
+          {mode !== 'forgot' && <label className="block text-sm font-semibold text-[#334155]">密碼
+            <input type="password" required minLength={mode === 'register' || mode === 'reset' ? 8 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-2 w-full rounded-sm border border-[#cbd5e1] bg-[#f8fafc] px-4 py-3 text-base outline-none focus:border-[#2b5f8f] focus:ring-2 focus:ring-[#2b5f8f]/15" />
+          </label>}
+          {mode === 'login' && <div className="flex items-center justify-between gap-4 text-sm"><label className="flex items-center gap-2 text-[#475569]"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />記住帳號</label><button type="button" onClick={() => setMode('forgot')} className="font-semibold text-[#2b5f8f] hover:underline">忘記密碼</button></div>}
+          {error && <p role="alert" className="rounded-sm bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          {message && <p role="status" className="rounded-sm bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p>}
+          <button type="submit" disabled={busy} className="w-full rounded-full bg-[#2b5f8f] px-6 py-3.5 font-semibold text-white hover:bg-[#1c4f7b] disabled:opacity-55">{busy ? '處理中…' : mode === 'forgot' ? '寄送重設信' : mode === 'reset' ? '更新密碼' : mode === 'register' ? '建立帳號' : '會員登入'}</button>
+          {['forgot', 'reset'].includes(mode) && <button type="button" onClick={() => setMode('login')} className="w-full text-sm font-semibold text-[#64748b]">返回登入</button>}
+        </form>
+        {['login', 'register'].includes(mode) && <div className="mt-7 border-t border-[#e2e8f0] pt-6">
+          <p className="mb-4 text-center text-xs font-semibold uppercase tracking-[0.2em] text-[#94a3b8]">或使用</p>
+          <GoogleLoginButton onLogin={onAuthenticated} />
+          <button type="button" disabled title="需設定 LINE Login Channel" className="mt-3 flex w-full cursor-not-allowed items-center justify-center gap-3 rounded-sm bg-[#e2e8f0] px-4 py-3 text-sm font-semibold text-[#64748b]"><span className="flex h-6 w-6 items-center justify-center rounded bg-white text-[#06c755]">L</span>LINE 登入尚未啟用</button>
+        </div>}
       </div>
     </section>
-  );
+    <SiteFooter />
+  </div>;
 }
 
-function DashboardSection({ sectionKey }) {
-  const content = dashboardCopy[sectionKey] ?? dashboardCopy.overview;
-  const sortedOrders = [...mockOrders].sort(
-    (left, right) => new Date(right.startDate) - new Date(left.startDate)
-  );
-  const renderOrderCards = (getStatusLabel) => (
-    <div className="space-y-4">
-      {sortedOrders.map((order) => (
-        <article
-          key={order.id}
-          className="rounded-sm border border-[#dbe3ec] bg-white px-5 py-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] md:px-6 md:py-6"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold tracking-[0.24em] uppercase text-[#94a3b8] font-display">
-                課程起始日
-              </p>
-              <p className="mt-2 text-lg font-semibold text-[#111827] font-display">
-                {formatOrderDate(order.startDate)}
-              </p>
-            </div>
-            <span className="inline-flex rounded-full bg-[#eef4fa] px-3 py-1 text-xs font-semibold text-[#2b5f8f]">
-              {getStatusLabel(order)}
-            </span>
-          </div>
-
-          <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            <OrderField label="雪場" value={order.resort} />
-            <OrderField label="教練" value={order.coach} />
-            <OrderField label="類型" value={order.skiType} />
-            <OrderField label="上課人數" value={order.people} />
-            <OrderField label="上課天數" value={order.days} />
-          </div>
-
-          <div className="mt-6 flex justify-end border-t border-[#eef2f7] pt-4">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 text-sm font-semibold text-[#2b5f8f] transition-colors hover:text-[#1c4f7b]"
-            >
-              查看訂單詳情
-              <span aria-hidden="true">&gt;</span>
-            </button>
-          </div>
-        </article>
-      ))}
-    </div>
-  );
-
-  if (sectionKey === "orders" || sectionKey === "order-history") {
-    return (
-      <div className="space-y-6">
-        <div>
-          <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-            {content.eyebrow}
-          </p>
-          <h2 className="mt-3 text-2xl md:text-3xl font-semibold text-[#1f2937] font-display">
-            {content.title}
-          </h2>
-        </div>
-        <div className="border-t border-[#dbe3ec] pt-6">
-          {sortedOrders.length > 0 ? (
-            renderOrderCards((order) => (sectionKey === "order-history" ? "課程已完成" : order.status))
-          ) : (
-            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-sm border border-dashed border-[#dbe3ec] bg-white px-6 py-12 text-center">
-              <p className="text-2xl font-semibold text-[#111827] font-display">
-                您目前尚無課程預約排程
-              </p>
-              <SiteLink
-                to="/booking"
-                className="mt-6 inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#1c4f7b]"
-              >
-                預約課程
-              </SiteLink>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-            {content.eyebrow}
-          </p>
-          <h2 className="mt-3 text-2xl md:text-3xl font-semibold text-[#111827] font-display">
-            {content.title}
-          </h2>
-        </div>
-      </div>
-      <div className="border-t border-[#dbe3ec] pt-6">
-        {content.description && (
-          <p className="max-w-2xl text-sm md:text-base leading-relaxed text-[#475569]">
-            {content.description}
-          </p>
-        )}
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <div className="border border-dashed border-[#dbe3ec] p-5">
-            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#94a3b8]">
-              Section
-            </p>
-            <p className="mt-3 text-sm text-[#1f2937]">{content.title}</p>
-          </div>
-          <div className="border border-dashed border-[#dbe3ec] p-5">
-            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#94a3b8]">
-              Status
-            </p>
-            <p className="mt-3 text-sm text-[#1f2937]">內容待補充</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function OrderCard({ order, onQuickRebook }) {
+  const reservation = order.reservations?.[0];
+  const booking = reservation?.bookings?.[0];
+  return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-[0_8px_25px_rgba(15,23,42,0.04)] md:p-6">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{order.order_number}</p><h3 className="mt-2 text-lg font-semibold">{formatDate(booking?.date)}｜{reservation?.resort || '雪場安排中'}</h3></div><span className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs font-semibold text-[#2b5f8f]">{paymentLabels[order.payment_status] || order.payment_status}</span></div>
+    <div className="mt-5 grid gap-3 text-sm text-[#475569] sm:grid-cols-3"><p><span className="block text-xs text-[#94a3b8]">課程</span>{reservation?.course_template || reservation?.course_type || '安排中'}</p><p><span className="block text-xs text-[#94a3b8]">教練</span>{reservation?.coach || '安排中'}</p><p><span className="block text-xs text-[#94a3b8]">人數</span>{reservation?.people || 0} 人</p></div>
+    <div className="mt-5 flex flex-wrap justify-end gap-3 border-t border-[#eef2f7] pt-4"><button type="button" onClick={() => onQuickRebook(order.id)} className="rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] hover:bg-[#eef4fa]">再次預約</button><SiteLink to={`/membership/orders/${order.id}`} className="inline-flex items-center gap-1 rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">查看詳情<ChevronRight size={16} /></SiteLink></div>
+  </article>;
 }
 
-function MembershipPage() {
+function Orders({ data, onQuickRebook }) {
+  const location = useLocation();
+  const id = Number(location.pathname.match(/\/orders\/(\d+)/)?.[1]);
+  const selected = data.orders.find((order) => order.id === id);
+  if (selected) return <div><SiteLink to="/membership/orders" className="text-sm font-semibold text-[#2b5f8f]">← 返回我的訂單</SiteLink><h2 className="mt-5 text-2xl font-semibold">訂單詳情</h2><div className="mt-6 space-y-5"><OrderCard order={selected} onQuickRebook={onQuickRebook} />{selected.reservations.map((reservation) => <div key={reservation.id} className="rounded-sm border border-[#dbe3ec] bg-white p-5"><h3 className="font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}</h3><p className="mt-2 text-sm text-[#64748b]">教練：{reservation.coach}　學員：{reservation.people} 人</p><div className="mt-4 space-y-2">{reservation.bookings.map((booking) => <p key={booking.id} className="rounded-sm bg-[#f8fafc] px-4 py-3 text-sm text-[#475569]">{formatDate(booking.date)}　{booking.start_time}–{booking.end_time}　{booking.course_name}</p>)}</div></div>)}</div></div>;
+  return <div><h2 className="text-2xl font-semibold">我的訂單</h2><p className="mt-2 text-sm text-[#64748b]">查看付款狀態、課程明細及快速再次預約。</p><div className="mt-7 space-y-4">{data.orders.length ? data.orders.map((order) => <OrderCard key={order.id} order={order} onQuickRebook={onQuickRebook} />) : <EmptyState title="目前沒有訂單" action={<SiteLink to="/booking" className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">開始預約</SiteLink>} />}</div></div>;
+}
+
+function Forms({ forms }) {
+  return <div><h2 className="text-2xl font-semibold">課前資料</h2><p className="mt-2 text-sm text-[#64748b]">確認每位學員的程度、保險與聲明書是否完成。</p><div className="mt-7 space-y-4">{forms.length ? forms.map((form) => <article key={form.id} className="rounded-sm border border-[#dbe3ec] bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">{form.member_name}</h3><p className="mt-1 text-xs text-[#94a3b8]">{form.order_number}</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${form.insurance_completed && form.waiver_completed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{form.insurance_completed && form.waiver_completed ? '資料完成' : '尚有資料未完成'}</span></div><div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><p>年齡：{form.age_range}</p><p>保險：{form.insurance_completed ? '完成' : '未完成'}</p><p>聲明書：{form.waiver_completed ? '完成' : '未完成'}</p></div><p className="mt-3 text-sm text-[#64748b]">程度：{[...form.snowboard_skills, ...form.ski_skills].join('、') || '尚未填寫'}</p></article>) : <EmptyState title="目前沒有待填寫的課前資料" description="完成預約並建立學員資料後，會自動顯示在這裡。" />}</div></div>;
+}
+
+function Journey({ records }) {
+  return <div><h2 className="text-2xl font-semibold">課程評量</h2><p className="mt-2 text-sm text-[#64748b]">查看程度變化、教練建議與公開課程照片／影片。</p><div className="mt-7 space-y-5">{records.length ? records.map((record) => <article key={record.id} className="overflow-hidden rounded-sm border border-[#dbe3ec] bg-white">{record.media.length > 0 && <div className="grid max-h-80 grid-cols-2 overflow-hidden bg-[#e2e8f0]">{record.media.slice(0, 4).map((media) => media.type === 'video' ? <video key={media.id} controls className="h-full min-h-48 w-full object-cover" src={media.url} /> : <img key={media.id} src={media.url} alt={media.caption || `${record.resort} 課程照片`} className="h-full min-h-48 w-full object-cover" />)}</div>}<div className="p-5 md:p-6"><p className="text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{formatDate(record.date)}｜{record.order_number}</p><h3 className="mt-2 text-lg font-semibold">{record.resort}｜{record.course_name}</h3><p className="mt-3 text-sm text-[#64748b]">學員：{record.member_name}　教練：{record.coach}</p><div className="mt-5 rounded-sm bg-[#f8fafc] p-4"><p className="text-xs font-semibold text-[#2b5f8f]">教練建議</p><p className="mt-2 whitespace-pre-line text-sm leading-7 text-[#475569]">{record.coach_notes || '教練尚未填寫建議'}</p></div>{Object.keys(record.learning_progress || {}).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{Object.entries(record.learning_progress).map(([key, value]) => <span key={key} className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs text-[#2b5f8f]">{key}：{String(value)}</span>)}</div>}</div></article>) : <EmptyState title="尚無課程評量" description="教練完成課後評量後，紀錄與公開媒體會出現在這裡。" />}</div></div>;
+}
+
+function Overview({ data }) {
+  const upcoming = data.orders.flatMap((order) => order.reservations.flatMap((reservation) => reservation.bookings.map((booking) => ({ order, reservation, booking })))).filter((item) => new Date(`${item.booking.date}T23:59:59`) >= new Date()).sort((a, b) => a.booking.date.localeCompare(b.booking.date))[0];
+  return <div><p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#94a3b8]">My Journey</p><h2 className="mt-3 text-2xl font-semibold md:text-3xl">會員總覽</h2><div className="mt-7 grid gap-4 lg:grid-cols-[1.4fr_1fr]"><div className="rounded-sm bg-gradient-to-br from-[#8eb6d9] to-[#d8d7df] p-6 text-white md:p-8"><p className="text-sm">Hi, {data.member.name}!</p><h3 className="mt-5 text-2xl font-semibold">準備好下一趟滑雪旅程了嗎？</h3><p className="mt-3 text-sm leading-7 text-white/85">快速開始下一次課程預約。</p><SiteLink to="/booking" className="mt-6 inline-flex rounded-full bg-white/90 px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">開始預約</SiteLink></div><div className="rounded-sm border border-[#dbe3ec] bg-white p-6">{upcoming ? <><span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">即將到來</span><p className="mt-5 text-xl font-semibold">{formatDate(upcoming.booking.date)}</p><p className="mt-2 font-semibold">{upcoming.reservation.resort}</p><p className="mt-2 text-sm text-[#64748b]">{upcoming.booking.start_time}–{upcoming.booking.end_time}｜{upcoming.reservation.people} 位學員</p><SiteLink to={`/membership/orders/${upcoming.order.id}`} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-[#2b5f8f]">查看預約詳情<ChevronRight size={16} /></SiteLink></> : <><CalendarDays className="text-[#94a3b8]" /><p className="mt-5 font-semibold">目前沒有即將到來的課程</p></>}</div></div>{data.learning_records[0] && <div className="mt-8"><div className="flex items-center justify-between"><h3 className="text-xl font-semibold">我的滑雪學習紀錄</h3><SiteLink to="/membership/my-skiing-journey" className="text-sm font-semibold text-[#2b5f8f]">查看全部</SiteLink></div><div className="mt-4 rounded-sm border border-[#dbe3ec] bg-white p-5"><p className="text-sm font-semibold">{formatDate(data.learning_records[0].date)}｜{data.learning_records[0].resort}</p><p className="mt-3 line-clamp-3 text-sm leading-7 text-[#64748b]">{data.learning_records[0].coach_notes || '教練評量整理中'}</p></div></div>}<div className="mt-8"><h3 className="text-xl font-semibold">我的 SnowLand 滑雪旅程</h3><div className="mt-4 grid gap-4 sm:grid-cols-3">{[[data.journey.seasons, '一起滑過的雪季'], [data.journey.completed_course_days, '完成課程天數'], [data.journey.resorts, '去過的雪場']].map(([value, label]) => <div key={label} className="rounded-sm border border-[#dbe3ec] bg-white p-6 text-center"><p className="text-3xl font-semibold text-[#2b5f8f]">{value}</p><p className="mt-2 text-sm text-[#64748b]">{label}</p></div>)}</div></div></div>;
+}
+
+function MemberContent({ section, data, onQuickRebook }) {
+  if (section === 'orders') return <Orders data={data} onQuickRebook={onQuickRebook} />;
+  if (section === 'forms') return <Forms forms={data.pre_course_forms} />;
+  if (section === 'journey') return <Journey records={data.learning_records} />;
+  if (section === 'offers') return <div><h2 className="text-2xl font-semibold">專屬優惠</h2><p className="mt-2 text-sm text-[#64748b]">會員等級、點數與推薦碼集中在這裡。</p><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-sm bg-gradient-to-br from-[#1c3b5f] to-[#2b5f8f] p-6 text-white"><Gift /><p className="mt-8 text-sm text-white/70">會員等級</p><p className="mt-1 text-2xl font-semibold">{data.level === 'new' ? '新會員' : data.level}</p><p className="mt-5 text-sm">可用點數：{data.points}</p></div><div className="rounded-sm border border-[#dbe3ec] bg-white p-6"><p className="text-sm font-semibold text-[#64748b]">我的推薦碼</p><p className="mt-4 break-all text-2xl font-semibold tracking-wider text-[#2b5f8f]">{data.referral_code}</p><p className="mt-4 text-sm leading-7 text-[#64748b]">提供給親友預約時使用；實際回饋依當期活動規則計算。</p></div></div></div>;
+  return <Overview data={data} />;
+}
+
+export default function MembershipPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("login");
-  const [showPassword, setShowPassword] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [registerEmail, setRegisterEmail] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
-  const [memberName] = useState("會員姓名");
-  const [memberEmail, setMemberEmail] = useState("account@example.com");
-  const [avatarSrc, setAvatarSrc] = useState("");
-  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
-  const [orderHistoryExpanded, setOrderHistoryExpanded] = useState(false);
-  const [authErrors, setAuthErrors] = useState({
-    loginEmail: "",
-    loginPassword: "",
-    registerEmail: "",
-    registerPassword: "",
-  });
-  const avatarMenuRef = useRef(null);
-  const mobileAvatarMenuRef = useRef(null);
-  const avatarInputRef = useRef(null);
+  const basePath = useContext(SiteBasePathContext);
+  const section = sectionFromPath(location.pathname);
+  const [status, setStatus] = useState('loading');
+  const [data, setData] = useState(null);
+  const [notice, setNotice] = useState('');
 
-  const activeSectionKey = useMemo(
-    () => resolveDashboardTab(location.pathname),
-    [location.pathname]
-  );
-  const activeSectionCopy = dashboardCopy[activeSectionKey] ?? dashboardCopy.overview;
-  const hideMobileMemberPanel = ["orders", "order-history", "offers"].includes(activeSectionKey);
-
-  const isOrderHistoryOpen = orderHistoryExpanded;
-
-  const handleOrderHistoryClick = () => {
-    setOrderHistoryExpanded((prev) => !prev);
-    if (activeSectionKey !== "order-history") {
-      navigate("/membership/order-history");
+  const loadMemberCenter = useCallback(async () => {
+    setStatus('loading');
+    try {
+      const payload = await requestJson('/booking/snowland/api/member-center/');
+      setData(payload); setStatus('ready'); localStorage.setItem('user', JSON.stringify(payload.member));
+    } catch (error) {
+      if (error.status === 401) { setData(null); setStatus('guest'); }
+      else { setNotice(error.message); setStatus('error'); }
     }
+  }, []);
+
+  useEffect(() => { loadMemberCenter(); }, [loadMemberCenter]);
+
+  const quickRebook = async (orderId) => {
+    setNotice('正在複製上次預約設定…');
+    try {
+      const result = await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quick_rebook_group_id: orderId }) });
+      useBookingStore.getState().replaceCart(result.cart); navigate(`${basePath}/booking`);
+    } catch (error) { setNotice(error.message); }
   };
 
-  useEffect(() => {
-    if (!avatarMenuOpen) {
-      return undefined;
-    }
-
-    const onClickOutside = (event) => {
-      const clickedInsideDesktopMenu = avatarMenuRef.current && avatarMenuRef.current.contains(event.target);
-      const clickedInsideMobileMenu = mobileAvatarMenuRef.current && mobileAvatarMenuRef.current.contains(event.target);
-      if (!clickedInsideDesktopMenu && !clickedInsideMobileMenu) {
-        setAvatarMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [avatarMenuOpen]);
-
-  const validateLogin = () => {
-    blurActiveField();
-    const nextErrors = {
-      loginEmail: loginEmail.trim() ? "" : "請輸入電子郵件",
-      loginPassword: loginPassword.trim() ? "" : "請輸入密碼",
-      registerEmail: "",
-      registerPassword: "",
-    };
-    setAuthErrors(nextErrors);
-    if (!nextErrors.loginEmail && !nextErrors.loginPassword) {
-      setMemberEmail(loginEmail.trim());
-      setIsAuthenticated(true);
-    }
+  const logout = async () => {
+    await fetch('/control/api/logout/', { method: 'POST', credentials: 'include' }).catch(() => undefined);
+    localStorage.removeItem('user'); setData(null); setStatus('guest'); navigate(`${basePath}/membership`);
   };
 
-  const validateRegister = () => {
-    blurActiveField();
-    const nextErrors = {
-      loginEmail: "",
-      loginPassword: "",
-      registerEmail: registerEmail.trim() ? "" : "請輸入電子郵件",
-      registerPassword: registerPassword.trim() ? "" : "請輸入密碼",
-    };
-    setAuthErrors(nextErrors);
-    if (!nextErrors.registerEmail && !nextErrors.registerPassword) {
-      setMemberEmail(registerEmail.trim());
-      setIsAuthenticated(true);
-    }
-  };
+  if (status === 'loading') return <div className="flex min-h-screen items-center justify-center bg-[#f7f8fa]"><div className="h-11 w-11 animate-spin rounded-full border-4 border-[#dbe3ec] border-t-[#2b5f8f]" /><span className="sr-only">載入會員資料</span></div>;
+  if (status === 'guest') return <AuthPanel onAuthenticated={loadMemberCenter} />;
+  if (status === 'error' || !data) return <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-[#f7f8fa] px-6 text-center"><p className="text-lg font-semibold">會員資料暫時無法載入</p><p className="text-sm text-[#64748b]">{notice}</p><button onClick={loadMemberCenter} className="rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">重新載入</button></div>;
 
-  const handleAvatarUpload = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setAvatarSrc(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-    setAvatarMenuOpen(false);
-  };
-
-  const handleAvatarReset = () => {
-    setAvatarSrc("");
-    if (avatarInputRef.current) {
-      avatarInputRef.current.value = "";
-    }
-    setAvatarMenuOpen(false);
-  };
-
-  const blurActiveField = () => {
-    const activeElement = document.activeElement;
-    if (activeElement instanceof HTMLElement) {
-      activeElement.blur();
-    }
-  };
-
-  const navDarkState = isAuthenticated;
-
-  return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f7f8fa] text-[#1f2937] flex flex-col">
-      <SiteHeader
-        forceTransparent
-        forceDarkText={navDarkState}
-        forceLogoColor={navDarkState}
-        memberAuthenticated={isAuthenticated}
-        memberAvatarSrc={avatarSrc}
-      />
-      <main className="flex-1 pb-24">
-        {!isAuthenticated ? (
-          <>
-            <section className="relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-[#1c3b5f] via-[#2b5f8f] to-[#7bbbe7]" />
-              <div
-                className="absolute inset-0 opacity-40"
-                style={{
-                  backgroundImage:
-                    "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.35), transparent 45%), radial-gradient(circle at 70% 30%, rgba(255,255,255,0.25), transparent 50%), radial-gradient(circle at 40% 80%, rgba(255,255,255,0.2), transparent 55%)",
-                }}
-              />
-              <div className="relative max-w-6xl mx-auto px-6 pt-32 pb-20 md:pt-36 md:pb-24 text-white text-center">
-                <p className="text-xs font-semibold tracking-[0.3em] uppercase text-white/70 font-display">
-                  Membership
-                </p>
-                <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-                  會員專區
-                </h1>
-              </div>
-            </section>
-            <AuthSection
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              authErrors={authErrors}
-              setAuthErrors={setAuthErrors}
-              loginEmail={loginEmail}
-              setLoginEmail={setLoginEmail}
-              loginPassword={loginPassword}
-              setLoginPassword={setLoginPassword}
-              registerEmail={registerEmail}
-              setRegisterEmail={setRegisterEmail}
-              registerPassword={registerPassword}
-              setRegisterPassword={setRegisterPassword}
-              showPassword={showPassword}
-              setShowPassword={setShowPassword}
-              onLogin={validateLogin}
-              onRegister={validateRegister}
-            />
-          </>
-        ) : (
-          <section className="mx-auto max-w-7xl px-4 sm:px-6 md:px-10 pt-24 md:pt-28">
-            <nav
-              aria-label="breadcrumb"
-              className="mb-6 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-semibold tracking-wide text-[#64748b] font-display"
-            >
-              <SiteLink to="/" className="transition-colors hover:text-[#2b5f8f]">
-                首頁
-              </SiteLink>
-              <span aria-hidden="true" className="text-[#cbd5e1]">
-                /
-              </span>
-              <SiteLink to="/membership" className="transition-colors hover:text-[#2b5f8f]">
-                會員專區
-              </SiteLink>
-              {activeSectionKey !== "overview" && (
-                <>
-                  <span aria-hidden="true" className="text-[#cbd5e1]">
-                    /
-                  </span>
-                  <span className="text-[#111827]">{activeSectionCopy.title}</span>
-                </>
-              )}
-            </nav>
-            {!hideMobileMemberPanel && (
-              <div
-                ref={mobileAvatarMenuRef}
-                className="lg:hidden mb-8 rounded-sm border border-[#dbe3ec] bg-white px-4 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]"
-              >
-              <div className="relative">
-                <div className="flex flex-col items-center text-center">
-                  <MembershipAvatar
-                    src={avatarSrc}
-                    alt={`${memberName} 頭像`}
-                    onClick={() => setAvatarMenuOpen((prev) => !prev)}
-                  />
-                  <div className="mt-4 pb-2">
-                    <p className="text-lg font-semibold text-[#111827] font-display">{memberName}</p>
-                    <p className="mt-1 text-sm text-[#64748b] break-all">{memberEmail}</p>
-                  </div>
-                </div>
-
-                {avatarMenuOpen && (
-                  <div className="absolute left-1/2 top-full z-20 mt-4 w-56 -translate-x-1/2 rounded-sm border border-[#dbe3ec] bg-white p-3 shadow-[0_18px_40px_rgba(15,23,42,0.16)]">
-                    <button
-                      type="button"
-                      onClick={() => avatarInputRef.current?.click()}
-                      className="flex w-full items-center justify-center rounded-sm px-4 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f3f6fa]"
-                    >
-                      上傳照片
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAvatarReset}
-                      className="mt-2 flex w-full items-center justify-center rounded-sm px-4 py-3 text-sm font-semibold text-[#64748b] transition-colors hover:bg-[#f3f6fa]"
-                    >
-                      重置回預設
-                    </button>
-                  </div>
-                )}
-
-                <input
-                  ref={avatarInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleAvatarUpload}
-                />
-              </div>
-
-              <nav className="mt-5 border-t border-[#dbe3ec]">
-                {dashboardTabs.map((tab) => {
-                  const isActive = activeSectionKey === tab.key;
-                  const isOrderHistory = tab.key === "order-history";
-                  return (
-                    <div key={tab.key} className="border-b border-[#dbe3ec]">
-                      {isOrderHistory ? (
-                        <button
-                          type="button"
-                          onClick={handleOrderHistoryClick}
-                          className={`group flex w-full items-center justify-between gap-3 py-4 text-base font-semibold font-display transition-colors duration-200 ${
-                            isActive || isOrderHistoryOpen
-                              ? "text-[#2b5f8f]"
-                              : "text-[#64748b] hover:text-[#2b5f8f]"
-                          }`}
-                        >
-                          <span className="flex items-center gap-3">
-                            <span
-                              className={`h-2.5 w-2.5 shrink-0 rounded-full bg-[#f28b2f] transition-opacity duration-200 ${
-                                isActive || isOrderHistoryOpen ? "opacity-100" : "opacity-0"
-                              }`}
-                            />
-                            {tab.label}
-                          </span>
-                          <span className="text-xs">{isOrderHistoryOpen ? "−" : "+"}</span>
-                        </button>
-                      ) : (
-                        <SiteLink
-                          to={tab.path}
-                          onClick={() => setOrderHistoryExpanded(false)}
-                          className={`group flex items-center gap-3 py-4 text-base font-semibold font-display transition-colors duration-200 ${
-                            isActive
-                              ? "text-[#2b5f8f]"
-                              : "text-[#64748b] hover:text-[#2b5f8f]"
-                          }`}
-                        >
-                          <span
-                            className={`h-2.5 w-2.5 shrink-0 rounded-full bg-[#f28b2f] transition-opacity duration-200 ${
-                              isActive ? "opacity-100" : "opacity-0"
-                            }`}
-                          />
-                          {tab.label}
-                        </SiteLink>
-                      )}
-                      {isOrderHistory && isOrderHistoryOpen && (
-                        <div className="pb-3 pl-6">
-                          {orderHistorySubtabs.map((subtab) => (
-                            <button
-                              key={subtab}
-                              type="button"
-                              className="block w-full py-1 text-left text-sm font-medium text-[#64748b] transition-colors hover:text-[#2b5f8f]"
-                            >
-                              {subtab}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderHistoryExpanded(false);
-                    setIsAuthenticated(false);
-                  }}
-                  className="group flex w-full items-center gap-3 border-b border-[#dbe3ec] py-4 text-base font-semibold font-display text-[#64748b] transition-colors duration-200 hover:text-[#2b5f8f]"
-                >
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#f28b2f] opacity-0 transition-opacity duration-200 group-hover:opacity-40" />
-                  <span>登出</span>
-                </button>
-              </nav>
-              </div>
-            )}
-
-            <div className="mt-10 grid gap-8 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <aside className="relative px-0 py-0 hidden lg:block">
-                <div ref={avatarMenuRef} className="relative">
-                  <MembershipAvatar
-                    src={avatarSrc}
-                    alt={`${memberName} 頭像`}
-                    onClick={() => setAvatarMenuOpen((prev) => !prev)}
-                  />
-                  {avatarMenuOpen && (
-                    <div className="absolute left-1/2 top-full z-20 mt-4 w-56 -translate-x-1/2 rounded-sm border border-[#dbe3ec] bg-white p-3 shadow-[0_18px_40px_rgba(15,23,42,0.16)]">
-                      <button
-                        type="button"
-                        onClick={() => avatarInputRef.current?.click()}
-                        className="flex w-full items-center justify-center rounded-sm px-4 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f3f6fa]"
-                      >
-                        上傳照片
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleAvatarReset}
-                        className="mt-2 flex w-full items-center justify-center rounded-sm px-4 py-3 text-sm font-semibold text-[#64748b] transition-colors hover:bg-[#f3f6fa]"
-                      >
-                        重置回預設
-                      </button>
-                    </div>
-                  )}
-                  <input
-                    ref={avatarInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleAvatarUpload}
-                  />
-                </div>
-
-                <div className="mt-6 pb-6 text-center">
-                  <p className="text-lg font-semibold text-[#111827] font-display">{memberName}</p>
-                  <p className="mt-2 text-sm text-[#64748b]">{memberEmail}</p>
-                </div>
-
-                <nav className="border-t border-[#dbe3ec]">
-                  {dashboardTabs.map((tab) => {
-                    const isActive = activeSectionKey === tab.key;
-                    const isOrderHistory = tab.key === "order-history";
-                    return (
-                      <div key={tab.key} className="border-b border-[#dbe3ec]">
-                        {isOrderHistory ? (
-                          <button
-                            type="button"
-                            onClick={handleOrderHistoryClick}
-                            className={`group flex w-full items-center justify-between gap-3 py-4 text-base md:text-lg font-semibold font-display transition-colors duration-200 ${
-                              isActive || isOrderHistoryOpen
-                                ? "text-[#2b5f8f]"
-                                : "text-[#64748b] hover:text-[#2b5f8f]"
-                            }`}
-                          >
-                            <span className="flex items-center gap-3">
-                              <span
-                                className={`h-2.5 w-2.5 shrink-0 rounded-full bg-[#f28b2f] transition-opacity duration-200 ${
-                                  isActive || isOrderHistoryOpen ? "opacity-100" : "opacity-0"
-                                }`}
-                              />
-                              <span>{tab.label}</span>
-                            </span>
-                            <span className="text-xs">{isOrderHistoryOpen ? "−" : "+"}</span>
-                          </button>
-                        ) : (
-                        <SiteLink
-                          to={tab.path}
-                          onClick={() => setOrderHistoryExpanded(false)}
-                          className={`group flex items-center gap-3 py-4 text-base md:text-lg font-semibold font-display transition-colors duration-200 ${
-                            isActive
-                              ? "text-[#2b5f8f]"
-                                : "text-[#64748b] hover:text-[#2b5f8f]"
-                            }`}
-                          >
-                            <span
-                              className={`h-2.5 w-2.5 shrink-0 rounded-full bg-[#f28b2f] transition-opacity duration-200 ${
-                                isActive ? "opacity-100" : "opacity-0"
-                              }`}
-                            />
-                            <span>{tab.label}</span>
-                          </SiteLink>
-                        )}
-                        {isOrderHistory && isOrderHistoryOpen && (
-                          <div className="pb-3 pl-6">
-                            {orderHistorySubtabs.map((subtab) => (
-                              <button
-                                key={subtab}
-                                type="button"
-                                className="block w-full py-1 text-left text-sm md:text-base font-medium text-[#64748b] transition-colors hover:text-[#2b5f8f]"
-                              >
-                                {subtab}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOrderHistoryExpanded(false);
-                      setIsAuthenticated(false);
-                    }}
-                    className="group flex w-full items-center gap-3 border-b border-[#dbe3ec] py-4 text-base md:text-lg font-semibold font-display text-[#64748b] transition-colors duration-200 hover:text-[#2b5f8f]"
-                  >
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#f28b2f] opacity-0 transition-opacity duration-200 group-hover:opacity-40" />
-                    <span>登出</span>
-                  </button>
-                </nav>
-              </aside>
-
-              <section className="min-w-0 pt-2">
-                <DashboardSection sectionKey={activeSectionKey} />
-              </section>
-            </div>
-          </section>
-        )}
-      </main>
-      <SiteFooter />
-    </div>
-  );
+  return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937]"><SiteHeader forceTransparent forceDarkText memberAuthenticated memberAvatarSrc="" /><main className="mx-auto max-w-7xl px-4 pb-24 pt-24 sm:px-6 md:pt-28"><nav aria-label="breadcrumb" className="mb-6 flex items-center gap-2 text-sm text-[#64748b]"><SiteLink to="/">首頁</SiteLink><span>/</span><span className="font-semibold text-[#1f2937]">會員專區</span></nav>{notice && <div role="status" className="mb-5 flex items-center justify-between rounded-sm bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="關閉訊息">×</button></div>}<div className="grid gap-7 lg:grid-cols-[250px_minmax(0,1fr)]"><aside className="min-w-0 self-start rounded-sm border border-[#dbe3ec] bg-white p-3 lg:sticky lg:top-24 lg:p-5"><div className="flex items-center gap-3 border-b border-[#e2e8f0] pb-3 text-left lg:block lg:pb-5 lg:text-center"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#eef4fa] text-[#2b5f8f] lg:mx-auto lg:h-20 lg:w-20"><UserRound size={30} /></div><div className="min-w-0"><p className="truncate font-semibold lg:mt-4">{data.member.name}</p><p className="mt-1 truncate text-xs text-[#64748b]">{data.member.email}</p></div></div><nav className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:block" aria-label="會員功能">{navItems.map(({ key, label, path, icon: Icon }) => <SiteLink key={key} to={path} className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-2.5 text-sm font-semibold lg:gap-3 lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-b lg:border-[#eef2f7] lg:px-2 lg:py-3.5 ${section === key ? 'border-[#2b5f8f] bg-[#eef4fa] text-[#2b5f8f] lg:bg-transparent' : 'border-[#e2e8f0] text-[#64748b] hover:text-[#2b5f8f]'}`}><Icon size={17} />{label}</SiteLink>)}</nav><button type="button" onClick={logout} className="mt-2 flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#64748b] hover:text-red-600 lg:mt-4 lg:w-full lg:gap-3 lg:px-2 lg:py-3"><LogOut size={17} />登出</button></aside><section className="min-w-0"><MemberContent section={section} data={data} onQuickRebook={quickRebook} /></section></div></main><SiteFooter /></div>;
 }
-
-export default MembershipPage;

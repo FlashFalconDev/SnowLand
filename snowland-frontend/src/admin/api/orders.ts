@@ -62,7 +62,7 @@ export interface Order {
   marketing_source_detail?: string
   line_group_url?: string
   revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string }[]
-  cancellation?: { id: number; status: string; reason: string; refund_amount: number; refund_percent: string; handling_fee_percent: string } | null
+  cancellation?: { id: number; status: string; reason: string; refund_amount: number; refund_percent: string; handling_fee_percent: string; calculation_mode: 'auto' | 'rule' | 'manual'; selected_rule_days_before: number | null } | null
 }
 
 interface ListResp {
@@ -135,12 +135,13 @@ export async function updateOrder(
   return res
 }
 
-export async function previewOrderRefund(id: number): Promise<{ original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number }> {
+export interface RefundPreview { original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number; available_rules: { days_before: number; refund_percent: number }[] }
+export async function previewOrderRefund(id: number): Promise<RefundPreview> {
   const res = await adminApi.get(`/orders/${id}/refund-preview/`) as any
   return res.data
 }
 
-export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string } }): Promise<void> {
+export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string }; selected_rule_days_before?: number; manual_refund_amount?: number }): Promise<void> {
   await adminApi.post(`/orders/${id}/cancel/`, payload)
 }
 

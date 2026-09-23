@@ -3,12 +3,26 @@ import { useNavigate, useParams } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import faqSections from '../../data/site/faqContent';
+import { useSiteContent } from '../../hooks/useSiteContent';
 
 function FaqPage() {
   const { category } = useParams();
   const navigate = useNavigate();
   const [openItem, setOpenItem] = useState(null);
+  const { items: faqItems, isLoading, error } = useSiteContent('guides.faq');
+  const faqSections = faqItems.reduce((sections, item) => {
+    const title = item.metadata?.section ?? item.tags?.[0] ?? '其他問題';
+    let section = sections.find((entry) => entry.title === title);
+    if (!section) {
+      section = { title, items: [] };
+      sections.push(section);
+    }
+    section.items.push({
+      q: item.metadata?.question ?? item.title,
+      a: item.metadata?.answer_html ?? item.body,
+    });
+    return sections;
+  }, []);
   const categoryLabels = ["關於課程", "行前準備", "雪場選擇", "親子相關"];
   const categorySlugMap = {
     "關於課程": "course",
@@ -113,6 +127,11 @@ function FaqPage() {
               })}
             </div>
           </div>
+          {isLoading && <p className="py-12 text-center text-sm text-[#64748b]">正在載入常見問題…</p>}
+          {!isLoading && error && <p className="py-12 text-center text-sm text-red-600">常見問題暫時無法載入，請稍後再試。</p>}
+          {!isLoading && !error && filteredSections.length === 0 && (
+            <p className="py-12 text-center text-sm text-[#64748b]">這個分類目前沒有已發布的問題。</p>
+          )}
           {filteredSections.map((section) => {
             const sectionIndex = faqSections.findIndex((entry) => entry.title === section.title);
             const sectionNumber =

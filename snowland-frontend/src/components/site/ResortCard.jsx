@@ -1,11 +1,10 @@
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from './SiteLink';
-import resortLegacyData from '../../data/site/resortLegacyData';
 
 function ResortCard({ resort }) {
   const resortRoute = resort.route || `/course/${resort.slug}`;
-  const heroImage = resort.heroImage || resortLegacyData[resort.slug]?.heroImage || resort.imagePlaceholder;
+  const heroImage = resort.heroImage || resort.imagePlaceholder;
 
   return (
     <SiteLink

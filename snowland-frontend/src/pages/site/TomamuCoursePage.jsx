@@ -7,9 +7,8 @@ import SiteHeader from '../../components/site/SiteHeader';
 import HokkaidoMap from '../../components/site/HokkaidoMap';
 import TomamuWeatherSection from '../../components/site/TomamuWeatherSection';
 import tomamuSlopeMap from '../../assets/site/tomamu/course-map0102-cn.png';
-import skiResorts from '../../data/site/skiResorts';
-import resortNavigation from '../../data/site/resortNavigation';
 import { useSiteLink } from '../../hooks/useSiteBasePath';
+import { siteContentToResort, useCoursePricing, useSiteContent } from '../../hooks/useSiteContent';
 
 function TomamuCoursePage() {
   const { section } = useParams();
@@ -20,6 +19,10 @@ function TomamuCoursePage() {
   const heroSectionRef = useRef(null);
   const [isHeroActive, setIsHeroActive] = useState(false);
   const bookingUrl = useSiteLink('/booking');
+  const { items: resortItems } = useSiteContent('course.resorts');
+  const { pricing, isLoading: pricingLoading, error: pricingError } = useCoursePricing('tomamu');
+  const skiResorts = resortItems.map(siteContentToResort);
+  const resortNavigation = skiResorts;
   const resortCount = resortNavigation.length;
   const resortIndex = resortNavigation.findIndex((resort) => resort.slug === "tomamu");
   const activeResortIndex = resortIndex >= 0 ? resortIndex : 0;
@@ -27,7 +30,7 @@ function TomamuCoursePage() {
   const nextResort = resortCount ? resortNavigation[(activeResortIndex + 1) % resortCount] : null;
   const tomamuResort = useMemo(
     () => skiResorts.find((resort) => resort.slug === "tomamu"),
-    []
+    [skiResorts]
   );
   const daycareServices = [
     {
@@ -141,24 +144,18 @@ function TomamuCoursePage() {
         "https://www.booking.com/hotel/jp/petit-gracey-tomamu.zh-tw.html",
     },
   ];
-  const regularPriceTableRows = [
-    { label: "1人", full: 19200, half: 14400 },
-    { label: "2人", full: 22200, half: 17400 },
-    { label: "3人", full: 25200, half: 20400 },
-    { label: "4人", full: 28200, half: 23400 },
-    { label: "5人", full: 31200, half: 26400 },
-    { label: "6人", full: 34200, half: 29400 },
-  ];
-  const priceTableRows = regularPriceTableRows.map((row, index) => {
-    const fullDiscount = priceTab === "discount" ? 4000 : 0;
-    const halfDiscount =
-      priceTab === "discount" ? (index < 2 ? 3000 : 2000) : 0;
-    return {
-      label: row.label,
-      full: `NT$${(row.full - fullDiscount).toLocaleString("en-US")}`,
-      half: `NT$${(row.half - halfDiscount).toLocaleString("en-US")}`,
-    };
-  });
+  const pricePlan = pricing?.plans?.[priceTab] ?? null;
+  const showHalfDay = pricing?.columns?.includes('half') ?? false;
+  const formatPrice = (value) => {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'number') return `${pricing?.currency ?? 'NT$'}${value.toLocaleString('en-US')}`;
+    return String(value);
+  };
+  const priceTableRows = (pricePlan?.rows ?? []).map((row) => ({
+    label: row.label,
+    full: formatPrice(row.full),
+    half: formatPrice(row.half),
+  }));
   const priceAccent = priceTab === "discount" ? "#F7941D" : "#2b5f8f";
   const priceTextColor = "#1f2937";
   const priceAccentText = priceTab === "discount" ? "#F7941D" : "#2b5f8f";
@@ -697,12 +694,10 @@ function TomamuCoursePage() {
                 <div className="text-center">
                   <p className="text-[#1f2937]">
                     <span className="text-xl font-semibold">
-                      25-26 SEASON ｜{" "}
+                      {pricing?.season_label || '課程價格'} ｜{" "}
                     </span>
                     <span className="text-lg font-semibold" style={{ color: priceAccentText }}>
-                      {priceTab === "discount"
-                        ? "季初 ~ 2025/12/15 & 2026/03/04 ~ 季末"
-                        : "2025/12/16 ~ 2026/03/03"}
+                      {pricePlan?.period || '請洽客服確認適用日期'}
                     </span>
                   </p>
                 </div>
@@ -728,7 +723,7 @@ function TomamuCoursePage() {
                   }}
                 >
                   <div
-                    className={`grid grid-cols-3 text-sm font-semibold font-display ${
+                    className={`grid ${showHalfDay ? 'grid-cols-3' : 'grid-cols-2'} text-sm font-semibold font-display ${
                       priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"
                     }`}
                     style={{
@@ -740,17 +735,21 @@ function TomamuCoursePage() {
                       人數
                     </div>
                     <div className="px-4 py-3 text-center">
-                      全天5hrs
+                      {pricing?.column_labels?.full || '全天'}
                     </div>
-                    <div className="px-4 py-3 text-center">
-                      半天3hrs
-                    </div>
+                    {showHalfDay && <div className="px-4 py-3 text-center">{pricing?.column_labels?.half || '半天'}</div>}
                   </div>
                   <div className="text-sm text-[#475569]">
-                    {priceTableRows.map((row, index) => (
+                    {pricingLoading ? (
+                      <div className="px-4 py-8 text-center text-[#64748b]">價目載入中。</div>
+                    ) : pricingError || !pricing ? (
+                      <div className="px-4 py-8 text-center text-red-600">價目暫時無法載入，請稍後再試。</div>
+                    ) : priceTableRows.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-[#64748b]">目前尚未設定此時段價格。</div>
+                    ) : priceTableRows.map((row, index) => (
                       <div
                         key={row.label}
-                        className="grid grid-cols-3"
+                        className={`grid ${showHalfDay ? 'grid-cols-3' : 'grid-cols-2'}`}
                         style={{
                           borderBottom:
                             index === priceTableRows.length - 1
@@ -770,12 +769,11 @@ function TomamuCoursePage() {
                         >
                           {row.full}
                         </div>
-                        <div
-                          className="px-4 py-3 text-center text-base"
-                          style={{ color: priceTextColor }}
-                        >
-                          {row.half}
-                        </div>
+                        {showHalfDay && (
+                          <div className="px-4 py-3 text-center text-base" style={{ color: priceTextColor }}>
+                            {row.half}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -785,83 +783,24 @@ function TomamuCoursePage() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-3">
-              <div
-                className="rounded-sm border bg-white shadow-sm flex h-full flex-col"
-                style={{ borderColor: priceDividerColor }}
-              >
-                <div
-                  className={`px-4 py-3 text-center text-sm font-semibold font-display ${
-                    priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"
-                  }`}
-                  style={{ backgroundColor: priceDividerColor }}
-                >
-                  協助租借裝備加購
-                </div>
-                <div className="relative flex-1 grid grid-cols-2 py-5 text-sm text-[#475569] items-stretch">
-                  <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[#e2e8f0]" />
-                  <div className="flex flex-col items-center gap-4 px-4 py-6 text-center">
-                    <p>1~3人</p>
-                    <p>4~6人</p>
+              {(pricing?.addons ?? []).map((addon) => (
+                <div key={addon.title} className="rounded-sm border bg-white shadow-sm flex h-full flex-col" style={{ borderColor: priceDividerColor }}>
+                  <div
+                    className={`px-4 py-3 text-center text-sm font-semibold font-display ${priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"}`}
+                    style={{ backgroundColor: priceDividerColor }}
+                  >
+                    {addon.title}
                   </div>
-                  <div className="flex h-full flex-col items-center gap-4 px-4 py-6 text-center">
-                    <p>+NT$1,000</p>
-                    <p>+NT$2,000</p>
+                  <div className="grid flex-1 grid-cols-2 divide-x divide-[#e2e8f0] text-sm text-[#475569]">
+                    <div className="space-y-4 px-4 py-5 text-center">
+                      {(addon.rows ?? []).map(([label]) => <p key={label}>{label}</p>)}
+                    </div>
+                    <div className="space-y-4 px-4 py-5 text-center">
+                      {(addon.rows ?? []).map(([label, value]) => <p key={label}>{value}</p>)}
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              <div
-                className="rounded-sm border bg-white shadow-sm flex flex-col"
-                style={{ borderColor: priceDividerColor }}
-              >
-                <div
-                  className={`px-4 py-3 text-center text-sm font-semibold font-display ${
-                    priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"
-                  }`}
-                  style={{ backgroundColor: priceDividerColor }}
-                >
-                  語言指定
-                </div>
-                <div className="relative grid h-full flex-1 grid-cols-2 text-sm text-[#475569] items-stretch">
-                  <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[#e2e8f0]" />
-                  <div className="flex h-full flex-col justify-center space-y-4 px-4 py-5 text-center">
-                    <p>中文</p>
-                    <p>粵語</p>
-                    <p>英語</p>
-                  </div>
-                  <div className="flex h-full items-center px-4 py-5 text-center">
-                    <p>依照指定教練等級加指定費</p>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                className="rounded-sm border bg-white shadow-sm"
-                style={{ borderColor: priceDividerColor }}
-              >
-                <div
-                  className={`px-4 py-3 text-center text-sm font-semibold font-display ${
-                    priceTab === "discount" ? "text-[#475569]" : "text-[#2b5f8f]"
-                  }`}
-                  style={{ backgroundColor: priceDividerColor }}
-                >
-                  教練指定費
-                </div>
-                <div className="grid grid-cols-2 divide-x divide-[#e2e8f0] text-sm text-[#475569]">
-                  <div className="space-y-4 px-4 py-5 text-center">
-                    <p>一般教練</p>
-                    <p>Lv 2教練</p>
-                    <p>Lv 3教練</p>
-                    <p>校長/總監</p>
-                  </div>
-                  <div className="space-y-4 px-4 py-5 text-center">
-                    <p>+NT$1,000</p>
-                    <p>+NT$1,800</p>
-                    <p>+NT$3,000</p>
-                    <p>+NT$3,000</p>
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
 
           </div>
@@ -872,29 +811,21 @@ function TomamuCoursePage() {
                 <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
                   <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">優惠</h3>
                   <ul className="space-y-3 text-sm text-[#475569] list-disc pl-5">
-                    <li className="space-y-2">
-                      <span>早早鳥即日起至2025/6/30</span>
-                      <ul className="space-y-1 pl-0">
-                        <li>全日折扣500/人</li>
-                        <li>半天折扣300/人</li>
-                      </ul>
-                    </li>
-                    <li className="space-y-2">
-                      <span>早鳥2025/7/1~2025/9/30</span>
-                      <ul className="space-y-1 pl-0">
-                        <li>全日折扣300/人</li>
-                        <li>半天折扣200/人</li>
-                      </ul>
-                    </li>
+                    {(pricing?.promotions ?? []).map((promotion) => (
+                      <li key={promotion.title} className="space-y-2">
+                        <span>{promotion.title}</span>
+                        <ul className="space-y-1 pl-0">
+                          {(promotion.lines ?? []).map((line) => <li key={line}>{line}</li>)}
+                        </ul>
+                      </li>
+                    ))}
                   </ul>
                 </div>
 
                 <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] py-8">
                   <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程費用</h3>
                   <ul className="space-y-2 text-sm text-[#475569] list-disc pl-5">
-                    <li>包含教學費</li>
-                    <li>不含纜車費，雪具租賃等費用</li>
-                    <li>贈送課程時段特殊活動意外險</li>
+                    {(pricing?.fee_notes ?? []).map((note) => <li key={note}>{note}</li>)}
                   </ul>
                 </div>
 

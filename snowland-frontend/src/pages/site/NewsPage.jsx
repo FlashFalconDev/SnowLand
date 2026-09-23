@@ -1,8 +1,6 @@
 import React, { useRef, useState } from 'react';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import instagramLatest from '../../data/site/instagramLatest';
-import guidesArticles from '../../data/site/guidesArticles';
 import { fetchSiteContent } from '../../api/booking';
 
 function NewsPage() {
@@ -23,7 +21,7 @@ function NewsPage() {
     let mounted = true;
     Promise.all([
       fetchSiteContent({ content_type: 'social', location_key: 'news.social', limit: 8 }),
-      fetchSiteContent({ content_type: 'article', location_key: 'news.articles', limit: 6 }),
+      fetchSiteContent({ content_type: 'article', location_key: 'guides.articles', limit: 6 }),
     ])
       .then(([socialItems, articleItems]) => {
         if (!mounted) return;
@@ -40,37 +38,21 @@ function NewsPage() {
     };
   }, []);
 
-  const instagramItems = cmsSocialItems.length
-    ? cmsSocialItems.map((item) => ({
+  const instagramItems = cmsSocialItems.map((item) => ({
       shortcode: item.external_id || String(item.id),
       src: item.image_url,
       alt: item.title || 'SnowLand 社群動態',
       caption: item.summary || item.body || item.subtitle || '',
       href: item.link_url || '#',
-    }))
-    : instagramLatest.slice(0, 8).map((item) => ({
-      ...item,
-      href: `https://www.instagram.com/p/${item.shortcode}/`,
     }));
 
-  const latestArticles = cmsArticles.length
-    ? cmsArticles.map((item) => ({
+  const latestArticles = cmsArticles.map((item) => ({
       url: item.link_url || '#',
       title: item.title || '最新消息',
-      date: (item.start_at || item.created_at || '').slice(0, 10).replace(/-/g, '.'),
-      category: item.tags?.[0] || item.subtitle || '最新消息',
+      date: item.metadata?.date || (item.start_at || '').slice(0, 10).replace(/-/g, '.'),
+      category: item.metadata?.category || item.tags?.[0] || item.subtitle || '最新消息',
       image: item.image_url,
-    }))
-    : [...guidesArticles]
-    .filter((item) => item?.date)
-    .sort((a, b) => {
-      const toTime = (value) => {
-        const [year, month, day] = value.split('.').map(Number);
-        return new Date(year, month - 1, day).getTime();
-      };
-      return toTime(b.date) - toTime(a.date);
-    })
-    .slice(0, 3);
+    }));
 
   const scrollToIndex = (index) => {
     const scroller = scrollerRef.current;

@@ -239,6 +239,7 @@ class Command(BaseCommand):
         )
 
         customer_specs = [
+            ("local-dev-admin", "Local Developer", "local-dev@snowland.test", "gold", 3200),
             ("demo-customer-lin", "小林", "lin.customer@demo.local", "gold", 3200),
             ("demo-customer-chen", "小陳", "chen.customer@demo.local", "silver", 1200),
             ("demo-customer-wang", "小王", "wang.customer@demo.local", "new", 100),
@@ -261,6 +262,7 @@ class Command(BaseCommand):
             customers[username] = user
 
         order_specs = [
+            ("DEMO-MEMBER-001", "本機會員｜星野單板全天", "east", "tomamu", "local-dev-admin", "demo-coach-aki", "completed", "paid", "credit_card", -30, "本機會員驗收", 2),
             ("DEMO-001", "林小姐｜星野單板全天", "east", "tomamu", "demo-customer-lin", "demo-coach-aki", "completed", "paid", "credit_card", -1, "Instagram", 2),
             ("DEMO-002", "陳先生｜富良野雙板上午", "east", "furano", "demo-customer-chen", "demo-coach-yuki", "auto_assigned", "paid", "TT", 4, "朋友介紹", 3),
             ("DEMO-003", "王小姐｜二世谷單板下午", "west", "niseko", "demo-customer-wang", "demo-coach-ken", "manual_assignment_needed", "pending", "TT", 7, "Google", 1),
@@ -449,5 +451,5 @@ class Command(BaseCommand):
             statement.save(update_fields=["notes"])
 
         self.stdout.write(self.style.SUCCESS(
-            "Console DEMO 資料完成：3 校區、3 雪場、8 員工、3 教練、6 訂單、3 通知、3 薪資單。"
+            "Console DEMO 資料完成：3 校區、3 雪場、8 員工、3 教練、7 訂單、3 通知、3 薪資單。"
         ))

@@ -5,10 +5,13 @@ import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 import HokkaidoMap from '../../components/site/HokkaidoMap';
 import ResortGrid from '../../components/site/ResortGrid';
-import skiResorts from '../../data/site/skiResorts';
-import guidesArticles from '../../data/site/guidesArticles';
+import { siteContentToArticle, siteContentToResort, useSiteContent } from '../../hooks/useSiteContent';
 
 function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
+  const { items: resortItems, isLoading: resortsLoading, error: resortsError } = useSiteContent('course.resorts');
+  const { items: articleItems } = useSiteContent('guides.articles');
+  const skiResorts = resortItems.map(siteContentToResort);
+  const guidesArticles = articleItems.map(siteContentToArticle);
   const categoryBadgeStyles = {
     "滑雪初心者": "bg-[var(--tag-beginner-bg)] text-[var(--tag-beginner-text)]",
     "北海道滑雪場": "bg-[var(--tag-resort-bg)] text-[var(--tag-resort-text)]",
@@ -49,7 +52,11 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
 
         <section className="mt-12">
           <div className="mt-6">
-            <HokkaidoMap resorts={skiResorts} initialActiveSlug={initialActiveSlug} />
+            {resortsLoading && <p className="py-16 text-center text-sm text-[#64748b]">正在載入雪場…</p>}
+            {!resortsLoading && resortsError && <p className="py-16 text-center text-sm text-red-600">雪場資料暫時無法載入，請稍後再試。</p>}
+            {!resortsLoading && !resortsError && skiResorts.length > 0 && (
+              <HokkaidoMap resorts={skiResorts} initialActiveSlug={initialActiveSlug} />
+            )}
           </div>
         </section>
 
@@ -58,7 +65,11 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
             <h2 className="text-2xl font-semibold text-[#1f2937] font-display">雪場列表總覽</h2>
           </div>
           <div className="mt-6">
-            <ResortGrid resorts={skiResorts} />
+            {skiResorts.length > 0 ? (
+              <ResortGrid resorts={skiResorts} />
+            ) : !resortsLoading && !resortsError ? (
+              <p className="py-12 text-center text-sm text-[#64748b]">目前沒有已發布的雪場資料。</p>
+            ) : null}
           </div>
         </section>
 

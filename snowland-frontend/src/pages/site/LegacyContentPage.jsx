@@ -4,9 +4,7 @@ import SiteLink from '../../components/site/SiteLink';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import legacyPages from '../../data/site/legacyPages.json';
-import guidesArticles from '../../data/site/guidesArticles';
-import { fetchSiteContent } from '../../api/booking';
+import { siteContentToArticle, siteContentToPage, useSiteContent } from '../../hooks/useSiteContent';
 
 const headingStyles = {
   1: "text-2xl font-semibold text-[#111827] font-display",
@@ -169,100 +167,7 @@ const CMS_LOCATION_BY_PAGE_KEY = {
   "photography-how-to-book": "photography.how-to-book",
 };
 
-const renderCmsBody = (text = "") => {
-  if (!text) return null;
-  return text
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .map((paragraph, index) => (
-      <p key={`cms-paragraph-${index}`} className="text-sm md:text-base text-[#475569] leading-relaxed whitespace-pre-line">
-        {renderTextWithLinks(paragraph)}
-      </p>
-    ));
-};
-
-const normalizeCmsBlocks = (item = {}) => {
-  const rawBlocks = Array.isArray(item.metadata?.blocks) ? item.metadata.blocks : [];
-  const blocks = rawBlocks
-    .map((block) => {
-      if (!block || typeof block !== "object") return null;
-      if (block.type === "heading") {
-        return {
-          type: "heading",
-          text: typeof block.text === "string" ? block.text : "",
-          level: block.level === 3 ? 3 : 2,
-        };
-      }
-      if (block.type === "paragraph") {
-        return {
-          type: "paragraph",
-          text: typeof block.text === "string" ? block.text : "",
-        };
-      }
-      if (block.type === "image") {
-        return {
-          type: "image",
-          src: typeof block.src === "string" ? block.src : "",
-          alt: typeof block.alt === "string" ? block.alt : "",
-        };
-      }
-      if (block.type === "list") {
-        return {
-          type: "list",
-          items: Array.isArray(block.items) ? block.items.map((entry) => String(entry)) : [],
-          ordered: Boolean(block.ordered),
-        };
-      }
-      return null;
-    })
-    .filter((block) => {
-      if (!block) return false;
-      if (block.type === "heading" || block.type === "paragraph") return block.text.trim();
-      if (block.type === "image") return block.src.trim();
-      if (block.type === "list") return block.items.some((entry) => entry.trim());
-      return false;
-    });
-
-  if (blocks.length) return blocks;
-
-  const fallbackBlocks = [];
-  if (item.image_url) {
-    fallbackBlocks.push({ type: "image", src: item.image_url, alt: item.title || "" });
-  }
-  if (item.body) {
-    item.body
-      .split(/\n{2,}/)
-      .map((text) => text.trim())
-      .filter(Boolean)
-      .forEach((text) => fallbackBlocks.push({ type: "paragraph", text }));
-  }
-  return fallbackBlocks;
-};
-
-const renderCmsBlocks = (blocks = []) => {
-  const content = [];
-  let imageBuffer = [];
-  blocks.forEach((block, index) => {
-    if (block.type === "image") {
-      imageBuffer.push(block);
-      return;
-    }
-    if (imageBuffer.length) {
-      content.push(renderImageGroup(imageBuffer, index, true));
-      imageBuffer = [];
-    }
-    const rendered = renderBlock(block, index);
-    if (rendered) content.push(rendered);
-  });
-  if (imageBuffer.length) {
-    content.push(renderImageGroup(imageBuffer, blocks.length, true));
-  }
-  return content;
-};
-
 function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = false }) {
-  const page = legacyPages[pageKey];
   const isAboutPage = pageKey === "about";
   const isJoinUsPage = pageKey === "join-us";
   const isGuidesFaqPage = pageKey === "guides-faq";
@@ -283,25 +188,11 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
   const [joinUsMobileSlide, setJoinUsMobileSlide] = useState(0);
   const joinUsMobileCarouselRef = useRef(null);
   const [isTocOpen, setIsTocOpen] = useState(true);
-  const [cmsPageItems, setCmsPageItems] = useState([]);
-  const cmsLocationKey = CMS_LOCATION_BY_PAGE_KEY[pageKey];
-  useEffect(() => {
-    if (!cmsLocationKey) {
-      setCmsPageItems([]);
-      return;
-    }
-    let mounted = true;
-    fetchSiteContent({ location_key: cmsLocationKey, limit: 20 })
-      .then((items) => {
-        if (mounted) setCmsPageItems(Array.isArray(items) ? items : []);
-      })
-      .catch(() => {
-        if (mounted) setCmsPageItems([]);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [cmsLocationKey]);
+  const cmsLocationKey = CMS_LOCATION_BY_PAGE_KEY[pageKey] ?? `legacy.${pageKey}`;
+  const { items: cmsPageItems, isLoading: pageLoading, error: pageError } = useSiteContent(cmsLocationKey, { limit: 20 });
+  const { items: articleItems } = useSiteContent('guides.articles');
+  const page = siteContentToPage(cmsPageItems[0]);
+  const guidesArticles = articleItems.map(siteContentToArticle);
   const prefersReducedMotion = useReducedMotion();
   const activeDealsKey = pageKey === "deals" ? "deals-earlybird" : pageKey;
   const categoryBadgeStyles = {
@@ -336,7 +227,9 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
       <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
         <SiteHeader forceTransparent />
         <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
-          <p className="text-sm text-[#64748b]">內容載入中。</p>
+          <p className={`text-sm ${pageError ? "text-red-600" : "text-[#64748b]"}`}>
+            {pageError ? "內容暫時無法載入，請稍後再試。" : pageLoading ? "內容載入中。" : "目前沒有已發布的內容。"}
+          </p>
         </main>
         <SiteFooter />
       </div>
@@ -519,66 +412,6 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
       window.removeEventListener("resize", updateActiveSlide);
     };
   }, [isJoinUsPage]);
-
-  if (cmsPageItems.length > 0 && !isAboutPage) {
-    const primaryItem = cmsPageItems[0];
-    const relatedItems = cmsPageItems.slice(1);
-    const primaryBlocks = normalizeCmsBlocks(primaryItem);
-    return (
-      <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
-        <SiteHeader forceTransparent forceDarkText forceLogoColor />
-        <main className="flex-1 pt-28 pb-20">
-          <section className="max-w-4xl mx-auto px-6">
-            <div className="text-center">
-              <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-                {primaryItem.subtitle || page?.subtitle || "SnowLand"}
-              </p>
-              <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-                {primaryItem.title || page?.title}
-              </h1>
-              {primaryItem.summary && (
-                <p className="mt-5 text-sm md:text-base leading-relaxed text-[#64748b]">
-                  {primaryItem.summary}
-                </p>
-              )}
-            </div>
-
-            {primaryBlocks.length > 0 && (
-              <article className="mt-12 space-y-6">
-                {renderCmsBlocks(primaryBlocks)}
-              </article>
-            )}
-
-            {relatedItems.length > 0 && (
-              <div className="mt-12 grid gap-4 md:grid-cols-2">
-                {relatedItems.map((item) => (
-                  <article key={item.id} className="rounded-sm border border-[#e2e8f0] bg-white p-5">
-                    <h2 className="text-base font-semibold text-[#111827] font-display">{item.title}</h2>
-                    {(item.subtitle || item.summary) && (
-                      <p className="mt-2 text-sm leading-relaxed text-[#64748b]">
-                        {item.subtitle || item.summary}
-                      </p>
-                    )}
-                    {item.link_url && (
-                      <a
-                        href={item.link_url}
-                        className="mt-4 inline-flex text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
-                        target={item.link_url.startsWith("http") ? "_blank" : undefined}
-                        rel={item.link_url.startsWith("http") ? "noopener noreferrer" : undefined}
-                      >
-                        查看更多
-                      </a>
-                    )}
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-        </main>
-        <SiteFooter />
-      </div>
-    );
-  }
 
   if (isJoinUsPage) {
     return (
