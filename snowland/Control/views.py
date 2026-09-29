@@ -261,12 +261,10 @@ def api_google_login(request):
                 from google.auth.transport import requests as google_requests
 
                 # 🔥 驗證 Google JWT token
-                GOOGLE_CLIENT_ID = "754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com"
-
                 idinfo = id_token.verify_oauth2_token(
                     credential,
                     google_requests.Request(),
-                    GOOGLE_CLIENT_ID
+                    settings.GOOGLE_OAUTH_CLIENT_ID
                 )
 
                 # 獲取用戶資訊

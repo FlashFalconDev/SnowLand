@@ -4,7 +4,7 @@ interface GoogleLoginButtonProps {
   onLogin?: () => void
 }
 
-const GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim()
+const GOOGLE_CLIENT_ID = '754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com'
 
 declare global {
   interface Window {
@@ -73,11 +73,6 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
   }
 
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) {
-      setError('Google 登入尚未完成設定')
-      return
-    }
-
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
     activeCredentialHandler = handleCredentialResponse
