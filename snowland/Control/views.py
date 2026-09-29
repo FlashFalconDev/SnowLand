@@ -257,17 +257,10 @@ def api_google_login(request):
         if credential:
             print('Found credential in body, verifying...')
             try:
-                from google.oauth2 import id_token
-                from google.auth.transport import requests as google_requests
-
                 # 🔥 驗證 Google JWT token
-                GOOGLE_CLIENT_ID = "754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com"
+                from snowland.google_auth import verify_google_oauth2_token
 
-                idinfo = id_token.verify_oauth2_token(
-                    credential,
-                    google_requests.Request(),
-                    GOOGLE_CLIENT_ID
-                )
+                idinfo = verify_google_oauth2_token(credential)
 
                 # 獲取用戶資訊
                 email = idinfo.get('email')

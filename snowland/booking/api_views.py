@@ -6,6 +6,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -3641,19 +3642,14 @@ class GoogleLoginAPI(APIView):
         # 方式 1: 前端發送 Google JWT credential
         if credential:
             try:
-                from google.oauth2 import id_token
-                from google.auth.transport import requests as google_requests
-
                 # 驗證 Google JWT token
                 google_client_id = settings.GOOGLE_OAUTH_CLIENT_ID
                 if not google_client_id:
                     return Response({'code': 503, 'msg': 'Google 登入尚未完成設定'}, status=503)
 
-                idinfo = id_token.verify_oauth2_token(
-                    credential,
-                    google_requests.Request(),
-                    google_client_id
-                )
+                from snowland.google_auth import verify_google_oauth2_token
+
+                idinfo = verify_google_oauth2_token(credential)
 
                 # 獲取用戶資訊
                 email = idinfo.get('email')

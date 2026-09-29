@@ -1,4 +1,7 @@
+import sys
 from datetime import date, time, timedelta
+from types import ModuleType
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -265,6 +268,50 @@ class OperationsTests(TestCase):
             'action': 'login', 'email': 'new-member@example.com', 'password': 'secure-pass-123',
         }, format='json')
         self.assertEqual(logged_in.status_code, 200)
+
+    def test_member_google_login_uses_configured_client_id(self):
+        verify_token = MagicMock()
+        verify_token.side_effect = [
+            ValueError(
+                "Token used too early, 1790694405 < 1790694406. "
+                "Check that your computer's clock is set correctly."
+            ),
+            {
+                'email': 'google-member@example.com',
+                'name': 'Google Member',
+                'picture': 'https://example.com/avatar.jpg',
+            },
+        ]
+
+        google_module = ModuleType('google')
+        oauth2_module = ModuleType('google.oauth2')
+        id_token_module = ModuleType('google.oauth2.id_token')
+        id_token_module.verify_oauth2_token = verify_token
+        auth_module = ModuleType('google.auth')
+        transport_module = ModuleType('google.auth.transport')
+        requests_module = ModuleType('google.auth.transport.requests')
+        requests_module.Request = object
+
+        with patch.dict(sys.modules, {
+            'google': google_module,
+            'google.oauth2': oauth2_module,
+            'google.oauth2.id_token': id_token_module,
+            'google.auth': auth_module,
+            'google.auth.transport': transport_module,
+            'google.auth.transport.requests': requests_module,
+        }), patch('snowland.google_auth.time.sleep') as sleep:
+            response = APIClient().post('/booking/snowland/api/google-login/', {
+                'credential': 'test-google-token',
+            }, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['code'], 100)
+        self.assertEqual(response.data['data']['email'], 'google-member@example.com')
+        self.assertEqual(verify_token.call_count, 2)
+        sleep.assert_called_once_with(2)
+        for call in verify_token.call_args_list:
+            self.assertEqual(call.args[2], '754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com')
+            self.assertEqual(call.kwargs['clock_skew_in_seconds'], 10)
 
     def test_staff_booking_link_resolves_only_before_use_and_expiry(self):
         link = StaffBookingLink.objects.create(
