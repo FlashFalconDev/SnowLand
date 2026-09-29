@@ -6,6 +6,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -3652,7 +3653,8 @@ class GoogleLoginAPI(APIView):
                 idinfo = id_token.verify_oauth2_token(
                     credential,
                     google_requests.Request(),
-                    google_client_id
+                    google_client_id,
+                    clock_skew_in_seconds=settings.GOOGLE_OAUTH_CLOCK_SKEW_SECONDS,
                 )
 
                 # 獲取用戶資訊
