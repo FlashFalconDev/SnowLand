@@ -49,6 +49,7 @@ SECRET_KEY = "django-insecure-6m9s&&mrr%$5oie!_2wc-byua$@8c*oggvsef(94lkoil0j4i*
 DEBUG = True
 LOCAL_AUTH_BYPASS = os.getenv('SNOWLAND_LOCAL_AUTH_BYPASS', '0') == '1'
 GOOGLE_OAUTH_CLIENT_ID = '754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com'
+GOOGLE_OAUTH_CLOCK_SKEW_SECONDS = 10
 RUN_HOST = 'https://dev.flashfalcon.info'
 PAYMENT_HOST = 'https://dev.flashfalcon.info/booking/payment/'
 # else:

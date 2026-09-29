@@ -302,6 +302,7 @@ class OperationsTests(TestCase):
         self.assertEqual(response.data['code'], 100)
         self.assertEqual(response.data['data']['email'], 'google-member@example.com')
         self.assertEqual(verify_token.call_args.args[2], '754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com')
+        self.assertEqual(verify_token.call_args.kwargs['clock_skew_in_seconds'], 10)
 
     def test_staff_booking_link_resolves_only_before_use_and_expiry(self):
         link = StaffBookingLink.objects.create(

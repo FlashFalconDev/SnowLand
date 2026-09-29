@@ -264,7 +264,8 @@ def api_google_login(request):
                 idinfo = id_token.verify_oauth2_token(
                     credential,
                     google_requests.Request(),
-                    settings.GOOGLE_OAUTH_CLIENT_ID
+                    settings.GOOGLE_OAUTH_CLIENT_ID,
+                    clock_skew_in_seconds=settings.GOOGLE_OAUTH_CLOCK_SKEW_SECONDS,
                 )
 
                 # 獲取用戶資訊

@@ -3653,7 +3653,8 @@ class GoogleLoginAPI(APIView):
                 idinfo = id_token.verify_oauth2_token(
                     credential,
                     google_requests.Request(),
-                    google_client_id
+                    google_client_id,
+                    clock_skew_in_seconds=settings.GOOGLE_OAUTH_CLOCK_SKEW_SECONDS,
                 )
 
                 # 獲取用戶資訊
