@@ -64,6 +64,7 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
   const totalAmount = cart.reduce((sum, group) => sum + (group.totalPrice || 0), 0)
   const totalCourses = cart.reduce((sum, group) => sum + group.courses.length, 0)
   const hasPendingPrice = cart.some((group) => group.totalPrice === null)
+  const hasSharedClass = cart.some((group) => group.courses.some((course) => course.sharedClassEnabled))
 
   if (!isOpen) return null
 
@@ -128,10 +129,11 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
           <>
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5 md:px-6">
               <div className="rounded-sm border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3 text-xs leading-5 text-[#1e3a8a]">
-                <p className="font-semibold">購物車讀法</p>
+                <p className="font-semibold">{hasSharedClass ? '團體湊班報名' : '購物車讀法'}</p>
                 <p className="mt-1">
-                  每張卡是一組設定。像同一批學生、同一位教練、同一個裝備協助方式會放在同一組；同一天多堂課也會逐堂列出。
-                  要改整組日期或設定，請移除整組後重新選；只刪單堂課可點課程列右側的垃圾桶。
+                  {hasSharedClass
+                    ? '這筆報名需單獨結帳。滿成班人數並安排教練後，系統才會通知付款。'
+                    : '每張卡是一組設定。同一批學生與教練會放在同一組；同一天多堂課也會逐堂列出。要改整組設定，請移除整組後重新選。'}
                 </p>
               </div>
               {cart.map((group, groupIndex) => (
@@ -176,7 +178,7 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
                   </div>
 
                   <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                    <MetaItem icon={User} label="教練" value={group.coachName || '不指定'} />
+                    <MetaItem icon={User} label="教練" value={group.courses[0]?.sharedClassEnabled ? '由學校安排' : (group.coachName || '不指定')} />
                     <MetaItem icon={Users} label="人數" value={`${group.peopleCount} 人`} />
                     <MetaItem icon={Languages} label="語言" value={getLanguageLabel(group.language)} />
                     <MetaItem icon={Package} label="裝備" value={getEquipmentLabel(group.equipmentOption, group.equipment)} />
@@ -252,12 +254,14 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
             <footer className="border-t border-[#dbe3ec] bg-white px-5 py-4 md:px-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#94a3b8]">Total</p>
+                  <p className="text-xs font-semibold tracking-[0.12em] text-[#64748b]">{hasSharedClass ? '成班後應付' : 'Total'}</p>
                   <p className="mt-1 text-2xl font-bold text-[#2b5f8f]">
                     {hasPendingPrice ? '價格計算中' : `NT$ ${totalAmount.toLocaleString()}`}
                   </p>
                   <p className="mt-1 text-xs text-[#64748b]">
-                    送出後會一次建立 {cart.length} 組預約，共 {totalCourses} 堂課。
+                    {hasSharedClass
+                      ? '送出只建立報名；收到成班通知後再付款。'
+                      : `送出後會一次建立 ${cart.length} 組預約，共 ${totalCourses} 堂課。`}
                   </p>
                 </div>
                 <button

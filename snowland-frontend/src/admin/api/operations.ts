@@ -5,7 +5,7 @@ interface DetailResponse<T> { data: T }
 
 export interface NotificationTemplate {
   id: number; campus: number | null; name: string; event: string; channel: string
-  subject: string; body: string; days_before: number; is_active: boolean; delivery_count: number
+  subject: string; body: string; days_before: number; course_template_ids: number[]; is_active: boolean; delivery_count: number
 }
 
 export interface NotificationDelivery {
@@ -14,7 +14,7 @@ export interface NotificationDelivery {
 }
 
 export interface PayRule {
-  id: number; coach: number; coach_name: string; discipline: string; certification_level: string
+  id: number; coach: number; coach_name: string; course_type: number | null; discipline: string; certification_level: string
   hourly_rate: string; specified_fee: number; referral_percent: string
   assistance_hour_factor: string; supervisor_allowance: number; is_active: boolean
 }
@@ -40,7 +40,7 @@ export interface StaffBookingLink {
 }
 
 export interface InsuranceRecord {
-  id: number; member_name: string; order_number: string; campus_name: string; age_range: string
+  id: number; member_name: string; order_number: string; sn: string; campus_name: string; age_range: string
   insurance_completed_at: string | null; waiver_completed_at: string | null; course_dates: string[]
 }
 

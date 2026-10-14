@@ -4,7 +4,9 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Search, X, Eye, Edit2, Calendar, User, CreditCard, MapPin, Loader2, AlertCircle, Save, Zap, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
-import { fetchOrder, fetchOrdersPaged, updateOrder, previewOrderRefund, requestOrderCancellation, processOrderCancellation, type Order, type PaymentStatus } from '../api/orders'
+import { fetchOrder, fetchOrdersPaged, fetchCampusManagerOrdersPaged, updateOrder, completeOrderCourse, previewOrderRefund, requestOrderCancellation, processOrderCancellation, type Order, type PaymentStatus } from '../api/orders'
+import { fetchAdminMe } from '../api/auth'
+import { useSearchParams } from 'react-router-dom'
 import { sendOrderEmail } from '../api/extras'
 import { useNotification } from '../context'
 
@@ -33,6 +35,18 @@ const PAYMENT_LABEL: Record<string, { label: string; cls: string }> = {
 
 const getStatusPill = (s: string) => STATUS_LABEL[s] || { label: s, cls: 'bg-gray-100 text-gray-700' }
 const getPaymentPill = (s: string) => PAYMENT_LABEL[s] || { label: s, cls: 'bg-gray-100 text-gray-700' }
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  newebpay: '藍新支付', TT: '銀行匯款', credit_card: '信用卡', apple_pay: 'Apple Pay', google_pay: 'Google Pay',
+}
+const LANGUAGE_LABEL: Record<string, string> = { zh: '中文', en: '英文', ja: '日文' }
+const REVISION_LABEL: Record<string, string> = { create: '建立訂單', update: '修改訂單', modify: '修改訂單', cancellation: '取消訂單' }
+const formatTime = (time?: string | null) => (time || '').slice(0, 5)
+const formatCreatedAt = (value: string) => {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(date)
+}
 const PAGE_SIZE = 10
 
 function getOrderLoadError(error: unknown): { title: string; message: string } {
@@ -105,14 +119,74 @@ function getVisiblePageItems(currentPage: number, totalPages: number): Array<num
 }
 
 export default function OrdersPage() {
-  const [searchInput, setSearchInput] = useState('')
+  const { data, isLoading } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
+  if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-purple-500" /></div>
+  return data?.user?.role === 'campus_manager' || data?.user?.role === 'campus_principal'
+    ? <CampusManagerOrdersPage isPrincipal={data?.user?.role === 'campus_principal'} />
+    : <FullOrdersPage />
+}
+
+function CampusManagerOrdersPage({ isPrincipal }: { isPrincipal: boolean }) {
+  const [searchParams] = useSearchParams()
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['admin', 'campus-orders', isPrincipal, page, search],
+    queryFn: () => fetchCampusManagerOrdersPaged({ page, page_size: PAGE_SIZE, search }),
+  })
+  return <div className="space-y-5">
+    <div>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{isPrincipal ? '校區訂單資訊' : '近期訂單資訊'}</h1>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{isPrincipal ? '只顯示所屬校區的課程；付款與聯絡資料由總部管理。' : '只顯示所屬校區從今天起 10 天內的課程；付款與聯絡資料由總部管理。'}</p>
+    </div>
+    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+      <label className="sr-only" htmlFor="campus-order-search">搜尋訂單</label>
+      <input id="campus-order-search" value={search} onChange={event => { setSearch(event.target.value); setPage(1) }}
+        placeholder="搜尋訂單編號或學員暱稱" className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+    </div>
+    {isLoading && <div className="flex justify-center py-16"><Loader2 className="animate-spin text-purple-500" /></div>}
+    {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">訂單載入失敗，請確認連線後重新整理。</div>}
+    {!isLoading && !error && data?.list.length === 0 && <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-800">{isPrincipal ? '目前沒有校區課程訂單' : '目前沒有 10 天內的課程訂單'}</div>}
+    {!isLoading && !error && data?.list.map(order => <section key={order.id} className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="font-mono text-sm font-semibold text-purple-600 dark:text-purple-400">{order.sn}</div>
+          <div className="mt-1 font-medium text-gray-900 dark:text-white">{order.student_alias || '未填暱稱'} · {order.number_of_people} 人</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{order.campus_name} · {order.course_dates.join('、')}</div>
+        </div>
+        <button type="button" aria-expanded={expandedId === order.id} onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}
+          className="rounded-lg border border-purple-300 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-50 dark:border-purple-600 dark:text-purple-300 dark:hover:bg-purple-900/20">
+          {expandedId === order.id ? '收起課程' : '查看課程'}
+        </button>
+      </div>
+      {expandedId === order.id && <div className="mt-4 space-y-2 border-t border-gray-100 pt-4 dark:border-gray-700">
+        {order.sessions.map((session, index) => <div key={`${session.date}-${index}`} className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+          <div className="font-medium">{session.date}　{session.start_time.slice(0, 5)}–{session.end_time.slice(0, 5)} · {session.course_type || '課程'}</div>
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-300">{session.number_of_people} 人 · 程度：{session.ability_level || '未填'} · 年齡：{session.age_ranges.join('、') || '未填'}</div>
+        </div>)}
+      </div>}
+    </section>)}
+    {!!data && data.total_pages > 1 && <div className="flex items-center justify-end gap-3 text-sm text-gray-600 dark:text-gray-300">
+      <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg border px-3 py-1.5 disabled:opacity-40">上一頁</button>
+      <span>{page} / {data.total_pages}</span>
+      <button type="button" disabled={page >= data.total_pages} onClick={() => setPage(page + 1)} className="rounded-lg border px-3 py-1.5 disabled:opacity-40">下一頁</button>
+    </div>}
+  </div>
+}
+
+function FullOrdersPage() {
+  const [searchParams] = useSearchParams()
+  const querySearch = searchParams.get('search') || ''
+  const [searchInput, setSearchInput] = useState(querySearch)
   const [statusFilter, setStatusFilter] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('')
   const [page, setPage] = useState(1)
   const [viewingId, setViewingId] = useState<number | null>(null)
 
   // 搜尋 debounce 300ms,避免每打一個字就打一次 API
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(querySearch)
+  useEffect(() => { setSearchInput(querySearch) }, [querySearch])
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 300)
     return () => clearTimeout(t)
@@ -380,6 +454,25 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   })
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(order.payment_status)
   const [editing, setEditing] = useState(false)
+  const [confirmCompletionId, setConfirmCompletionId] = useState<number | null>(null)
+
+  const resetOrderEdits = () => {
+    const assignments: Record<number, number | null> = {}
+    const bookings: Record<number, { date: string; start_time: string; end_time: string }> = {}
+    order.reservations.forEach((reservation) => {
+      assignments[reservation.id] = reservation.preferred_coach_id ?? null
+      reservation.bookings.forEach((booking) => {
+        bookings[booking.id] = {
+          date: booking.date,
+          start_time: formatTime(booking.start_time),
+          end_time: formatTime(booking.end_time),
+        }
+      })
+    })
+    setCoachAssignments(assignments)
+    setBookingEdits(bookings)
+    setPaymentStatus(order.payment_status)
+  }
 
   const [emailOpen, setEmailOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -412,6 +505,18 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   })
   const cancelMutation = useMutation({ mutationFn: () => requestOrderCancellation(order.id, { reason: cancelForm.reason, reason_note: cancelForm.reason_note, refund_bank: { bank_name: cancelForm.bank_name, account_number: cancelForm.account_number, account_holder: cancelForm.account_holder }, ...(refundChoice === 'manual' ? { manual_refund_amount: Number(manualRefund) } : refundChoice.startsWith('rule:') ? { selected_rule_days_before: Number(refundChoice.slice(5)) } : {}) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); setCancelOpen(false); notify.success('取消申請已建立，請到訂單內確認退款金額') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '建立取消申請失敗') })
   const processCancellation = useMutation({ mutationFn: (next: 'approved' | 'rejected' | 'refunded') => processOrderCancellation(order.cancellation!.id, next), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); notify.success('退款狀態已更新') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '更新失敗') })
+  const completeCourse = useMutation({
+    mutationFn: (reservationId: number) => completeOrderCourse(order.id, reservationId),
+    onSuccess: (response) => {
+      setConfirmCompletionId(null)
+      qc.invalidateQueries({ queryKey: ['admin', 'orders'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'bookings'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'evaluations'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'payroll'] })
+      notify.success(response.msg)
+    },
+    onError: (error: any) => notify.error(error?.response?.data?.msg || error?.response?.data?.detail || '完課確認失敗'),
+  })
 
   const saveMutation = useMutation({
     mutationFn: (action: 'save' | 'schedule') => {
@@ -454,33 +559,51 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const firstR = order.reservations[0]
   const statusPill = firstR ? getStatusPill(firstR.status) : { label: '無', cls: '' }
   const paymentPill = getPaymentPill(paymentStatus)
+  const courseBookings = order.reservations.flatMap((r) => r.bookings)
+  const invalidBooking = courseBookings.find((booking) => {
+    const edit = bookingEdits[booking.id]
+    return !edit?.date || !edit.start_time || !edit.end_time || edit.end_time <= edit.start_time
+  })
+  const hasBookingChanges = courseBookings.some((booking) => {
+    const edit = bookingEdits[booking.id]
+    return edit && (
+      edit.date !== booking.date ||
+      edit.start_time !== formatTime(booking.start_time) ||
+      edit.end_time !== formatTime(booking.end_time)
+    )
+  })
+  const hasCoachChanges = order.reservations.some((reservation) =>
+    !reservation.is_preferred_coach &&
+    coachAssignments[reservation.id] !== (reservation.preferred_coach_id ?? null),
+  )
+  const hasOrderChanges = hasBookingChanges || hasCoachChanges || paymentStatus !== order.payment_status
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/50 animate-fadeIn" onClick={onClose} />
       <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl flex flex-col animate-slideIn">
-        <div className="px-6 py-4 flex items-center justify-between text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold font-mono">{order.sn}</h2>
+        <div className="relative px-4 py-4 text-white sm:px-6" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
+          <div className="flex flex-wrap items-center gap-2 pr-10">
+            <h2 className="mr-1 font-mono text-base font-semibold sm:text-lg">{order.sn}</h2>
             {!editing && !readOnly && (
               <>
                 <button
-                  onClick={() => setEditing(true)}
-                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 backdrop-blur rounded-md text-xs font-medium flex items-center gap-1"
+                  onClick={() => { resetOrderEdits(); setEditing(true) }}
+                  className="flex min-h-10 items-center gap-1 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30"
                 >
                   <Edit2 size={12} />編輯
                 </button>
                 <button
                   onClick={() => setEmailOpen(true)}
-                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 backdrop-blur rounded-md text-xs font-medium flex items-center gap-1"
+                  className="flex min-h-10 items-center gap-1 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30"
                 >
                   <Mail size={12} />寄信
                 </button>
-                {!order.cancellation && <button onClick={() => setCancelOpen(true)} className="px-2.5 py-1 bg-red-500/80 hover:bg-red-500 rounded-md text-xs font-medium">取消／退款</button>}
+                {!order.cancellation && <button onClick={() => setCancelOpen(true)} className="min-h-10 rounded-md bg-red-500/80 px-3 py-2 text-xs font-medium hover:bg-red-500">取消／退款</button>}
               </>
             )}
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white"><X size={20} /></button>
+          <button onClick={onClose} aria-label="關閉訂單明細" className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-lg text-white/80 hover:bg-white/20 hover:text-white"><X size={20} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -500,7 +623,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
           <section>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">訂單歸屬與歷程</h3>
             <div className="rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-700"><div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">校區</span><b>{order.campus_name || '未設定'}</b></div><div className="mt-2 flex justify-between"><span className="text-gray-500 dark:text-gray-400">行銷來源</span><span>{order.marketing_source || '未填寫'}{order.marketing_source_detail ? ` · ${order.marketing_source_detail}` : ''}</span></div></div>
-            <div className="mt-3 space-y-2">{order.revisions?.map(revision => <div key={revision.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-xs dark:border-gray-700"><span>第 {revision.version} 版 · {revision.change_type}{revision.reason ? ` · ${revision.reason}` : ''}</span><b className={revision.difference_amount > 0 ? 'text-red-600' : revision.difference_amount < 0 ? 'text-emerald-600' : ''}>{revision.difference_amount ? `${revision.difference_amount > 0 ? '+' : ''}NT$ ${revision.difference_amount.toLocaleString()}` : '無差額'}</b></div>)}</div>
+            <div className="mt-3 space-y-2">{order.revisions?.map(revision => <div key={revision.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-xs dark:border-gray-700"><span>第 {revision.version} 版 · {REVISION_LABEL[revision.change_type] || revision.change_type}{revision.reason ? ` · ${revision.reason}` : ''}</span><b className={revision.difference_amount > 0 ? 'text-red-600' : revision.difference_amount < 0 ? 'text-emerald-600' : ''}>{revision.difference_amount ? `${revision.difference_amount > 0 ? '+' : ''}NT$ ${revision.difference_amount.toLocaleString()}` : '無差額'}</b></div>)}</div>
             {order.cancellation && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300"><div className="flex flex-wrap items-center justify-between gap-2"><span>取消狀態：{order.cancellation.status} · 預計退款 NT$ {order.cancellation.refund_amount.toLocaleString()} · {order.cancellation.calculation_mode === 'manual' ? '特殊金額' : order.cancellation.calculation_mode === 'rule' ? '指定方案' : '依日期計算'}</span>{!readOnly && <div className="flex gap-2">{order.cancellation.status === 'requested' && <><button onClick={() => processCancellation.mutate('rejected')} className="rounded border border-red-300 px-2 py-1 text-xs dark:border-red-700">駁回</button><button onClick={() => processCancellation.mutate('approved')} className="rounded bg-red-600 px-2 py-1 text-xs text-white">核准取消</button></>}{order.cancellation.status === 'approved' && <button onClick={() => processCancellation.mutate('refunded')} className="rounded bg-emerald-600 px-2 py-1 text-xs text-white">確認已退款</button>}</div>}</div></div>}
           </section>
 
@@ -511,6 +634,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             const reservationStatusPill = getStatusPill(r.status)
             const isSchedulingFailed = r.status === 'auto_assignment_failed' || r.status === 'manual_assignment_needed'
             const isStudentSpecifiedCoach = Boolean(r.is_preferred_coach && r.preferred_coach_id)
+            const canEditCourse = editing && r.status !== 'completed'
+            const canComplete = !readOnly && !editing && order.payment_status === 'paid' &&
+              ['auto_assigned', 'manually_assigned', 'form_filled'].includes(r.status) &&
+              Boolean(r.preferred_coach_id) && r.bookings.length > 0 &&
+              r.bookings.every(b => new Date(`${b.date}T${formatTime(b.end_time)}:00`).getTime() <= Date.now())
             return (
             <section key={r.id}>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><MapPin size={14} style={{ color: PRIMARY }} />課程 {order.reservations.length > 1 ? `#${idx + 1}` : ''}</h3>
@@ -522,10 +650,10 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-gray-500">雪場</span><span className="text-gray-900 dark:text-white">{r.resort}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">課程類型</span><span className="text-gray-900 dark:text-white">{r.course_type}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">能力等級</span><span className="text-gray-900 dark:text-white">{r.ability_level}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">能力等級</span><span className="text-gray-900 dark:text-white">{r.ability_level || '未填寫'}</span></div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500">教練</span>
-                  {editing && isStudentSpecifiedCoach ? (
+                  {canEditCourse && isStudentSpecifiedCoach ? (
                     <div className="text-right">
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         <span className="text-gray-900 dark:text-white">{r.preferred_coach || '指定教練'}</span>
@@ -535,7 +663,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                       </div>
                       <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">不可由後台更換</p>
                     </div>
-                  ) : editing ? (
+                  ) : canEditCourse ? (
                     <select
                       value={coachAssignments[r.id] ?? ''}
                       onChange={(e) => setCoachAssignments((p) => ({
@@ -567,7 +695,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                     </div>
                   )}
                 </div>
-                <div className="flex justify-between"><span className="text-gray-500">語言</span><span className="text-gray-900 dark:text-white">{r.language}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">語言</span><span className="text-gray-900 dark:text-white">{LANGUAGE_LABEL[r.language] || r.language || '未填寫'}</span></div>
                 {r.equipment_assistance_time_label && (
                   <div className="flex justify-between"><span className="text-gray-500">裝備協助時段</span><span className="text-gray-900 dark:text-white">{r.equipment_assistance_time_label}</span></div>
                 )}
@@ -579,6 +707,15 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                   此小單尚未排課成功。未付款的排課失敗訂單會在建立後 30 分鐘自動取消；也可以請客人改選其他日期後重新下單。
                 </div>
               )}
+
+              {canComplete && <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-100">
+                <p>課程都已結束。確認實際授課完成後，才會納入教練時數與薪資，並建立學員評量。</p>
+                {confirmCompletionId === r.id ? <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={() => setConfirmCompletionId(null)} disabled={completeCourse.isPending} className="rounded-lg border border-violet-300 px-3 py-2 text-sm disabled:opacity-40">返回</button>
+                  <button onClick={() => completeCourse.mutate(r.id)} disabled={completeCourse.isPending} className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">{completeCourse.isPending ? '處理中…' : '確認已授課完成'}</button>
+                </div> : <button onClick={() => setConfirmCompletionId(r.id)} className="mt-3 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white">標記課程完成</button>}
+              </div>}
+              {r.status === 'completed' && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200">已確認完課；時段與教練已鎖定，評量可在「學習評量」查看，教練時數可在「薪資結算」計算。</p>}
 
               {r.bookings.length > 0 && (
                 <div className="mt-3">
@@ -593,7 +730,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                       return (
                         <div key={b.id} className="flex flex-col gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm md:flex-row md:items-center">
                           <Calendar size={16} className="text-gray-400" />
-                          {editing ? (
+                          {canEditCourse ? (
                             <div className="grid flex-1 grid-cols-1 gap-2 md:grid-cols-[1.2fr_1fr_1fr]">
                               <label className="space-y-1">
                                 <span className="block text-[11px] font-medium text-gray-500 dark:text-gray-400">日期</span>
@@ -635,7 +772,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                           ) : (
                             <>
                               <span className="font-medium text-gray-900 dark:text-white">{b.date}</span>
-                              <span className="text-gray-500">{b.start_time} - {b.end_time}</span>
+                              <span className="text-gray-500">{formatTime(b.start_time)} - {formatTime(b.end_time)}</span>
                             </>
                           )}
                           <span className="text-xs text-gray-500 md:ml-auto">{b.course_name}</span>
@@ -667,11 +804,14 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                   <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
                 )}
               </div>
-              <div className="flex justify-between"><span className="text-gray-500">付款方式</span><span className="text-gray-900 dark:text-white">{order.payment_method}</span></div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">匯款後五碼</span>
-                <span className="font-mono text-gray-900 dark:text-white">{order.bank_account || '未填寫'}</span>
-              </div>
+              <div className="flex justify-between"><span className="text-gray-500">付款方式</span><span className="text-gray-900 dark:text-white">{PAYMENT_METHOD_LABEL[order.payment_method] || order.payment_method || '未設定'}</span></div>
+              {order.payment_method === 'TT' && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">匯款後五碼</span>
+                  <span className="font-mono text-gray-900 dark:text-white">{order.bank_account || '未填寫'}</span>
+                </div>
+              )}
+
               <div className="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-600">
                 <span className="font-medium text-gray-900 dark:text-white">總金額</span>
                 <span className="text-lg font-bold" style={{ color: PRIMARY }}>NT$ {(order.total_fee || 0).toLocaleString()}</span>
@@ -679,14 +819,17 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             </div>
           </section>
 
-          <div className="text-xs text-gray-500 text-center">建立於 {order.created_at}</div>
+          <div className="text-xs text-gray-500 text-center">建立於 {formatCreatedAt(order.created_at)}</div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
           {editing && !readOnly ? (
             <>
+              <p role={invalidBooking ? 'alert' : undefined} className={`w-full text-sm ${invalidBooking ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                {invalidBooking ? '課程結束時間須晚於開始時間，請檢查日期與時段。' : !hasOrderChanges ? '尚未修改任何資料。' : '請確認課程、教練與付款狀態後再儲存。'}
+              </p>
               <button
-                onClick={() => setEditing(false)}
+                onClick={() => { resetOrderEdits(); setEditing(false) }}
                 disabled={saveMutation.isPending}
                 className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
               >
@@ -694,7 +837,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               </button>
               <button
                 onClick={() => saveMutation.mutate('save')}
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking)}
                 className="px-4 py-2 bg-white dark:bg-gray-700 border border-[#8b5cf6] text-sm font-medium rounded-lg hover:bg-[#8b5cf6]/5 disabled:opacity-50 flex items-center gap-2"
                 style={{ color: PRIMARY }}
               >
@@ -703,7 +846,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               </button>
               <button
                 onClick={() => saveMutation.mutate('schedule')}
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking)}
                 className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 style={{ backgroundColor: PRIMARY }}
               >

@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from Resorts.models import OperatingPolicy, PaymentAccount
 
-from .models import CancellationRequest, NotificationDelivery, OrderRevision
+from .models import Booking, CancellationRequest, NotificationDelivery, OrderRevision
 
 
 def get_operating_policy(group):
@@ -172,22 +172,43 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
     return cancellation
 
 
+def notification_template_matches_group(template, group):
+    if not template.is_active or template.client_id != group.client_id:
+        return False
+    if template.campus_id and template.campus_id != group.campus_id:
+        return False
+    return not template.course_templates.exists() or group.reservations.exclude(
+        status__in=['cancelled', 'deleted'],
+    ).filter(course_template__in=template.course_templates.all()).exists()
+
+
 def schedule_group_notifications(group, event):
     templates = group.client.notification_templates.filter(is_active=True, event=event).filter(
         campus__isnull=True
     ) | group.client.notification_templates.filter(is_active=True, event=event, campus=group.campus)
-    first_course = group.reservations.values_list('bookings__date', flat=True).order_by('bookings__date').first()
+    first_course = Booking.objects.filter(reservation__group=group).exclude(
+        reservation__status__in=['cancelled', 'deleted'],
+    ).order_by('date').values_list('date', flat=True).first()
     contact = (group.payments.order_by('-created_at').first().DataJSON or {}).get('contact', {}) if group.payments.exists() else {}
     recipient_by_channel = {'email': contact.get('email', ''), 'line': contact.get('messenger_id', ''), 'in_app': str(group.user_id or '')}
     deliveries = []
     for template in templates.distinct():
+        if not notification_template_matches_group(template, group):
+            continue
         scheduled_at = timezone.now()
         if template.days_before and first_course:
             scheduled_at = timezone.make_aware(datetime.combine(first_course - timedelta(days=template.days_before), time.min))
         recipient = recipient_by_channel.get(template.channel, '')
         if recipient:
-            delivery, _ = NotificationDelivery.objects.get_or_create(
-                template=template, group=group, recipient=recipient, scheduled_at=scheduled_at
-            )
-            deliveries.append(delivery)
+            delivery = NotificationDelivery.objects.filter(
+                template=template, group=group, recipient=recipient,
+            ).exclude(status='cancelled').order_by('id').first()
+            if delivery is None:
+                delivery = NotificationDelivery.objects.create(
+                    template=template, group=group, recipient=recipient, scheduled_at=scheduled_at,
+                )
+                deliveries.append(delivery)
+            elif template.days_before and first_course and delivery.status == 'scheduled' and delivery.scheduled_at != scheduled_at:
+                delivery.scheduled_at = scheduled_at
+                delivery.save(update_fields=['scheduled_at'])
     return deliveries

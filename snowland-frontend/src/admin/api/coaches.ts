@@ -8,6 +8,7 @@ import adminApi from './axios'
 
 // ============== Types ==============
 export type AvailabilityStatus = 'active' | 'passive' | 'unavailable'
+export type ScheduleVisibility = 'ten_days' | 'full'
 export type AbilityLevel = 'no_exp' | 'level1' | 'level2' | 'level3' | 'level4' | 'level5' | 'level6'
 export type Language = 'zh' | 'en' | 'yue'
 export type PriceLevel = 'Lv1' | 'Lv2' | 'Lv3' | 'director'
@@ -39,12 +40,16 @@ export interface CoachCourseLevelNested {
 export interface Coach {
   id: number
   name: string
+  campus_ids: number[]
+  can_manage: boolean
   user_id?: number | null
   user_email?: string | null
   user_name?: string
   user_username?: string
   languages: Language[]
   availability_status: AvailabilityStatus
+  auto_assignment_enabled: boolean
+  schedule_visibility: ScheduleVisibility
   assignment_score: number
   img: string
   website_enabled: boolean
@@ -59,9 +64,12 @@ export interface Coach {
 
 export interface CoachWriteData {
   name: string
+  campus_ids_input: number[]
   user_id?: number | null
   languages: Language[]
   availability_status: AvailabilityStatus
+  auto_assignment_enabled: boolean
+  schedule_visibility: ScheduleVisibility
   assignment_score: number
   img: string
   website_enabled: boolean

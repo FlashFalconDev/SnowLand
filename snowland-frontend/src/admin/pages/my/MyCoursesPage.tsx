@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Calendar, MapPin, User, Loader2, AlertCircle, BookOpen } from 'lucide-react'
 import { fetchMyCourses } from '../../api/extras'
+import { formatAbilityLevel } from '@/utils/learningProgress'
 
 const PRIMARY = '#8b5cf6'
 
@@ -106,7 +107,7 @@ export default function MyCoursesPage() {
         stats.totalHours += hours
         stats.lessons += 1
         if (item.is_preferred_coach) stats.specifiedHours += hours
-        const kind = getCourseKind(item.course_type)
+        const kind = getCourseKind(item.course_category || item.course_type)
         if (kind === 'snowboard') stats.snowboardHours += hours
         if (kind === 'ski') stats.skiHours += hours
       })
@@ -119,7 +120,7 @@ export default function MyCoursesPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">我的所有課程</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">您被指派的所有課程紀錄</p>
-        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">可查看過往與未來課程；日期篩選可縮小列表範圍</p>
+        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">過往課程都能查看；未來課程依教練設定顯示（一般教練為未來 10 天）。</p>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -218,7 +219,7 @@ export default function MyCoursesPage() {
                 id={`my-course-${item.id}`}
                 className={`bg-white dark:bg-gray-800 rounded-xl border p-5 ${isSelected ? 'border-[#8b5cf6] ring-2 ring-[#8b5cf6]/35' : 'border-gray-200 dark:border-gray-700'}`}
               >
-                <div className="flex items-start justify-between mb-3">
+                <div className="mb-3">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <BookOpen size={16} style={{ color: PRIMARY }} />
@@ -233,12 +234,8 @@ export default function MyCoursesPage() {
                     <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
                       <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" />{item.resort}</div>
                       <div className="flex items-center gap-1"><User size={12} className="text-gray-400" />{item.user_name} · {item.number_of_people} 人</div>
-                      <div className="text-xs text-gray-500">能力：{item.ability_level || '—'} · {item.language}</div>
+                      <div className="text-xs text-gray-500">能力：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.join('、') || '未填'} · 教學語言：{item.language_label || '未填'}</div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500">費用</div>
-                    <div className="font-bold" style={{ color: PRIMARY }}>NT$ {(item.total_fee || 0).toLocaleString()}</div>
                   </div>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">

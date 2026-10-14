@@ -67,6 +67,46 @@ class ReservationGroup(models.Model):
         verbose_name = '預約分組'
         verbose_name_plural = '2-0.預約分組'
 
+
+class SharedCourseClass(models.Model):
+    """One lesson shared by separate customer orders at the same campus and resort."""
+
+    OPENING_CHOICES = [('school', '學校開班'), ('customer', '客人發起')]
+    STATUS_CHOICES = [('collecting', '湊班中'), ('ready', '已成班'), ('cancelled', '已取消')]
+    client = models.ForeignKey('Client.Client', on_delete=models.PROTECT, related_name='shared_course_classes')
+    campus = models.ForeignKey('Resorts.Campus', on_delete=models.PROTECT, related_name='shared_course_classes')
+    resort = models.ForeignKey('Resorts.Resorts', on_delete=models.PROTECT, related_name='shared_course_classes')
+    template = models.ForeignKey('Coursekit.CourseTemplate', on_delete=models.PROTECT, related_name='shared_course_classes')
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    ability_level = models.CharField(max_length=20, choices=ABILITY_LEVEL_CHOICES)
+    language = models.CharField(max_length=10, choices=[('zh', '中文'), ('en', '英文'), ('yue', '粵語')], default='zh')
+    opening_mode = models.CharField(max_length=10, choices=OPENING_CHOICES, default='customer')
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='collecting')
+    minimum_students = models.PositiveSmallIntegerField(default=3)
+    max_capacity = models.PositiveSmallIntegerField(default=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def registered_students(self):
+        return self.reservations.exclude(status__in=['cancelled', 'deleted']).aggregate(
+            total=models.Sum('number_of_people'),
+        )['total'] or 0
+
+    def refresh_readiness(self):
+        if self.status == 'collecting' and self.registered_students >= self.minimum_students:
+            self.status = 'ready'
+            self.save(update_fields=['status'])
+        return self.status
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['client', 'campus', 'resort', 'template', 'date', 'start_time', 'end_time', 'ability_level', 'language'],
+            name='unique_shared_course_class_slot',
+        )]
+
+
 class Reservation(models.Model):
     group = models.ForeignKey(
         'ReservationGroup',
@@ -189,6 +229,11 @@ class Reservation(models.Model):
         null=True,
         verbose_name='最高滑雪能力'
     )
+    shared_course_class = models.ForeignKey(
+        SharedCourseClass, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='reservations', verbose_name='跨訂單團體班',
+    )
+    ability_level_counts = models.JSONField(default=dict, blank=True, verbose_name='各等級學員人數')
 
     # 新增預約狀態選擇
     STATUS_CHOICES = [
@@ -390,6 +435,17 @@ class MemberDetail(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     guardian = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='guarded_member_details', verbose_name='家長帳號'
+    )
+    insurance_data = models.JSONField(default=dict, blank=True, verbose_name='保險資料')
+    waiver_signature = models.CharField(max_length=120, blank=True, default='', verbose_name='聲明書簽署姓名')
+    waiver_document_version = models.CharField(max_length=80, blank=True, default='', verbose_name='聲明書版本')
+    waiver_document_snapshot = models.TextField(blank=True, default='', verbose_name='簽署時聲明書內容')
+    media_consent = models.CharField(
+        max_length=10,
+        choices=[('agree', '同意公開宣傳'), ('decline', '不同意公開宣傳')],
+        blank=True,
+        default='',
+        verbose_name='宣傳影像授權',
     )
     insurance_completed_at = models.DateTimeField(null=True, blank=True, verbose_name='保險資料完成時間')
     waiver_completed_at = models.DateTimeField(null=True, blank=True, verbose_name='聲明書完成時間')

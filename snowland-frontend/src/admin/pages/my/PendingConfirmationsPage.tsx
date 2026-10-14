@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Calendar, Check, X, Loader2, AlertCircle, MapPin, User, BookOpen } from 'lucide-react'
 import { fetchCoachPending, coachConfirm } from '../../api/extras'
 import { useNotification } from '../../context'
+import { formatAbilityLevel } from '@/utils/learningProgress'
 
 const PRIMARY = '#8b5cf6'
 
@@ -63,7 +64,7 @@ export default function PendingConfirmationsPage() {
         <div className="space-y-3">
           {items.map((item) => (
             <div key={item.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-              <div className="flex items-start justify-between mb-4">
+              <div className="mb-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <BookOpen size={16} style={{ color: PRIMARY }} />
@@ -76,10 +77,7 @@ export default function PendingConfirmationsPage() {
                     <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" />{item.resort}</div>
                     <div className="flex items-center gap-1"><User size={12} className="text-gray-400" />{item.user_name} · {item.number_of_people} 人</div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-gray-500 dark:text-gray-400">課程費用</div>
-                  <div className="text-lg font-bold" style={{ color: PRIMARY }}>NT$ {(item.total_fee || 0).toLocaleString()}</div>
+                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">程度：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.join('、') || '未填'}</div>
                 </div>
               </div>
 
@@ -101,8 +99,7 @@ export default function PendingConfirmationsPage() {
 
               {/* 其他資訊 */}
               <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mb-4">
-                <div>能力等級：{item.ability_level || '—'}</div>
-                <div>教學語言：{item.language}</div>
+                <div>教學語言：{item.language_label || '未填'}</div>
               </div>
 
               {/* 動作按鈕 */}

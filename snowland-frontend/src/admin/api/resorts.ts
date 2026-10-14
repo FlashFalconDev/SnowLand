@@ -90,6 +90,11 @@ export async function fetchResorts(): Promise<Resort[]> {
   return res.data?.list || []
 }
 
+export async function fetchAllAccessibleResorts(): Promise<Resort[]> {
+  const res = (await adminApi.get('/resorts/', { headers: { 'X-Campus-ID': 'all' } })) as unknown as ListResp
+  return res.data?.list || []
+}
+
 export async function createResort(data: ResortWriteData): Promise<Resort> {
   const res = (await adminApi.post('/resorts/', data)) as unknown as DetailResp
   return res.data

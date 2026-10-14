@@ -21,7 +21,7 @@ def _is_loopback(value):
 
 
 class LocalAuthBypassMiddleware:
-    """Authenticate one local-only admin when the explicit dev switch is enabled."""
+    """Authenticate one local-only admin for local admin APIs only."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -35,6 +35,8 @@ class LocalAuthBypassMiddleware:
     @staticmethod
     def _is_enabled_for(request):
         if not settings.DEBUG or not settings.LOCAL_AUTH_BYPASS:
+            return False
+        if not request.path.startswith("/api/admin/"):
             return False
 
         hostname = urlsplit(f"//{request.get_host()}").hostname

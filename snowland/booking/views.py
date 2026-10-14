@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
+from django.conf import settings
 from django.http import JsonResponse
 from .models import *
 from booking.scheduler import assign_coachs, check_availability_and_get_suggestions
@@ -263,7 +264,7 @@ def calculate_price_api(request, Client_Info=None):
         template = CourseTemplate.objects.get(id=template_id)
         if people_count < template.minimum_group_size:
             return JsonResponse(
-                {'error': f'此課程最低開班人數為 {template.minimum_group_size} 人'},
+                {'error': f'此課程每筆預約至少 {template.minimum_group_size} 人'},
                 status=400,
             )
         
@@ -544,7 +545,7 @@ def API(request, tunnel, Client_Info=None):
 
                             if number_of_people < course_slot.template.minimum_group_size:
                                 raise Exception(
-                                    f'此課程最低開班人數為 {course_slot.template.minimum_group_size} 人'
+                                    f'此課程每筆預約至少 {course_slot.template.minimum_group_size} 人'
                                 )
                             main_time_str = course_slot.main_time
                             main_segments = parse_time_ranges(main_time_str)
@@ -797,6 +798,8 @@ def API(request, tunnel, Client_Info=None):
             user_data = body.get("user")
             user_id = user_data.get("id")
             if paymentType == "newebpay":
+                if not all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
+                    return JsonResponse({'error': '信用卡付款尚未開放，請改用銀行匯款'}, status=503)
                 # 使用 Newebpay 付款
                 bookings = Booking.objects.filter(reservation__in=resv.reservations.all())
                 # 使用集合来跟踪已经写过的日期和课程名称组合
@@ -816,30 +819,19 @@ def API(request, tunnel, Client_Info=None):
 
                 data = {
                     "store": {
-                        # "MerchantID": 'FFI1120725001',
-                        # "HashKey": 'X4L7m0jAEnbi9AVr92iYfin4ZcHJgdz0',  # 确保此处的 HashKey 长度为 32 字节
-                        # "HashIV": 'P1R2FuzKPpSkS48C',  # 确保此处的 HashIV 长度为 16 字节
-
-                        "MerchantID": 'MS3680822811',
-                        "HashKey": 'tXnG2aLtEnVzACrJY3CW0SLCLyFYZDEf',
-                        "HashIV": 'PKmJnNJCcJyXpqcC',
-                        
-                        # "MerchantID": 'MS127874575',
-                        # "HashKey": 'Fs5cX1TGqYM2PpdbE14a9H83YQSQF5jn',
-                        # "HashIV": 'C6AcmfqJILwgnhIP',
+                        "MerchantID": settings.NEWEBPAY_MERCHANT_ID,
+                        "HashKey": settings.NEWEBPAY_HASH_KEY,
+                        "HashIV": settings.NEWEBPAY_HASH_IV,
                     },
                     "body": {
                         "img": img,  # 商品照片
                         "OrderNo": reservation_group_pk,  # 訂單編號
-                        # "price": resv.total_fee,  # 訂單金額
-                        "price": '1',  # 訂單金額
+                        "price": str(sum(item.payment_amount for item in resv.reservations.exclude(status__in=['deleted', 'cancelled']))),
                         "product": product_name,  # 商品名
                         "NotifyURL": f"{RUN_HOST}/call_back/NewebPay/?user_id={user_id}",  # 返回網址
                     },
                 }
-                print('data', data)
                 response = neweb_pay_request(data)
-                print('response', response)
                 return JsonResponse({"message": "Payment confirmed", 'html': response}, status=200)
             elif paymentType == "TT":
                 senderAccount = body.get("senderAccount")

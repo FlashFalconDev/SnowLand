@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SnowLand 客戶測試版｜測試與待提供資料</title>
+  <style>
+    :root{font-family:system-ui,"Noto Sans TC",sans-serif;color:#17243a;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}main{max-width:980px;margin:auto;padding:24px 16px 56px}.hero{background:#17263d;color:#fff;border-radius:18px;padding:24px}h1{font-size:26px;margin:0 0 8px}h2{font-size:19px;margin:0 0 12px}.hero p{margin:0;color:#d7e1ef}.card{margin-top:16px;padding:20px;background:#fff;border:1px solid #dce5f0;border-radius:14px}p,li,td{line-height:1.6}p{margin:8px 0}ol{padding-left:24px}li{margin:8px 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #e7edf5}th{color:#52627b;font-size:13px}.tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:700}.ready{color:#086747;background:#e4f7ed}.need{color:#885200;background:#fff0d1}.later{color:#a92323;background:#ffe7e7}code{background:#eef2f7;border-radius:4px;padding:2px 5px}a{color:#195a9f}@media(max-width:650px){table,thead,tbody,tr,th,td{display:block}thead{display:none}tr{border-bottom:1px solid #dce5f0}td{border:0;padding:4px}td:first-child{font-weight:700}}
+  </style>
+</head>
+<body><main>
+  <div class="hero"><h1>SnowLand 客戶測試版</h1><p>2026-10-14｜這是測試範圍與待提供資料，不是正式上線驗收證明。</p></div>
+  <section class="card"><h2>先怎麼測</h2><p>Jim 更新測試機、執行 SnowLand 資料庫遷移並確認測試網址後，請用下列角色逐項操作。<strong>合併到 Git test 不會自動更新測試機。</strong>以下路徑接在測試機網址後面；不要用本機 127.0.0.1 網址分享給客戶。</p><ol><li>會員：<code>/snowland/membership</code> 登入、查看訂單與課前資料。</li><li>前台：<code>/snowland/</code> 查看雪場及課程內容，再到 <code>/snowland/booking</code> 試訂課。</li><li>總部／校區角色：<code>/snowland/console</code> 依角色檢查校區、課程、訂單、排課與付款資訊的可見範圍。</li><li>教練：登入後檢查待確認課程、接課、我的課程、月曆與時數。</li></ol><p>請只用標記為測試的帳號與訂單；不做真實付款、不用真實客戶個資。若要測法律簽署，須由 SnowLand 指定測試者自行閱讀並操作。</p></section>
+  <section class="card"><h2>現在可以請客戶測試</h2><table><thead><tr><th>角色／項目</th><th>操作與應看到的結果</th><th>界線</th></tr></thead><tbody>
+    <tr><td>前台訪客</td><td>首頁、雪場與課程頁；內容、價格、按鈕跳轉與手機版。</td><td><span class="tag ready">可測</span> 正式文案與雪場資料仍請核對。</td></tr>
+    <tr><td>會員</td><td>Email 登入／登出；會員總覽、既有測試訂單、保險與課前資料、學習紀錄。</td><td><span class="tag ready">可測</span> Google／LINE 第三方登入另列外部驗收。</td></tr>
+    <tr><td>一般訂課</td><td>選雪場、人數、程度、課程、日期、時段、裝備；核對試算、缺欄位提示與訂單確認。</td><td><span class="tag need">限測試資料</span> 真實金流與同一張新單全流程尚未通過。</td></tr>
+    <tr><td>總部管理者</td><td>校區與雪場、營運規則、課程模板、教練、訂單搜尋與編輯、排課、保險待辦、評量與薪資時數。</td><td><span class="tag ready">可測</span> 請核對實際設定與權限。</td></tr>
+    <tr><td>校區經理／校長</td><td>只看所屬校區；經理僅近期 10 天摘要，校長可看該校區所有日期摘要；不能看客人完整付款與聯絡資訊。</td><td><span class="tag ready">可測</span> 請各用一個指定帳號登入。</td></tr>
+    <tr><td>教練</td><td>待確認課程、接受／拒絕、我的課程與月曆；核對授課時數。</td><td><span class="tag ready">可測</span> 以指派了測試課程的教練帳號操作。</td></tr>
+  </tbody></table></section>
+  <section class="card"><h2>SnowLand 需要提供或確認</h2><table><thead><tr><th>項目</th><th>請提供的格式／內容</th><th>用途</th></tr></thead><tbody>
+    <tr><td>測試人員與角色</td><td>每個角色一個測試用 Email：總部、校區經理、校長、教練、會員；請註明所屬校區。<strong>不需傳密碼</strong>，由系統建立或重設。</td><td>讓客戶驗證自己的權限與畫面。</td></tr>
+    <tr><td>正式法律內容</td><td>已收到聲明書／保險條款草稿。法務定稿後請提供版本日期、完整文字、必填保險欄位與簽署方式；可用 Google Doc 或 Word。</td><td>正式上線文件版本，不阻擋目前非正式測試。</td></tr>
+    <tr><td>雪場內容與價格</td><td>請確認各雪場票價、營業／集合資訊、官方圖片及課程價格；星野雪道初／中／高級比例請給三個合計 100% 的數字。不確定項目可標「暫不公開」。</td><td>避免展示最低示範資料或猜測數字。</td></tr>
+    <tr><td>既有訂單</td><td>已收到本季訂單表，<strong>不用重寄</strong>。只需確認不明欄位、重複單、退款／改期單與會員 Email 對應；我們整理例外清單後再逐項核對。</td><td>11/15 前匯入與會員綁定。</td></tr>
+    <tr><td>官方社群授權</td><td>若要同步 SnowLand 官方 Instagram，請以 Meta Business 後台將該 IG／Facebook Page 的必要權限授予整合帳號；不傳帳密。Google／LINE 若由 SnowLand 持有設定，請指定管理員協助授權測試網域與回呼網址。</td><td>真實第三方登入與社群同步；既有光隼 Facebook 權限不代表已有 SnowLand 官方 IG 權限。</td></tr>
+    <tr><td>金流與通知驗收</td><td>確認測試用銀行帳戶／幣別、付款方式規則與通知收件測試地址。正式憑證只透過安全管道由持有人設定，不貼在簡報或訊息。</td><td>測試實際付款、回呼及 Email／LINE 發送。</td></tr>
+  </tbody></table></section>
+  <section class="card"><h2>這版先不要請客戶驗收</h2><table><thead><tr><th>項目</th><th>目前狀態</th></tr></thead><tbody>
+    <tr><td>跨訂單團體湊班</td><td><span class="tag later">暫不開放</span> 後端與畫面仍在完成開班、取消、請款與排課閉環；客戶測試版預設關閉入口，不能把「候選名單」當正式開班。</td></tr>
+    <tr><td>同一筆新單從訂課到課後</td><td><span class="tag later">尚未完整驗收</span> 真實付款、外部通知、完課、評量與學習紀錄尚未用同一張新單跑完。</td></tr>
+    <tr><td>Google／LINE 登入、刷卡與 Instagram 同步</td><td><span class="tag later">外部環境待驗</span> 本機臨時埠不在 Google 授權來源；LINE 會員登入尚未啟用；金流回呼與官方 IG 權限未完成真實驗收。</td></tr>
+    <tr><td>正式訂單清理與既有訂單匯入</td><td><span class="tag later">尚未執行</span> 需先核對資料與備份，不能在客戶測試版自動清除或匯入。</td></tr>
+  </tbody></table><p>本機檢查：後端完整測試 184 項，181 通過、3 略過；前端 TypeScript 與正式建置通過。瀏覽器已驗證部分桌面／手機流程。這些結果不等於測試機部署或客戶驗收。</p></section>
+</main></body></html>

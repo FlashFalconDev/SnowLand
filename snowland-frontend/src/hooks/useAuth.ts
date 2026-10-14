@@ -27,15 +27,7 @@ export function useAuth() {
         return
       }
 
-      // 檢查localStorage是否有用戶資訊
-      const savedUser = localStorage.getItem('user')
-      if (savedUser) {
-        setUser(JSON.parse(savedUser))
-        setLoading(false)
-        return
-      }
-
-      // 一律走相對路徑（同 origin），由 vite proxy 或 nginx 轉發至後端
+      // 只以後端 session 判定登入；localStorage 可能是已過期的舊資料。
       const clientCode = localStorage.getItem('client_code') || 'snowland'
       const response = await fetch(`/booking/${clientCode}/api/google-login/`, {
         credentials: 'include', // 重要：包含cookies
@@ -51,6 +43,20 @@ export function useAuth() {
           }
           setUser(userData)
           localStorage.setItem('user', JSON.stringify(userData))
+          return
+        }
+      }
+      localStorage.removeItem('user')
+      setUser(null)
+
+      // 後台以自己的權限 API 為準；本機免登入模式也只作用於後台。
+      if (window.location.pathname.includes('/console')) {
+        const adminResponse = await fetch(`/api/admin/${clientCode}/me/`, { credentials: 'include' })
+        if (adminResponse.ok) {
+          const adminData = await adminResponse.json()
+          if (adminData.code === 200 && adminData.data) {
+            setUser({ email: adminData.data.email, name: adminData.data.name })
+          }
         }
       }
     } catch (error) {

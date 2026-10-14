@@ -232,6 +232,7 @@ def assign_coachs(reservations_to_assign=None):
             resv.max_ability_level,
             rejected_coach_ids=rejected_ids,
             course_template=resv.course_template,
+            automatic_only=True,
         )
         if (
             resv.id in displaced_reservations and
@@ -444,7 +445,7 @@ def get_coach_assignment_score_for_resort(coach, resort):
     return coach.assignment_score
 
 
-def get_feasible_coaches(language, resort, course_type, max_ability_level, rejected_coach_ids=None, course_template=None):
+def get_feasible_coaches(language, resort, course_type, max_ability_level, rejected_coach_ids=None, course_template=None, automatic_only=False):
     """
     找出符合指定條件的可行教練列表。
     新的排序邏輯：
@@ -465,6 +466,8 @@ def get_feasible_coaches(language, resort, course_type, max_ability_level, rejec
 
     # 0. 基礎查詢：只考慮可接課的教練
     available_coaches = Coach.objects.exclude(availability_status='unavailable')
+    if automatic_only:
+        available_coaches = available_coaches.filter(auto_assignment_enabled=True)
     
     # 1. 語言能力
     available_coaches = available_coaches.filter(languages__contains=language)
@@ -747,6 +750,7 @@ def check_availability_and_get_suggestions(courses):
             course_type=course.get("courseType"),
             max_ability_level=course.get("abilityLevel"),
             course_template=course.get("courseTemplateId"),
+            automatic_only=True,
         )
         all_potential_coaches.update(feasible_coaches_for_course)
 
@@ -778,6 +782,7 @@ def check_availability_and_get_suggestions(courses):
             course_type=course.get("courseType"),
             max_ability_level=course.get("abilityLevel"),
             course_template=course.get("courseTemplateId"),
+            automatic_only=True,
         )
         
         for slot in course.get("booking", []):
@@ -898,6 +903,7 @@ def reassign_single_reservation(reservation_id):
         reservation.max_ability_level,
         rejected_coach_ids=rejected_ids,
         course_template=reservation.course_template,
+        automatic_only=True,
     )
     if not feasible_coaches:
         print(f"預約 {reservation_id} 沒有可行的教練，設為需要人工處理")

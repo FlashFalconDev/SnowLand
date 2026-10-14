@@ -8,6 +8,7 @@ tmp/
 # Local SnowLand database credentials
 .env.local
 snowland/.venv/
+/test_*.sqlite3
 
 # Caddy runtime state and downloaded binary
 tools/caddy/caddy.exe

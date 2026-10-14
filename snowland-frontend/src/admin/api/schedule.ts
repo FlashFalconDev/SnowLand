@@ -7,6 +7,8 @@ export interface ScheduleBooking {
   id: number
   reservation_id?: number
   group_id?: number
+  order_number?: string
+  sn?: string
   date: string
   start_time: string
   end_time: string
@@ -36,6 +38,23 @@ export interface ScheduleCalendarData {
   dailySummary: DailyCoachSummary[]
 }
 
+export interface GroupCandidate {
+  campus_id: number | null
+  campus_name: string
+  resort_id: number | null
+  resort_name: string
+  template_id: number
+  template_name: string
+  date: string
+  start_time: string
+  end_time: string
+  ability_level: string
+  registered_students: number
+  assigned_students: number
+  paid_students?: number
+  orders: Array<{ group_id: number; order_number: string; students: number; already_assigned: boolean; payment_status?: string }>
+}
+
 interface ListResp {
   code: number
   msg: string
@@ -57,4 +76,11 @@ export async function fetchScheduleCalendar(params?: { start?: string; end?: str
 export async function fetchBookings(params?: { start?: string; end?: string }): Promise<ScheduleBooking[]> {
   const data = await fetchScheduleCalendar(params)
   return data.bookings
+}
+
+export async function fetchGroupCandidates(params: { start: string; end: string }): Promise<GroupCandidate[]> {
+  const res = (await adminApi.get('/bookings/group-candidates/', { params })) as unknown as {
+    data: { list: GroupCandidate[] }
+  }
+  return res.data?.list || []
 }

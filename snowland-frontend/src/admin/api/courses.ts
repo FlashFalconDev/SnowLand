@@ -21,6 +21,8 @@ export interface CourseTemplate {
   max_capacity: number
   billing_mode: 'private' | 'per_person'
   minimum_group_size: number
+  shared_class_enabled: boolean
+  shared_class_minimum_students: number
   minimum_student_level: string
   is_active: boolean
   resorts: number[]

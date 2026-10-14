@@ -5,7 +5,6 @@ import SiteLink from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 import HokkaidoMap from '../../components/site/HokkaidoMap';
-import TomamuWeatherSection from '../../components/site/TomamuWeatherSection';
 import tomamuSlopeMap from '../../assets/site/tomamu/course-map0102-cn.png';
 import { useSiteLink } from '../../hooks/useSiteBasePath';
 import { siteContentToResort, useCoursePricing, useSiteContent } from '../../hooks/useSiteContent';
@@ -20,7 +19,7 @@ function TomamuCoursePage() {
   const [isHeroActive, setIsHeroActive] = useState(false);
   const bookingUrl = useSiteLink('/booking');
   const { items: resortItems } = useSiteContent('course.resorts');
-  const { pricing, isLoading: pricingLoading, error: pricingError } = useCoursePricing('tomamu');
+  const { pricing, isStale: pricingStale, isLoading: pricingLoading, error: pricingError } = useCoursePricing('tomamu');
   const skiResorts = resortItems.map(siteContentToResort);
   const resortNavigation = skiResorts;
   const resortCount = resortNavigation.length;
@@ -32,6 +31,19 @@ function TomamuCoursePage() {
     () => skiResorts.find((resort) => resort.slug === "tomamu"),
     [skiResorts]
   );
+  const slopeStats = useMemo(() => {
+    const values = tomamuResort?.slopes;
+    if (!Array.isArray(values)) return [];
+    const labels = ["初級", "中級", "高級"];
+    const colors = ["bg-[#9cccf4]", "bg-[#f4d39c]", "bg-[#f2b8b8]"];
+    const stats = labels.map((label, index) => ({
+      label,
+      value: values.find((item) => item?.label === label)?.value,
+      color: colors[index],
+    }));
+    return stats.every((item) => Number.isInteger(item.value) && item.value >= 0 && item.value <= 100)
+      && stats.reduce((total, item) => total + item.value, 0) === 100 ? stats : [];
+  }, [tomamuResort]);
   const daycareServices = [
     {
       title: "室內托兒",
@@ -480,7 +492,7 @@ function TomamuCoursePage() {
                       <span>北海道 | {tomamuResort?.region ?? "道東"}</span>
                     </div>
                     <div className="mt-4 text-4xl font-semibold tracking-wide font-display">星野TOMAMU</div>
-                    <div className="mt-6 grid grid-cols-2 gap-4 text-xs text-white/80">
+                    <div className="mt-6 grid grid-cols-1 gap-4 text-xs text-white/80 sm:grid-cols-2">
                       <div>
                         <p className="uppercase tracking-[0.3em] text-white/60">特色</p>
                         <ul className="mt-2 space-y-1 text-sm font-semibold text-white">
@@ -495,14 +507,8 @@ function TomamuCoursePage() {
                       </div>
                       <div>
                         <p className="uppercase tracking-[0.3em] text-white/60">雪道分級</p>
-                        <div className="mt-3 space-y-3 text-xs text-white/85">
-                          {[
-                            { label: "初級", value: 30, color: "bg-[#9cccf4]" },
-                            { label: "中級", value: 40, color: "bg-[#f4d39c]" },
-                            { label: "高級", value: 50, color: "bg-[#f2b8b8]" },
-                            { label: "壓雪", value: 65, color: "bg-[#f3a23a]" },
-                            { label: "非壓雪", value: 35, color: "bg-[#6fc3b8]" },
-                          ].map((item) => (
+                        {slopeStats.length ? <div className="mt-3 space-y-3 text-xs text-white/85">
+                          {slopeStats.map((item) => (
                             <div key={item.label}>
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold">{item.label}</span>
@@ -516,7 +522,7 @@ function TomamuCoursePage() {
                               </div>
                             </div>
                           ))}
-                        </div>
+                        </div> : <p className="mt-3 text-sm leading-relaxed text-white/80">雪道比例待雪場資料確認後更新。</p>}
                       </div>
                     </div>
                   </div>
@@ -544,7 +550,6 @@ function TomamuCoursePage() {
           </div>
         </section>
       </main>
-      <TomamuWeatherSection />
       <section className="bg-white text-[#1f2937] border-t border-[#e2e8f0]">
         <div className="max-w-6xl mx-auto px-6 py-10">
           <div className="border-b border-[#e2e8f0]">
@@ -654,7 +659,7 @@ function TomamuCoursePage() {
             </div>
 
             <div className="grid gap-8">
-              <div className="flex items-center justify-center gap-4 text-base font-semibold text-[#64748b]">
+              {pricing && <div className="flex items-center justify-center gap-4 text-base font-semibold text-[#64748b]">
                 <button
                   type="button"
                   className={`transition-colors ${
@@ -688,7 +693,7 @@ function TomamuCoursePage() {
                 >
                   一般時段
                 </button>
-              </div>
+              </div>}
 
               <div className="w-full max-w-xl mx-auto">
                 <div className="text-center">
@@ -697,7 +702,7 @@ function TomamuCoursePage() {
                       {pricing?.season_label || '課程價格'} ｜{" "}
                     </span>
                     <span className="text-lg font-semibold" style={{ color: priceAccentText }}>
-                      {pricePlan?.period || '請洽客服確認適用日期'}
+                      {pricePlan?.period || '請至預約流程即時計價'}
                     </span>
                   </p>
                 </div>
@@ -742,8 +747,12 @@ function TomamuCoursePage() {
                   <div className="text-sm text-[#475569]">
                     {pricingLoading ? (
                       <div className="px-4 py-8 text-center text-[#64748b]">價目載入中。</div>
-                    ) : pricingError || !pricing ? (
+                    ) : pricingStale ? (
+                      <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
+                    ) : pricingError ? (
                       <div className="px-4 py-8 text-center text-red-600">價目暫時無法載入，請稍後再試。</div>
+                    ) : !pricing ? (
+                      <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
                     ) : priceTableRows.length === 0 ? (
                       <div className="px-4 py-8 text-center text-[#64748b]">目前尚未設定此時段價格。</div>
                     ) : priceTableRows.map((row, index) => (
@@ -811,6 +820,7 @@ function TomamuCoursePage() {
                 <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
                   <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">優惠</h3>
                   <ul className="space-y-3 text-sm text-[#475569] list-disc pl-5">
+                    {!pricing?.promotions?.length && <li>本雪季優惠尚未公布。</li>}
                     {(pricing?.promotions ?? []).map((promotion) => (
                       <li key={promotion.title} className="space-y-2">
                         <span>{promotion.title}</span>
@@ -825,11 +835,15 @@ function TomamuCoursePage() {
                 <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] py-8">
                   <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程費用</h3>
                   <ul className="space-y-2 text-sm text-[#475569] list-disc pl-5">
+                    {!pricing?.fee_notes?.length && <li>請以預約流程顯示的即時計價為準。</li>}
                     {(pricing?.fee_notes ?? []).map((note) => <li key={note}>{note}</li>)}
                   </ul>
                 </div>
 
-                <div className="pt-8">
+                {!pricing && !pricingLoading && (
+                  <p className="pt-8 text-sm text-[#475569]">本雪季課程時間請以預約流程可選時段為準。</p>
+                )}
+                <div className={pricing ? 'pt-8' : 'hidden'}>
                   <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程時間</h3>
                   <div className="mt-6 space-y-8 divide-y divide-[#e2e2de]">
                     <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
