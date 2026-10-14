@@ -13,7 +13,7 @@ class LocalAuthBypassMiddlewareTests(TestCase):
 
     @override_settings(DEBUG=True, LOCAL_AUTH_BYPASS=True)
     def test_authenticates_loopback_request_as_local_superuser(self):
-        request = self.factory.get("/", HTTP_HOST="127.0.0.1:8999")
+        request = self.factory.get("/api/admin/snowland/me/", HTTP_HOST="127.0.0.1:8999")
         request.META["REMOTE_ADDR"] = "127.0.0.1"
         request.user = AnonymousUser()
 
@@ -24,6 +24,16 @@ class LocalAuthBypassMiddlewareTests(TestCase):
         self.assertEqual(request.user.username, LOCAL_DEV_USERNAME)
         self.assertFalse(request.user.has_usable_password())
         self.assertTrue(Client.objects.filter(internal_code="snowland", is_active=True).exists())
+
+    @override_settings(DEBUG=True, LOCAL_AUTH_BYPASS=True)
+    def test_does_not_override_member_site_session(self):
+        request = self.factory.get("/booking/snowland/api/member-center/", HTTP_HOST="127.0.0.1:8999")
+        request.META["REMOTE_ADDR"] = "127.0.0.1"
+        request.user = AnonymousUser()
+
+        self.middleware(request)
+
+        self.assertFalse(request.user.is_authenticated)
 
     @override_settings(DEBUG=True, LOCAL_AUTH_BYPASS=True)
     def test_local_dashboard_request_is_not_forbidden(self):

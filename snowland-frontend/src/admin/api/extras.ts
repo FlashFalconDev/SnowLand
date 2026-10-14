@@ -67,8 +67,9 @@ export interface CoachPendingItem {
   course_type: string
   ability_level: string
   language: string
+  language_label: string
   number_of_people: number
-  total_fee: number
+  age_ranges: string[]
   bookings: { date: string; start_time: string; end_time: string }[]
 }
 
@@ -89,11 +90,13 @@ export interface MyCourse {
   user_name: string
   resort: string
   course_type: string
+  course_category: string
   ability_level: string
   language: string
+  language_label: string
   number_of_people: number
+  age_ranges: string[]
   status: string
-  total_fee: number
   is_preferred_coach?: boolean
   bookings: { id: number; date: string; start_time: string; end_time: string; is_scheduled: boolean }[]
   mdt_add: string

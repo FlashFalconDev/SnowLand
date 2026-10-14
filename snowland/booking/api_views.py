@@ -12,11 +12,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db import connection, transaction
 from django.db.utils import OperationalError, ProgrammingError
-from django.db.models import F, Q
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.models import User
 from django.contrib.auth.tokens import default_token_generator
+from django.conf import settings
 from django.core.mail import send_mail
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
@@ -31,10 +32,11 @@ from Resorts.models import Resorts, ResortFee, EquipmentAssistanceTimeSlot, Camp
 from Coursekit.models import CourseType, CourseTemplate, SeasonSetting, CourseCategory, CourseSession, CoursePricing, DiscountCode
 from .models import (
     Booking, CourseEvaluation, MemberDetail, MemberProfile, Payment, Reservation,
-    ReservationGroup, StaffBookingLink,
+    ReservationGroup, SharedCourseClass, StaffBookingLink,
 )
 from Control.views import login_required_control
 from .funcNewebpay import neweb_pay_request
+from .legal_documents import get_current_waiver
 from snowland.settings import RUN_HOST
 
 
@@ -72,11 +74,15 @@ def group_has_pending_coach_confirmation(group):
 
 
 def get_group_payment_hold(group):
+    if group.reservations.filter(shared_course_class__status='collecting').exists():
+        return '團體班尚未成班，滿人後才會開放付款', 'collecting_class'
     if group.reservations.filter(status='pending_coach_confirmation').exists():
         return PENDING_COACH_CONFIRMATION_MESSAGE, 'pending_coach_approval'
     if group.reservations.filter(status='auto_assignment_failed').exists():
         return SCHEDULING_FAILED_PAYMENT_MESSAGE, 'scheduling_failed'
     payment = group.payments.order_by('-created_at').first()
+    if payment and payment.status == 'expired':
+        return '付款期限已結束，請聯絡客服改期或取消', 'expired'
     if payment and payment.status == 'unpaid' and payment.expires_at and payment.expires_at <= timezone.now():
         payment.status = 'expired'
         payment.save(update_fields=['status'])
@@ -191,8 +197,10 @@ def compute_course_price_authoritative(*, template_id, resort_name, people_count
         raise PriceCalculationError(f'找不到雪場: {resort_name}')
 
     people_count = int(people_count)
-    if people_count < template.minimum_group_size:
-        raise PriceCalculationError(f'此課程最低開班人數為 {template.minimum_group_size} 人')
+    if template.shared_class_enabled and not settings.SHARED_CLASS_FEATURE_ENABLED:
+        raise PriceCalculationError('團體湊班尚未開放，請選其他課程')
+    if people_count < template.minimum_group_size and not template.shared_class_enabled:
+        raise PriceCalculationError(f'此課程每筆預約至少 {template.minimum_group_size} 人')
 
     pricing = CoursePricing.objects.filter(
         templates=template,
@@ -358,6 +366,30 @@ def normalize_discount_code(value):
     return (value or '').strip().upper()
 
 
+ABILITY_LEVEL_KEYS = [level for level, _ in ABILITY_LEVEL_CHOICES]
+
+
+def normalize_student_level_counts(item, people_count):
+    raw_counts = item.get('abilityLevelCounts')
+    if raw_counts is None or raw_counts == {}:
+        level = normalize_ability_level(item.get('abilityLevel') or 'no_exp')
+        if level not in ABILITY_LEVEL_KEYS:
+            raise ValueError('學員等級不正確')
+        return {level: people_count}
+    if not isinstance(raw_counts, dict):
+        raise ValueError('學員等級人數格式不正確')
+    counts = {}
+    for raw_level, count in raw_counts.items():
+        level = normalize_ability_level(raw_level)
+        if level not in ABILITY_LEVEL_KEYS or type(count) is not int or count < 0:
+            raise ValueError('學員等級人數格式不正確')
+        counts[level] = counts.get(level, 0) + count
+    counts = {level: count for level, count in counts.items() if count > 0}
+    if sum(counts.values()) != people_count:
+        raise ValueError('各等級學員人數總和須等於預約人數')
+    return counts
+
+
 def compute_cart_item_pricing_authoritative(item):
     courses = item.get('courses') or []
     if not courses:
@@ -383,6 +415,7 @@ def compute_cart_item_pricing_authoritative(item):
             coach_instance = None
 
     people_count = int(item.get('peopleCount', 1) or 1)
+    ability_level_counts = normalize_student_level_counts(item, people_count)
     course_fee = 0
     duration_hours_total = 0
     group_course_template = select_cart_group_course_template(courses, course_type, resort)
@@ -394,6 +427,10 @@ def compute_cart_item_pricing_authoritative(item):
             course_date=course['date'],
         )
         template = CourseTemplate.objects.filter(id=course.get('courseTemplateId')).first()
+        if template and template.minimum_student_level:
+            required_rank = ABILITY_LEVEL_KEYS.index(template.minimum_student_level) if template.minimum_student_level in ABILITY_LEVEL_KEYS else 0
+            if any(ABILITY_LEVEL_KEYS.index(level) < required_rank for level in ability_level_counts):
+                raise ValueError(f'「{template.name}」只開放等級 {required_rank} 以上學員')
         duration_hours_total += int(getattr(template, 'duration_hours', 0) or course.get('durationHours') or 0)
 
     equipment_value = EQUIPMENT_OPTION_MAP.get(item.get('equipmentOption'))
@@ -1724,6 +1761,9 @@ class CourseTemplateListAPI(APIView):
                 pricing_options__resort__name=resort_name,
             )
 
+        if not settings.SHARED_CLASS_FEATURE_ENABLED:
+            templates = templates.filter(shared_class_enabled=False)
+
         templates = templates.annotate(
             course_type_name_value=F('course_type__name'),
             category_name_value=F('course_type__category__name'),
@@ -1747,6 +1787,8 @@ class CourseTemplateListAPI(APIView):
                 'max_capacity': template.max_capacity,
                 'billing_mode': template.billing_mode,
                 'minimum_group_size': template.minimum_group_size,
+                'shared_class_enabled': template.shared_class_enabled,
+                'shared_class_minimum_students': template.shared_class_minimum_students,
                 'minimum_student_level': template.minimum_student_level,
                 'display_order': template.display_order,
                 'is_active': template.is_active,
@@ -1821,11 +1863,16 @@ class CourseSessionListAPI(APIView):
                     continue
 
                 # 檢查容量（同模板同日同時段已預約人數）
-                booked_count = Reservation.objects.filter(
+                booked_reservations = Reservation.objects.filter(
+                    course_template=tmpl,
                     bookings__date=check_date,
                     bookings__start_time=session.start_time,
                     bookings__end_time=session.end_time,
-                ).exclude(status__in=['cancelled', 'deleted']).count()
+                ).exclude(status__in=['cancelled', 'deleted'])
+                booked_count = (
+                    booked_reservations.aggregate(total=Sum('number_of_people'))['total'] or 0
+                    if tmpl.shared_class_enabled else booked_reservations.count()
+                )
                 is_full = booked_count >= (tmpl.max_capacity or 6)
             else:
                 is_full = False
@@ -2029,6 +2076,16 @@ class CreateReservationAPI(APIView):
                     'msg': '購物車為空'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+            shared_items = [item for item in cart_data if any(
+                CourseTemplate.objects.filter(
+                    id=course.get('courseTemplateId'), shared_class_enabled=True,
+                ).exists() for course in item.get('courses') or []
+            )]
+            if shared_items and not settings.SHARED_CLASS_FEATURE_ENABLED:
+                raise ValueError('團體湊班尚未開放，請選其他課程')
+            if shared_items and len(cart_data) != 1:
+                raise ValueError('團體湊班課程請單獨下單，避免與其他課程的付款時間混淆')
+
             if not contact_info.get('phone'):
                 return Response({
                     'code': 400,
@@ -2079,6 +2136,13 @@ class CreateReservationAPI(APIView):
                 created_reservations.append(reservation)
                 reservation_groups.append(group)
 
+            shared_classes = {
+                reservation.shared_course_class_id: reservation.shared_course_class
+                for reservation in created_reservations if reservation.shared_course_class_id
+            }
+            for shared_class in shared_classes.values():
+                shared_class.refresh_readiness()
+
             if staff_link:
                 staff_link.used_by = request_user
                 staff_link.used_at = timezone.now()
@@ -2088,8 +2152,19 @@ class CreateReservationAPI(APIView):
             # 只有當雪場啟用自動排課時才進行（包括指定教練的預約也需要檢查衝突）
             reservations_need_scheduling = []
             for resv in created_reservations:
+                if resv.shared_course_class_id:
+                    continue
                 if resv.resort and resv.resort.auto_scheduling_enabled:
                     reservations_need_scheduling.append(resv)
+
+            for shared_class in shared_classes.values():
+                if shared_class.status != 'ready':
+                    continue
+                representative = shared_class.reservations.exclude(
+                    status__in=['cancelled', 'deleted'],
+                ).order_by('id').first()
+                if representative and representative.resort.auto_scheduling_enabled and representative.status == 'created':
+                    reservations_need_scheduling.append(representative)
 
             # 如果有需要排課的預約，調用排課系統
             if reservations_need_scheduling:
@@ -2103,7 +2178,12 @@ class CreateReservationAPI(APIView):
                     conflict_info = report.get('conflict_details', {})
 
                     # 將所有相關預約標記為排課失敗（讓後台/課服可介入處理）
-                    for resv in created_reservations:
+                    affected_reservations = list(created_reservations)
+                    for shared_class in shared_classes.values():
+                        affected_reservations.extend(shared_class.reservations.exclude(
+                            status__in=['cancelled', 'deleted'],
+                        ))
+                    for resv in affected_reservations:
                         resv.status = 'auto_assignment_failed'
                         resv.save(update_fields=['status'])
 
@@ -2120,6 +2200,30 @@ class CreateReservationAPI(APIView):
             else:
                 # 雪場未啟用自動排課
                 msg = f'成功創建 {len(created_group_ids)} 個預約（等待手動分配教練）'
+
+            for shared_class in shared_classes.values():
+                if shared_class.status != 'ready':
+                    continue
+                class_reservations = list(shared_class.reservations.exclude(
+                    status__in=['cancelled', 'deleted'],
+                ).order_by('id'))
+                representative = class_reservations[0]
+                if representative.preferred_coach_id:
+                    for member in class_reservations[1:]:
+                        member.preferred_coach_id = representative.preferred_coach_id
+                        member.status = representative.status
+                        member.save(update_fields=['preferred_coach', 'status'])
+                        member.bookings.update(is_scheduled=True)
+
+            if shared_classes and any(shared_class.status == 'collecting' for shared_class in shared_classes.values()):
+                increment_discount_usage(applied_discount_details)
+                return Response({
+                    'code': 200,
+                    'msg': '團體班報名成功，滿人後會通知付款',
+                    'reservation_group_ids': created_group_ids,
+                    'requires_payment': False,
+                    'shared_class_status': 'collecting',
+                }, status=status.HTTP_200_OK)
 
             if has_pending_coach_confirmation(created_reservations):
                 increment_discount_usage(applied_discount_details)
@@ -2139,7 +2243,18 @@ class CreateReservationAPI(APIView):
             from snowland.settings import PAYMENT_HOST
 
             payment_urls = []
-            for group in reservation_groups:
+            groups_to_pay = list(reservation_groups)
+            for shared_class in shared_classes.values():
+                if shared_class.status == 'ready':
+                    groups_to_pay = list({
+                        reservation.group_id: reservation.group
+                        for reservation in shared_class.reservations.exclude(
+                            status__in=['cancelled', 'deleted'],
+                        ).select_related('group')
+                    }.values())
+            for group in groups_to_pay:
+                if group.payments.exists():
+                    continue
                 # 創建付款記錄
                 from .operations import payment_expiration_for, resolve_payment_account, schedule_group_notifications
                 payment = Payment.objects.create(
@@ -2155,10 +2270,11 @@ class CreateReservationAPI(APIView):
 
                 # 生成付款URL
                 payment_url = PAYMENT_HOST + '?reservation_group=' + str(group.pk)
-                payment_urls.append({
-                    'reservation_group_id': group.pk,
-                    'payment_url': payment_url
-                })
+                if group.pk in created_group_ids:
+                    payment_urls.append({
+                        'reservation_group_id': group.pk,
+                        'payment_url': payment_url
+                    })
 
             # 根據預約組數量決定返回格式
             response_data = {
@@ -2273,10 +2389,49 @@ class CreateReservationAPI(APIView):
         for course in item['courses']:
             self._create_booking(reservation, course)
 
+        if reservation.course_template and reservation.course_template.shared_class_enabled:
+            self._join_shared_class(reservation, item)
+
         from .operations import record_order_revision
         record_order_revision(group, user=user, change_type='create', reason='客戶建立訂單')
 
         return group.id, reservation, group
+
+    def _join_shared_class(self, reservation, item):
+        template = reservation.course_template
+        if template.billing_mode != 'per_person':
+            raise ValueError('團體湊班只能使用每人計價的課程模板')
+        if len(item['courses']) != 1 or reservation.bookings.count() != 1:
+            raise ValueError('團體湊班每筆訂單只能選一堂課')
+        if reservation.is_preferred_coach:
+            raise ValueError('團體湊班由學校安排同一位教練，不能個別指定教練')
+        counts = reservation.ability_level_counts or {}
+        if len(counts) != 1:
+            raise ValueError('團體湊班的學員需為相同程度，請分開下單')
+        if template.shared_class_minimum_students > template.max_capacity:
+            raise ValueError('此團體班成班人數大於人數上限，請管理員修正設定')
+        booking = reservation.bookings.get()
+        shared_class, _ = SharedCourseClass.objects.select_for_update().get_or_create(
+            client=reservation.group.client,
+            campus=reservation.group.campus,
+            resort=reservation.resort,
+            template=template,
+            date=booking.date,
+            start_time=booking.start_time,
+            end_time=booking.end_time,
+            ability_level=next(iter(counts)),
+            language=reservation.language,
+            defaults={
+                'minimum_students': template.shared_class_minimum_students,
+                'max_capacity': template.max_capacity,
+            },
+        )
+        if shared_class.status == 'cancelled':
+            raise ValueError('此團體班已取消，請選其他時段')
+        if shared_class.registered_students + reservation.number_of_people > shared_class.max_capacity:
+            raise ValueError('此團體班名額已滿，請選其他時段')
+        reservation.shared_course_class = shared_class
+        reservation.save(update_fields=['shared_course_class'])
 
 
     def _create_reservation(self, group, item, discount_amount=0, applied_discounts=None):
@@ -2338,18 +2493,14 @@ class CreateReservationAPI(APIView):
 
         # 後端權威算價:逐堂重算課程費,並從 ResortFee 算附加費,完全不採用前端 price / totalPrice
         people_count = int(item.get('peopleCount', 1) or 1)
-        if course_template and people_count < course_template.minimum_group_size:
+        ability_level_counts = normalize_student_level_counts(item, people_count)
+        if course_template and people_count < course_template.minimum_group_size and not course_template.shared_class_enabled:
             raise ValueError(
-                f'「{course_template.name}」至少需要 {course_template.minimum_group_size} 人才能開班'
+                f'「{course_template.name}」每筆預約至少 {course_template.minimum_group_size} 人'
             )
         if course_template and course_template.minimum_student_level:
-            levels = ['no_exp', 'level1', 'level2', 'level3', 'level4', 'level5', 'level6']
-            required_rank = levels.index(course_template.minimum_student_level) if course_template.minimum_student_level in levels else 0
-            selected_counts = item.get('abilityLevelCounts') or {}
-            selected_levels = [level for level, count in selected_counts.items() if int(count or 0) > 0]
-            if not selected_levels:
-                selected_levels = [item.get('abilityLevel') or 'no_exp']
-            if any((levels.index(level) if level in levels else 0) < required_rank for level in selected_levels):
+            required_rank = ABILITY_LEVEL_KEYS.index(course_template.minimum_student_level) if course_template.minimum_student_level in ABILITY_LEVEL_KEYS else 0
+            if any(ABILITY_LEVEL_KEYS.index(level) < required_rank for level in ability_level_counts):
                 raise ValueError(f'「{course_template.name}」只開放等級 {required_rank} 以上學員')
         course_fee = 0
         for course in item['courses']:
@@ -2402,7 +2553,8 @@ class CreateReservationAPI(APIView):
             resort=resort,
             course_type=course_type,
             course_template=course_template,
-            max_ability_level=item.get('abilityLevel', 'no_exp'),
+            max_ability_level=max(ability_level_counts, key=ABILITY_LEVEL_KEYS.index),
+            ability_level_counts=ability_level_counts,
             status='created',
             number_of_people=people_count,
             course_fee=course_fee,
@@ -2478,6 +2630,7 @@ class MemberCenterAPI(APIView):
             return Response({'error': str(exc)}, status=404)
 
         profile, _ = MemberProfile.objects.get_or_create(user=request.user)
+        waiver_document = get_current_waiver(tenant)
         groups = ReservationGroup.objects.filter(
             client=tenant, user=request.user,
         ).select_related('campus').prefetch_related(
@@ -2542,8 +2695,18 @@ class MemberCenterAPI(APIView):
             'age_range': member.age_range,
             'snowboard_skills': list(member.snowboard_skills or []),
             'ski_skills': list(member.ski_skills or []),
-            'insurance_completed': bool(member.insurance_completed_at),
-            'waiver_completed': bool(member.waiver_completed_at),
+            'insurance_data': member.insurance_data or {},
+            'waiver_signature': member.waiver_signature,
+            'waiver_document_version': member.waiver_document_version,
+            'media_consent': member.media_consent,
+            'insurance_completed': bool(
+                member.insurance_completed_at
+                and all((member.insurance_data or {}).get(key) for key in ('full_name', 'birth_date', 'id_number', 'phone'))
+            ),
+            'waiver_completed': bool(
+                member.waiver_completed_at
+                and member.waiver_document_version == waiver_document['version']
+            ),
         } for member in member_details]
 
         evaluations = CourseEvaluation.objects.filter(
@@ -2597,6 +2760,7 @@ class MemberCenterAPI(APIView):
             'level': profile.level,
             'alumni_verified': profile.alumni_verified,
             'line_linked': bool(profile.line_user_id),
+            'waiver_document': waiver_document,
             'orders': orders,
             'pre_course_forms': pre_course_forms,
             'learning_records': learning_records,
@@ -2610,9 +2774,107 @@ class MemberCenterAPI(APIView):
     def post(self, request, client_code=None):
         if not request.user.is_authenticated:
             return Response({'error': '請先登入'}, status=401)
-        group_id = request.data.get('quick_rebook_group_id')
+        action = request.data.get('action')
         try:
             tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error': str(exc)}, status=404)
+
+        if action == 'update_pre_course_form':
+            member = MemberDetail.objects.filter(
+                Q(user=request.user) | Q(guardian=request.user),
+                id=request.data.get('member_id'),
+                reservation__group__client=tenant,
+            ).first()
+            if not member:
+                return Response({'error': '找不到可填寫的學員資料'}, status=404)
+
+            age_range = str(request.data.get('age_range') or '')
+            valid_age_ranges = {value for value, _ in MemberDetail.AGE_CHOICES}
+            if age_range not in valid_age_ranges:
+                return Response({'error': '請選擇年齡區間'}, status=400)
+
+            snowboard_skills = request.data.get('snowboard_skills') or []
+            ski_skills = request.data.get('ski_skills') or []
+            valid_snowboard = {value for value, _ in MemberDetail.SNOWBOARD_CHOICES}
+            valid_ski = {value for value, _ in MemberDetail.SKI_CHOICES}
+            if not isinstance(snowboard_skills, list) or not set(snowboard_skills).issubset(valid_snowboard):
+                return Response({'error': '單板程度資料不正確'}, status=400)
+            if not isinstance(ski_skills, list) or not set(ski_skills).issubset(valid_ski):
+                return Response({'error': '雙板程度資料不正確'}, status=400)
+
+            insurance_data = request.data.get('insurance_data') or {}
+            if not isinstance(insurance_data, dict):
+                return Response({'error': '保險資料格式不正確'}, status=400)
+            allowed_insurance_fields = (
+                'full_name', 'birth_date', 'id_number', 'phone',
+                'emergency_contact', 'emergency_phone',
+            )
+            insurance_data = {
+                key: str(insurance_data.get(key) or '').strip()[:120]
+                for key in allowed_insurance_fields
+            }
+            required_insurance_fields = ('full_name', 'birth_date', 'id_number', 'phone')
+            insurance_complete = all(insurance_data.get(key) for key in required_insurance_fields)
+
+            waiver_agreed = request.data.get('waiver_agreed') is True
+            waiver_signature = str(request.data.get('waiver_signature') or '').strip()[:120]
+            waiver_document = get_current_waiver(tenant)
+            submitted_version = str(request.data.get('waiver_document_version') or '')
+            media_consent = str(request.data.get('media_consent') or '')
+            if waiver_agreed and not waiver_signature:
+                return Response({'error': '請輸入聲明書簽署姓名'}, status=400)
+            if waiver_agreed and submitted_version != waiver_document['version']:
+                return Response({'error': '聲明書已有更新，請重新閱讀最新版後再簽署'}, status=409)
+            if waiver_agreed and media_consent not in {'agree', 'decline'}:
+                return Response({'error': '請選擇是否同意宣傳影像授權'}, status=400)
+
+            member.age_range = age_range
+            member.snowboard_skills = snowboard_skills
+            member.ski_skills = ski_skills
+            member.insurance_data = insurance_data
+            member.waiver_signature = waiver_signature if waiver_agreed else ''
+            member.waiver_document_version = waiver_document['version'] if waiver_agreed else ''
+            member.waiver_document_snapshot = waiver_document['body'] if waiver_agreed else ''
+            member.media_consent = media_consent if waiver_agreed else ''
+            member.insurance_completed_at = timezone.now() if insurance_complete else None
+            member.waiver_completed_at = timezone.now() if waiver_agreed else None
+            member.save(update_fields=[
+                'age_range', 'snowboard_skills', 'ski_skills', 'insurance_data',
+                'waiver_signature', 'insurance_completed_at', 'waiver_completed_at',
+                'waiver_document_version', 'waiver_document_snapshot', 'media_consent',
+            ])
+            return Response({
+                'message': '課前資料已儲存',
+                'insurance_completed': insurance_complete,
+                'waiver_completed': waiver_agreed,
+            })
+
+        if action == 'submit_satisfaction':
+            evaluation = CourseEvaluation.objects.filter(
+                Q(member__user=request.user) | Q(member__guardian=request.user),
+                id=request.data.get('evaluation_id'),
+                booking__reservation__group__client=tenant,
+            ).first()
+            if not evaluation:
+                return Response({'error': '找不到可評價的課程'}, status=404)
+            try:
+                rating = int(request.data.get('rating'))
+            except (TypeError, ValueError):
+                rating = 0
+            if rating not in range(1, 6):
+                return Response({'error': '請選擇 1 到 5 分'}, status=400)
+            evaluation.self_assessment = {
+                **(evaluation.self_assessment or {}),
+                'satisfaction_rating': rating,
+                'satisfaction_feedback': str(request.data.get('feedback') or '').strip()[:1000],
+                'submitted_at': timezone.now().isoformat(),
+            }
+            evaluation.save(update_fields=['self_assessment', 'updated_at'])
+            return Response({'message': '感謝您的課後回饋'})
+
+        group_id = request.data.get('quick_rebook_group_id')
+        try:
             group = ReservationGroup.objects.select_related('campus').prefetch_related(
                 'reservations__bookings', 'reservations__preferred_coach',
                 'reservations__resort', 'reservations__course_type__category', 'reservations__course_template',
@@ -2628,7 +2890,9 @@ class MemberCenterAPI(APIView):
                 'peopleCount': reservation.number_of_people,
                 'abilityLevel': reservation.max_ability_level or 'no_exp',
                 'abilityLevelName': reservation.get_max_ability_level_display() if reservation.max_ability_level else '無經驗',
-                'abilityLevelCounts': {reservation.max_ability_level or 'no_exp': reservation.number_of_people},
+                'abilityLevelCounts': reservation.ability_level_counts or {
+                    reservation.max_ability_level or 'no_exp': reservation.number_of_people,
+                },
                 'equipment': reservation.need_equipment,
                 'equipmentOption': None,
                 'language': reservation.language,
@@ -2907,6 +3171,7 @@ class SuperScheduleAPI(APIView):
 
         # 後端權威算價:單天課 → bookings_count=1。進階排課強制無指定教練,coach_fee 必為 0
         people_count = int(item.get('peopleCount', 1) or 1)
+        ability_level_counts = normalize_student_level_counts(item, people_count)
         course_template = CourseTemplate.objects.select_related('course_type').prefetch_related(
             'resorts',
             'allowed_coaches',
@@ -2974,7 +3239,8 @@ class SuperScheduleAPI(APIView):
             resort=resort,
             course_type=course_type,
             course_template=course_template,
-            max_ability_level=item.get('abilityLevel', 'no_exp'),
+            max_ability_level=max(ability_level_counts, key=ABILITY_LEVEL_KEYS.index),
+            ability_level_counts=ability_level_counts,
             status='created',
             number_of_people=people_count,
             course_fee=course_fee,
@@ -3101,8 +3367,13 @@ class PaymentInfoAPI(APIView):
             total_amount = 0
 
             for resv in reservations_to_pay:
+                course_label = ' · '.join(part for part in (
+                    resv.resort.display_name if resv.resort else '',
+                    resv.course_template.name if resv.course_template else resv.get_course_type_display(),
+                ) if part)
                 detail = {
                     'pk': resv.pk,
+                    'course_label': course_label or f'課程 #{resv.pk}',
                     'course_fee': resv.course_fee,
                     'coach_fee': resv.coach_fee,
                     'equipment_rental_fee': resv.equipment_rental_fee,
@@ -3141,7 +3412,7 @@ class PaymentInfoAPI(APIView):
                     }
             is_taiwan = (group.source_country or 'TW') == 'TW'
             payment_methods = ['bank_transfer']
-            if not is_taiwan:
+            if not is_taiwan and all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
                 payment_methods.append('newebpay')
 
             return Response({
@@ -3360,10 +3631,20 @@ class ProcessPaymentAPI(APIView):
                     'requires_payment': False,
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+            if not group.reservations.exclude(status__in=['deleted', 'cancelled']).exists():
+                return Response({'error': '此訂單已沒有可付款的課程'}, status=status.HTTP_400_BAD_REQUEST)
+
+            current_payment = group.payments.order_by('-created_at').first()
+            if current_payment and current_payment.status in {'paid', 'expired'}:
+                message = '此訂單已付款，請勿重複提交' if current_payment.status == 'paid' else '付款期限已結束，請聯絡客服'
+                return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
             if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
                 return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
 
             if payment_type == 'newebpay':
+                if not all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
+                    return Response({'error': '信用卡付款尚未開放，請改用銀行匯款'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
                 return self._process_newebpay(request, group)
             elif payment_type == 'bank_transfer':
                 return self._process_bank_transfer(request, group)
@@ -3407,9 +3688,9 @@ class ProcessPaymentAPI(APIView):
 
         data = {
             "store": {
-                "MerchantID": 'MS3680822811',
-                "HashKey": 'tXnG2aLtEnVzACrJY3CW0SLCLyFYZDEf',
-                "HashIV": 'PKmJnNJCcJyXpqcC',
+                "MerchantID": settings.NEWEBPAY_MERCHANT_ID,
+                "HashKey": settings.NEWEBPAY_HASH_KEY,
+                "HashIV": settings.NEWEBPAY_HASH_IV,
             },
             "body": {
                 "img": False,

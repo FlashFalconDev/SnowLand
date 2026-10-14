@@ -5,7 +5,10 @@
 """
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
+from datetime import timedelta
 from Client.models import SiteContent
 from Coach.models import (
     Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest, normalize_ability_levels,
@@ -91,7 +94,30 @@ class PaymentAccountAdminSerializer(TenantRelationValidationMixin, serializers.M
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate(self, attrs):
-        return self._validate_tenant_relations(attrs, ['campuses', 'resorts'])
+        attrs = self._validate_tenant_relations(attrs, ['campuses', 'resorts'])
+        campuses = list(attrs.get('campuses', self.instance.campuses.all() if self.instance else []))
+        resorts = list(attrs.get('resorts', self.instance.resorts.all() if self.instance else []))
+        if campuses and resorts:
+            selected_campus_ids = [campus.id for campus in campuses]
+            selected_resort_ids = set(Resorts.objects.filter(
+                client=self._tenant(), campuses__id__in=selected_campus_ids,
+            ).values_list('id', flat=True))
+            if any(resort.id not in selected_resort_ids for resort in resorts):
+                raise serializers.ValidationError({'resort_ids': '只能選擇指定校區可使用的雪場'})
+        request = self.context.get('request')
+        if request and not getattr(request, 'can_view_all_campuses', False):
+            allowed_ids = set(getattr(request, 'campus_ids', []))
+            if self.instance:
+                if not set(self.instance.campuses.values_list('id', flat=True)).issubset(allowed_ids):
+                    raise serializers.ValidationError({'campus_ids': '此帳戶也適用其他校區，請由總部管理員修改'})
+            if not campuses or any(campus.id not in allowed_ids for campus in campuses):
+                raise serializers.ValidationError({'campus_ids': '只能設定自己管理的校區'})
+            allowed_resort_ids = set(Resorts.objects.filter(
+                client=self._tenant(), campuses__id__in=allowed_ids,
+            ).values_list('id', flat=True))
+            if any(resort.id not in allowed_resort_ids for resort in resorts):
+                raise serializers.ValidationError({'resort_ids': '只能設定自己校區可用的雪場'})
+        return attrs
 
     def create(self, validated_data):
         campuses = validated_data.pop('campuses', [])
@@ -142,6 +168,13 @@ class OperatingPolicyAdminSerializer(TenantRelationValidationMixin, serializers.
 
     def validate(self, attrs):
         campus = attrs.get('campus', getattr(self.instance, 'campus', None))
+        request = self.context.get('request')
+        if request and not getattr(request, 'can_view_all_campuses', False):
+            allowed_ids = set(getattr(request, 'campus_ids', []))
+            if self.instance and self.instance.campus_id not in allowed_ids:
+                raise serializers.ValidationError({'campus': '全公司預設只能由總部管理員修改'})
+            if not campus or campus.id not in allowed_ids:
+                raise serializers.ValidationError({'campus': '只能設定自己管理的校區'})
         duplicate = OperatingPolicy.objects.filter(client=self._tenant(), campus=campus)
         if self.instance:
             duplicate = duplicate.exclude(pk=self.instance.pk)
@@ -253,6 +286,11 @@ class CoachCertificationsField(serializers.ListField):
 class CoachAdminSerializer(serializers.ModelSerializer):
     resorts = serializers.SerializerMethodField()
     course_levels = serializers.SerializerMethodField()
+    campus_ids = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
+    campus_ids_input = serializers.ListField(
+        child=serializers.IntegerField(), write_only=True, required=False, allow_empty=False
+    )
     user_id = serializers.IntegerField(required=False, allow_null=True)
     user_email = serializers.CharField(source='user.email', read_only=True, default=None)
     user_name = serializers.SerializerMethodField()
@@ -271,9 +309,10 @@ class CoachAdminSerializer(serializers.ModelSerializer):
         model = Coach
         fields = [
             'id', 'name', 'user_id', 'user_email', 'user_name', 'user_username',
-            'languages', 'availability_status', 'assignment_score', 'img',
+            'languages', 'availability_status', 'auto_assignment_enabled', 'schedule_visibility', 'assignment_score', 'img',
             'website_enabled', 'website_slug', 'website_sort_order', 'website_card_bio',
             'certifications',
+            'campus_ids', 'can_manage', 'campus_ids_input',
             'resorts', 'course_levels',
             'resorts_input', 'course_levels_input',
             'created_at',
@@ -313,7 +352,42 @@ class CoachAdminSerializer(serializers.ModelSerializer):
                     })
         if 'certifications' in attrs:
             attrs['certifications'] = self._clean_certifications(attrs.get('certifications'))
+
+        campus_ids = attrs.get('campus_ids_input')
+        if campus_ids is not None:
+            if not client or Campus.objects.filter(client=client, id__in=campus_ids, is_active=True).count() != len(set(campus_ids)):
+                raise serializers.ValidationError({'campus_ids_input': '請選擇有效的校區'})
+            if request and not getattr(request, 'can_view_all_campuses', False):
+                if not set(campus_ids).issubset(set(getattr(request, 'campus_ids', []))):
+                    raise serializers.ValidationError({'campus_ids_input': '只能設定自己管理的校區'})
+
+        if 'resorts_input' in attrs:
+            resort_ids = {item.get('resort_id') for item in attrs['resorts_input'] if item.get('resort_id')}
+            resorts = Resorts.objects.filter(client=client, id__in=resort_ids)
+            if resorts.count() != len(resort_ids):
+                raise serializers.ValidationError({'resorts_input': '只能選擇此公司的雪場'})
+            if request and not getattr(request, 'can_view_all_campuses', False):
+                allowed = set(getattr(request, 'campus_ids', []))
+                if resorts.exclude(campuses__id__in=allowed).exists():
+                    raise serializers.ValidationError({'resorts_input': '只能選擇自己校區可用的雪場'})
+
+        if 'course_levels_input' in attrs:
+            type_ids = {item.get('course_type_id') for item in attrs['course_levels_input'] if item.get('course_type_id')}
+            if CourseType.objects.filter(category__client=client, id__in=type_ids).count() != len(type_ids):
+                raise serializers.ValidationError({'course_levels_input': '只能選擇此公司的課程類型'})
         return attrs
+
+    def get_campus_ids(self, obj):
+        return list(obj.campuses.values_list('id', flat=True))
+
+    def get_can_manage(self, obj):
+        request = self.context.get('request')
+        if not request:
+            return False
+        if getattr(request, 'can_view_all_campuses', False):
+            return True
+        assigned = set(obj.campuses.values_list('id', flat=True))
+        return bool(assigned) and assigned.issubset(set(getattr(request, 'campus_ids', [])))
 
     def get_user_name(self, obj):
         if not obj.user:
@@ -374,17 +448,26 @@ class CoachAdminSerializer(serializers.ModelSerializer):
         ).data
 
     def create(self, validated_data):
+        campus_ids = validated_data.pop('campus_ids_input', None)
         resorts_input = validated_data.pop('resorts_input', [])
         course_levels_input = validated_data.pop('course_levels_input', [])
         request = self.context.get('request')
         client = getattr(request, 'tenant', None) if request else None
+
+        if campus_ids is None:
+            accessible = list(getattr(request, 'campus_ids', [])) if request else []
+            if len(accessible) != 1:
+                raise serializers.ValidationError({'campus_ids_input': '請先選擇教練所屬校區'})
+            campus_ids = accessible
         self._sync_coach_permission(validated_data.get('user_id'))
         coach = Coach.objects.create(client=client, **validated_data)
+        coach.campuses.set(Campus.objects.filter(client=client, id__in=campus_ids))
         self._sync_resorts(coach, resorts_input)
         self._sync_course_levels(coach, course_levels_input)
         return coach
 
     def update(self, instance, validated_data):
+        campus_ids = validated_data.pop('campus_ids_input', None)
         resorts_input = validated_data.pop('resorts_input', None)
         course_levels_input = validated_data.pop('course_levels_input', None)
         if 'user_id' in validated_data:
@@ -392,6 +475,8 @@ class CoachAdminSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+        if campus_ids is not None:
+            instance.campuses.set(Campus.objects.filter(client=instance.client, id__in=campus_ids))
         if resorts_input is not None:
             self._sync_resorts(instance, resorts_input)
         if course_levels_input is not None:
@@ -849,7 +934,8 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'course_type', 'course_type_name', 'name',
             'display_order', 'duration_hours', 'max_capacity', 'is_active',
-            'billing_mode', 'minimum_group_size', 'minimum_student_level',
+            'billing_mode', 'minimum_group_size', 'shared_class_enabled',
+            'shared_class_minimum_students', 'minimum_student_level',
             'resorts', 'resort_names',
             'booking_open_date', 'booking_close_date',
             'course_start_date', 'course_end_date',
@@ -882,7 +968,18 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
         minimum = attrs.get('minimum_group_size', getattr(self.instance, 'minimum_group_size', 1))
         capacity = attrs.get('max_capacity', getattr(self.instance, 'max_capacity', 1))
         if minimum > capacity:
-            raise serializers.ValidationError({'minimum_group_size': '最低開班人數不能大於最大人數'})
+            raise serializers.ValidationError({'minimum_group_size': '單筆預約最低人數不能大於最大人數'})
+        shared_enabled = attrs.get('shared_class_enabled', getattr(self.instance, 'shared_class_enabled', False))
+        if shared_enabled and not settings.SHARED_CLASS_FEATURE_ENABLED:
+            raise serializers.ValidationError({'shared_class_enabled': '團體湊班尚未開放，請使用一般課程設定'})
+        billing_mode = attrs.get('billing_mode', getattr(self.instance, 'billing_mode', 'private'))
+        shared_minimum = attrs.get('shared_class_minimum_students', getattr(self.instance, 'shared_class_minimum_students', 3))
+        if shared_enabled and billing_mode != 'per_person':
+            raise serializers.ValidationError({'shared_class_enabled': '跨訂單湊班必須使用每人計價'})
+        if shared_enabled and (shared_minimum < 2 or shared_minimum > capacity):
+            raise serializers.ValidationError({'shared_class_minimum_students': '成班人數須介於 2 人與最大人數之間'})
+        if shared_enabled:
+            attrs['minimum_group_size'] = 1
         return attrs
 
 
@@ -1104,6 +1201,68 @@ class BookingAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = ['id', 'reservation', 'course_type', 'course_name', 'date', 'start_time', 'end_time', 'is_scheduled']
+
+
+class CampusManagerOrderSerializer(serializers.ModelSerializer):
+    """校區主管與校長僅取得排課必需的訂單資訊。"""
+    sn = serializers.SerializerMethodField()
+    campus_name = serializers.CharField(source='campus.name', read_only=True, default='')
+    student_alias = serializers.SerializerMethodField()
+    number_of_people = serializers.SerializerMethodField()
+    course_dates = serializers.SerializerMethodField()
+    sessions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReservationGroup
+        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions']
+        read_only_fields = fields
+
+    def _visible_bookings(self, obj):
+        request = self.context.get('request')
+        profile = getattr(getattr(request, 'user', None), 'userprofile', None)
+        manager_window = bool(profile and profile.role == 'campus_manager')
+        today = timezone.localdate() if manager_window else None
+        limit = today + timedelta(days=10) if today else None
+        return [
+            (reservation, booking)
+            for reservation in obj.reservations.all()
+            for booking in reservation.bookings.all()
+            if not manager_window or today <= booking.date <= limit
+        ]
+
+    def get_sn(self, obj):
+        return f'{obj.created_at:%Y%m%d}-{obj.id:04d}' if obj.created_at else f'00000000-{obj.id:04d}'
+
+    def get_student_alias(self, obj):
+        if obj.user:
+            return obj.user.first_name or '學員'
+        return obj.name or '學員'
+
+    def get_number_of_people(self, obj):
+        visible_reservation_ids = {reservation.id for reservation, _ in self._visible_bookings(obj)}
+        return sum(
+            reservation.number_of_people or 0
+            for reservation in obj.reservations.all()
+            if reservation.id in visible_reservation_ids
+        )
+
+    def get_course_dates(self, obj):
+        return sorted({booking.date.isoformat() for _, booking in self._visible_bookings(obj)})
+
+    def get_sessions(self, obj):
+        sessions = []
+        for reservation, booking in self._visible_bookings(obj):
+            members = list(reservation.members.all())
+            sessions.append({
+                'date': booking.date,
+                'start_time': booking.start_time,
+                'end_time': booking.end_time,
+                'course_type': reservation.course_type.name if reservation.course_type else booking.course_type,
+                'number_of_people': reservation.number_of_people,
+                'ability_level': reservation.max_ability_level or '',
+                'age_ranges': [member.get_age_range_display() for member in members],
+            })
+        return sessions
 
 
 class OrderAdminSerializer(serializers.ModelSerializer):
@@ -1353,13 +1512,18 @@ class CourseMediaAdminSerializer(serializers.ModelSerializer):
 class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
     member_name = serializers.SerializerMethodField()
     order_number = serializers.CharField(source='reservation.group.order_number', read_only=True)
+    sn = serializers.SerializerMethodField()
     campus_name = serializers.CharField(source='reservation.group.campus.name', read_only=True, default='')
     course_dates = serializers.SerializerMethodField()
 
     class Meta:
         model = MemberDetail
-        fields = ['id', 'member_name', 'order_number', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'course_dates']
-        read_only_fields = ['id', 'member_name', 'order_number', 'campus_name', 'course_dates']
+        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'course_dates']
+        read_only_fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'course_dates']
+
+    def get_sn(self, obj):
+        group = obj.reservation.group
+        return f'{group.created_at:%Y%m%d}-{group.id:04d}' if group.created_at else f'00000000-{group.id:04d}'
 
     def get_member_name(self, obj):
         return obj.user.get_full_name() or obj.user.username if obj.user else f'學員 #{obj.pk}'
@@ -1401,11 +1565,15 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 class CoachPayRuleAdminSerializer(serializers.ModelSerializer):
     coach_name = serializers.CharField(source='coach.name', read_only=True)
     course_type_name = serializers.CharField(source='course_type.name', read_only=True, default='')
+    course_type = serializers.PrimaryKeyRelatedField(
+        queryset=CourseType.objects.all(), required=False, allow_null=True,
+    )
 
     class Meta:
         model = CoachPayRule
         fields = ['id', 'coach', 'coach_name', 'course_type', 'course_type_name', 'discipline', 'certification_level', 'hourly_rate', 'specified_fee', 'referral_percent', 'assistance_hour_factor', 'supervisor_allowance', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'coach_name', 'course_type_name', 'created_at', 'updated_at']
+        validators = []
 
     def validate(self, attrs):
         tenant = getattr(self.context.get('request'), 'tenant', None)
@@ -1415,6 +1583,13 @@ class CoachPayRuleAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'coach': '不能選擇其他公司的教練'})
         if course_type and course_type.category.client_id != getattr(tenant, 'id', None):
             raise serializers.ValidationError({'course_type': '不能選擇其他公司的課程'})
+        discipline = attrs.get('discipline', getattr(self.instance, 'discipline', None))
+        certification_level = attrs.get('certification_level', getattr(self.instance, 'certification_level', ''))
+        if coach and discipline and CoachPayRule.objects.filter(
+            coach=coach, course_type=course_type, discipline=discipline,
+            certification_level=certification_level,
+        ).exclude(pk=getattr(self.instance, 'pk', None)).exists():
+            raise serializers.ValidationError({'non_field_errors': '這位教練的相同薪資規則已存在，請編輯原規則'})
         return attrs
 
 
@@ -1490,6 +1665,8 @@ class BookingScheduleAdminSerializer(serializers.ModelSerializer):
     reservation_id = serializers.IntegerField(read_only=True)
     coach_name = serializers.CharField(source='reservation.preferred_coach.name', read_only=True, default='')
     group_id = serializers.SerializerMethodField()
+    order_number = serializers.CharField(source='reservation.group.order_number', read_only=True, default='')
+    sn = serializers.SerializerMethodField()
     user_name = serializers.SerializerMethodField()
     resort = serializers.CharField(source='reservation.resort.display_name', read_only=True, default='')
     number_of_people = serializers.IntegerField(source='reservation.number_of_people', read_only=True)
@@ -1500,7 +1677,7 @@ class BookingScheduleAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = [
-            'id', 'reservation_id', 'group_id', 'date', 'start_time', 'end_time',
+            'id', 'reservation_id', 'group_id', 'order_number', 'sn', 'date', 'start_time', 'end_time',
             'course_name', 'coach_name', 'user_name', 'resort',
             'number_of_people', 'is_scheduled', 'status', 'event_type',
             'service_type',
@@ -1525,10 +1702,16 @@ class BookingScheduleAdminSerializer(serializers.ModelSerializer):
     def get_group_id(self, obj):
         return obj.reservation.group_id if obj.reservation else None
 
+    def get_sn(self, obj):
+        group = obj.reservation.group if obj.reservation else None
+        if not group:
+            return ''
+        return f'{group.created_at:%Y%m%d}-{group.id:04d}' if group.created_at else f'00000000-{group.id:04d}'
+
     def get_user_name(self, obj):
         try:
             user = obj.reservation.group.user
-            return user.username if user else (obj.reservation.group.name or '')
+            return (user.get_full_name() or user.username) if user else (obj.reservation.group.name or '')
         except Exception:
             return ''
 

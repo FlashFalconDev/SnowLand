@@ -6,11 +6,14 @@ import Toast, { ToastType } from '@/components/ui/Toast'
 
 interface OrderDetail {
   pk: number
+  course_label?: string
   course_fee: number
   coach_fee: number
   equipment_rental_fee: number
   equipment_assistance_time_label?: string
   language_fee: number
+  discount_amount?: number
+  discount_name?: string
   total_fee: number
 }
 
@@ -34,6 +37,7 @@ export default function PaymentPage() {
   const navigate = useNavigate()
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [selectedMethod, setSelectedMethod] = useState<'newebpay' | 'bank_transfer'>('bank_transfer')
   const [senderAccount, setSenderAccount] = useState('')
   const [copied, setCopied] = useState(false)
@@ -45,6 +49,7 @@ export default function PaymentPage() {
   const [loadingMessage, setLoadingMessage] = useState('')
 
   const reservationGroupId = searchParams.get('reservation_group')
+  const money = (amount: number) => amount.toLocaleString('zh-TW')
 
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isOpen: true })
@@ -69,14 +74,18 @@ export default function PaymentPage() {
         const data = await response.json()
 
         if (!response.ok) {
-          showToast(data.error || '獲取付款資訊失敗', 'error')
+          const message = data.error || '獲取付款資訊失敗'
+          setLoadError(message)
+          showToast(message, 'error')
           setLoading(false)
           return
         }
 
+        setLoadError('')
         setPaymentData(data)
         setLoading(false)
       } catch (error) {
+        setLoadError('無法連接到伺服器，請稍後再試')
         showToast('無法連接到伺服器', 'error')
         setLoading(false)
       }
@@ -93,7 +102,10 @@ export default function PaymentPage() {
   }
 
   const handleBankTransferLater = () => {
-    showToast('訂單已保留 24 小時，請於期限內完成匯款；匯款後再回付款連結補後五碼。', 'success')
+    const deadline = paymentData?.payment_expires_at
+      ? new Date(paymentData.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+      : '訂單付款期限'
+    showToast(`請於 ${deadline} 前完成匯款；匯款後再回付款連結補後五碼。`, 'success')
     setTimeout(() => navigate('..'), 800)
   }
 
@@ -180,7 +192,7 @@ export default function PaymentPage() {
     }
   }
 
-  if (loading || !paymentData) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
         <div className="text-center">
@@ -191,22 +203,35 @@ export default function PaymentPage() {
     )
   }
 
+  if (!paymentData) {
+    return <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-6">
+      <div role="alert" className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-lg">
+        <h1 className="text-xl font-bold text-gray-900">無法顯示付款資訊</h1>
+        <p className="mt-3 text-sm text-red-700">{loadError || '請確認訂單連結是否正確。'}</p>
+        <button onClick={() => navigate('..')} className="mt-5 rounded-full bg-primary-600 px-5 py-2 font-semibold text-white">返回首頁</button>
+      </div>
+    </main>
+  }
+
+  const canUseNewebpay = paymentData.payment_methods?.includes('newebpay') === true
+  const isPaid = paymentData.payment_status === 'paid'
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
       {/* 頂部導航 */}
       <nav className="bg-white/80 shadow-sm backdrop-blur-md">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-primary-700">
-              雪域滑雪課程預約 - 付款
+            <h1 className="text-xl font-bold text-primary-700 sm:text-2xl">
+              <span className="sm:hidden">課程付款</span><span className="hidden sm:inline">雪域滑雪課程預約 - 付款</span>
             </h1>
-            {(paymentData.payment_methods || ['bank_transfer', 'newebpay']).includes('newebpay') && <button
+            <button
               onClick={() => navigate('..')}
-              className="flex items-center gap-2 rounded-full bg-gray-200 px-4 py-2 text-gray-600 transition-all hover:bg-gray-300"
+              className="flex items-center gap-2 whitespace-nowrap rounded-full bg-gray-200 px-4 py-2 text-gray-600 transition-all hover:bg-gray-300"
             >
               <Home size={20} />
               <span>返回首頁</span>
-            </button>}
+            </button>
           </div>
         </div>
       </nav>
@@ -221,25 +246,25 @@ export default function PaymentPage() {
             {paymentData.order_details.map((item) => (
               <div key={item.pk} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
                 <div className="mb-3 font-semibold text-gray-800">
-                  預約課程 {item.pk}
+                  {item.course_label || `預約課程 #${item.pk}`}
                 </div>
                 <div className="space-y-2 text-sm">
                   {item.course_fee > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">課程費</span>
-                      <span className="font-medium">NT$ {item.course_fee}</span>
+                      <span className="font-medium">NT$ {money(item.course_fee)}</span>
                     </div>
                   )}
                   {item.coach_fee > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">教練費</span>
-                      <span className="font-medium">NT$ {item.coach_fee}</span>
+                      <span className="font-medium">NT$ {money(item.coach_fee)}</span>
                     </div>
                   )}
                   {item.equipment_rental_fee > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">器材租借費</span>
-                      <span className="font-medium">NT$ {item.equipment_rental_fee}</span>
+                      <span className="font-medium">NT$ {money(item.equipment_rental_fee)}</span>
                     </div>
                   )}
                   {item.equipment_assistance_time_label && (
@@ -251,7 +276,13 @@ export default function PaymentPage() {
                   {item.language_fee > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">語言服務費</span>
-                      <span className="font-medium">NT$ {item.language_fee}</span>
+                      <span className="font-medium">NT$ {money(item.language_fee)}</span>
+                    </div>
+                  )}
+                  {(item.discount_amount || 0) > 0 && (
+                    <div className="flex justify-between text-emerald-700">
+                      <span>{item.discount_name || '優惠折扣'}</span>
+                      <span className="font-medium">− NT$ {money(item.discount_amount || 0)}</span>
                     </div>
                   )}
                 </div>
@@ -262,13 +293,15 @@ export default function PaymentPage() {
           <div className="mt-6 flex items-center justify-between border-t-2 border-gray-200 pt-6">
             <span className="text-xl font-semibold text-gray-700">總金額</span>
             <span className="text-3xl font-bold text-red-500">
-              NT$ {paymentData.total_amount}
+              NT$ {money(paymentData.total_amount)}
             </span>
           </div>
         </div>
 
+        {isPaid && <div role="status" className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 font-semibold text-emerald-800">此訂單已付款，無需再次提交匯款資料。</div>}
+
         {/* 付款方式選擇 */}
-        <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
+        {!isPaid && <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
           <h2 className="mb-6 text-2xl font-bold text-gray-800">選擇付款方式</h2>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -298,7 +331,7 @@ export default function PaymentPage() {
             </button>
 
             {/* 藍新支付 */}
-            <button
+            {canUseNewebpay && <button
               onClick={() => setSelectedMethod('newebpay')}
               className={`rounded-xl border-2 p-6 text-left transition-all ${
                 selectedMethod === 'newebpay'
@@ -320,12 +353,12 @@ export default function PaymentPage() {
                   <CheckCircle className="text-primary-500" size={24} />
                 )}
               </div>
-            </button>
+            </button>}
           </div>
-        </div>
+        </div>}
 
         {/* 銀行匯款資訊 */}
-        {selectedMethod === 'bank_transfer' && (
+        {!isPaid && selectedMethod === 'bank_transfer' && (
           <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
             <h2 className="mb-6 text-2xl font-bold text-gray-800">銀行匯款資訊</h2>
 
@@ -356,10 +389,14 @@ export default function PaymentPage() {
                 <span className="text-gray-700">戶名</span>
                 <span className="font-semibold text-gray-900">{paymentData.bank_info?.bank_account_holder || '—'}</span>
               </div>
+              {paymentData.payment_expires_at && <div className="flex justify-between gap-3">
+                <span className="shrink-0 text-gray-700">付款期限</span>
+                <span className="text-right font-semibold text-gray-900">{new Date(paymentData.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}</span>
+              </div>}
               <div className="flex justify-between border-t-2 border-blue-200 pt-4">
                 <span className="text-lg font-bold text-gray-700">匯款金額</span>
                 <span className="text-2xl font-bold text-red-500">
-                  NT$ {paymentData.total_amount}
+                  NT$ {money(paymentData.total_amount)}
                 </span>
               </div>
             </div>
@@ -401,7 +438,7 @@ export default function PaymentPage() {
         )}
 
         {/* 藍新支付 */}
-        {selectedMethod === 'newebpay' && (
+        {!isPaid && canUseNewebpay && selectedMethod === 'newebpay' && (
           <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
             <h2 className="mb-6 text-2xl font-bold text-gray-800">藍新支付</h2>
 
@@ -410,7 +447,7 @@ export default function PaymentPage() {
                 點擊下方按鈕將跳轉到藍新金流付款頁面
               </p>
               <p className="text-lg font-bold text-purple-600">
-                付款金額：NT$ {paymentData.total_amount}
+                付款金額：NT$ {money(paymentData.total_amount)}
               </p>
             </div>
 

@@ -4,13 +4,14 @@
 URL 格式：/api/admin/<client_code>/<resource>/
 """
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, SAFE_METHODS
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import Sum, Count, Q, Prefetch
 from django.utils import timezone
 from datetime import timedelta, datetime
@@ -38,6 +39,7 @@ from .admin_serializers import (
     DiscountCodeAdminSerializer,
     SeasonSettingAdminSerializer,
     OrderAdminSerializer,
+    CampusManagerOrderSerializer,
     CustomerAdminSerializer,
     BookingScheduleAdminSerializer,
     CampusAdminSerializer,
@@ -102,6 +104,9 @@ def _campus_scope_for_user(user, tenant):
         profile = user.userprofile
     except Exception:
         return Campus.objects.none(), False
+    if profile.is_coach and not profile.is_manager:
+        coach = Coach.objects.filter(user=user, client=tenant).first()
+        return (coach.campuses.filter(client=tenant, is_active=True) if coach else Campus.objects.none()), False
     # 舊管理員資料尚未設定 role；維持原本可管理全公司的行為，避免升級後全部 403。
     if profile.role in HEADQUARTERS_ROLES or not profile.role:
         return Campus.objects.filter(client=tenant, is_active=True), True
@@ -151,7 +156,11 @@ class IsTenantManager(IsAuthenticated):
 
         permission_key = getattr(view, 'permission_key', None)
         if permission_key and not user_has_admin_permission(request.user, permission_key):
-            return False
+            read_permissions = getattr(view, 'read_permission_keys', ())
+            if request.method not in SAFE_METHODS or not any(
+                user_has_admin_permission(request.user, key) for key in read_permissions
+            ):
+                return False
         return _resolve_campus_scope(request, tenant)
 
 
@@ -241,12 +250,12 @@ def _format_calendar_time(value):
     return value.strftime('%H:%M:%S') if hasattr(value, 'strftime') else str(value)
 
 
-def _reservation_user_name(reservation):
+def _reservation_user_alias(reservation):
     try:
         user = reservation.group.user
-        return (user.get_full_name() or user.username) if user else (reservation.group.name or '訪客')
+        return (user.first_name or '學員') if user else (reservation.group.name or '學員')
     except Exception:
-        return ''
+        return '學員'
 
 
 def _equipment_assistance_calendar_item(reservation, booking, include_coach=True):
@@ -262,6 +271,11 @@ def _equipment_assistance_calendar_item(reservation, booking, include_coach=True
         'id': -(booking.id * 100000 + slot.id),
         'reservation_id': reservation.id,
         'group_id': reservation.group_id,
+        'order_number': reservation.group.order_number,
+        'sn': (
+            f'{reservation.group.created_at:%Y%m%d}-{reservation.group_id:04d}'
+            if reservation.group.created_at else f'00000000-{reservation.group_id:04d}'
+        ),
         'date': str(event_date),
         'start_time': _format_calendar_time(slot.start_time),
         'end_time': _format_calendar_time(slot.end_time),
@@ -273,7 +287,7 @@ def _equipment_assistance_calendar_item(reservation, booking, include_coach=True
         'equipment': reservation.equipment or '',
         'equipment_label': reservation.get_equipment_display() if reservation.equipment else '',
         'is_preferred_coach': bool(reservation.is_preferred_coach),
-        'user_name': _reservation_user_name(reservation),
+        'user_name': _reservation_user_alias(reservation),
         'resort': reservation.resort.display_name if reservation.resort else '',
         'number_of_people': reservation.number_of_people if reservation else 0,
         'is_scheduled': booking.is_scheduled,
@@ -301,6 +315,7 @@ COACH_VISIBLE_PAYMENT_STATUSES = ['pending', 'paid']
 def _equipment_assistance_calendar_items(
     *,
     tenant=None,
+    campus_ids=None,
     coach=None,
     start_date=None,
     end_date=None,
@@ -323,6 +338,8 @@ def _equipment_assistance_calendar_items(
 
     if tenant:
         qs = qs.filter(group__client=tenant)
+    if campus_ids is not None:
+        qs = qs.filter(group__campus_id__in=campus_ids)
     if coach:
         qs = qs.filter(preferred_coach=coach)
     if completed_orders_only:
@@ -371,14 +388,17 @@ def _calendar_date_keys(start_date, end_date):
     return days
 
 
-def _daily_coach_availability_summary(*, tenant, start_date, end_date):
+def _daily_coach_availability_summary(*, tenant, start_date, end_date, campus_ids=None):
     if not tenant or not start_date or not end_date:
         return []
 
     coaches = Coach.objects.filter(
         client=tenant,
         availability_status__in=['active', 'passive'],
-    ).values_list('id', 'name')
+    )
+    if campus_ids is not None:
+        coaches = coaches.filter(campuses__id__in=campus_ids).distinct()
+    coaches = coaches.values_list('id', 'name')
     coach_names = {coach_id: name for coach_id, name in coaches}
     coach_ids = set(coach_names.keys())
     total_coaches = len(coach_ids)
@@ -392,7 +412,10 @@ def _daily_coach_availability_summary(*, tenant, start_date, end_date):
             reservation__status__in=SCHEDULED_RESERVATION_STATUSES,
             date__gte=start_date,
             date__lte=end_date,
-        ).values('date', 'reservation__preferred_coach_id').distinct()
+        )
+        if campus_ids is not None:
+            booking_rows = booking_rows.filter(reservation__group__campus_id__in=campus_ids)
+        booking_rows = booking_rows.values('date', 'reservation__preferred_coach_id').distinct()
         for row in booking_rows:
             coach_id = row.get('reservation__preferred_coach_id')
             if row.get('date') and coach_id:
@@ -405,7 +428,10 @@ def _daily_coach_availability_summary(*, tenant, start_date, end_date):
             preferred_coach_id__in=coach_ids,
             status__in=SCHEDULED_RESERVATION_STATUSES,
             group__payments__status__in=COACH_VISIBLE_PAYMENT_STATUSES,
-        ).select_related(
+        )
+        if campus_ids is not None:
+            equipment_reservations = equipment_reservations.filter(group__campus_id__in=campus_ids)
+        equipment_reservations = equipment_reservations.select_related(
             'equipment_assistance_time_slot',
         ).prefetch_related('bookings')
 
@@ -450,11 +476,11 @@ def _daily_coach_availability_summary(*, tenant, start_date, end_date):
 
 def _coach_visible_window():
     today = timezone.localdate()
-    return today, today + timedelta(days=10)
+    return None, today + timedelta(days=10)
 
 
 def _coach_can_view_full_schedule(coach):
-    return True
+    return coach.schedule_visibility == 'full'
 
 
 def _booking_in_date_range(booking, start_date=None, end_date=None):
@@ -541,6 +567,14 @@ class CoachAdminViewSet(ModelViewSet):
     permission_classes = [IsTenantManager]
     permission_key = 'coaches'
 
+    def _require_exclusive_campus(self, coach):
+        if getattr(self.request, 'can_view_all_campuses', False):
+            return
+        allowed = set(_campus_ids(self.request))
+        assigned = set(coach.campuses.values_list('id', flat=True))
+        if not assigned or not assigned.issubset(allowed):
+            raise PermissionDenied('這位教練也屬於其他校區，請由總部管理員修改')
+
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
@@ -570,6 +604,7 @@ class CoachAdminViewSet(ModelViewSet):
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
+        self._require_exclusive_campus(instance)
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
@@ -577,6 +612,11 @@ class CoachAdminViewSet(ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        self._require_exclusive_campus(instance)
+        if (Reservation.objects.filter(preferred_coach=instance).exists()
+                or instance.payroll_statements.exists()
+                or CoachLeaveRequest.objects.filter(coach=instance).exists()):
+            raise ValidationError('教練已有課程、請假或薪資紀錄，請改設為「不可接課」保留歷史資料')
         self.perform_destroy(instance)
         return Response({'code': 200, 'msg': '教練已刪除'})
 
@@ -670,6 +710,14 @@ class PaymentAccountAdminViewSet(ModelViewSet):
     def list(self, request, *args, **kwargs):
         return wrap_list(self.filter_queryset(self.get_queryset()), self.get_serializer_class(), request, self.get_serializer_context())
 
+    def perform_destroy(self, instance):
+        if not getattr(self.request, 'can_view_all_campuses', False):
+            allowed_ids = set(_campus_ids(self.request))
+            account_ids = set(instance.campuses.values_list('id', flat=True))
+            if not account_ids or not account_ids.issubset(allowed_ids):
+                raise PermissionDenied('此帳戶也適用其他校區，請由總部管理員刪除')
+        instance.delete()
+
 
 class OperatingPolicyAdminViewSet(ModelViewSet):
     serializer_class = OperatingPolicyAdminSerializer
@@ -691,11 +739,17 @@ class OperatingPolicyAdminViewSet(ModelViewSet):
     def list(self, request, *args, **kwargs):
         return wrap_list(self.filter_queryset(self.get_queryset()), self.get_serializer_class(), request, self.get_serializer_context())
 
+    def perform_destroy(self, instance):
+        if not getattr(self.request, 'can_view_all_campuses', False) and instance.campus_id not in _campus_ids(self.request):
+            raise PermissionDenied('全公司預設只能由總部管理員刪除')
+        instance.delete()
+
 
 class ResortAdminViewSet(ModelViewSet):
     serializer_class = ResortAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'resorts'
+    read_permission_keys = ('coaches',)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
@@ -748,6 +802,7 @@ class CourseCategoryAdminViewSet(ModelViewSet):
     serializer_class = CourseCategoryAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'course_types'
+    read_permission_keys = ('coaches',)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
@@ -776,6 +831,7 @@ class CourseTypeAdminViewSet(ModelViewSet):
     serializer_class = CourseTypeAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'course_types'
+    read_permission_keys = ('coaches',)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
@@ -968,6 +1024,24 @@ class OrderAdminViewSet(ModelViewSet):
     serializer_class = OrderAdminSerializer
     permission_classes = [IsTenantManager]
 
+    def _is_campus_manager(self):
+        profile = getattr(self.request.user, 'userprofile', None)
+        return bool(profile and profile.role == 'campus_manager')
+
+    def _is_campus_order_viewer(self):
+        profile = getattr(self.request.user, 'userprofile', None)
+        return bool(profile and profile.role in ('campus_manager', 'campus_principal'))
+
+    def get_serializer_class(self):
+        return CampusManagerOrderSerializer if self._is_campus_order_viewer() else OrderAdminSerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if self._is_campus_order_viewer() and (
+            request.method not in SAFE_METHODS or self.action not in ('list', 'retrieve')
+        ):
+            raise PermissionDenied('校區人員只能查看所屬校區訂單摘要')
+
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
@@ -975,6 +1049,9 @@ class OrderAdminViewSet(ModelViewSet):
         qs = ReservationGroup.objects.filter(client=tenant)
         if _campus_ids(self.request):
             qs = qs.filter(campus_id__in=_campus_ids(self.request))
+        if self._is_campus_manager():
+            today = timezone.localdate()
+            qs = qs.filter(reservations__bookings__date__range=(today, today + timedelta(days=10))).distinct()
         qs = qs.order_by('-created_at').select_related('user', 'campus').prefetch_related(
             Prefetch(
                 'reservations',
@@ -984,7 +1061,7 @@ class OrderAdminViewSet(ModelViewSet):
                     'course_template',
                     'preferred_coach',
                     'equipment_assistance_time_slot',
-                ).prefetch_related('bookings', 'rejected_coaches'),
+                ).prefetch_related('bookings', 'members', 'rejected_coaches'),
             ),
             'payments',
         )
@@ -998,14 +1075,18 @@ class OrderAdminViewSet(ModelViewSet):
             # 解法:從輸入末尾抓最後一段純數字當訂單 id,可兼容新格式 / 舊 SL 格式 / 純數字
             from django.db.models import Q
             import re
-            search_q = (
-                Q(user__username__icontains=search)
-                | Q(user__first_name__icontains=search)
-                | Q(user__last_name__icontains=search)
-                | Q(user__email__icontains=search)
-                | Q(name__icontains=search)
-            )
-            tail_digits = re.search(r'(\d+)\s*$', search)
+            if self._is_campus_order_viewer():
+                search_q = Q(user__first_name__icontains=search) | Q(user__isnull=True, name__icontains=search)
+                tail_digits = re.fullmatch(r'(?:\d{8}-|SL-\d{8}-)?(\d+)', search)
+            else:
+                search_q = (
+                    Q(user__username__icontains=search)
+                    | Q(user__first_name__icontains=search)
+                    | Q(user__last_name__icontains=search)
+                    | Q(user__email__icontains=search)
+                    | Q(name__icontains=search)
+                )
+                tail_digits = re.search(r'(\d+)\s*$', search)
             if tail_digits:
                 try:
                     search_q |= Q(id=int(tail_digits.group(1)))
@@ -1014,11 +1095,11 @@ class OrderAdminViewSet(ModelViewSet):
             qs = qs.filter(search_q)
 
         status_filter = (params.get('status') or '').strip()
-        if status_filter:
+        if status_filter and not self._is_campus_order_viewer():
             qs = qs.filter(reservations__status=status_filter).distinct()
 
         payment_filter = (params.get('payment_status') or '').strip()
-        if payment_filter:
+        if payment_filter and not self._is_campus_order_viewer():
             qs = qs.filter(payments__status=payment_filter).distinct()
 
         return qs
@@ -1063,6 +1144,38 @@ class OrderAdminViewSet(ModelViewSet):
             context={**self.get_serializer_context(), 'include_available_coaches': True},
         )
         return Response({'code': 200, 'msg': 'OK', 'data': serializer.data})
+
+    @action(detail=True, methods=['post'], url_path='complete-course')
+    def complete_course(self, request, *args, **kwargs):
+        group = self.get_object()
+        with transaction.atomic():
+            reservation = group.reservations.select_for_update().filter(pk=request.data.get('reservation_id')).first()
+            if reservation is None:
+                return Response({'code': 404, 'msg': '此訂單沒有這門課程'}, status=404)
+            if reservation.status == 'completed':
+                return Response({'code': 200, 'msg': '此課程已確認完成'})
+            if reservation.status not in ('auto_assigned', 'manually_assigned', 'form_filled'):
+                return Response({'code': 400, 'msg': '請先完成排課與教練確認'}, status=400)
+            if not group.payments.filter(status='paid').exists():
+                return Response({'code': 400, 'msg': '付款尚未確認，不能標記完課'}, status=400)
+            bookings = list(reservation.bookings.all())
+            if not reservation.preferred_coach_id or not bookings or any(not booking.is_scheduled for booking in bookings):
+                return Response({'code': 400, 'msg': '請先排定教練及所有課程時段'}, status=400)
+            now = timezone.localtime()
+            if any(booking.date > now.date() or (booking.date == now.date() and booking.end_time > now.time()) for booking in bookings):
+                return Response({'code': 400, 'msg': '還有課程尚未結束，不能標記完課'}, status=400)
+
+            reservation.status = 'completed'
+            reservation.save(update_fields=['status'])
+            for booking in bookings:
+                for member in reservation.members.all():
+                    CourseEvaluation.objects.get_or_create(
+                        booking=booking, member=member,
+                        defaults={'coach': reservation.preferred_coach},
+                    )
+            from booking.operations import record_order_revision
+            record_order_revision(group, user=request.user, reason='後台確認課程完成')
+        return Response({'code': 200, 'msg': '課程已完成，評量與薪資時數已可處理'})
 
     @action(detail=True, methods=['get'], url_path='refund-preview')
     def refund_preview(self, request, *args, **kwargs):
@@ -1114,31 +1227,28 @@ class OrderAdminViewSet(ModelViewSet):
         reservation_updates = data.get('reservation_updates', []) or []
         booking_updates = data.get('booking_updates', []) or []
 
-        # 1. 更新付款狀態
-        if payment_status:
-            payment, _ = Payment.objects.get_or_create(
-                reservation_group=instance,
-                defaults={'status': payment_status, 'user': instance.user},
-            )
-            payment.status = payment_status
-            payment.save()
-            if payment_status == 'paid':
-                from booking.operations import schedule_group_notifications
-                schedule_group_notifications(instance, 'payment_confirmed')
+        if action not in ('save', 'schedule'):
+            return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
+        if payment_status and payment_status not in dict(Payment.STATUS_CHOICES):
+            return Response({'code': 400, 'msg': '無效的付款狀態'}, status=400)
+        if not isinstance(reservation_updates, list) or not isinstance(booking_updates, list):
+            return Response({'code': 400, 'msg': '訂單變更格式錯誤'}, status=400)
 
-        # 2. 收集課程日期 / 時段變更
+        # 1. 先驗證課程變更，避免不合法時段或教練讓付款狀態先被儲存
         booking_changes = []
         for upd in booking_updates:
+            if not isinstance(upd, dict):
+                return Response({'code': 400, 'msg': '課程變更格式錯誤'}, status=400)
             booking_id = upd.get('booking_id')
             if not booking_id:
-                continue
+                return Response({'code': 400, 'msg': '缺少課程編號'}, status=400)
             try:
                 booking = Booking.objects.select_related('reservation').get(
                     pk=booking_id,
                     reservation__group=instance,
                 )
             except Booking.DoesNotExist:
-                continue
+                return Response({'code': 400, 'msg': '找不到這張訂單的課程'}, status=400)
 
             try:
                 new_date = self._parse_booking_date(upd.get('date'), booking.date)
@@ -1152,6 +1262,8 @@ class OrderAdminViewSet(ModelViewSet):
 
             if booking.date != new_date or booking.start_time != new_start_time or booking.end_time != new_end_time:
                 reservation = booking.reservation
+                if reservation.status == 'completed':
+                    return Response({'code': 400, 'msg': '課程已完課，不能直接變更時段；請先核對評量與薪資紀錄'}, status=400)
                 booking_changes.append({
                     'booking': booking,
                     'old_date': booking.date,
@@ -1166,35 +1278,70 @@ class OrderAdminViewSet(ModelViewSet):
                     'new_end_time': new_end_time,
                 })
 
-        # 3. 收集教練變更
+        # 2. 收集教練變更
         coach_changes = []
         for upd in reservation_updates:
+            if not isinstance(upd, dict):
+                return Response({'code': 400, 'msg': '教練變更格式錯誤'}, status=400)
             r_id = upd.get('reservation_id')
             new_coach_id = upd.get('coach_id')
             if not r_id:
-                continue
+                return Response({'code': 400, 'msg': '缺少預約編號'}, status=400)
             try:
                 r = instance.reservations.get(pk=r_id)
             except Reservation.DoesNotExist:
-                continue
+                return Response({'code': 400, 'msg': '找不到這張訂單的預約'}, status=400)
             old_coach_id = r.preferred_coach_id
             if str(old_coach_id) != str(new_coach_id):
+                if r.status == 'completed':
+                    return Response({'code': 400, 'msg': '課程已完課，不能直接更換教練；請先核對評量與薪資紀錄'}, status=400)
                 if r.is_preferred_coach:
                     return Response({
                         'code': 400,
                         'msg': '此課程為客人指定教練，後台不可更換教練',
                     }, status=status.HTTP_400_BAD_REQUEST)
+                coach = None
+                if new_coach_id not in (None, ''):
+                    try:
+                        coach_id = int(new_coach_id)
+                    except (TypeError, ValueError):
+                        return Response({'code': 400, 'msg': '教練編號格式錯誤'}, status=400)
+                    coaches = Coach.objects.filter(pk=coach_id, client=instance.client).exclude(
+                        availability_status='unavailable'
+                    )
+                    if instance.campus_id:
+                        coaches = coaches.filter(campuses__id=instance.campus_id)
+                    if r.resort_id:
+                        coaches = coaches.filter(coachresort__resort_id=r.resort_id)
+                    coach = coaches.distinct().first()
+                    if coach is None:
+                        return Response({'code': 400, 'msg': '這位教練不能接此校區或雪場的課程'}, status=400)
                 coach_changes.append({
                     'reservation': r,
                     'old_coach_id': old_coach_id,
                     'old_status': r.status,
                     'old_is_preferred_coach': r.is_preferred_coach,
                     'old_bookings_scheduled': [(b.id, b.is_scheduled) for b in r.bookings.all()],
-                    'new_coach_id': new_coach_id,
+                    'new_coach_id': coach.id if coach else None,
                 })
+
+        def save_payment_status():
+            if not payment_status:
+                return
+            payment, _ = Payment.objects.get_or_create(
+                reservation_group=instance,
+                defaults={'status': payment_status, 'user': instance.user},
+            )
+            payment.status = payment_status
+            payment.save()
+            if payment_status == 'paid':
+                from booking.operations import schedule_group_notifications
+                schedule_group_notifications(instance, 'payment_confirmed')
 
         if action == 'save':
             # 純儲存
+            if not coach_changes and not booking_changes and not payment_status:
+                return Response({'code': 200, 'msg': '沒有資料變更，未建立修改紀錄'})
             self._apply_booking_changes(booking_changes)
             for c in coach_changes:
                 r = c['reservation']
@@ -1214,6 +1361,7 @@ class OrderAdminViewSet(ModelViewSet):
                     r.bookings.update(is_scheduled=False)
                 r.save()
 
+            save_payment_status()
             from booking.operations import record_order_revision
             record_order_revision(instance, user=request.user, change_type='modify', reason=data.get('reason', '後台修改訂單'))
 
@@ -1222,7 +1370,8 @@ class OrderAdminViewSet(ModelViewSet):
         elif action == 'schedule':
             # 觸發 AI 排課
             if not coach_changes and not booking_changes:
-                return Response({'code': 200, 'msg': '沒有變更，無需排課'})
+                save_payment_status()
+                return Response({'code': 200, 'msg': '付款狀態已儲存' if payment_status else '沒有變更，無需排課'})
 
             # 套用變更
             self._apply_booking_changes(booking_changes)
@@ -1248,6 +1397,7 @@ class OrderAdminViewSet(ModelViewSet):
                 )
                 ok, _schedule_report = assign_coachs(reservations_to_assign=reservations_to_assign)
                 if ok:
+                    save_payment_status()
                     for c in coach_changes:
                         r = Reservation.objects.get(pk=c['reservation'].id)
                         if r.is_preferred_coach:
@@ -1397,9 +1547,30 @@ class NotificationTemplateAdminViewSet(ModelViewSet):
 
     def get_queryset(self):
         qs = NotificationTemplate.objects.filter(client=self.request.tenant).prefetch_related('course_templates')
-        if _campus_ids(self.request) and not getattr(self.request, 'can_view_all_campuses', False):
-            qs = qs.filter(Q(campus_id__in=_campus_ids(self.request)) | Q(campus__isnull=True))
+        campus_ids = _campus_ids(self.request)
+        if campus_ids:
+            qs = qs.filter(Q(campus_id__in=campus_ids) | Q(campus__isnull=True))
+            if self.request.method not in SAFE_METHODS and not self.request.can_view_all_campuses:
+                qs = qs.filter(campus_id__in=campus_ids)
         return qs.order_by('event', 'channel', 'id')
+
+    def perform_create(self, serializer):
+        campus = serializer.validated_data.get('campus')
+        campus_ids = _campus_ids(self.request)
+        if not self.request.can_view_all_campuses and (campus is None or campus.id not in campus_ids):
+            raise PermissionDenied('只能建立自己校區的通知範本')
+        if self.request.selected_campus_id and (campus is None or campus.id != self.request.selected_campus_id):
+            raise PermissionDenied('請先切換到要建立範本的校區')
+        serializer.save()
+
+    def perform_update(self, serializer):
+        campus = serializer.validated_data.get('campus', serializer.instance.campus)
+        campus_ids = _campus_ids(self.request)
+        if not self.request.can_view_all_campuses and (campus is None or campus.id not in campus_ids):
+            raise PermissionDenied('只能修改自己校區的通知範本')
+        if self.request.selected_campus_id and (campus is None or campus.id != self.request.selected_campus_id):
+            raise PermissionDenied('請先切換到要修改範本的校區')
+        serializer.save()
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), 'request': self.request}
@@ -1466,7 +1637,10 @@ class InsuranceRecordAdminViewSet(ModelViewSet):
         status_filter = self.request.query_params.get('status')
         if status_filter == 'missing':
             qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True))
-        return qs.order_by('reservation__bookings__date', 'id').distinct()
+        # Ordering by a related booking date makes SQL include that date in the
+        # DISTINCT result, so one member appears once per course day.  The
+        # serializer already returns all course dates; keep one row per member.
+        return qs.order_by('id').distinct()
 
     def list(self, request, *args, **kwargs):
         return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
@@ -1651,6 +1825,17 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
     serializer_class = BookingScheduleAdminSerializer
     permission_classes = [IsTenantManager]
 
+    def _visible_date_bounds(self):
+        start = _parse_date_query(self.request.query_params.get('start'))
+        end = _parse_date_query(self.request.query_params.get('end'))
+        profile = getattr(self.request.user, 'userprofile', None)
+        if profile and profile.role == 'campus_manager':
+            today = timezone.localdate()
+            limit = today + timedelta(days=10)
+            start = max(start, today) if start else today
+            end = min(end, limit) if end else limit
+        return start, end
+
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
@@ -1697,8 +1882,7 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
             qs = qs.filter(reservation__group__campus_id__in=_campus_ids(self.request))
 
         # 可選 query 參數：start, end (YYYY-MM-DD)
-        start = self.request.query_params.get('start')
-        end = self.request.query_params.get('end')
+        start, end = self._visible_date_bounds()
         if start:
             qs = qs.filter(date__gte=start)
         if end:
@@ -1710,27 +1894,113 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         items = [dict(item) for item in serializer.data]
 
-        start_date = _parse_date_query(request.query_params.get('start'))
-        end_date = _parse_date_query(request.query_params.get('end'))
+        start_date, end_date = self._visible_date_bounds()
         items.extend(_equipment_assistance_calendar_items(
             tenant=getattr(request, 'tenant', None),
-        start_date=start_date,
-        end_date=end_date,
-        include_coach=True,
-        scheduled_only=True,
-        completed_orders_only=True,
-        require_booking_scheduled=False,
-    ))
+            campus_ids=_campus_ids(request),
+            start_date=start_date,
+            end_date=end_date,
+            include_coach=True,
+            scheduled_only=True,
+            completed_orders_only=True,
+            require_booking_scheduled=False,
+        ))
         items = _sort_calendar_items(items)
         daily_summary = _daily_coach_availability_summary(
             tenant=getattr(request, 'tenant', None),
             start_date=start_date,
             end_date=end_date,
+            campus_ids=_campus_ids(request),
         )
         return Response({
             'code': 200, 'msg': 'OK',
             'data': {'list': items, 'total': len(items), 'daily_summary': daily_summary},
         })
+
+    @action(detail=False, methods=['get'], url_path='group-candidates')
+    def group_candidates(self, request, *args, **kwargs):
+        """Show cross-order class candidates without opening a class or changing payment."""
+        start = _parse_date_query(request.query_params.get('start'))
+        end = _parse_date_query(request.query_params.get('end'))
+        if not start or not end or end < start or (end - start).days > 62:
+            return Response({'code': 400, 'msg': '請提供 62 天內的有效起迄日期'}, status=400)
+
+        visible_start, visible_end = self._visible_date_bounds()
+        start = max(start, visible_start) if visible_start else start
+        end = min(end, visible_end) if visible_end else end
+        if start > end:
+            return Response({'code': 200, 'msg': 'OK', 'data': {'list': [], 'total': 0}})
+
+        bookings = Booking.objects.filter(
+            reservation__group__client=request.tenant,
+            reservation__group__campus_id__in=_campus_ids(request),
+            reservation__course_template__billing_mode='per_person',
+            date__gte=start,
+            date__lte=end,
+        ).exclude(reservation__status__in=['cancelled', 'deleted']).select_related(
+            'reservation__group__campus', 'reservation__resort', 'reservation__course_template',
+        ).prefetch_related('reservation__group__payments')
+
+        profile = getattr(request.user, 'userprofile', None)
+        can_view_payment = not (profile and profile.role in ('campus_manager', 'campus_principal'))
+        candidates = {}
+        for booking in bookings:
+            reservation = booking.reservation
+            counts = reservation.ability_level_counts or {}
+            if not counts and reservation.number_of_people > 0:
+                counts = {reservation.max_ability_level or 'unknown': reservation.number_of_people}
+            payments = list(reservation.group.payments.all())
+            latest_payment = max(payments, key=lambda payment: (payment.created_at, payment.id)) if payments else None
+            payment_status = latest_payment.status if latest_payment else 'unpaid'
+            if payment_status in ('expired', 'refunded'):
+                continue
+            for level, count in counts.items():
+                if not isinstance(count, int) or count <= 0:
+                    continue
+                key = (
+                    reservation.group.campus_id, reservation.resort_id,
+                    reservation.course_template_id, booking.date,
+                    booking.start_time, booking.end_time, level,
+                )
+                candidate = candidates.setdefault(key, {
+                    'campus_id': reservation.group.campus_id,
+                    'campus_name': reservation.group.campus.name if reservation.group.campus else '未分校區',
+                    'resort_id': reservation.resort_id,
+                    'resort_name': reservation.resort.display_name if reservation.resort else '',
+                    'template_id': reservation.course_template_id,
+                    'template_name': reservation.course_template.name,
+                    'date': booking.date.isoformat(),
+                    'start_time': booking.start_time.strftime('%H:%M'),
+                    'end_time': booking.end_time.strftime('%H:%M'),
+                    'ability_level': level,
+                    'registered_students': 0,
+                    'assigned_students': 0,
+                    'orders': [],
+                })
+                candidate['registered_students'] += count
+                already_assigned = bool(
+                    booking.is_scheduled or reservation.preferred_coach_id or
+                    reservation.status in SCHEDULED_RESERVATION_STATUSES
+                )
+                if already_assigned:
+                    candidate['assigned_students'] += count
+                if can_view_payment:
+                    candidate['paid_students'] = candidate.get('paid_students', 0) + (count if payment_status == 'paid' else 0)
+                order_info = {
+                    'group_id': reservation.group_id,
+                    'order_number': reservation.group.order_number,
+                    'students': count,
+                    'already_assigned': already_assigned,
+                }
+                if can_view_payment:
+                    order_info['payment_status'] = payment_status
+                candidate['orders'].append(order_info)
+
+        items = sorted(candidates.values(), key=lambda row: (
+            row['date'], row['start_time'], row['resort_name'],
+            row['template_name'], row['ability_level'], row['campus_id'] or 0,
+        ))
+        return Response({'code': 200, 'msg': 'OK', 'data': {'list': items, 'total': len(items)}})
 
 
 # ==================== Dashboard 統計 ====================
@@ -2075,21 +2345,23 @@ def coach_pending_confirmations(request, client_code):
 
     qs = Reservation.objects.filter(
         preferred_coach=coach,
+        group__client=request.tenant,
         status='pending_coach_confirmation',
-    ).select_related('resort', 'course_type', 'group__user').prefetch_related('bookings').distinct().order_by('-mdt_add')
+    ).select_related('resort', 'course_type', 'group__user').prefetch_related('bookings', 'members').distinct().order_by('-mdt_add')
 
     items = []
     for r in qs:
         items.append({
             'id': r.id,
             'group_id': r.group_id,
-            'user_name': (r.group.user.get_full_name() or r.group.user.username) if r.group.user else (r.group.name or '訪客'),
+            'user_name': _reservation_user_alias(r),
             'resort': r.resort.display_name if r.resort else '',
             'course_type': r.course_type.name if r.course_type else '',
             'ability_level': r.max_ability_level or '',
             'language': r.language,
+            'language_label': r.get_language_display(),
             'number_of_people': r.number_of_people,
-            'total_fee': r.total_fee,
+            'age_ranges': [member.get_age_range_display() for member in r.members.all()],
             'bookings': [
                 {'date': str(b.date), 'start_time': str(b.start_time), 'end_time': str(b.end_time)}
                 for b in sorted(r.bookings.all(), key=lambda b: (str(b.date or ''), str(b.start_time or '')))
@@ -2113,7 +2385,7 @@ def coach_confirm_course(request, client_code, reservation_id):
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
     try:
-        r = Reservation.objects.get(pk=reservation_id, preferred_coach=coach)
+        r = Reservation.objects.get(pk=reservation_id, preferred_coach=coach, group__client=request.tenant)
     except Reservation.DoesNotExist:
         return Response({'code': 404, 'msg': '課程不存在或非指派給您'}, status=404)
 
@@ -2126,6 +2398,8 @@ def coach_confirm_course(request, client_code, reservation_id):
         return Response({'code': 200, 'msg': '已接受'})
 
     if action == 'reject':
+        if r.status != 'pending_coach_confirmation':
+            return Response({'code': 400, 'msg': '此課程目前狀態不可拒絕'}, status=400)
         # 加入 rejected_coaches、清除指派、重排
         r.rejected_coaches.add(coach)
         r.preferred_coach = None
@@ -2165,16 +2439,11 @@ def coach_my_courses(request, client_code):
     visible_start, visible_end = _coach_visible_window()
     qs = Reservation.objects.filter(
         preferred_coach=coach,
+        group__client=request.tenant,
         group__payments__status__in=COACH_VISIBLE_PAYMENT_STATUSES,
     ).exclude(status__in=['deleted', 'cancelled']).select_related(
-        'resort', 'course_type', 'group__user'
-    ).prefetch_related('bookings').distinct().order_by('-mdt_add')
-
-    if not full_schedule_visible:
-        qs = qs.filter(
-            bookings__date__gte=visible_start,
-            bookings__date__lte=visible_end,
-        ).distinct()
+        'resort', 'course_type__category', 'course_template__course_type__category', 'group__user'
+    ).prefetch_related('bookings', 'members').distinct().order_by('-mdt_add')
 
     # 篩選
     status_filter = request.query_params.get('status')
@@ -2182,10 +2451,6 @@ def coach_my_courses(request, client_code):
         qs = qs.filter(status=status_filter)
     date_from = request.query_params.get('date_from')
     date_to = request.query_params.get('date_to')
-    if date_from:
-        qs = qs.filter(bookings__date__gte=date_from).distinct()
-    if date_to:
-        qs = qs.filter(bookings__date__lte=date_to).distinct()
     display_start = None if full_schedule_visible else visible_start
     display_end = None if full_schedule_visible else visible_end
     parsed_date_from = _parse_date_query(date_from)
@@ -2194,18 +2459,33 @@ def coach_my_courses(request, client_code):
         display_start = parsed_date_from
     if parsed_date_to and (display_end is None or parsed_date_to < display_end):
         display_end = parsed_date_to
+    booking_date_filter = {}
+    if display_start:
+        booking_date_filter['bookings__date__gte'] = display_start
+    if display_end:
+        booking_date_filter['bookings__date__lte'] = display_end
+    if display_start and display_end and display_start > display_end:
+        qs = qs.none()
+    elif booking_date_filter:
+        qs = qs.filter(**booking_date_filter).distinct()
 
     items = []
     for r in qs:
         items.append({
             'id': r.id,
             'group_id': r.group_id,
-            'user_name': (r.group.user.get_full_name() or r.group.user.username) if r.group.user else (r.group.name or '訪客'),
+            'user_name': _reservation_user_alias(r),
             'resort': r.resort.display_name if r.resort else '',
             'course_type': r.course_type.name if r.course_type else '',
+            'course_category': (
+                r.course_type.category.name if r.course_type else
+                r.course_template.course_type.category.name if r.course_template else ''
+            ),
             'ability_level': r.max_ability_level or '',
             'language': r.language,
+            'language_label': r.get_language_display(),
             'number_of_people': r.number_of_people,
+            'age_ranges': [member.get_age_range_display() for member in r.members.all()],
             'status': r.status,
             'is_preferred_coach': bool(r.is_preferred_coach),
             'bookings': [
@@ -2249,6 +2529,7 @@ def coach_my_calendar(request, client_code):
     visible_start, visible_end = _coach_visible_window()
     qs = Booking.objects.filter(
         reservation__preferred_coach=coach,
+        reservation__group__client=request.tenant,
         reservation__status__in=SCHEDULED_RESERVATION_STATUSES,
         reservation__group__payments__status__in=COACH_VISIBLE_PAYMENT_STATUSES,
     ).select_related(
@@ -2260,7 +2541,7 @@ def coach_my_calendar(request, client_code):
     ).distinct().order_by('date', 'start_time')
 
     if not full_schedule_visible:
-        qs = qs.filter(date__gte=visible_start, date__lte=visible_end)
+        qs = qs.filter(date__lte=visible_end)
 
     start = request.query_params.get('start')
     end = request.query_params.get('end')
@@ -2275,16 +2556,12 @@ def coach_my_calendar(request, client_code):
         equipment_start = query_start
         equipment_end = query_end
     else:
-        equipment_start = max([d for d in [visible_start, query_start] if d])
+        equipment_start = query_start
         equipment_end = min([d for d in [visible_end, query_end] if d])
 
     items = []
     for b in qs:
-        try:
-            user = b.reservation.group.user
-            user_name = (user.get_full_name() or user.username) if user else (b.reservation.group.name or '')
-        except Exception:
-            user_name = ''
+        user_name = _reservation_user_alias(b.reservation)
         items.append({
             'id': b.id,
             'reservation_id': b.reservation_id,
@@ -2311,6 +2588,7 @@ def coach_my_calendar(request, client_code):
         })
 
     items.extend(_equipment_assistance_calendar_items(
+        tenant=request.tenant,
         coach=coach,
         start_date=equipment_start,
         end_date=equipment_end,
@@ -2450,6 +2728,7 @@ def coach_apply_leave(request, client_code):
     # 找這段期間有沒有指派給這個教練的課
     affected = Reservation.objects.filter(
         preferred_coach=coach,
+        group__client=request.tenant,
         bookings__date__gte=sd,
         bookings__date__lte=ed,
     ).exclude(status__in=['deleted', 'cancelled']).distinct()
@@ -2599,6 +2878,8 @@ def admin_me(request, client_code):
 
     accessible_campuses, can_view_all = _campus_scope_for_user(request.user, tenant)
     campus_items = list(accessible_campuses.values('id', 'name', 'code', 'is_active'))
+    if is_coach and not is_manager and not is_superuser:
+        assigned_campus_ids = [campus['id'] for campus in campus_items]
 
     return Response({
         'code': 200,
@@ -2719,6 +3000,8 @@ def payment_settings_view(request, client_code=None):
     denied = _require_admin_permission(request, 'payment_settings')
     if denied:
         return denied
+    if request.method == 'PUT' and not getattr(request, 'can_view_all_campuses', False):
+        raise PermissionDenied('全公司付款設定只能由總部管理員修改')
     """
     GET  /api/admin/<client_code>/payment-settings/  讀取
     PUT  /api/admin/<client_code>/payment-settings/  更新

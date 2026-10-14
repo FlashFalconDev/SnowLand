@@ -86,6 +86,18 @@ class Coach(models.Model):
         default='active',
         verbose_name='接課狀態'
     )
+    auto_assignment_enabled = models.BooleanField(default=True, verbose_name='參與自動排課')
+
+    SCHEDULE_VISIBILITY_CHOICES = [
+        ('ten_days', '過往及未來 10 天'),
+        ('full', '全部課程'),
+    ]
+    schedule_visibility = models.CharField(
+        max_length=20,
+        choices=SCHEDULE_VISIBILITY_CHOICES,
+        default='ten_days',
+        verbose_name='課程可見範圍',
+    )
 
     assignment_score = models.IntegerField(
         default=0,

@@ -1,4 +1,4 @@
-from datetime import time, timedelta
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -57,6 +57,8 @@ class Command(BaseCommand):
 
         # 早期本機資料曾另外建立 hq，合併回既有 main，避免畫面出現兩個「總部」。
         Campus.objects.filter(client=client, code="hq", name="北海道營運總部").delete()
+        # 最小種子建立的 hokkaido 是單校區示範；完整 DEMO 改由 east／west 接單。
+        Campus.objects.filter(client=client, code="hokkaido").update(is_active=False)
 
         resort_specs = [
             ("tomamu", "星野 Tomamu"),
@@ -138,10 +140,6 @@ class Command(BaseCommand):
             ("demo-coach-yuki", "Yuki 教練", "coach", ["east", "west"], False, True),
             ("demo-coach-ken", "Ken 教練", "coach", ["west"], False, True),
         ]
-        all_permissions = [
-            "dashboard", "campuses", "staff", "orders", "notifications", "evaluations",
-            "insurance_records", "payroll", "payment_accounts", "course_types",
-        ]
         for username, display_name, role, campus_codes, is_manager, is_coach in staff_specs:
             user, _ = User.objects.update_or_create(
                 username=username,
@@ -157,7 +155,7 @@ class Command(BaseCommand):
             profile.role = role
             profile.is_manager = is_manager
             profile.is_coach = is_coach
-            profile.admin_permissions = all_permissions if role == "hq_admin" else None
+            profile.admin_permissions = None
             profile.save()
             profile.campuses.set([campuses[code] for code in campus_codes])
             users[username] = user
@@ -288,8 +286,16 @@ class Command(BaseCommand):
                 },
             )
             ReservationGroup.objects.filter(pk=group.pk).update(created_at=now - timedelta(days=index))
-            course_type = course_types[index % len(course_types)]
-            template = templates[index % len(templates)]
+            category_name = "雙板 Ski" if "雙板" in name else "單板 Snowboard"
+            template_name = "半天上午" if "上午" in name else "半天下午" if "下午" in name else "全天課程"
+            template = next(
+                item for item in templates
+                if item.course_type.category.name == category_name and item.name == template_name
+            )
+            course_type = template.course_type
+            session = template.sessions.filter(is_active=True).order_by("start_time").first()
+            if session is None:
+                raise CommandError(f"DEMO 課程缺少時段：{category_name}／{template_name}")
             reservation, _ = Reservation.objects.update_or_create(
                 group=group,
                 defaults={
@@ -308,17 +314,20 @@ class Command(BaseCommand):
                     "discount_code": "DEMO1000" if index == 0 else "",
                 },
             )
-            booking, _ = Booking.objects.update_or_create(
-                reservation=reservation,
-                date=today + timedelta(days=day_offset),
-                defaults={
-                    "course_type": course_type.category.name,
-                    "course_name": template.name,
-                    "start_time": time(9 if index % 2 == 0 else 13),
-                    "end_time": time(15 if index % 2 == 0 else 16),
-                    "is_scheduled": status not in {"created", "manual_assignment_needed", "cancelled"},
-                },
-            )
+            # update_or_create(update_fields=...) does not include the totals
+            # calculated by Reservation.save() unless they are saved explicitly.
+            reservation.save()
+            booking = Booking.objects.filter(reservation=reservation).order_by("-id").first()
+            if booking is None:
+                booking = Booking(reservation=reservation)
+            booking.date = today + timedelta(days=day_offset)
+            booking.course_type = course_type.category.name
+            booking.course_name = template.name
+            booking.start_time = session.start_time
+            booking.end_time = session.end_time
+            booking.is_scheduled = status not in {"created", "manual_assignment_needed", "cancelled"}
+            booking.save()
+            Booking.objects.filter(reservation=reservation).exclude(pk=booking.pk).delete()
             payment, _ = Payment.objects.update_or_create(
                 reservation_group=group,
                 defaults={
@@ -337,6 +346,14 @@ class Command(BaseCommand):
                     "age_range": "25-35y",
                     "snowboard_skills": ["雪場C turn"] if index % 2 == 0 else ["無經驗"],
                     "ski_skills": ["雪場全制動轉彎"] if index % 2 else ["無經驗"],
+                    "insurance_data": {
+                        "full_name": f"DEMO {customer.first_name}",
+                        "birth_date": "1990-01-01",
+                        "id_number": "DEMO-NOT-A-REAL-ID",
+                        "phone": "0900000000",
+                        "emergency_contact": "DEMO 緊急聯絡人",
+                        "emergency_phone": "0900000000",
+                    } if index not in (2, 5) else {},
                     "insurance_completed_at": now if index not in (2, 5) else None,
                     "waiver_completed_at": now if index not in (3, 5) else None,
                 },

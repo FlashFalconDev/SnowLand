@@ -17,6 +17,7 @@ import { useNotification } from '../context'
 import PromptModal, { type PromptField } from '../components/PromptModal'
 
 const PRIMARY = '#8b5cf6'
+const SHARED_CLASS_FEATURE_ENABLED = import.meta.env.VITE_SHARED_CLASS_FEATURE_ENABLED === '1'
 const serviceTypeOptions = [
   { value: 'ski', label: '滑雪課程' },
   { value: 'photo', label: '攝影服務' },
@@ -205,6 +206,8 @@ export default function CourseTypesPage() {
     max_capacity: number
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
+    shared_class_enabled: boolean
+    shared_class_minimum_students: number
     minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
@@ -240,6 +243,8 @@ export default function CourseTypesPage() {
     max_capacity: number
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
+    shared_class_enabled: boolean
+    shared_class_minimum_students: number
     minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
@@ -582,6 +587,11 @@ export default function CourseTypesPage() {
                         <div className={`mt-1 text-xs ${selectedTemplateId === tmpl.id ? 'text-white/80' : 'text-gray-500 dark:text-gray-400'}`}>
                           {tmpl.duration_hours} 小時 · 最多 {tmpl.max_capacity} 人
                         </div>
+                        {SHARED_CLASS_FEATURE_ENABLED && tmpl.shared_class_enabled && (
+                          <div className={`mt-2 text-[11px] font-medium ${selectedTemplateId === tmpl.id ? 'text-white' : 'text-sky-700 dark:text-sky-300'}`}>
+                            可跨訂單湊班 · 滿 {tmpl.shared_class_minimum_students} 人請款
+                          </div>
+                        )}
                         {getTemplateCoachRuleText(tmpl) && (
                           <div className={`mt-2 text-[11px] font-medium ${selectedTemplateId === tmpl.id ? 'text-white' : 'text-[#8b5cf6]'}`}>
                             教練條件：{getTemplateCoachRuleText(tmpl)}
@@ -631,6 +641,11 @@ export default function CourseTypesPage() {
                           <div className="text-xl font-bold text-gray-900 dark:text-white">{selectedTemplate.max_capacity} 人</div>
                         </div>
                       </div>
+                      {SHARED_CLASS_FEATURE_ENABLED && selectedTemplate.shared_class_enabled && (
+                        <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
+                          這是跨訂單團體班：每位客人可單獨報名；同校區、雪場、日期、時段及程度累計滿 {selectedTemplate.shared_class_minimum_students} 人後才開放付款。
+                        </p>
+                      )}
                       <div>
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">適用雪場</h4>
                         <div className="flex flex-wrap gap-2">
@@ -754,6 +769,8 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
     max_capacity: number
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
+    shared_class_enabled: boolean
+    shared_class_minimum_students: number
     minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
@@ -771,6 +788,8 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
   const [capacity, setCapacity] = useState(String(template?.max_capacity ?? 6))
   const [billingMode, setBillingMode] = useState<'private' | 'per_person'>(template?.billing_mode || 'private')
   const [minimumGroupSize, setMinimumGroupSize] = useState(String(template?.minimum_group_size ?? 1))
+  const [sharedClassEnabled, setSharedClassEnabled] = useState(SHARED_CLASS_FEATURE_ENABLED && Boolean(template?.shared_class_enabled))
+  const [sharedClassMinimumStudents, setSharedClassMinimumStudents] = useState(String(template?.shared_class_minimum_students ?? 3))
   const [minimumStudentLevel, setMinimumStudentLevel] = useState(template?.minimum_student_level || '')
   const [resortIds, setResortIds] = useState<number[]>(template?.resorts || [])
   const [courseStart, setCourseStart] = useState(template?.course_start_date || '')
@@ -800,7 +819,9 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
         duration_hours: parseInt(duration, 10),
         max_capacity: parseInt(capacity, 10),
         billing_mode: billingMode,
-        minimum_group_size: parseInt(minimumGroupSize, 10) || 1,
+        minimum_group_size: sharedClassEnabled ? 1 : (parseInt(minimumGroupSize, 10) || 1),
+        shared_class_enabled: SHARED_CLASS_FEATURE_ENABLED && sharedClassEnabled,
+        shared_class_minimum_students: parseInt(sharedClassMinimumStudents, 10) || 3,
         minimum_student_level: minimumStudentLevel,
         resorts: resortIds,
         course_start_date: courseStart || null,
@@ -855,10 +876,19 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
-                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">計價方式</label><select value={billingMode} onChange={e => setBillingMode(e.target.value as 'private' | 'per_person')} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="private">包班計價</option><option value="per_person">每人計價</option></select></div>
-                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">最低開班人數</label><input type="number" min="1" max={capacity} value={minimumGroupSize} onChange={e => setMinimumGroupSize(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" /></div>
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">計價方式</label><select value={billingMode} onChange={e => { const mode = e.target.value as 'private' | 'per_person'; setBillingMode(mode); if (mode !== 'per_person') setSharedClassEnabled(false) }} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="private">包班計價</option><option value="per_person">每人計價</option></select></div>
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">單筆預約最低人數</label><input type="number" min="1" max={capacity} value={sharedClassEnabled ? '1' : minimumGroupSize} disabled={sharedClassEnabled} onChange={e => setMinimumGroupSize(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white disabled:opacity-60" /></div>
                 <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">學員最低等級</label><select value={minimumStudentLevel} onChange={e => setMinimumStudentLevel(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="">不限制</option><option value="level1">等級 1</option><option value="level2">等級 2</option><option value="level3">等級 3</option><option value="level4">等級 4</option><option value="level5">等級 5</option></select></div>
               </div>
+              {SHARED_CLASS_FEATURE_ENABLED && <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-600 dark:bg-gray-700/40">
+                <label className="flex items-start gap-3 text-gray-900 dark:text-white">
+                  <input type="checkbox" checked={sharedClassEnabled} disabled={billingMode !== 'per_person'} onChange={e => setSharedClassEnabled(e.target.checked)} className="mt-1 h-4 w-4" />
+                  <span><span className="font-medium">允許不同客人湊成同一班</span><span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">客人可單人報名；同校區、雪場、日期、時段與程度才會合班。成班後再請款。</span></span>
+                </label>
+                {sharedClassEnabled && billingMode === 'per_person' && (
+                  <div className="mt-3 sm:max-w-56"><label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">幾人成班</label><input type="number" min="2" max={capacity} value={sharedClassMinimumStudents} onChange={e => setSharedClassMinimumStudents(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white" /></div>
+                )}
+              </div>}
             </div>
           </section>
 

@@ -5,8 +5,10 @@ from django.core.mail import send_mail
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from booking.models import CourseEvaluation, NotificationDelivery, NotificationTemplate, Payment, ReservationGroup
-from booking.operations import schedule_group_notifications
+from booking.legal_documents import get_current_waiver
+from booking.models import Booking, CourseEvaluation, MemberDetail, NotificationDelivery, NotificationTemplate, Payment, ReservationGroup
+from booking.operations import notification_template_matches_group, schedule_group_notifications
+from booking.tasks import auto_cancel_unpaid_reservations
 
 
 class Command(BaseCommand):
@@ -21,7 +23,7 @@ class Command(BaseCommand):
         expired = Payment.objects.filter(status='unpaid', expires_at__isnull=False, expires_at__lte=now)
         expired_count = expired.count()
         if not dry_run:
-            expired.update(status='expired', updated_at=now)
+            auto_cancel_unpaid_reservations()
 
         evaluation_count = 0
         completed_groups = ReservationGroup.objects.filter(
@@ -44,8 +46,10 @@ class Command(BaseCommand):
             event__in=['pre_course', 'missing_documents', 'line_group', 'evaluation_due'],
         ).values_list('client_id', 'event').distinct()
         for client_id, event in events:
-            for group in ReservationGroup.objects.filter(client_id=client_id).exclude(payments__status='expired').distinct():
+            for group in ReservationGroup.objects.filter(client_id=client_id, payments__status='paid').distinct():
                 if dry_run:
+                    continue
+                if not self._event_is_applicable(group, event):
                     continue
                 scheduled_count += len(schedule_group_notifications(group, event))
 
@@ -54,6 +58,16 @@ class Command(BaseCommand):
         )
         sent = failed = 0
         for delivery in deliveries:
+            if not notification_template_matches_group(delivery.template, delivery.group):
+                if not dry_run:
+                    delivery.status = 'cancelled'
+                    delivery.save(update_fields=['status'])
+                continue
+            if delivery.template.event in {'pre_course', 'missing_documents', 'line_group', 'evaluation_due'}:
+                if not delivery.group.payments.filter(status='paid').exists():
+                    continue
+                if not self._event_is_applicable(delivery.group, delivery.template.event):
+                    continue
             if dry_run:
                 sent += 1
                 continue
@@ -81,6 +95,38 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'{mode}: expired={expired_count}, evaluations={evaluation_count}, scheduled={scheduled_count}, sent={sent}, failed={failed}'
         ))
+
+    @staticmethod
+    def _event_is_applicable(group, event):
+        if event in {'pre_course', 'missing_documents', 'line_group'} and not Booking.objects.filter(
+            reservation__group=group, date__gte=timezone.localdate(),
+        ).exclude(reservation__status__in=['cancelled', 'deleted']).exists():
+            return False
+        if event == 'line_group':
+            return bool(group.line_group_url)
+        if event == 'evaluation_due':
+            return CourseEvaluation.objects.filter(
+                booking__reservation__group=group,
+                booking__reservation__status='completed',
+                completed_at__isnull=True,
+            ).exists()
+        if event == 'missing_documents':
+            members = MemberDetail.objects.filter(reservation__group=group).exclude(
+                reservation__status__in=['cancelled', 'deleted'],
+            )
+            if not members.exists():
+                return True
+            current_version = get_current_waiver(group.client)['version']
+            for member in members:
+                insurance = member.insurance_data or {}
+                if not member.insurance_completed_at or not all(
+                    insurance.get(key) for key in ('full_name', 'birth_date', 'id_number', 'phone')
+                ):
+                    return True
+                if not member.waiver_completed_at or not member.waiver_signature or member.waiver_document_version != current_version:
+                    return True
+            return False
+        return True
 
     @staticmethod
     def _render(text, delivery):

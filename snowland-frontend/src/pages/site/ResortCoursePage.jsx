@@ -21,7 +21,7 @@ function ResortCoursePage() {
   const location = useLocation();
   const { items: resortDetailItems, isLoading: detailLoading, error: detailError } = useSiteContent('course.resort-pages');
   const { items: resortItems, isLoading: resortsLoading } = useSiteContent('course.resorts');
-  const { pricing, isLoading: pricingLoading, error: pricingError } = useCoursePricing(resort);
+  const { pricing, isStale: pricingStale, isLoading: pricingLoading, error: pricingError } = useCoursePricing(resort);
   const resortDetailItem = resortDetailItems.find((item) => item.external_id === resort);
   const storedResortInfo = resortDetailItem?.metadata?.resort;
   const resortInfo = storedResortInfo ? {
@@ -1408,7 +1408,7 @@ function ResortCoursePage() {
                     </div>
 
                     <div className="grid gap-8">
-                      <div className="flex items-center justify-center gap-4 text-base font-semibold text-[#64748b]">
+                      {pricing && <div className="flex items-center justify-center gap-4 text-base font-semibold text-[#64748b]">
                         <button
                           type="button"
                           className={`transition-colors ${
@@ -1442,7 +1442,7 @@ function ResortCoursePage() {
                         >
                           一般時段
                         </button>
-                      </div>
+                      </div>}
 
                       <div className="w-full max-w-xl mx-auto">
                         <div className="text-center">
@@ -1451,7 +1451,7 @@ function ResortCoursePage() {
                               {pricing?.season_label || '課程價格'} ｜{" "}
                             </span>
                             <span className="text-lg font-semibold" style={{ color: priceAccentText }}>
-                              {pricePlan?.period || '請洽客服確認適用日期'}
+                              {pricePlan?.period || '請至預約流程即時計價'}
                             </span>
                           </p>
                         </div>
@@ -1500,8 +1500,12 @@ function ResortCoursePage() {
                           <div className="text-sm text-[#475569]">
                             {pricingLoading ? (
                               <div className="px-4 py-8 text-center text-[#64748b]">價目載入中。</div>
-                            ) : pricingError || !pricing ? (
+                            ) : pricingStale ? (
+                              <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
+                            ) : pricingError ? (
                               <div className="px-4 py-8 text-center text-red-600">價目暫時無法載入，請稍後再試。</div>
+                            ) : !pricing ? (
+                              <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
                             ) : priceTableRows.length === 0 ? (
                               <div className="px-4 py-8 text-center text-[#64748b]">目前尚未設定此時段價格。</div>
                             ) : priceTableRows.map((row, index) => (
@@ -1572,6 +1576,7 @@ function ResortCoursePage() {
                         <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
                           <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">優惠</h3>
                           <ul className="space-y-3 text-sm text-[#475569] list-disc pl-5">
+                            {!pricing?.promotions?.length && <li>本雪季優惠尚未公布。</li>}
                             {(pricing?.promotions ?? []).map((promotion) => (
                               <li key={promotion.title} className="space-y-2">
                                 <span>{promotion.title}</span>
@@ -1586,12 +1591,16 @@ function ResortCoursePage() {
                         <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] py-8">
                           <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程費用</h3>
                           <ul className="space-y-2 text-sm text-[#475569] list-disc pl-5">
+                            {!pricing?.fee_notes?.length && <li>請以預約流程顯示的即時計價為準。</li>}
                             {(pricing?.fee_notes ?? []).map((note) => <li key={note}>{note}</li>)}
                           </ul>
                         </div>
 
-                        <div className="pt-8">
-                          <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程時間</h3>
+                {!pricing && !pricingLoading && (
+                  <p className="pt-8 text-sm text-[#475569]">本雪季課程時間請以預約流程可選時段為準。</p>
+                )}
+                <div className={pricing ? 'pt-8' : 'hidden'}>
+                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程時間</h3>
                           <div className="mt-6 space-y-8 divide-y divide-[#e2e2de]">
                             <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
                               <p className="text-sm font-semibold text-[#1f2937]">全天5hr課程</p>

@@ -405,7 +405,17 @@ function AdminLayoutContent() {
 
   useEffect(() => {
     const adminUser = adminCheck?.user
-    if (!adminUser || adminUser.can_view_all_campuses || !adminUser.campuses?.length) return
+    if (!adminUser) return
+    const ownerKey = 'snowland_admin_campus_scope_owner'
+    if (localStorage.getItem(ownerKey) !== String(adminUser.id)) {
+      const defaultScope = adminUser.can_view_all_campuses ? 'all' : String(adminUser.campuses?.[0]?.id || 'all')
+      localStorage.setItem(ownerKey, String(adminUser.id))
+      localStorage.setItem('snowland_admin_campus_scope', defaultScope)
+      setCampusScope(defaultScope)
+      if (campusScope !== defaultScope) window.location.reload()
+      return
+    }
+    if (adminUser.can_view_all_campuses || !adminUser.campuses?.length) return
     const allowed = new Set(adminUser.campuses.map((campus) => String(campus.id)))
     if (!allowed.has(campusScope)) {
       const onlyCampus = String(adminUser.campuses[0].id)
@@ -431,6 +441,9 @@ function AdminLayoutContent() {
   // 根據使用者角色組 NAV
   const isManager = !!(adminCheck?.user?.is_superuser || adminCheck?.user?.is_manager)
   const isCoach = !!(adminCheck?.user?.is_coach)
+  const displayUser = adminCheck?.user
+    ? { ...user, ...adminCheck.user, picture: user?.picture }
+    : user
   const navPermissionById: Record<string, string> = {
     dashboard: 'analytics',
     orders: 'orders',
@@ -576,6 +589,17 @@ function AdminLayoutContent() {
     navItems = [...coachNav]
   }
 
+  // A campus staff member may have Orders/Scheduling but no dashboard permission.
+  // Send them to their first available module instead of a permission error after login.
+  const firstAvailablePath = navItems.flatMap((item) => item.children?.map((child) => child.path) || [item.path])
+    .find((path) => path && path !== `${basePath}/console`)
+  useEffect(() => {
+    if (adminCheck?.user && location.pathname === `${basePath}/console`
+      && !hasAdminPermission(adminCheck.user, 'analytics') && firstAvailablePath) {
+      navigate(firstAvailablePath, { replace: true })
+    }
+  }, [adminCheck, basePath, firstAvailablePath, location.pathname, navigate])
+
   // 切換選單展開（單選模式）
   const toggleMenu = (menuId: string) => {
     setExpandedMenus((prev) => {
@@ -590,6 +614,7 @@ function AdminLayoutContent() {
 
   // 進入頁面自動展開所在區塊
   useEffect(() => {
+    setMobileMenuOpen(false)
     const currentMenu = navItems.find((item) =>
       item.children?.some((child) => location.pathname === child.path || location.pathname.startsWith(child.path + '/'))
     )
@@ -617,7 +642,7 @@ function AdminLayoutContent() {
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <LoginPage />
+        <LoginPage returnTo="console" />
       </div>
     )
   }
@@ -701,10 +726,10 @@ function AdminLayoutContent() {
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="個人設定"
             >
-              {user?.picture ? (
+              {displayUser?.picture ? (
                 <img
-                  src={user.picture}
-                  alt={user.name || ''}
+                  src={displayUser.picture}
+                  alt={displayUser.name || ''}
                   className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                 />
               ) : (
@@ -712,15 +737,15 @@ function AdminLayoutContent() {
                   className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0"
                   style={{ backgroundColor: PRIMARY }}
                 >
-                  {(user?.name || user?.email || '?').charAt(0).toUpperCase()}
+                  {(displayUser?.name || displayUser?.email || '?').charAt(0).toUpperCase()}
                 </div>
               )}
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {user?.name || '管理員'}
+                  {displayUser?.name || '管理員'}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  {user?.email}
+                  {displayUser?.email}
                 </div>
               </div>
             </button>
@@ -745,8 +770,8 @@ function AdminLayoutContent() {
           </div>
 
           <div className="flex items-center gap-2">
-            {!!adminCheck?.user?.campuses?.length && (
-              <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title="切換後，所有管理頁只顯示這個校區的資料">
+            {!!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+              <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title="切換日常資料的校區範圍；總部設定頁仍可管理全部校區">
                 <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">目前範圍</span>
                 <select
                   aria-label="目前管理校區"
@@ -820,10 +845,10 @@ function PageBreadcrumb({ navItems }: { navItems: NavItem[] }) {
   }
 
   return (
-    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-      <span className="text-gray-700 dark:text-gray-300">{parent.label}</span>
-      <span aria-hidden>/</span>
-      <span className="text-gray-900 dark:text-white font-medium">{child.label}</span>
+    <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+      <span className="hidden text-gray-700 dark:text-gray-300 sm:inline">{parent.label}</span>
+      <span className="hidden sm:inline" aria-hidden>/</span>
+      <span className="min-w-0 truncate font-medium text-gray-900 dark:text-white">{child.label}</span>
     </div>
   )
 }

@@ -48,7 +48,11 @@ SECRET_KEY = "django-insecure-6m9s&&mrr%$5oie!_2wc-byua$@8c*oggvsef(94lkoil0j4i*
 # if platform.system() == 'Windows':
 DEBUG = True
 LOCAL_AUTH_BYPASS = os.getenv('SNOWLAND_LOCAL_AUTH_BYPASS', '0') == '1'
+SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '0') == '1'
 GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
+NEWEBPAY_MERCHANT_ID = os.getenv('NEWEBPAY_MERCHANT_ID', '').strip()
+NEWEBPAY_HASH_KEY = os.getenv('NEWEBPAY_HASH_KEY', '').strip()
+NEWEBPAY_HASH_IV = os.getenv('NEWEBPAY_HASH_IV', '').strip()
 RUN_HOST = 'https://dev.flashfalcon.info'
 PAYMENT_HOST = 'https://dev.flashfalcon.info/booking/payment/'
 # else:
@@ -187,6 +191,14 @@ CSRF_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = False
 # CSRF_COOKIE_DOMAIN = None  # 🔥 不設定，讓 Cookie 只綁定到設定它的域名
+
+# 本機純 HTTP 的測試網址不能儲存 Secure Cookie；僅在明確啟用時放寬。
+if DEBUG and os.getenv('SNOWLAND_LOCAL_HTTP') == '1':
+    SESSION_COOKIE_NAME = 'snowland_local_sessionid'
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SECURE = False
 
 # 🔥 Django REST Framework 設定
 REST_FRAMEWORK = {

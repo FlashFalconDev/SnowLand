@@ -47,9 +47,13 @@ export function useSiteContent(locationKey, options = {}) {
 export function useCoursePricing(resortSlug) {
   const result = useSiteContent('course.pricing');
   const item = result.items.find((candidate) => candidate.external_id === resortSlug);
+  const storedPricing = item?.metadata?.pricing ?? null;
+  const seasonYears = String(storedPricing?.season_label ?? '').match(/(\d{2})\s*[-–]\s*(\d{2})/);
+  const isStale = Boolean(seasonYears && Date.now() >= new Date(2000 + Number(seasonYears[2]), 6, 1).getTime());
   return {
     ...result,
-    pricing: item?.metadata?.pricing ?? null,
+    pricing: isStale ? null : storedPricing,
+    isStale,
   };
 }
 

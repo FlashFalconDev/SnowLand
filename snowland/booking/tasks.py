@@ -1,26 +1,29 @@
 from __future__ import absolute_import, unicode_literals
 
 from celery import shared_task
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import Payment
+from .operations import get_operating_policy
 
 
 @shared_task
 def auto_cancel_unpaid_reservations():
     """
-    Expire unpaid reservation groups after 24 hours.
+    Expire unpaid reservation groups after their configured hold period.
 
     A bank-transfer order can be sent before the customer enters the last
     five digits. At that point the payment remains ``unpaid`` and should be
-    held for 24 hours. Once the customer submits transfer digits the payment
+    held until its expires_at deadline. Once the customer submits transfer digits the payment
     becomes ``pending`` and is kept for staff reconciliation.
     """
-    time_threshold = timezone.now() - timezone.timedelta(hours=24)
+    now = timezone.now()
 
     payments = Payment.objects.filter(
         status='unpaid',
-        created_at__lte=time_threshold,
+    ).filter(
+        Q(expires_at__lte=now) | Q(expires_at__isnull=True),
     ).select_related('reservation_group').prefetch_related(
         'reservation_group__reservations'
     )
@@ -30,10 +33,19 @@ def auto_cancel_unpaid_reservations():
 
     for payment in payments:
         group = payment.reservation_group
-        reservations = group.reservations.exclude(
-            status__in=['cancelled', 'deleted', 'completed']
-        )
-        cancelled_reservations += reservations.update(status='cancelled')
+        if payment.expires_at is None:
+            legacy_deadline = payment.created_at + timezone.timedelta(
+                days=get_operating_policy(group).unpaid_hold_days
+            )
+            if legacy_deadline > now:
+                continue
+        # An older unpaid attempt must not cancel a reservation that was
+        # subsequently paid or reported for bank-transfer reconciliation.
+        if not group.payments.filter(status__in=['paid', 'pending']).exists():
+            reservations = group.reservations.exclude(
+                status__in=['cancelled', 'deleted', 'completed']
+            )
+            cancelled_reservations += reservations.update(status='cancelled')
 
         payment.status = 'expired'
         payment.save(update_fields=['status'])

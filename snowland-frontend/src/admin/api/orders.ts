@@ -71,6 +71,24 @@ interface ListResp {
 }
 interface ActionResp { code: number; msg: string }
 
+export interface CampusManagerOrder {
+  id: number
+  sn: string
+  campus_name: string
+  student_alias: string
+  number_of_people: number
+  course_dates: string[]
+  sessions: {
+    date: string
+    start_time: string
+    end_time: string
+    course_type: string
+    number_of_people: number
+    ability_level: string
+    age_ranges: string[]
+  }[]
+}
+
 export interface OrdersQuery {
   page?: number
   page_size?: number
@@ -106,6 +124,18 @@ export async function fetchOrdersPaged(query: OrdersQuery = {}): Promise<OrdersP
   }
 }
 
+/** 校區主管專用：只讀近期課程摘要。 */
+export async function fetchCampusManagerOrdersPaged(query: Pick<OrdersQuery, 'page' | 'page_size' | 'search'> = {}) {
+  const res = (await adminApi.get('/orders/', { params: {
+    page: query.page ?? 1,
+    page_size: query.page_size ?? 10,
+    ...(query.search ? { search: query.search } : {}),
+  } })) as unknown as {
+    data: { list: CampusManagerOrder[]; total: number; page: number; total_pages: number }
+  }
+  return res.data
+}
+
 /** 舊接口：向後相容保留，只取第一頁，避免誤抓全部訂單 */
 export async function fetchOrders(): Promise<Order[]> {
   const page = await fetchOrdersPaged({ page: 1, page_size: 10 })
@@ -133,6 +163,10 @@ export async function updateOrder(
 ): Promise<{ code: number; msg: string }> {
   const res = (await adminApi.put(`/orders/${id}/`, payload)) as unknown as ActionResp
   return res
+}
+
+export async function completeOrderCourse(orderId: number, reservationId: number): Promise<{ code: number; msg: string }> {
+  return await adminApi.post(`/orders/${orderId}/complete-course/`, { reservation_id: reservationId }) as unknown as ActionResp
 }
 
 export interface RefundPreview { original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number; available_rules: { days_before: number; refund_percent: number }[] }

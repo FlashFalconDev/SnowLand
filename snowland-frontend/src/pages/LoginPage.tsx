@@ -2,10 +2,13 @@ import GoogleLoginButton from '@/components/auth/GoogleLoginButton'
 import { Mountain, Award, CalendarCheck, Bot } from 'lucide-react'
 import { useClientInfo } from '@/hooks/useClient'
 import { useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { useSiteLink } from '@/hooks/useSiteBasePath'
 
-export default function LoginPage() {
+export default function LoginPage({ returnTo = 'booking' }: { returnTo?: 'booking' | 'console' }) {
   // 🔥 使用 hook 獲取客戶資訊
   const { clientName } = useClientInfo()
+  const membershipLoginUrl = useSiteLink(`/membership?return_to=${returnTo}`)
 
   // 🔥 更新頁面標題
   useEffect(() => {
@@ -35,11 +38,14 @@ export default function LoginPage() {
               歡迎回來
             </h2>
             <p className="text-sm text-gray-600">
-              使用您的Google帳號快速登入
+              選擇 Google 或 Email 登入
             </p>
           </div>
 
           <GoogleLoginButton />
+          <Link to={membershipLoginUrl} className="mt-4 block rounded-full border border-[#2b5f8f] px-5 py-3 text-center text-sm font-semibold text-[#2b5f8f] hover:bg-[#eef4fa]">
+            使用 Email 登入或註冊
+          </Link>
 
           {/* 說明文字 */}
           <div className="mt-6 text-center">

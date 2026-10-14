@@ -46,7 +46,8 @@ const PATH_PERMISSION_MAP: Array<[string, string]> = [
 
 function inferPermissionFromPath(pathname: string): string {
   const match = PATH_PERMISSION_MAP.find(([path]) => pathname.includes(path))
-  return match?.[1] || 'analytics'
+  // Outer manager guard checks the role; each child route checks its own module permission.
+  return match?.[1] || ''
 }
 
 export default function RoleGuard({ requireManager, requireCoach, permission }: Props) {
@@ -106,7 +107,7 @@ export default function RoleGuard({ requireManager, requireCoach, permission }: 
     )
   }
 
-  if (requireCoach && !isSuperuser && !isCoach) {
+  if (requireCoach && !isCoach) {
     return (
       <NoAccess
         title="無權限存取"

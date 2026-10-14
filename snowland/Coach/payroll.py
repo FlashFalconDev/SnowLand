@@ -40,6 +40,15 @@ def _rule_for(booking, discipline):
 
 @transaction.atomic
 def calculate_payroll_statement(*, coach, campus, period_start, period_end):
+    overlap = PayrollStatement.objects.filter(
+        coach=coach, campus=campus,
+        period_start__lte=period_end, period_end__gte=period_start,
+    ).exclude(period_start=period_start, period_end=period_end).first()
+    if overlap:
+        raise ValueError(
+            f'此教練已有 {overlap.period_start}～{overlap.period_end} 的薪資單，'
+            '結算期間不能重疊；請用相同期間重新計算，或選擇不重疊的日期'
+        )
     statement, _ = PayrollStatement.objects.get_or_create(
         coach=coach,
         campus=campus,
@@ -48,36 +57,42 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
     )
     if statement.status == 'paid':
         raise ValueError('已發放的薪資單不能重新計算')
-    statement.lines.exclude(line_type='adjustment').delete()
-
-    totals = {'course': 0, 'specified': 0, 'referral': 0, 'assistance': 0, 'allowance': 0}
-    bookings = Booking.objects.filter(
+    bookings = list(Booking.objects.filter(
         reservation__preferred_coach=coach,
         reservation__group__campus=campus,
         reservation__status='completed',
         date__range=(period_start, period_end),
-    ).select_related('reservation__course_type__category', 'reservation__group').order_by('date', 'start_time')
+    ).select_related('reservation__course_type__category', 'reservation__group').order_by('date', 'start_time'))
+    for booking in bookings:
+        discipline = _discipline_for(booking)
+        if not _rule_for(booking, discipline):
+            raise ValueError(f'{coach.name} 的 {discipline} 課程尚未設定薪資規則（{booking.date}），請先設定時薪再結算')
+    statement.lines.exclude(line_type='adjustment').delete()
+
+    totals = {'course': 0, 'specified': 0, 'referral': 0, 'assistance': 0, 'allowance': 0}
 
     used_allowance_rules = set()
     used_specified_reservations = set()
     used_referral_reservations = set()
     used_assistance_reservations = set()
+    used_shared_classes = set()
     for booking in bookings:
         discipline = _discipline_for(booking)
         rule = _rule_for(booking, discipline)
-        if not rule:
-            continue
         hours = _hours(booking)
         course_total = _money(hours * rule.hourly_rate)
-        PayrollLine.objects.create(
-            statement=statement, booking=booking, line_type='course',
-            description=f'{booking.date} {booking.course_name} {discipline}',
-            quantity=hours, unit_amount=rule.hourly_rate, total_amount=course_total,
-            metadata={'discipline': discipline, 'certification_level': rule.certification_level},
-        )
-        totals['course'] += course_total
-
         reservation = booking.reservation
+        shared_class_id = reservation.shared_course_class_id
+        if not shared_class_id or shared_class_id not in used_shared_classes:
+            PayrollLine.objects.create(
+                statement=statement, booking=booking, line_type='course',
+                description=f'{booking.date} {booking.course_name} {discipline}',
+                quantity=hours, unit_amount=rule.hourly_rate, total_amount=course_total,
+                metadata={'discipline': discipline, 'certification_level': rule.certification_level},
+            )
+            totals['course'] += course_total
+            if shared_class_id:
+                used_shared_classes.add(shared_class_id)
         if reservation.id not in used_specified_reservations and reservation.coach_fee > 0 and rule.specified_fee > 0:
             PayrollLine.objects.create(
                 statement=statement, booking=booking, line_type='specified', description='指定教練費',

@@ -17,6 +17,8 @@ import {
 import { fetchResorts, type Resort } from '../api/resorts'
 import { fetchCourseCategories, fetchCourseTypes, type CourseCategory, type CourseType } from '../api/courses'
 import { fetchStaff, type StaffMember } from '../api/extras'
+import { fetchAdminMe } from '../api/auth'
+import { hasAdminPermission } from '../permissions'
 
 const PRIMARY = '#8b5cf6'
 
@@ -226,6 +228,7 @@ export default function CoachesPage() {
   const [statusFilter, setStatusFilter] = useState<AvailabilityStatus | ''>('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Coach | null>(null)
 
   // 列表查詢
   const { data: coaches = [], isLoading, error } = useQuery({
@@ -262,6 +265,7 @@ export default function CoachesPage() {
       qc.invalidateQueries({ queryKey: QUERY_KEY })
       qc.invalidateQueries({ queryKey: ['admin', 'staff'] })
       notify.success('教練已刪除')
+      setDeleteTarget(null)
     },
     onError: (e: any) => notify.error(getApiErrorMessage(e, '刪除失敗')),
   })
@@ -284,11 +288,6 @@ export default function CoachesPage() {
     } else {
       updateMutation.mutate({ id, data: writeData })
     }
-  }
-
-  const handleDelete = (id: number) => {
-    if (!confirm('確定要刪除此教練？')) return
-    deleteMutation.mutate(id)
   }
 
   return (
@@ -389,6 +388,11 @@ export default function CoachesPage() {
                             {coach.user_email && (
                               <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{coach.user_email}</div>
                             )}
+                            {coach.auto_assignment_enabled === false && (
+                              <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 md:hidden">
+                                僅指定
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -435,6 +439,11 @@ export default function CoachesPage() {
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${statusOpt.cls}`}>
                           {statusOpt.label}
                         </span>
+                        {coach.auto_assignment_enabled === false && (
+                          <span className="ml-2 inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                            僅指定
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-4 hidden md:table-cell">
                         <span
@@ -455,16 +464,17 @@ export default function CoachesPage() {
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => setEditingId(coach.id)}
-                            className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                            title="編輯"
+                            disabled={!coach.can_manage}
+                            className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                            title={coach.can_manage ? '編輯' : '共用教練請由總部管理員修改'}
                           >
                             <Edit size={16} />
                           </button>
                           <button
-                            onClick={() => handleDelete(coach.id)}
-                            disabled={deleteMutation.isPending}
+                            onClick={() => setDeleteTarget(coach)}
+                            disabled={deleteMutation.isPending || !coach.can_manage}
                             className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors disabled:opacity-50"
-                            title="刪除"
+                            title={coach.can_manage ? '刪除' : '共用教練請由總部管理員修改'}
                           >
                             <Trash2 size={16} />
                           </button>
@@ -505,14 +515,26 @@ export default function CoachesPage() {
           onSave={(data) => handleSave(data, creating ? null : editing.id)}
         />
       )}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-coach-title">
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-800">
+            <h2 id="delete-coach-title" className="text-lg font-semibold text-gray-900 dark:text-white">刪除教練？</h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">即將刪除「{deleteTarget.name}」。請先確認沒有未完成課程；刪除後此教練將無法再排課。</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleteMutation.isPending} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200">返回</button>
+              <button type="button" onClick={() => deleteMutation.mutate(deleteTarget.id)} disabled={deleteMutation.isPending} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{deleteMutation.isPending ? '刪除中…' : '確認刪除'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function makeEmptyCoach(): Coach {
   return {
-    id: 0, name: '', user_id: null, user_email: '', user_name: '', user_username: '', languages: ['zh'],
-    availability_status: 'active', assignment_score: 0, img: '',
+    id: 0, name: '', campus_ids: [], can_manage: true, user_id: null, user_email: '', user_name: '', user_username: '', languages: ['zh'],
+    availability_status: 'active', auto_assignment_enabled: true, schedule_visibility: 'ten_days', assignment_score: 0, img: '',
     website_enabled: false, website_slug: '', website_sort_order: 0, website_card_bio: '',
     certifications: [],
     resorts: [], course_levels: [], created_at: '',
@@ -535,6 +557,8 @@ function CoachEditDrawer({
     user_email: coach.user_email || '',
     user_name: coach.user_name || '',
     user_username: coach.user_username || '',
+    schedule_visibility: coach.schedule_visibility || 'ten_days',
+    auto_assignment_enabled: coach.auto_assignment_enabled !== false,
     website_enabled: Boolean(coach.website_enabled),
     website_slug: coach.website_slug || '',
     website_sort_order: Number(coach.website_sort_order) || 0,
@@ -542,6 +566,13 @@ function CoachEditDrawer({
     certifications: Array.isArray(coach.certifications) ? coach.certifications : [],
   }))
   const [memberSearch, setMemberSearch] = useState('')
+  const [campusIds, setCampusIds] = useState<number[]>(coach.campus_ids || [])
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
+  const canBindMember = hasAdminPermission(adminMe?.user, 'staff')
+  const availableCampuses = adminMe?.user?.campuses?.filter((campus) => campus.is_active) || []
+  const effectiveCampusIds = campusIds.length
+    ? campusIds
+    : !adminMe?.user?.can_view_all_campuses ? (adminMe?.user?.assigned_campus_ids || []) : []
 
   const { data: allResorts = [] } = useQuery<Resort[]>({
     queryKey: ['admin', 'resorts'],
@@ -561,6 +592,7 @@ function CoachEditDrawer({
   const { data: memberCandidates = [] } = useQuery<StaffMember[]>({
     queryKey: ['admin', 'coach-member-search', memberSearch.trim()],
     queryFn: () => fetchStaff(memberSearch.trim() || undefined),
+    enabled: canBindMember,
   })
 
   const getCourseCategory = (categoryId?: number | null) => {
@@ -804,11 +836,18 @@ function CoachEditDrawer({
       alert('顯示於官網時請填寫官網代號')
       return
     }
+    if (!effectiveCampusIds.length) {
+      alert('請先選擇教練所屬校區')
+      return
+    }
     const writeData: CoachWriteData = {
       name: form.name,
+      campus_ids_input: effectiveCampusIds,
       user_id: form.user_id || null,
       languages: form.languages,
       availability_status: form.availability_status,
+      auto_assignment_enabled: form.auto_assignment_enabled,
+      schedule_visibility: form.schedule_visibility,
       assignment_score: form.assignment_score,
       img: form.img || '',
       website_enabled: form.website_enabled,
@@ -854,6 +893,22 @@ function CoachEditDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <section className="rounded-lg border border-violet-200 bg-violet-50/60 p-4 dark:border-violet-900/50 dark:bg-violet-900/10">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">所屬校區 *</h3>
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">教練只會出現在勾選校區的排課與管理清單。跨校區共用教練由總部調整。</p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {availableCampuses.map((campus) => (
+                <label key={campus.id} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+                  <input type="checkbox" checked={effectiveCampusIds.includes(campus.id)}
+                    disabled={!adminMe?.user?.can_view_all_campuses}
+                    onChange={(event) => setCampusIds((current) => event.target.checked
+                      ? [...new Set([...current, campus.id])]
+                      : current.filter((id) => id !== campus.id))} />
+                  {campus.name}
+                </label>
+              ))}
+            </div>
+          </section>
           {/* 基本資料 */}
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">基本資料</h3>
@@ -896,18 +951,22 @@ function CoachEditDrawer({
               <div className="col-span-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">綁定會員帳號</label>
                 <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                  綁定後，此會員登入後才能使用教練「我的課程 / 我的月曆 / 請假」功能；儲存時會同步開啟教練權限。
+                  {canBindMember
+                    ? '綁定後，此會員登入後才能使用教練「我的課程 / 我的月曆 / 請假」功能；儲存時會同步開啟教練權限。'
+                    : '會員帳號綁定請由有「員工權限」的總部管理員處理；此處仍可先建立教練資料。'}
                 </p>
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1.4fr]">
                   <input
                     type="text"
                     value={memberSearch}
                     onChange={(e) => setMemberSearch(e.target.value)}
+                    disabled={!canBindMember}
                     placeholder="搜尋會員姓名、帳號或 Email"
                     className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                   />
                   <select
                     value={form.user_id || ''}
+                    disabled={!canBindMember}
                     onChange={(e) => handleSelectMember(e.target.value ? Number(e.target.value) : null)}
                     className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                   >
@@ -1125,6 +1184,44 @@ function CoachEditDrawer({
                 </button>
               ))}
             </div>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">教練可查看的課程</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">不影響排課，只決定教練在「我的課程／月曆」能看到多久以後的課。</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {([
+                { value: 'ten_days', label: '一般教練', detail: '過往課程＋未來 10 天' },
+                { value: 'full', label: '接案教練', detail: '過往及全部未來課程' },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, schedule_visibility: option.value })}
+                  aria-pressed={form.schedule_visibility === option.value}
+                  className={`rounded-lg border p-3 text-left transition-colors ${form.schedule_visibility === option.value
+                    ? 'border-[#8b5cf6] bg-purple-50 dark:bg-purple-900/20'
+                    : 'border-gray-200 dark:border-gray-600 hover:border-purple-300'}`}
+                >
+                  <span className="block text-sm font-medium text-gray-900 dark:text-white">{option.label}</span>
+                  <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">{option.detail}</span>
+                </button>
+              ))}
+            </div>
+            <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/40">
+              <input
+                type="checkbox"
+                checked={form.auto_assignment_enabled}
+                onChange={(event) => setForm({ ...form, auto_assignment_enabled: event.target.checked })}
+                className="mt-1 h-4 w-4 accent-violet-600"
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-900 dark:text-white">參與自動排課</span>
+                <span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">
+                  關閉後，客人仍可指定這位教練；未指定教練的訂單不會自動分派給他。
+                </span>
+              </span>
+            </label>
           </section>
 
           <section>
