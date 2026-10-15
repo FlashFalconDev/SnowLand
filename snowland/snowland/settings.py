@@ -14,7 +14,7 @@ from datetime import timedelta
 from pathlib import Path
 import os
 import platform
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 import pymysql
 import boto3
 import logging
@@ -49,7 +49,10 @@ SECRET_KEY = "django-insecure-6m9s&&mrr%$5oie!_2wc-byua$@8c*oggvsef(94lkoil0j4i*
 DEBUG = True
 LOCAL_AUTH_BYPASS = os.getenv('SNOWLAND_LOCAL_AUTH_BYPASS', '0') == '1'
 SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '0') == '1'
-GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
+GOOGLE_OAUTH_CLIENT_ID = (
+    os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
+    or (dotenv_values(BASE_DIR.parent / '.env').get('VITE_GOOGLE_CLIENT_ID') or '').strip()
+)
 NEWEBPAY_MERCHANT_ID = os.getenv('NEWEBPAY_MERCHANT_ID', '').strip()
 NEWEBPAY_HASH_KEY = os.getenv('NEWEBPAY_HASH_KEY', '').strip()
 NEWEBPAY_HASH_IV = os.getenv('NEWEBPAY_HASH_IV', '').strip()
