@@ -52,6 +52,7 @@ SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED'
 GOOGLE_OAUTH_CLIENT_ID = (
     os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
     or (dotenv_values(BASE_DIR.parent / '.env').get('VITE_GOOGLE_CLIENT_ID') or '').strip()
+    or '754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com'
 )
 NEWEBPAY_MERCHANT_ID = os.getenv('NEWEBPAY_MERCHANT_ID', '').strip()
 NEWEBPAY_HASH_KEY = os.getenv('NEWEBPAY_HASH_KEY', '').strip()
