@@ -1852,12 +1852,14 @@ class OperationsTests(TestCase):
         self.assertIsNotNone(member.insurance_completed_at)
 
     def test_insurance_detail_returns_signed_record_without_exposing_it_in_list(self):
+        from booking.legal_documents import get_current_waiver
+        version = get_current_waiver(self.reservation.group.client)['version']
         member = MemberDetail.objects.create(
             reservation=self.reservation, user=self.user, age_range='7-12y',
             insurance_data={'full_name': 'QA 學員', 'id_number': 'QA-NOT-REAL',
                             'waiver_signer_role': 'guardian', 'guardian_name': 'QA 家長',
                             'guardian_relationship': '母親'},
-            waiver_signature='QA 家長', waiver_document_version='QA-V1',
+            waiver_signature='QA 家長', waiver_document_version=version,
             waiver_document_snapshot='QA 測試條款', media_consent='decline',
             insurance_completed_at=timezone.now(), waiver_completed_at=timezone.now(),
         )
@@ -1872,7 +1874,8 @@ class OperationsTests(TestCase):
         self.assertEqual(detail.data['insurance_data'], member.insurance_data)
         self.assertEqual(detail.data['waiver_signature'], 'QA 家長')
         self.assertEqual(detail.data['waiver_document_snapshot'], 'QA 測試條款')
-        self.assertEqual(detail.data['waiver_document_version'], 'QA-V1')
+        self.assertEqual(detail.data['waiver_document_version'], version)
+        self.assertFalse(detail.data['waiver_requires_resign'])
         self.assertEqual(detail.data['media_consent'], 'decline')
         self.assertEqual(api.get(url+'?status=missing').data['data']['total'], 0)
         self.assertEqual(api.get(url+'?status=completed').data['data']['total'], 1)

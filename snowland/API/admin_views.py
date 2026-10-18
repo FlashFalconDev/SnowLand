@@ -2466,17 +2466,20 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
 
     def get_queryset(self):
         qs = MemberDetail.objects.filter(reservation__group__client=self.request.tenant).select_related(
-            'user', 'guardian', 'reservation__group__campus'
+            'user', 'guardian', 'reservation__group__campus', 'reservation__group__client'
         ).prefetch_related('reservation__bookings')
         if _campus_ids(self.request) and (
             not self.request.can_view_all_campuses or self.request.selected_campus_id is not None
         ):
             qs = qs.filter(reservation__group__campus_id__in=_campus_ids(self.request))
         status_filter = self.request.query_params.get('status')
+        from booking.legal_documents import get_current_waiver
+        current_version = get_current_waiver(self.request.tenant)['version']
+        stale_signature = Q(waiver_signature__isnull=False) & ~Q(waiver_signature='') & ~Q(waiver_document_version=current_version)
         if status_filter == 'missing':
-            qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True))
+            qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True) | stale_signature)
         elif status_filter == 'completed':
-            qs = qs.filter(insurance_completed_at__isnull=False, waiver_completed_at__isnull=False)
+            qs = qs.filter(insurance_completed_at__isnull=False, waiver_completed_at__isnull=False).exclude(stale_signature)
         # Ordering by a related booking date makes SQL include that date in the
         # DISTINCT result, so one member appears once per course day.  The
         # serializer already returns all course dates; keep one row per member.

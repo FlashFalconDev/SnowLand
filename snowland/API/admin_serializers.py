@@ -1966,6 +1966,7 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
 
 
 class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
+    waiver_requires_resign = serializers.SerializerMethodField()
     can_remind = serializers.SerializerMethodField()
     can_mark_complete = serializers.SerializerMethodField()
     member_name = serializers.SerializerMethodField()
@@ -1976,7 +1977,7 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MemberDetail
-        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'course_dates', 'can_mark_complete', 'can_remind',
+        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'waiver_requires_resign', 'course_dates', 'can_mark_complete', 'can_remind',
                   'insurance_processing_status', 'insurance_premium_amount', 'insurance_premium_currency', 'insurance_processing_updated_at']
         read_only_fields = [name for name in fields if name != 'age_range']
 
@@ -1991,6 +1992,15 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
     def get_sn(self, obj):
         group = obj.reservation.group
         return f'{group.created_at:%Y%m%d}-{group.id:04d}' if group.created_at else f'00000000-{group.id:04d}'
+
+    def get_waiver_requires_resign(self, obj):
+        from booking.legal_documents import get_current_waiver, waiver_requires_resign
+        documents = getattr(self, '_waiver_documents', {})
+        tenant = obj.reservation.group.client
+        if tenant.pk not in documents:
+            documents[tenant.pk] = get_current_waiver(tenant)
+        self._waiver_documents = documents
+        return waiver_requires_resign(obj, documents[tenant.pk])
 
     def get_member_name(self, obj):
         return obj.display_name

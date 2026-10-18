@@ -3,10 +3,13 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from API import tests_campus_scope as fixtures
+from Client.models import SiteContent
 from booking.models import MemberDetail, NotificationDelivery, Reservation, ReservationGroup
 
 
@@ -71,6 +74,70 @@ class InsuranceReminderTests(TestCase):
         self.group.user=None; self.group.save()
         response=self.api.get(self.url, {'field':'insurance'})
         self.assertEqual(response.status_code,400,response.data)
+
+    def old_signed_waiver(self):
+        SiteContent.objects.create(client=self.tenant, content_type='page', location_key='membership.waiver',
+            title='QA新版聲明', body='QA文件，非正式法律文件', status='active', metadata={'version':'QA-V2'})
+        self.member.insurance_completed_at = timezone.now()
+        self.member.waiver_completed_at = timezone.now()
+        self.member.waiver_signature = 'QA合成簽名'
+        self.member.waiver_document_version = 'QA-V1'
+        self.member.waiver_document_snapshot = 'QA舊版快照'
+        self.member.save()
+
+    def test_old_signature_requires_resign_and_is_not_filtered_as_complete(self):
+        self.old_signed_waiver()
+        listed = self.api.get('/api/admin/snowland/insurance-records/', {'status':'missing'})
+        rows = listed.data['data']['list']
+        self.assertIn(self.member.pk, [row['id'] for row in rows])
+        row = next(row for row in rows if row['id'] == self.member.pk)
+        self.assertTrue(row['waiver_requires_resign'])
+        completed = self.api.get('/api/admin/snowland/insurance-records/', {'status':'completed'})
+        self.assertNotIn(self.member.pk, [row['id'] for row in completed.data['data']['list']])
+        self.assertEqual(self.api.get(self.url, {'field':'waiver'}).status_code, 200)
+
+    @patch('booking.scheduler.send_gmail', return_value='ok')
+    def test_old_signature_can_receive_one_reminder_without_overwriting_signed_history(self, send):
+        self.old_signed_waiver()
+        payload = {**self.payload, 'field':'waiver'}
+        response = self.api.post(self.url, payload, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self.api.post(self.url, payload, format='json').status_code, 200)
+        self.assertEqual(send.call_count, 1)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.waiver_document_version, 'QA-V1')
+        self.assertEqual(self.member.waiver_document_snapshot, 'QA舊版快照')
+        self.assertIsNotNone(self.member.waiver_completed_at)
+
+    @patch('booking.scheduler.send_gmail', return_value='ok')
+    def test_resigned_after_preview_stops_outdated_reminder(self, send):
+        self.old_signed_waiver()
+        self.assertEqual(self.api.get(self.url, {'field':'waiver'}).status_code, 200)
+        self.member.waiver_document_version = 'QA-V2'
+        self.member.save(update_fields=['waiver_document_version'])
+        response = self.api.post(self.url, {**self.payload,'field':'waiver'}, format='json')
+        self.assertEqual(response.status_code, 409, response.data)
+        send.assert_not_called()
+
+    def test_current_online_signature_and_manual_paper_acknowledgement_remain_complete(self):
+        self.old_signed_waiver()
+        for signature, version in [('QA合成簽名','QA-V2'), ('','')]:
+            self.member.waiver_signature = signature
+            self.member.waiver_document_version = version
+            self.member.save()
+            response = self.api.get(f'/api/admin/snowland/insurance-records/{self.member.pk}/')
+            self.assertFalse(response.data['waiver_requires_resign'])
+            self.assertEqual(self.api.get(self.url, {'field':'waiver'}).status_code, 409)
+
+    def test_version_status_does_not_fetch_client_or_document_once_per_student(self):
+        self.old_signed_waiver()
+        MemberDetail.objects.bulk_create([MemberDetail(reservation=self.member.reservation) for _ in range(15)])
+        with CaptureQueriesContext(connection) as queries:
+            response = self.api.get('/api/admin/snowland/insurance-records/', {'page_size':100})
+        self.assertEqual(response.status_code, 200)
+        statements = [row['sql'].replace('"','').replace('`','').lower() for row in queries.captured_queries]
+        self.assertLessEqual(sum('from client_client ' in sql for sql in statements), 3)
+        self.assertLessEqual(sum('from client_sitecontent ' in sql for sql in statements), 2)
 
     @patch('booking.scheduler.send_gmail', return_value='ok')
     def test_insurance_only_role_does_not_need_or_gain_order_management(self, send):

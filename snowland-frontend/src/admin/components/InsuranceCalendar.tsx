@@ -29,7 +29,7 @@ export default function InsuranceCalendar({ rows, selectedDate, onSelect }: {
       <h3 aria-live="polite" className="font-semibold text-gray-900 dark:text-white">{month.replace('-',' 年 ')} 月</h3>
       <div className="flex flex-wrap gap-2"><button aria-label="保險月曆上一個月" className={button} onClick={()=>move(-1)}>上月</button><button className={button} onClick={()=>{setMonth(thisMonth);onSelect('')}}>本月</button><button aria-label="保險月曆下一個月" className={button} onClick={()=>move(1)}>下月</button></div>
     </div>
-    <p className="my-3 text-xs leading-6 text-gray-600 dark:text-gray-300">依上課日期查看目前篩選的學員；點日期看下方名單。同一學員當日只計一次。資料填齊不代表已投保。</p>
+    <p className="my-3 text-xs leading-6 text-gray-600 dark:text-gray-300">依上課日期查看目前篩選的學員；點日期看下方名單。同一學員當日只計一次。數字只計保險資料與投保進度，聲明書版本請看下方名單。資料填齊不代表已投保。</p>
     <div className="mb-3 flex flex-wrap gap-2 text-xs"><span className="rounded bg-amber-100 px-2 py-1 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">資料待補</span><span className="rounded bg-blue-100 px-2 py-1 text-blue-900 dark:bg-blue-900/40 dark:text-blue-200">資料已填</span><span className="rounded bg-violet-100 px-2 py-1 text-violet-900 dark:bg-violet-900/40 dark:text-violet-200">尚未投保／處理中</span><span className="rounded bg-green-100 px-2 py-1 text-green-900 dark:bg-green-900/40 dark:text-green-200">已投保</span></div>
     <div className="grid grid-cols-7 text-center text-xs text-gray-500 dark:text-gray-400">{['日','一','二','三','四','五','六'].map(day=><span className="py-2" key={day}>{day}</span>)}</div>
     <div className="grid grid-cols-7 gap-1">{days.map((day,index)=>{
