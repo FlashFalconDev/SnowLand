@@ -536,6 +536,18 @@ class SiteContentAdminViewSet(ModelViewSet):
     permission_classes = [IsTenantManager]
     permission_key = 'cms'
 
+    @action(detail=False, methods=['get'], url_path='photography-schema')
+    def photography_schema(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'cms')
+        if denied is not None:
+            return denied
+        from Client.photography_pages import photography_schema
+        try:
+            schema = photography_schema(request.query_params.get('season', ''))
+        except ValueError as exc:
+            raise ValidationError({'season': str(exc)})
+        return Response({'code': 200, 'data': schema})
+
     def get_permissions(self):
         self.permission_key = 'cms' if user_has_admin_permission(self.request.user, 'cms') else 'reviews'
         return super().get_permissions()

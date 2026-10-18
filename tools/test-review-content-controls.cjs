@@ -23,6 +23,7 @@ function harness({rulesError=false}={}){
     if(name==='../../api/siteContent')return api
     if(name==='../../components/ReviewPlacementFields')return{default:function ReviewPlacementFields(){return null}}
     if(name==='../../components/GalleryFields')return{default:function GalleryFields(){return null}}
+    if(name==='../../components/PhotographyPageEditor')return{default:function PhotographyPageEditor(){return null}}
     throw new Error('Unexpected dependency '+name)
   }})
   vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;exports.preview=getContentPreviewText;',ctx)
@@ -45,6 +46,12 @@ for(const kind of ['review','media']){
 }
 assert.ok(renderToStaticMarkup(harness().render({})).includes('管理頁面'),'CMS editor retains original workspace')
 assert.equal(harness().preview({location_key:'photography.gallery',metadata:{location:'富良野',section:'森林',shoot_types:['情侶']},tags:['不使用的舊標籤']}),'照片 · 富良野 · 森林 · 情侶')
+const photo=harness(),photoDrawer=photo.drawer({groups:[{id:'photography',label:'攝影',locations:[{key:'photography.winter',label:'冬季',type:'page'}]}],group:'photography',initialLocation:'photography.winter',item:null,galleryItems:[],resortOptions:[],onClose(){},onSubmit(){},isSaving:false,saveError:'QA儲存失敗必須持續顯示'})
+const photoHtml=renderToStaticMarkup(photoDrawer)
+assert.ok(find(photoDrawer,n=>typeof n.type==='function'&&n.type.name==='PhotographyPageEditor'))
+assert.ok(photoHtml.includes('依原版型修改欄位'));assert.ok(!photoHtml.includes('封面圖片（可空白'))
+assert.ok(!photoHtml.includes('左邊新增正文區塊'));assert.ok(photoHtml.includes('正式官網預覽'))
+assert.ok(photoHtml.includes('role="alert"'));assert.ok(photoHtml.includes('QA儲存失敗必須持續顯示'))
 const failed=harness({rulesError:true}),tree=failed.render({contentTypes:['review']})
 const retry=find(tree,node=>node.type==='button'&&node.props.children==='重新載入')
 assert.ok(retry);retry.props.onClick();assert.equal(failed.refetched(),2)

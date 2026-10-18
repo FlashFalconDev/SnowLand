@@ -18,6 +18,7 @@ import {
 import { useNotification } from '../../context'
 import ReviewPlacementFields from '../../components/ReviewPlacementFields'
 import GalleryFields from '../../components/GalleryFields'
+import PhotographyPageEditor from '../../components/PhotographyPageEditor'
 import {
   createSiteContent,
   deleteSiteContent,
@@ -352,6 +353,11 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (['photography.winter', 'photography.summer'].includes(item.location_key)) {
+    const content = isRecord(item.metadata?.photography) ? item.metadata.photography : {}
+    const values = isRecord(content.values) ? content.values : {}
+    return `${item.location_key === 'photography.winter' ? '冬季' : '夏季'}攝影整頁內容 · ${Object.keys(values).length}個版型欄位`
+  }
   if (item.location_key === 'photography.gallery') {
     const metadata = item.metadata || {}
     const types = Array.isArray(metadata.shoot_types) ? metadata.shoot_types : []
@@ -445,6 +451,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   const qc = useQueryClient()
   const [activeGroup, setActiveGroup] = useState<ContentGroup>(initialGroup)
   const [editing, setEditing] = useState<SiteContentItem | null>(null)
+  const [saveError, setSaveError] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [structureOpen, setStructureOpen] = useState(false)
   const [createLocation, setCreateLocation] = useState<string | null>(null)
@@ -505,7 +512,11 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
       setDrawerOpen(false)
       setCreateLocation(null)
     },
-    onError: (e: any) => notify.error(contentErrorMessage(e, '新增失敗')),
+    onError: (e: any) => {
+      const message = contentErrorMessage(e, '新增失敗')
+      setSaveError(message)
+      notify.error(message)
+    },
   })
 
   const updateMutation = useMutation({
@@ -516,7 +527,11 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
       setDrawerOpen(false)
       setEditing(null)
     },
-    onError: (e: any) => notify.error(contentErrorMessage(e, '更新失敗')),
+    onError: (e: any) => {
+      const message = contentErrorMessage(e, '更新失敗')
+      setSaveError(message)
+      notify.error(message)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -596,12 +611,14 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   }, [selectedId, locationContents])
 
   const openCreate = (locationKey?: string) => {
+    setSaveError('')
     setEditing(null)
     setCreateLocation(locationKey || null)
     setDrawerOpen(true)
   }
 
   const openEdit = (item: SiteContentItem) => {
+    setSaveError('')
     setEditing(item)
     setSelectedId(item.id)
     setDrawerOpen(true)
@@ -831,10 +848,12 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
             setCreateLocation(null)
           }}
           onSubmit={(data) => {
+            setSaveError('')
             if (editing) updateMutation.mutate({ id: editing.id, data })
             else createMutation.mutate(data)
           }}
           isSaving={createMutation.isPending || updateMutation.isPending}
+          saveError={saveError}
         />
       )}
       {structureOpen && !contentTypes && (
@@ -1219,6 +1238,7 @@ function ContentDrawer({
   onClose,
   onSubmit,
   isSaving,
+  saveError = '',
 }: {
   groups: GroupInfo[]
   contentTypes?: SiteContentType[]
@@ -1230,6 +1250,7 @@ function ContentDrawer({
   onClose: () => void
   onSubmit: (data: SiteContentWriteData) => void
   isSaving: boolean
+  saveError?: string
 }) {
   const groupInfo = groups.find((candidate) => candidate.id === group) || groups[0]
   const drawerLocationMap = useMemo(() => buildLocationMap(groups), [groups])
@@ -1253,6 +1274,7 @@ function ContentDrawer({
     is_pinned: !!item.is_pinned,
   } : makeEmptyForm(initialLocation || groupInfo?.locations[0]?.key, initialLocation ? drawerLocationMap[initialLocation] : groupInfo?.locations[0]))
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
+  const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
   const pricingResortOptions = resortOptions.length && form.external_id && !resortOptions.some((option) => option.value === form.external_id)
     ? [{ value: form.external_id, label: form.external_id }, ...resortOptions]
     : resortOptions
@@ -1308,7 +1330,7 @@ function ContentDrawer({
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">填寫資料後，下方預覽會同步更新。</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{isPhotographyPage ? '依原版型修改欄位；儲存後官網才會更新。' : '填寫資料後，下方預覽會同步更新。'}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />
@@ -1400,7 +1422,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {form.location_key === 'course.pricing' ? (
+            {form.location_key === 'course.pricing' || ['photography.winter', 'photography.summer'].includes(form.location_key) ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1423,7 +1445,10 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {form.location_key === 'photography.gallery' ? (
+            {['photography.winter', 'photography.summer'].includes(form.location_key) ? (
+              <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
+                onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
+            ) : form.location_key === 'photography.gallery' ? (
               <GalleryFields metadata={form.metadata || {}} imageUrl={form.image_url} items={galleryItems} published={form.status === 'active'}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} onImageChange={image_url => setForm(prev => ({ ...prev, image_url }))} />
             ) : form.location_key === 'course.pricing' ? (
@@ -1437,11 +1462,11 @@ function ContentDrawer({
             )}
 
             {form.content_type === 'review' && <ReviewPlacementFields metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />}
-            <FormSection title="4. 連結與顯示順序">
-              <div className="grid gap-4 md:grid-cols-2">
+            <FormSection title={isPhotographyPage ? '4. 顯示順序' : '4. 連結與顯示順序'}>
+              {!isPhotographyPage && <div className="grid gap-4 md:grid-cols-2">
                 {form.location_key !== 'photography.gallery' && <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />}
                 <TextInput label="點擊後連結" value={form.link_url} placeholder="/specialoffers/earlybird" onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />
-              </div>
+              </div>}
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <TextInput
                   type="number"
@@ -1517,15 +1542,20 @@ function ContentDrawer({
 
           <div className="border-t border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950 lg:col-span-5 lg:overflow-y-auto lg:border-l lg:border-t-0">
             <div className="mb-3">
-              <div className="text-sm font-semibold text-gray-900 dark:text-white">{form.location_key === 'course.pricing' ? '價目草稿預覽' : '草稿預覽'}</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white">{isPhotographyPage ? '攝影頁面草稿檢查' : form.location_key === 'course.pricing' ? '價目草稿預覽' : '草稿預覽'}</div>
               <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {form.location_key === 'course.pricing' ? '此處預覽價目資料；官網版型請以正式頁為準，儲存後才會更新。' : '這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。'}
+                {isPhotographyPage ? '使用既有官網版型，並非新增通用正文區塊。' : form.location_key === 'course.pricing' ? '此處預覽價目資料；官網版型請以正式頁為準，儲存後才會更新。' : '這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。'}
               </p>
             </div>
-            <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />
+            {isPhotographyPage ? <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+              <p>請在左側展開區塊，或搜尋要修改的文字與方案。</p>
+              <p>儲存後，可從外層「正式官網預覽」查看完整排版。</p>
+              <p>照片、說明及展示價格各有對應欄位；實際收費不會在這裡變更。</p>
+            </div> : <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />}
           </div>
         </div>
 
+        {saveError && <p role="alert" aria-live="assertive" className="max-h-28 shrink-0 overflow-y-auto border-t border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">{saveError}</p>}
         <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
           {cannotPublishEmptyPricing && <p role="alert" className="mr-auto self-center text-xs text-red-600 dark:text-red-400">公開前請至少新增一筆，並填完每筆人數與價格。</p>}
           <button

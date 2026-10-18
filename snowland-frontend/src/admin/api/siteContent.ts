@@ -1,5 +1,15 @@
 import adminApi from './axios'
 
+export interface PhotographySchema {
+  season: 'winter' | 'summer'; version: number; title: string
+  sections: { id: string; label: string; fields: { key: string; kind: 'text' | 'image' | 'link'; label: string; value: string }[] }[]
+}
+
+export async function fetchPhotographySchema(season: 'winter' | 'summer'): Promise<PhotographySchema> {
+  const res = (await adminApi.get('/site-content/photography-schema/', { params: { season } })) as unknown as { data: PhotographySchema }
+  return res.data
+}
+
 export type SiteContentType =
   | 'page'
   | 'offer'

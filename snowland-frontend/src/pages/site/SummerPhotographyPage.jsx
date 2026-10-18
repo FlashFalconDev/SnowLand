@@ -3,9 +3,11 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
+import PhotographyContentGate from '../../components/site/PhotographyContentGate';
 import SiteHeader from '../../components/site/SiteHeader';
 
-function SummerPhotographyPage() {
+function SummerPhotographyLayout({ content }) {
+  const c = (key) => content.values[key] ?? '';
   const scrollerRef = useRef(null);
   const itemRefs = useRef([]);
   const introRef = useRef(null);
@@ -26,30 +28,30 @@ function SummerPhotographyPage() {
   const hasAutoScrolledRef = useRef(false);
   const prefersReducedMotion = useReducedMotion();
   const photos = [
-    "/legacy/photography-summer/20240529-Z-F-王妍如-Dylan-122.jpg",
-    "/legacy/photography-summer/image-05.jpg",
-    "/legacy/photography-summer/2023-10-13-TheStage Martin&Gigi 婚紗拍樣-169.jpg",
+    c("summer_001"),
+    c("summer_002"),
+    c("summer_003"),
   ];
   const customTravelPhotos = [
-    "/legacy/photography-summer/image-02.jpg",
-    "/legacy/photography-summer/image-01.jpg",
-    "/legacy/photography-summer/2022-12-30-Tiffany 全家福-015.jpg",
+    c("summer_004"),
+    c("summer_005"),
+    c("summer_006"),
   ];
   const lightWeddingPhotos = [
-    "/legacy/photography-summer/2021-12-15-The Stage 花蓮婚紗-Ron&Susie-130.jpg",
-    "/legacy/photography-summer/image-04.jpg",
-    "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (45 - 531).jpg",
-    "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (74 - 531).jpg",
+    c("summer_007"),
+    c("summer_008"),
+    c("summer_009"),
+    c("summer_010"),
   ];
   const weddingPhotos = [
-    "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (230 - 531).jpg",
-    "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (264 - 531).jpg",
-    "/legacy/photography-summer/image-06.jpg",
-    "/legacy/photography-summer/2023-10-13-TheStage Martin&Gigi 婚紗拍樣-81.jpg",
+    c("summer_011"),
+    c("summer_012"),
+    c("summer_013"),
+    c("summer_014"),
   ];
   const baseUrl = import.meta.env.BASE_URL ?? "/";
   const withBaseUrl = (path) =>
-    `${baseUrl}${path.startsWith("/") ? path.slice(1) : path}`;
+    /^https?:\/\//i.test(path) ? path : `${baseUrl}${path.startsWith("/") ? path.slice(1) : path}`;
   const totalPhotos = photos.length;
   const { scrollYProgress: stageScrollYProgress } = useScroll({
     target: stageSectionRef,
@@ -197,11 +199,9 @@ function SummerPhotographyPage() {
       <main className="max-w-5xl mx-auto px-6 pt-32 pb-24 flex-1 w-full">
         <div className="text-center">
           <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-            Summer Photography
-          </p>
+            {c("summer_015")}</p>
           <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-            夏季旅拍攝影
-          </h1>
+            {c("summer_016")}</h1>
         </div>
         <section className="mt-4 w-screen relative left-1/2 -translate-x-1/2">
           <div className="relative">
@@ -235,7 +235,7 @@ function SummerPhotographyPage() {
                 >
                   <img loading="lazy" decoding="async"
                     src={withBaseUrl(src)}
-                    alt="Summer photography"
+                    alt={c("summer_017")}
                     className="h-full w-full object-cover"
                   />
                 </figure>
@@ -277,21 +277,17 @@ function SummerPhotographyPage() {
             }`}
           >
             <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-              用光影記錄每段旅程
-            </h2>
+              {c("summer_018")}</h2>
             <p className="mt-4 max-w-xl mx-auto text-base md:text-lg leading-relaxed text-[#475569]">
-              <span className="block">為北海道夏季旅行打造最自在的影像記憶。</span>
+              <span className="block">{c("summer_019")}</span>
               <span className="block">
-                結合在地的專業攝影團隊，城市街拍、山林輕旅、薰衣草花海浪漫寫真或親子合影，我們以故事感的視角量身打造專屬於你的旅途亮點，留下珍貴的影像記憶。
-              </span>
+                {c("summer_020")}</span>
             </p>
             <div className="mt-8 flex justify-center">
-              <a
-                href="#"
+              <SiteLink to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                預約夏季旅拍
-              </a>
+                {c("summer_021")}</SiteLink>
             </div>
           </div>
         </section>
@@ -301,8 +297,8 @@ function SummerPhotographyPage() {
         >
           <div className="relative aspect-[3/4] w-full overflow-hidden md:aspect-auto md:h-screen">
             <motion.img
-              src={withBaseUrl("/legacy/photography-summer/image-02.jpg")}
-              alt="富良野花海背景"
+              src={withBaseUrl(c("summer_022"))}
+              alt={c("summer_023")}
               className="absolute inset-0 h-full w-full object-cover will-change-transform"
               style={prefersReducedMotion ? undefined : { y: stageImageY }}
             />
@@ -317,14 +313,11 @@ function SummerPhotographyPage() {
                 style={prefersReducedMotion ? undefined : { y: stageTextY }}
               >
                 <div className="text-xs tracking-[0.4em] uppercase text-[#1f2937] font-display">
-                  ▸  富良野的浪漫花海之旅
-                </div>
+                  {c("summer_024")}</div>
                 <p className="text-base md:text-lg leading-relaxed">
-                  富良野以夏季盛開的薰衣草聞名，是戀人與家庭拍攝的首選。
-                </p>
+                  {c("summer_025")}</p>
                 <p className="text-base md:text-lg leading-relaxed">
-                  無論是手牽手漫步在紫色花田的情侶寫真，或是孩子奔跑在向日葵與波斯菊間的歡笑畫面，我們都將為您捕捉最自然、動人的瞬間。
-                </p>
+                  {c("summer_026")}</p>
               </motion.div>
             </div>
           </div>
@@ -332,8 +325,8 @@ function SummerPhotographyPage() {
         <section ref={tomamuSectionRef} className="w-screen relative left-1/2 -translate-x-1/2">
           <div className="relative aspect-[3/4] w-full overflow-hidden md:aspect-auto md:h-screen">
             <motion.img
-              src={withBaseUrl("/legacy/photography-summer/image-03.jpg")}
-              alt="星野Tomamu夏季背景"
+              src={withBaseUrl(c("summer_027"))}
+              alt={c("summer_028")}
               className="absolute inset-0 h-full w-full object-cover will-change-transform"
               style={prefersReducedMotion ? undefined : { y: tomamuImageY }}
             />
@@ -348,13 +341,9 @@ function SummerPhotographyPage() {
                 style={prefersReducedMotion ? undefined : { y: tomamuTextY }}
               >
                 <div className="text-xs tracking-[0.4em] uppercase text-[#1f2937] font-display">
-                  ▸   星野Tomamu的山野秘境
-                </div>
+                  {c("summer_029")}</div>
                 <p className="text-base md:text-lg leading-relaxed">
-                  星野度假村不只有冬季滑雪魅力，夏季更是一片綠意與清新的天地。
-                  山景草原、雲海露台、玻璃教堂與森林小徑，構成多元又唯美的拍攝背景。
-                  特別推薦給想要拍攝自然系婚紗或文青風格形象照的你。
-                </p>
+                  {c("summer_030")}</p>
               </motion.div>
             </div>
           </div>
@@ -363,17 +352,15 @@ function SummerPhotographyPage() {
           <div className="max-w-6xl mx-auto px-6 md:px-10 py-16 md:py-24">
             <div className="text-center">
               <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                服務方案
-              </h2>
+                {c("summer_031")}</h2>
               <p className="mt-3 text-sm md:text-base text-[#64748b]">
-                ⚲ 地點：星野 Tomamu・富良野 Furano
-              </p>
+                {c("summer_032")}</p>
             </div>
             <div className="mt-12 bg-white px-6 py-10 md:px-10">
               <div className="text-left">
                 <h3 className="font-semibold text-[#1f2937] font-display">
-                  <span className="block text-sm md:text-base">客製化</span>
-                  <span className="block text-xl md:text-2xl">旅拍專案</span>
+                  <span className="block text-sm md:text-base">{c("summer_033")}</span>
+                  <span className="block text-xl md:text-2xl">{c("summer_034")}</span>
                 </h3>
               </div>
               <div className="mt-6 grid gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start">
@@ -392,7 +379,7 @@ function SummerPhotographyPage() {
                       <img loading="lazy" decoding="async"
                         key={src}
                         src={withBaseUrl(src)}
-                        alt="旅拍照片"
+                        alt={c("summer_035")}
                         className={`absolute inset-0 h-full w-full object-contain object-top transition-opacity duration-1000 ${
                           index === customTravelSlideIndex ? "opacity-100" : "opacity-0"
                         }`}
@@ -419,19 +406,19 @@ function SummerPhotographyPage() {
                   <div className="space-y-6">
                     {[
                       {
-                        title: "1小時快閃回憶",
-                        details: ["可選擇1個景點", "保障20張以上照片"],
-                        price: "NT$23,800",
+                        title: c("summer_036"),
+                        details: [c("summer_037"), c("summer_038")],
+                        price: c("summer_136"),
                       },
                       {
-                        title: "2小時經典旅行",
-                        details: ["可選擇1～2個景點", "保障40張以上照片"],
-                        price: "NT$32,800",
+                        title: c("summer_039"),
+                        details: [c("summer_040"), c("summer_041")],
+                        price: c("summer_137"),
                       },
                       {
-                        title: "4小時半日樂活",
-                        details: ["可選擇2～3個景點", "保障70張以上照片"],
-                        price: "NT$42,800",
+                        title: c("summer_042"),
+                        details: [c("summer_043"), c("summer_044")],
+                        price: c("summer_138"),
                       },
                     ].map((plan) => (
                       <div key={plan.title} className="border-b border-[#d7dde3] pb-6">
@@ -455,18 +442,18 @@ function SummerPhotographyPage() {
                   </div>
                   <div className="mt-8 grid gap-6 text-sm md:grid-cols-2">
                     <div>
-                      <p className="font-semibold text-[#1f2937]">▸ 方案包含</p>
+                      <p className="font-semibold text-[#1f2937]">{c("summer_045")}</p>
                       <div className="mt-2 space-y-1 text-sm">
-                        <p>・照片全給</p>
-                        <p>・不限人數</p>
+                        <p>{c("summer_046")}</p>
+                        <p>{c("summer_047")}</p>
                       </div>
                     </div>
                     <div>
-                      <p className="font-semibold text-[#1f2937]">▸ 加購服務</p>
+                      <p className="font-semibold text-[#1f2937]">{c("summer_048")}</p>
                       <div className="mt-2 space-y-1 text-sm">
-                        <p>・精修照片1500$/張</p>
-                        <p>・女生妝髮5500$/位</p>
-                        <p>・男生妝髮3500$/位</p>
+                        <p>{c("summer_049")}</p>
+                        <p>{c("summer_050")}</p>
+                        <p>{c("summer_051")}</p>
                       </div>
                     </div>
                   </div>
@@ -476,8 +463,8 @@ function SummerPhotographyPage() {
             <div className="mt-12 bg-white px-6 py-10 md:px-10">
               <div className="text-left">
                 <h3 className="font-semibold text-[#1f2937] font-display">
-                  <span className="block text-sm md:text-base">客製化</span>
-                  <span className="block text-xl md:text-2xl">旅拍輕婚紗專案</span>
+                  <span className="block text-sm md:text-base">{c("summer_052")}</span>
+                  <span className="block text-xl md:text-2xl">{c("summer_053")}</span>
                 </h3>
               </div>
               <div className="mt-6 grid gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start">
@@ -494,7 +481,7 @@ function SummerPhotographyPage() {
                   >
                     <img loading="lazy" decoding="async"
                       src={withBaseUrl(lightWeddingPhotos[0])}
-                      alt=""
+                      alt={c("summer_054")}
                       aria-hidden="true"
                       className="w-full h-auto opacity-0 pointer-events-none"
                     />
@@ -502,7 +489,7 @@ function SummerPhotographyPage() {
                       <img loading="lazy" decoding="async"
                         key={src}
                         src={withBaseUrl(src)}
-                        alt="旅拍婚紗照片"
+                        alt={c("summer_055")}
                         className={`absolute inset-0 w-full h-auto object-contain object-left transition-opacity duration-1000 ${
                           index === lightWeddingSlideIndex ? "opacity-100" : "opacity-0"
                         }`}
@@ -534,36 +521,34 @@ function SummerPhotographyPage() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                           <h4 className="text-base md:text-lg font-semibold text-[#1f2937] font-display">
-                            2套6小時
-                          </h4>
+                            {c("summer_056")}</h4>
                           <div className="mt-2 space-y-1 text-sm">
-                            <p>可選擇2個景點</p>
-                            <p>保障30張以上照片</p>
-                            <p>新娘一組妝髮</p>
-                            <p>新郎一組妝髮</p>
-                            <p>自備2套服裝</p>
-                            <p>精修10張</p>
+                            <p>{c("summer_057")}</p>
+                            <p>{c("summer_058")}</p>
+                            <p>{c("summer_059")}</p>
+                            <p>{c("summer_060")}</p>
+                            <p>{c("summer_061")}</p>
+                            <p>{c("summer_062")}</p>
                           </div>
                         </div>
                         <p className="text-base font-semibold text-[#1f2937] font-display">
-                          NT$58,900
-                        </p>
+                          {c("summer_063")}</p>
                       </div>
                     </div>
                   </div>
                   <div className="mt-8 grid gap-6 text-sm md:grid-cols-2">
                     <div>
-                      <p className="font-semibold text-[#1f2937]">▸方案內含</p>
+                      <p className="font-semibold text-[#1f2937]">{c("summer_064")}</p>
                       <div className="mt-2 space-y-1 text-sm">
-                        <p>・調光調色後原檔JPG全給</p>
-                        <p>・環保雲端交件</p>
+                        <p>{c("summer_065")}</p>
+                        <p>{c("summer_066")}</p>
                       </div>
                     </div>
                     <div>
-                      <p className="font-semibold text-[#1f2937]">▸加購內容</p>
+                      <p className="font-semibold text-[#1f2937]">{c("summer_067")}</p>
                       <div className="mt-2 space-y-1 text-sm">
-                        <p>・精修NT$1,500/張</p>
-                        <p>・精緻皮革相簿NT$5,500/本</p>
+                        <p>{c("summer_068")}</p>
+                        <p>{c("summer_069")}</p>
                       </div>
                     </div>
                   </div>
@@ -573,8 +558,8 @@ function SummerPhotographyPage() {
             <div className="mt-12 bg-white px-6 py-10 md:px-10">
               <div className="text-left">
                 <h3 className="font-semibold text-[#1f2937] font-display">
-                  <span className="block text-sm md:text-base">客製化</span>
-                  <span className="block text-xl md:text-2xl">旅拍婚紗專案</span>
+                  <span className="block text-sm md:text-base">{c("summer_070")}</span>
+                  <span className="block text-xl md:text-2xl">{c("summer_071")}</span>
                 </h3>
               </div>
               <div className="mt-6 grid gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start">
@@ -589,7 +574,7 @@ function SummerPhotographyPage() {
                   >
                     <img loading="lazy" decoding="async"
                       src={withBaseUrl(weddingPhotos[0])}
-                      alt=""
+                      alt={c("summer_072")}
                       aria-hidden="true"
                       className="w-full h-auto opacity-0 pointer-events-none"
                     />
@@ -597,7 +582,7 @@ function SummerPhotographyPage() {
                       <img loading="lazy" decoding="async"
                         key={src}
                         src={withBaseUrl(src)}
-                        alt="旅拍婚紗照片"
+                        alt={c("summer_073")}
                         className={`absolute inset-0 w-full h-auto object-contain object-left transition-opacity duration-1000 ${
                           index === weddingSlideIndex ? "opacity-100" : "opacity-0"
                         }`}
@@ -627,40 +612,40 @@ function SummerPhotographyPage() {
                   <div className="space-y-6">
                     {[
                       {
-                        title: "1套4小時",
+                        title: c("summer_074"),
                         details: [
-                          "可選擇1個景點",
-                          "保障30張以上照片",
-                          "一套禮服(一白)",
-                          "新娘一組妝髮",
-                          "新郎一組妝髮",
-                          "精修10張",
+                          c("summer_075"),
+                          c("summer_076"),
+                          c("summer_077"),
+                          c("summer_078"),
+                          c("summer_079"),
+                          c("summer_080"),
                         ],
-                        price: "NT$84,800",
+                        price: c("summer_139"),
                       },
                       {
-                        title: "2套6小時",
+                        title: c("summer_081"),
                         details: [
-                          "可選擇2個景點",
-                          "保障50張以上照片",
-                          "二套禮服(一白一晚)",
-                          "新娘兩組妝髮",
-                          "新郎一組妝髮",
-                          "精修15張",
+                          c("summer_082"),
+                          c("summer_083"),
+                          c("summer_084"),
+                          c("summer_085"),
+                          c("summer_086"),
+                          c("summer_087"),
                         ],
-                        price: "NT$98,800",
+                        price: c("summer_140"),
                       },
                       {
-                        title: "3套8小時",
+                        title: c("summer_088"),
                         details: [
-                          "可選擇2~3個景點",
-                          "保障1000張以上照片",
-                          "三套禮服(一白一晚一和)",
-                          "新娘三組妝髮",
-                          "新郎一組妝髮",
-                          "精修25張",
+                          c("summer_089"),
+                          c("summer_090"),
+                          c("summer_091"),
+                          c("summer_092"),
+                          c("summer_093"),
+                          c("summer_094"),
                         ],
-                        price: "NT$112,800",
+                        price: c("summer_141"),
                       },
                     ].map((plan) => (
                       <div key={plan.title} className="border-b border-[#d7dde3] pb-6">
@@ -684,17 +669,17 @@ function SummerPhotographyPage() {
                   </div>
                   <div className="mt-8 grid gap-6 text-sm md:grid-cols-2">
                     <div>
-                      <p className="font-semibold text-[#1f2937]">方案內含</p>
+                      <p className="font-semibold text-[#1f2937]">{c("summer_095")}</p>
                       <div className="mt-2 space-y-1 text-sm">
-                        <p>・調光調色後原檔JPG全給</p>
-                        <p>・環保雲端交件</p>
-                        <p>・精緻皮革相簿</p>
+                        <p>{c("summer_096")}</p>
+                        <p>{c("summer_097")}</p>
+                        <p>{c("summer_098")}</p>
                       </div>
                     </div>
                     <div>
-                      <p className="font-semibold text-[#1f2937]">加購內容</p>
+                      <p className="font-semibold text-[#1f2937]">{c("summer_099")}</p>
                       <div className="mt-2 space-y-1 text-sm">
-                        <p>・精修NT$1,500/張</p>
+                        <p>{c("summer_100")}</p>
                       </div>
                     </div>
                   </div>
@@ -710,15 +695,14 @@ function SummerPhotographyPage() {
           >
             <div className="max-w-xl mx-auto text-left">
               <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                為什麼選擇 SnowLand
-              </h2>
+                {c("summer_101")}</h2>
               <div className="mt-6 text-base md:text-lg text-[#475569] space-y-2">
                 {[
-                  "✓ 旅拍節奏與行程整合",
-                  "✓ 專業引導・自然互動",
-                  "✓ 毛片全給不加價",
-                  "✓ 每小時至少 30 張以上",
-                  "✓ 7 日內雲端交件",
+                  c("summer_102"),
+                  c("summer_103"),
+                  c("summer_104"),
+                  c("summer_105"),
+                  c("summer_106"),
                 ].map((item, index) => (
                   <p
                     key={item}
@@ -733,8 +717,7 @@ function SummerPhotographyPage() {
               </div>
               <div className="mt-10">
                 <div className="grid overflow-hidden md:grid-cols-3">
-                  <a
-                    href="#booking-flow"
+                  <SiteLink to="/booking?service=photo"
                     className="flex items-center justify-center gap-3 px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc]"
                   >
                     <svg
@@ -752,8 +735,7 @@ function SummerPhotographyPage() {
                       <line x1="16" y1="2.5" x2="16" y2="6" />
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
-                    預約流程
-                  </a>
+                    {c("summer_107")}</SiteLink>
                   <a
                     href="#faq"
                     className="flex items-center justify-center gap-3 border-t border-[#d7dde3] px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc] md:border-t-0 md:border-l"
@@ -772,8 +754,7 @@ function SummerPhotographyPage() {
                       <path d="M9.5 9.5a2.5 2.5 0 1 1 4.2 1.8c-.9.6-1.2 1-1.2 2" />
                       <circle cx="12" cy="17" r="0.8" />
                     </svg>
-                    精選Q&amp;A
-                  </a>
+                    {c("summer_108")}</a>
                   <a
                     href="#related-content"
                     className="flex items-center justify-center gap-3 border-t border-[#d7dde3] px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc] md:border-t-0 md:border-l"
@@ -791,8 +772,7 @@ function SummerPhotographyPage() {
                       <path d="M10 13a5 5 0 0 1 0-7l1.4-1.4a5 5 0 0 1 7 7L17 12" />
                       <path d="M14 11a5 5 0 0 1 0 7L12.6 20.4a5 5 0 0 1-7-7L7 12" />
                     </svg>
-                    相關內容
-                  </a>
+                    {c("summer_109")}</a>
                 </div>
               </div>
             </div>
@@ -802,8 +782,7 @@ function SummerPhotographyPage() {
           <div className="max-w-5xl mx-auto px-6 md:px-12 py-12 md:py-16">
             <div className="text-center">
               <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                預約流程
-              </h2>
+                {c("summer_110")}</h2>
             </div>
             <div className="mt-12">
               <div className="relative">
@@ -812,25 +791,25 @@ function SummerPhotographyPage() {
                   {[
                     {
                       number: "01",
-                      title: "預約旅拍攝影",
-                      body: "選擇拍攝方案、地點及時間。",
+                      title: c("summer_111"),
+                      body: c("summer_112"),
                     },
                     {
                       number: "02",
-                      title: "預約確認",
+                      title: c("summer_113"),
                       body:
-                        "收到預約後，我們的客服將會與您聯繫確認。",
+                        c("summer_114"),
                     },
                     {
                       number: "03",
-                      title: "線上付款",
-                      body: "銀行匯款轉帳支付",
+                      title: c("summer_115"),
+                      body: c("summer_116"),
                     },
                     {
                       number: "04",
-                      title: "預約成功",
+                      title: c("summer_117"),
                       body:
-                        "與攝影師討論拍攝需求，並享受屬於您的旅行攝影。",
+                        c("summer_118"),
                     },
                   ].map((step) => (
                     <motion.div
@@ -862,8 +841,7 @@ function SummerPhotographyPage() {
                 to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                查看預約流程細節
-              </SiteLink>
+                {c("summer_119")}</SiteLink>
             </div>
           </div>
         </section>
@@ -872,33 +850,29 @@ function SummerPhotographyPage() {
             <div className="grid gap-10 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)]">
               <div>
                 <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                  精選常見問題
-                </h2>
+                  {c("summer_120")}</h2>
               </div>
               <div className="space-y-6 text-[#475569]">
                 {[
                   {
-                    question: "拍攝後多久可以收到照片？",
+                    question: c("summer_121"),
                     answer: (
                       <p className="text-sm md:text-base leading-relaxed">
-                        7 天內透過雲端交件。
-                      </p>
+                        {c("summer_122")}</p>
                     ),
                   },
                   {
-                    question: "服務內容包括影片？",
+                    question: c("summer_123"),
                     answer: (
                       <p className="text-sm md:text-base leading-relaxed">
-                        目前僅提供靜態平面攝影，並不包含動態影片，側拍影片僅作為行銷用途，並不包含在旅拍攝影服務內。當您購買旅拍攝影服務即視為同意我們將拍攝的畫面用於 SnowLand 滑雪學校的推廣，傳遞北海道旅遊的樂趣與喜悅！
-                      </p>
+                        {c("summer_124")}</p>
                     ),
                   },
                   {
-                    question: "拍攝地點在哪裡？",
+                    question: c("summer_125"),
                     answer: (
                       <p className="text-sm md:text-base leading-relaxed">
-                        拍攝地點在北海道星野Tomamu度假村內以及富良野周邊景點，會有數個優美景點提供挑選。
-                      </p>
+                        {c("summer_126")}</p>
                     ),
                   },
                 ].map((item, index) => {
@@ -924,11 +898,10 @@ function SummerPhotographyPage() {
                 })}
                 <div className="pt-4">
                   <SiteLink
-                    to="/booking?service=photo"
+                    to="/faq"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    查看更多常見問題
-                  </SiteLink>
+                    {c("summer_127")}</SiteLink>
                 </div>
               </div>
             </div>
@@ -943,16 +916,15 @@ function SummerPhotographyPage() {
               >
                 <img loading="lazy" decoding="async"
                   src={withBaseUrl(
-                    "/photography-gallery/gallery-023.jpg"
+                    c("summer_128")
                   )}
-                  alt="攝影作品"
+                  alt={c("summer_129")}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-black/10 to-transparent transition-opacity duration-300 group-hover:opacity-90" />
                 <div className="absolute bottom-0 left-0 p-6">
                   <h3 className="text-lg md:text-xl font-semibold tracking-wide text-white drop-shadow">
-                    攝影作品 →
-                  </h3>
+                    {c("summer_130")}</h3>
                 </div>
               </SiteLink>
               <SiteLink
@@ -960,15 +932,14 @@ function SummerPhotographyPage() {
                 className="group relative overflow-hidden aspect-[4/3] bg-[#d1d5db] text-[#1f2937] md:w-[calc((100%-4rem)/3)]"
               >
                 <img loading="lazy" decoding="async"
-                  src={withBaseUrl("/photography-gallery/gallery-074.jpg")}
-                  alt="查看冬季雪地攝影"
+                  src={withBaseUrl(c("summer_131"))}
+                  alt={c("summer_132")}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-black/10 to-transparent transition-opacity duration-300 group-hover:opacity-90" />
                 <div className="absolute bottom-0 left-0 p-6">
                   <h3 className="text-lg md:text-xl font-semibold tracking-wide text-white drop-shadow">
-                    查看冬季雪地攝影 →
-                  </h3>
+                    {c("summer_133")}</h3>
                 </div>
               </SiteLink>
             </div>
@@ -976,14 +947,17 @@ function SummerPhotographyPage() {
         </section>
       </main>
       <div className="max-w-6xl mx-auto px-6 md:px-12 pb-12 -mt-6 text-xs md:text-sm text-[#94a3b8] leading-relaxed">
-        <p className="font-semibold text-[#64748b]">※授權聲明：</p>
+        <p className="font-semibold text-[#64748b]">{c("summer_134")}</p>
         <p>
-          購買攝影服務即視為同意我們將拍攝的畫面用於SnowLand滑雪學校的推廣，傳遞北海道旅遊的樂趣與喜悅！
-        </p>
+          {c("summer_135")}</p>
       </div>
       <SiteFooter />
     </div>
   );
+}
+
+function SummerPhotographyPage() {
+  return <PhotographyContentGate season="summer">{content => <SummerPhotographyLayout content={content} />}</PhotographyContentGate>;
 }
 
 export default SummerPhotographyPage;

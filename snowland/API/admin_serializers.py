@@ -258,6 +258,15 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         content_type=attrs.get('content_type',getattr(self.instance,'content_type',None))
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
+        if content_type == 'page' and location in ('photography.winter', 'photography.summer'):
+            from Client.photography_pages import validate_photography_metadata
+            try:
+                attrs['metadata'] = validate_photography_metadata(
+                    attrs.get('metadata', getattr(self.instance, 'metadata', {})), location.rsplit('.', 1)[1],
+                    attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active',
+                )
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
         if content_type == 'media' and location == 'photography.gallery':
             from Client.photography_gallery import validate_gallery
             try:
