@@ -260,10 +260,10 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
-        if location == 'about.snowland':
+        if location in ('about.snowland', 'about.join-us'):
             from Client.about_pages import validate_about_metadata
             try:
-                attrs['metadata'] = validate_about_metadata(metadata, attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active')
+                attrs['metadata'] = validate_about_metadata(metadata, attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active', 'about' if location == 'about.snowland' else 'join-us')
             except ValueError as exc:
                 raise serializers.ValidationError({'metadata': str(exc)})
         if location in ('offers.earlybird','offers.referral','offers.promo'):

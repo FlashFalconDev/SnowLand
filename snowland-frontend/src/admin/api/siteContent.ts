@@ -1,12 +1,17 @@
 import adminApi from './axios'
 
 export interface AboutSchema {
-  version: number; page_key: 'about'; title: string
-  sections: { id: string; label: string; fields: { key: string; kind: 'text' | 'image'; label: string; value: string; source_heading?: string }[] }[]
+  version: number; page_key: 'about' | 'join-us'; title: string
+  sections: { id: string; label: string; fields: { key: string; kind: 'text' | 'image' | 'link'; label: string; value: string; source_heading?: string; source_first?: boolean; source_contains?: string }[] }[]
 }
 
 export async function fetchAboutSchema(): Promise<AboutSchema> {
   const res = (await adminApi.get('/site-content/about-schema/')) as unknown as { data: AboutSchema }
+  return res.data
+}
+
+export async function fetchJoinSchema(): Promise<AboutSchema> {
+  const res = (await adminApi.get('/site-content/join-schema/')) as unknown as { data: AboutSchema }
   return res.data
 }
 

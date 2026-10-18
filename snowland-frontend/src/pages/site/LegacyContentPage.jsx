@@ -173,12 +173,12 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
   const { items: articleItems } = useSiteContent('guides.articles');
   const page = siteContentToPage(cmsPageItems[0]);
   const aboutValues = page?.layout?.values;
-  const aboutUnavailable = pageKey === 'about' && !(page?.layout?.version === 1 && page.layout.page_key === 'about' && aboutValues && typeof aboutValues === 'object' && !Array.isArray(aboutValues) && Object.keys(aboutValues).length && Object.values(aboutValues).every(value => typeof value === 'string'));
+  const aboutUnavailable = ['about','join-us'].includes(pageKey) && !(page?.layout?.version === 1 && page.layout.page_key === pageKey && aboutValues && typeof aboutValues === 'object' && !Array.isArray(aboutValues) && Object.keys(aboutValues).length && Object.values(aboutValues).every(value => typeof value === 'string'));
   if (!page || aboutUnavailable) return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
     <SiteHeader forceTransparent />
     <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
       <p role={pageError ? 'alert' : 'status'} className={`text-sm ${pageError ? 'text-red-600' : 'text-[#64748b]'}`}>
-        {pageError ? '內容暫時無法載入，請稍後再試。' : pageLoading ? '內容載入中。' : aboutUnavailable ? '學校介紹內容更新中，請稍後再查看。' : '目前沒有已發布的內容。'}
+        {pageError ? '內容暫時無法載入，請稍後再試。' : pageLoading ? '內容載入中。' : aboutUnavailable ? `${pageKey === 'about' ? '學校介紹' : '教練招募'}內容更新中，請稍後再查看。` : '目前沒有已發布的內容。'}
       </p>
     </main><SiteFooter />
   </div>;
@@ -187,6 +187,7 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
 
 function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = false, forceLogoColor = false }) {
   const isAboutPage = pageKey === "about";
+  const j = (key) => page.layout?.values?.[key] ?? "";
   const aboutContent = page.layout;
   const c = (key) => aboutContent?.values?.[key] ?? "";
   const isJoinUsPage = pageKey === "join-us";
@@ -247,83 +248,69 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
   }
   const joinUsBenefits = isJoinUsPage
     ? [
-        "參與季前及雪季中的教練訓練",
-        "在北海道滑雪場教學",
-        "接觸來自各地的滑雪愛好者",
-        "與專業教練團隊一起成長",
-        "度過一個充滿雪與熱情的冬天",
+        j("join_015"),
+        j("join_016"),
+        j("join_017"),
+        j("join_018"),
+        j("join_019"),
       ]
     : [];
   const joinUsResponsibilities = isJoinUsPage
     ? [
         {
-          title: "招募職位",
-          englishTitle: "Position Opening",
-          items: ["雙板滑雪教練", "單板滑雪教練", "野雪嚮導"],
+          title: j("join_020"),
+          englishTitle: j("join_021"),
+          items: [j("join_022"), j("join_023"), j("join_024")],
         },
         {
-          title: "招募對象",
-          englishTitle: "Nationality",
-          items: ["不限國籍"],
+          title: j("join_025"),
+          englishTitle: j("join_026"),
+          items: [j("join_027")],
         },
         {
-          title: "教練資格",
-          englishTitle: "Requirement",
+          title: j("join_028"),
+          englishTitle: j("join_029"),
           items: [
-            "持有有效打工度假簽證",
-            "持有可申請日本工作簽證的雙板證照",
-            "預計於2026年9月前通過雙板證照考試",
-            "※具滑雪教學經驗者優先錄取",
+            j("join_030"),
+            j("join_031"),
+            j("join_032"),
+            j("join_033"),
           ],
         },
         {
-          title: "語言要求",
-          englishTitle: "Language",
+          title: j("join_034"),
+          id: "language",
+          englishTitle: j("join_035"),
           items: [
-            "必備：中文普通話",
-            "加分語言：粵語 / 英語 / 日語",
+            j("join_036"),
+            j("join_037"),
           ],
         },
       ]
     : [];
   const joinUsQualities = isJoinUsPage
-    ? getSectionParagraphs(blocks, "我們在找這樣的你").map(stripLeadingBullet)
+    ? j("join_038").split("\n").filter(Boolean).map(stripLeadingBullet)
     : [];
   const joinUsLanguageNote = isJoinUsPage
-    ? getSectionParagraphs(blocks, "符合以下條件優先考慮：").find((text) =>
-        text.includes("具備以上加分語言者優先錄取")
-      )
+    ? j("join_039")
     : "";
   const joinUsPriority = isJoinUsPage
     ? [
-        "行銷 / 社群經營",
-        "文案撰寫",
-        "影片製作 / 剪輯",
-        "平面攝影",
-        "動態攝影",
-        "登山嚮導",
-        "幼兒教育、兒童體適能、兒童運動教學",
-        "運動 / 戶外相關證照",
-        "急救相關證照",
+        j("join_040"),
+        j("join_041"),
+        j("join_042"),
+        j("join_043"),
+        j("join_044"),
+        j("join_045"),
+        j("join_046"),
+        j("join_047"),
+        j("join_048"),
       ]
     : [];
   const joinUsSalary = isJoinUsPage
-    ? getSectionParagraphs(blocks, "薪資與福利").map(stripLeadingBullet)
+    ? j("join_049").split("\n").filter(Boolean).map(stripLeadingBullet)
     : [];
-  const joinUsSteps = isJoinUsPage
-    ? [
-        "Step 1.",
-        "Step 2.",
-        "Step 3.",
-        "Step 4.",
-        "Step 5.",
-        "Step 6.",
-        "Step 7.",
-      ].map((title) => ({
-        title,
-        text: getSectionParagraphs(blocks, title)[0] ?? "",
-      }))
-    : [];
+  const joinUsSteps = isJoinUsPage ? [{title:j("join_001"),text:j("join_002")},{title:j("join_003"),text:j("join_004")},{title:j("join_005"),text:j("join_006")},{title:j("join_007"),text:j("join_008")},{title:j("join_009"),text:j("join_010")},{title:j("join_011"),text:j("join_012")},{title:j("join_013"),text:j("join_014")}] : [];
   const joinUsReachedStep = joinUsActiveStep;
   const { scrollY } = useScroll();
   const joinUsHeroY = useTransform(scrollY, [0, 900], ["0%", "32%"]);
@@ -422,8 +409,8 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
           <section className="relative min-h-[56vh] overflow-hidden md:min-h-[76vh]">
             <div className="absolute inset-0">
               <motion.img
-                src="/join-us/hero-background.jpg"
-                alt="Join Us hero background"
+                src={j("join_050")}
+                alt={j("join_051")}
                 className="h-full w-full object-cover object-[center_25%] scale-[1.08] md:scale-[1.12] will-change-transform"
                 style={prefersReducedMotion ? undefined : { y: joinUsHeroY }}
               />
@@ -432,16 +419,12 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
             <div className="relative mx-auto flex min-h-[56vh] max-w-5xl items-center justify-center px-6 py-24 md:min-h-[76vh] md:px-10 md:py-28">
               <JoinUsFade className="max-w-3xl space-y-6 text-center">
                 <p className="text-sm font-semibold tracking-[0.35em] uppercase text-white/75 font-display">
-                  Join Us
-                </p>
+                  {j("join_052")}</p>
                 <h1 className="text-3xl md:text-5xl font-semibold tracking-wide font-display text-white">
-                  成為教練
-                </h1>
+                  {j("join_053")}</h1>
                 <p className="text-sm md:text-lg leading-relaxed text-white/90">
-                  想在世界級雪場邊滑雪、邊教學，享受冬季限定的工作體驗嗎？
-                  <br />
-                  你的下一場冒險，就從這裡開始！
-                </p>
+                  {j("join_054")}<br />
+                  {j("join_055")}</p>
               </JoinUsFade>
             </div>
           </section>
@@ -450,18 +433,15 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
             <div className="max-w-5xl mx-auto px-6 md:px-10 py-16 md:py-24">
               <JoinUsFade className="max-w-4xl mx-auto text-center space-y-6" delay={0.05}>
                 <h2 className="text-2xl md:text-3xl font-semibold font-display text-[#1f2937]">
-                  SnowLand Ski School
-                </h2>
+                  {j("join_056")}</h2>
                 <p className="text-sm md:text-base leading-relaxed text-[#475569]">
-                  星野Tomamu度假村／留壽都渡假村／手稻滑雪場 / 札幌國際雪場官方許可認證的中文滑雪學校
-                </p>
+                  {j("join_057")}</p>
                 <p className="text-sm md:text-base leading-relaxed text-[#475569]">
-                  如果你熱愛滑雪，並希望在日本的雪地中發揮專業技能，SnowLand 滑雪學校誠摯邀請你加入我們的專業滑雪教練團隊！
-                </p>
+                  {j("join_058")}</p>
               </JoinUsFade>
 
               <JoinUsFade className="mt-12 grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-6" delay={0.08}>
-                {["穩定客源", "完整培訓", "冬季限定", "團隊合作"].map((tag, index) => (
+                {[j("join_059"), j("join_060"), j("join_061"), j("join_062")].map((tag, index) => (
                   <motion.div
                     key={tag}
                     className="group relative mx-auto flex aspect-square w-full max-w-[7.5rem] items-center justify-center overflow-hidden rounded-full border border-[#d7dde3] bg-[#f8fafc] px-3 text-center text-xs md:text-sm font-semibold text-[#1f2937] shadow-[0_10px_30px_rgba(15,23,42,0.04)] transition-[box-shadow,transform,border-color] duration-300 md:hover:border-[#8fc8f0] md:hover:shadow-[0_0_24px_rgba(143,200,240,0.45),0_10px_30px_rgba(15,23,42,0.04)] md:hover:-translate-y-0.5"
@@ -504,8 +484,8 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                   className="relative min-w-[85%] md:min-w-[70%] snap-center overflow-hidden bg-[#f8fafc]"
                 >
                   <img loading="lazy" decoding="async"
-                    src="/join-us/join-us-001.jpg"
-                    alt="SnowLand join us image 1"
+                    src={j("join_063")}
+                    alt={j("join_064")}
                     className="h-[240px] sm:h-[280px] w-full object-cover"
                   />
                 </figure>
@@ -514,8 +494,8 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                   className="relative min-w-[85%] md:min-w-[70%] snap-center overflow-hidden bg-[#f8fafc]"
                 >
                   <img loading="lazy" decoding="async"
-                    src="/join-us/join-us-002.jpg"
-                    alt="SnowLand join us image 2"
+                    src={j("join_065")}
+                    alt={j("join_066")}
                     className="h-[240px] sm:h-[280px] w-full object-cover"
                   />
                 </figure>
@@ -524,8 +504,8 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                   className="relative min-w-[85%] md:min-w-[70%] snap-center overflow-hidden bg-[#f8fafc]"
                 >
                   <img loading="lazy" decoding="async"
-                    src="/join-us/join-us-003.jpg"
-                    alt="SnowLand join us image 3"
+                    src={j("join_067")}
+                    alt={j("join_068")}
                     className="h-[240px] sm:h-[280px] w-full object-cover"
                   />
                 </figure>
@@ -536,43 +516,46 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                     key={`join-us-dot-${index}`}
                     type="button"
                     aria-label={`顯示第 ${index + 1} 張照片`}
+                    aria-pressed={index === joinUsMobileSlide}
                     onClick={() => {
                       const node = joinUsMobileCarouselRef.current;
                       if (!node) return;
                       const slide = node.querySelectorAll("[data-join-us-slide]")[index];
                       slide?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
                     }}
-                    className={`h-2.5 w-2.5 rounded-full transition-all duration-300 ${
+                    className="flex h-11 w-11 items-center justify-center"
+                  >
+                    <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full transition-all duration-300 ${
                       index === joinUsMobileSlide
                         ? "scale-125 bg-[#2b5f8f]"
                         : "bg-[#cbd5e1] hover:bg-[#94a3b8]"
-                    }`}
-                  />
+                    }`} />
+                  </button>
                 ))}
               </div>
             </div>
 
-            <div className="hidden lg:grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-start">
-              <div className="space-y-4 lg:sticky lg:top-28">
+            <div className="grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-start">
+              <div className="hidden lg:block space-y-4 lg:sticky lg:top-28">
                 <figure className="overflow-hidden rounded-sm border border-[#e2e8f0] bg-[#eef2f6] aspect-[4/5]">
                   <img loading="lazy" decoding="async"
-                    src="/join-us/join-us-001.jpg"
-                    alt="SnowLand join us image 1"
+                    src={j("join_063")}
+                    alt={j("join_069")}
                     className="h-full w-full object-cover object-center"
                   />
                 </figure>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <figure className="overflow-hidden rounded-sm border border-[#e2e8f0] bg-[#f0f4f8] aspect-[4/3]">
                     <img loading="lazy" decoding="async"
-                      src="/join-us/join-us-002.jpg"
-                      alt="SnowLand join us image 2"
+                      src={j("join_065")}
+                      alt={j("join_070")}
                       className="h-full w-full object-cover object-center"
                     />
                   </figure>
                   <figure className="overflow-hidden rounded-sm border border-[#e2e8f0] bg-[#f0f4f8] aspect-[4/3]">
                     <img loading="lazy" decoding="async"
-                      src="/join-us/join-us-003.jpg"
-                      alt="SnowLand join us image 3"
+                      src={j("join_067")}
+                      alt={j("join_071")}
                       className="h-full w-full object-cover object-center"
                     />
                   </figure>
@@ -593,9 +576,9 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                           {group.title}
                         </h2>
                         <ul className="space-y-3">
-                          {group.items.map((item) => {
+                          {group.items.map((item, itemIndex) => {
                             const isLanguagePriorityItem =
-                              group.title === "語言要求" && item.startsWith("加分語言：");
+                              group.id === "language" && itemIndex === 1;
                             const isNoteItem = item.startsWith("※");
                             if (isNoteItem) {
                               return (
@@ -632,11 +615,9 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
 
                 <JoinUsFade className="space-y-4" delay={0.05}>
                   <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-                    We are looking for
-                  </p>
+                    {j("join_072")}</p>
                   <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                    我們在尋找這樣的你
-                  </h2>
+                    {j("join_073")}</h2>
                   <ul className="space-y-3 text-sm md:text-base text-[#475569] leading-relaxed">
                     {joinUsQualities.map((item) => (
                       <li key={item} className="flex gap-3">
@@ -648,11 +629,9 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                   {joinUsPriority.length > 0 ? (
                     <div className="pt-2 space-y-3">
                       <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-                        Extra Skills That Make You Stand Out
-                      </p>
+                        {j("join_074")}</p>
                       <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                        其他技能與專長
-                      </h2>
+                        {j("join_075")}</h2>
                       <ul className="space-y-3 text-sm md:text-base text-[#475569] leading-relaxed">
                         {joinUsPriority.map((item) => (
                           <li key={item} className="flex gap-3">
@@ -664,17 +643,14 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                     </div>
                   ) : null}
                   <p className="text-xs md:text-sm text-[#94a3b8] leading-relaxed">
-                    ※具備以上相關技能者優先錄取
-                  </p>
+                    {j("join_076")}</p>
                 </JoinUsFade>
 
                 <JoinUsFade className="space-y-4" delay={0.1}>
                   <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-                    Why join us
-                  </p>
+                    {j("join_077")}</p>
                   <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                    加入我們，您將有機會
-                  </h2>
+                    {j("join_078")}</h2>
                   <ul className="space-y-3 text-sm md:text-base text-[#475569] leading-relaxed">
                     {joinUsBenefits.map((item) => (
                       <li key={item} className="flex gap-3">
@@ -687,11 +663,9 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
 
                 <JoinUsFade className="space-y-4" delay={0.12}>
                   <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-                    Salary & Benefits
-                  </p>
+                    {j("join_079")}</p>
                   <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                    薪資與福利
-                  </h2>
+                    {j("join_080")}</h2>
                   <ul className="space-y-3 text-sm md:text-base text-[#475569] leading-relaxed">
                     {joinUsSalary.map((item) => (
                       <li key={item} className="flex gap-3">
@@ -709,14 +683,11 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
             <JoinUsFade className="border-t border-[#d7dde3] pt-6 md:pt-10">
               <div className="max-w-4xl space-y-4">
                 <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-                  Location
-                </p>
+                  {j("join_081")}</p>
                 <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                  工作地點
-                </h2>
+                  {j("join_082")}</h2>
                 <p className="text-sm md:text-base leading-relaxed text-[#475569]">
-                  北海道滑雪場：星野Tomamu、富良野／旭川地區、手稻、札幌國際、留壽都⋯等
-                </p>
+                  {j("join_083")}</p>
               </div>
             </JoinUsFade>
           </section>
@@ -726,11 +697,9 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
               <div className="flex items-end justify-between gap-6">
                 <div className="space-y-3">
                   <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-                    How to Apply
-                  </p>
+                    {j("join_084")}</p>
                   <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                    應徵流程
-                  </h2>
+                    {j("join_085")}</h2>
                 </div>
                 <div className="hidden md:block h-px flex-1 bg-[#e2e8f0]" />
               </div>
@@ -790,27 +759,27 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
             <div className="relative max-w-3xl mx-auto overflow-hidden rounded-sm border border-[#e2e8f0] bg-[#f8fafc] px-6 py-10 md:px-10 md:py-12 text-center shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
               <div className="absolute inset-0">
                 <img loading="lazy" decoding="async"
-                  src="/join-us/join-us-004.png"
-                  alt="Join us CTA background"
+                  src={j("join_086")}
+                  alt={j("join_087")}
                   className="h-full w-full scale-[1.12] object-cover object-[100%_center]"
                 />
               </div>
               <div className="absolute inset-0 bg-black/25" />
               <JoinUsFade className="relative z-10">
                 <p className="text-xs font-semibold tracking-[0.3em] uppercase text-white/80 font-display">
-                  Apply now
-                </p>
+                  {j("join_088")}</p>
                 <h2 className="mt-3 text-2xl md:text-3xl font-semibold tracking-wide font-display text-white">
-                  加入SnowLand團隊
-                </h2>
+                  {j("join_089")}</h2>
                 <div className="mt-6 flex justify-center">
-                  <button
-                    type="button"
+                  <SiteLink
+                    to={j("join_apply_url")}
+                    target="_blank" rel="noopener noreferrer"
+                    data-recruit-apply="true"
                     className="inline-flex items-center justify-center rounded-full bg-[#8ec8f0] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#7bbbe7]"
                   >
-                    填寫履歷
-                  </button>
+                    {j("join_090")}</SiteLink>
                 </div>
+                {/^https?:\/\//i.test(j("join_apply_url")) && <p data-recruit-notice="true" className="mt-3 text-xs leading-6 text-white">目前開啟外部應徵表單；站內招募表單建置中。</p>}
               </JoinUsFade>
             </div>
           </section>

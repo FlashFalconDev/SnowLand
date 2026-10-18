@@ -1,0 +1,577 @@
+{
+  "version": 1,
+  "page_key": "join-us",
+  "title": "成為教練",
+  "sections": [
+    {
+      "id": "original",
+      "label": "目前官網原版型",
+      "fields": [
+        {
+          "key": "join_001",
+          "kind": "text",
+          "label": "流程1：步驟標題",
+          "value": "Step 1."
+        },
+        {
+          "key": "join_002",
+          "kind": "text",
+          "label": "流程1：說明",
+          "value": "填寫下方履歷表",
+          "source_heading": "Step 1.",
+          "source_first": true
+        },
+        {
+          "key": "join_003",
+          "kind": "text",
+          "label": "流程2：步驟標題",
+          "value": "Step 2."
+        },
+        {
+          "key": "join_004",
+          "kind": "text",
+          "label": "流程2：說明",
+          "value": "送出應徵表單",
+          "source_heading": "Step 2.",
+          "source_first": true
+        },
+        {
+          "key": "join_005",
+          "kind": "text",
+          "label": "流程3：步驟標題",
+          "value": "Step 3."
+        },
+        {
+          "key": "join_006",
+          "kind": "text",
+          "label": "流程3：說明",
+          "value": "加入SnowLand官方客服",
+          "source_heading": "Step 3.",
+          "source_first": true
+        },
+        {
+          "key": "join_007",
+          "kind": "text",
+          "label": "流程4：步驟標題",
+          "value": "Step 4."
+        },
+        {
+          "key": "join_008",
+          "kind": "text",
+          "label": "流程4：說明",
+          "value": "通知SnowLand",
+          "source_heading": "Step 4.",
+          "source_first": true
+        },
+        {
+          "key": "join_009",
+          "kind": "text",
+          "label": "流程5：步驟標題",
+          "value": "Step 5."
+        },
+        {
+          "key": "join_010",
+          "kind": "text",
+          "label": "流程5：說明",
+          "value": "等待SnowLand回覆",
+          "source_heading": "Step 5.",
+          "source_first": true
+        },
+        {
+          "key": "join_011",
+          "kind": "text",
+          "label": "流程6：步驟標題",
+          "value": "Step 6."
+        },
+        {
+          "key": "join_012",
+          "kind": "text",
+          "label": "流程6：說明",
+          "value": "面談",
+          "source_heading": "Step 6.",
+          "source_first": true
+        },
+        {
+          "key": "join_013",
+          "kind": "text",
+          "label": "流程7：步驟標題",
+          "value": "Step 7."
+        },
+        {
+          "key": "join_014",
+          "kind": "text",
+          "label": "流程7：說明",
+          "value": "錄取通知",
+          "source_heading": "Step 7.",
+          "source_first": true
+        },
+        {
+          "key": "join_015",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "參與季前及雪季中的教練訓練"
+        },
+        {
+          "key": "join_016",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "在北海道滑雪場教學"
+        },
+        {
+          "key": "join_017",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "接觸來自各地的滑雪愛好者"
+        },
+        {
+          "key": "join_018",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "與專業教練團隊一起成長"
+        },
+        {
+          "key": "join_019",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "度過一個充滿雪與熱情的冬天"
+        },
+        {
+          "key": "join_020",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "招募職位"
+        },
+        {
+          "key": "join_021",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Position Opening"
+        },
+        {
+          "key": "join_022",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "雙板滑雪教練"
+        },
+        {
+          "key": "join_023",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "單板滑雪教練"
+        },
+        {
+          "key": "join_024",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "野雪嚮導"
+        },
+        {
+          "key": "join_025",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "招募對象"
+        },
+        {
+          "key": "join_026",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Nationality"
+        },
+        {
+          "key": "join_027",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "不限國籍"
+        },
+        {
+          "key": "join_028",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "教練資格"
+        },
+        {
+          "key": "join_029",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Requirement"
+        },
+        {
+          "key": "join_030",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "持有有效打工度假簽證"
+        },
+        {
+          "key": "join_031",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "持有可申請日本工作簽證的雙板證照"
+        },
+        {
+          "key": "join_032",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "預計於2026年9月前通過雙板證照考試"
+        },
+        {
+          "key": "join_033",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "※具滑雪教學經驗者優先錄取"
+        },
+        {
+          "key": "join_034",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "語言要求"
+        },
+        {
+          "key": "join_035",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Language"
+        },
+        {
+          "key": "join_036",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "必備：中文普通話"
+        },
+        {
+          "key": "join_037",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "加分語言：粵語 / 英語 / 日語"
+        },
+        {
+          "key": "join_038",
+          "kind": "text",
+          "label": "我們在找這樣的你：說明",
+          "value": "– 熱愛滑雪與戶外活動\n– 具備教學熱忱與責任感\n– 能與團隊合作並與學員良好互動",
+          "source_heading": "我們在找這樣的你"
+        },
+        {
+          "key": "join_039",
+          "kind": "text",
+          "label": "符合以下條件優先考慮：：說明",
+          "value": "※ 具備以上加分語言者優先錄取",
+          "source_heading": "符合以下條件優先考慮：",
+          "source_contains": "具備以上加分語言者優先錄取"
+        },
+        {
+          "key": "join_040",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "行銷 / 社群經營"
+        },
+        {
+          "key": "join_041",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "文案撰寫"
+        },
+        {
+          "key": "join_042",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "影片製作 / 剪輯"
+        },
+        {
+          "key": "join_043",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "平面攝影"
+        },
+        {
+          "key": "join_044",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "動態攝影"
+        },
+        {
+          "key": "join_045",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "登山嚮導"
+        },
+        {
+          "key": "join_046",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "幼兒教育、兒童體適能、兒童運動教學"
+        },
+        {
+          "key": "join_047",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "運動 / 戶外相關證照"
+        },
+        {
+          "key": "join_048",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "急救相關證照"
+        },
+        {
+          "key": "join_049",
+          "kind": "text",
+          "label": "薪資與福利：說明",
+          "value": "面議—依證照、教學經驗、語言能力及專長而定。",
+          "source_heading": "薪資與福利"
+        },
+        {
+          "key": "join_050",
+          "kind": "image",
+          "label": "圖片網址",
+          "value": "/join-us/hero-background.jpg"
+        },
+        {
+          "key": "join_051",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "Join Us hero background"
+        },
+        {
+          "key": "join_052",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "Join Us"
+        },
+        {
+          "key": "join_053",
+          "kind": "text",
+          "label": "標題",
+          "value": "成為教練"
+        },
+        {
+          "key": "join_054",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "想在世界級雪場邊滑雪、邊教學，享受冬季限定的工作體驗嗎？"
+        },
+        {
+          "key": "join_055",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "你的下一場冒險，就從這裡開始！"
+        },
+        {
+          "key": "join_056",
+          "kind": "text",
+          "label": "標題",
+          "value": "SnowLand Ski School"
+        },
+        {
+          "key": "join_057",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "星野Tomamu度假村／留壽都渡假村／手稻滑雪場 / 札幌國際雪場官方許可認證的中文滑雪學校"
+        },
+        {
+          "key": "join_058",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "如果你熱愛滑雪，並希望在日本的雪地中發揮專業技能，SnowLand 滑雪學校誠摯邀請你加入我們的專業滑雪教練團隊！"
+        },
+        {
+          "key": "join_059",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "穩定客源"
+        },
+        {
+          "key": "join_060",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "完整培訓"
+        },
+        {
+          "key": "join_061",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "冬季限定"
+        },
+        {
+          "key": "join_062",
+          "kind": "text",
+          "label": "項目文字",
+          "value": "團隊合作"
+        },
+        {
+          "key": "join_063",
+          "kind": "image",
+          "label": "圖片網址",
+          "value": "/join-us/join-us-001.jpg"
+        },
+        {
+          "key": "join_064",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand join us image 1"
+        },
+        {
+          "key": "join_065",
+          "kind": "image",
+          "label": "圖片網址",
+          "value": "/join-us/join-us-002.jpg"
+        },
+        {
+          "key": "join_066",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand join us image 2"
+        },
+        {
+          "key": "join_067",
+          "kind": "image",
+          "label": "圖片網址",
+          "value": "/join-us/join-us-003.jpg"
+        },
+        {
+          "key": "join_068",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand join us image 3"
+        },
+        {
+          "key": "join_069",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand join us image 1"
+        },
+        {
+          "key": "join_070",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand join us image 2"
+        },
+        {
+          "key": "join_071",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand join us image 3"
+        },
+        {
+          "key": "join_072",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "We are looking for"
+        },
+        {
+          "key": "join_073",
+          "kind": "text",
+          "label": "標題",
+          "value": "我們在尋找這樣的你"
+        },
+        {
+          "key": "join_074",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "Extra Skills That Make You Stand Out"
+        },
+        {
+          "key": "join_075",
+          "kind": "text",
+          "label": "標題",
+          "value": "其他技能與專長"
+        },
+        {
+          "key": "join_076",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "※具備以上相關技能者優先錄取"
+        },
+        {
+          "key": "join_077",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "Why join us"
+        },
+        {
+          "key": "join_078",
+          "kind": "text",
+          "label": "標題",
+          "value": "加入我們，您將有機會"
+        },
+        {
+          "key": "join_079",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "Salary & Benefits"
+        },
+        {
+          "key": "join_080",
+          "kind": "text",
+          "label": "標題",
+          "value": "薪資與福利"
+        },
+        {
+          "key": "join_081",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "Location"
+        },
+        {
+          "key": "join_082",
+          "kind": "text",
+          "label": "標題",
+          "value": "工作地點"
+        },
+        {
+          "key": "join_083",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "北海道滑雪場：星野Tomamu、富良野／旭川地區、手稻、札幌國際、留壽都⋯等"
+        },
+        {
+          "key": "join_084",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "How to Apply"
+        },
+        {
+          "key": "join_085",
+          "kind": "text",
+          "label": "標題",
+          "value": "應徵流程"
+        },
+        {
+          "key": "join_086",
+          "kind": "image",
+          "label": "圖片網址",
+          "value": "/join-us/join-us-004.png"
+        },
+        {
+          "key": "join_087",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "Join us CTA background"
+        },
+        {
+          "key": "join_088",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "Apply now"
+        },
+        {
+          "key": "join_089",
+          "kind": "text",
+          "label": "標題",
+          "value": "加入SnowLand團隊"
+        },
+        {
+          "key": "join_090",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "填寫履歷"
+        },
+        {
+          "key": "join_apply_url",
+          "kind": "link",
+          "label": "應徵表單連結（目前外部填寫）",
+          "value": "https://www.surveycake.com/s/mYz4K"
+        }
+      ]
+    }
+  ]
+}

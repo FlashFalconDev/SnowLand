@@ -359,7 +359,7 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
-  if (item.location_key === 'about.snowland' && isRecord(item.metadata?.layout)) return `學校介紹原版型 · ${Object.keys(isRecord(item.metadata.layout.values) ? item.metadata.layout.values : {}).length}個欄位`
+  if (['about.snowland', 'about.join-us'].includes(item.location_key) && isRecord(item.metadata?.layout)) return `${item.location_key === 'about.snowland' ? '學校介紹' : '教練招募'}原版型 · ${Object.keys(isRecord(item.metadata.layout.values) ? item.metadata.layout.values : {}).length}個欄位`
   if (isRecord(item.metadata?.article)) return String(item.metadata.article.lead || item.metadata.article.title || '原文章內容')
   if (['photography.winter', 'photography.summer'].includes(item.location_key)) {
     const content = isRecord(item.metadata?.photography) ? item.metadata.photography : {}
@@ -1290,7 +1290,7 @@ function ContentDrawer({
   } : makeEmptyForm(initialLocation || groupInfo?.locations[0]?.key, initialLocation ? drawerLocationMap[initialLocation] : groupInfo?.locations[0]))
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
-  const isAboutPage = form.location_key === 'about.snowland'
+  const isAboutPage = ['about.snowland', 'about.join-us'].includes(form.location_key)
   const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
   const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage
   const isGuideListing = form.location_key === 'guides.articles'
@@ -1469,7 +1469,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {isAboutPage ? <AboutPageEditor metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (
