@@ -318,7 +318,7 @@ function BookingLinksPanel() {
   const clearCart = useBookingStore(state => state.clearCart)
   const { campuses, selectedCampus } = useScopedCampuses()
   const activeCampuses = campuses.filter(campus => campus.is_active)
-  const { data: rows = [] } = useQuery({ queryKey: ['admin', 'staff-booking-links'], queryFn: fetchStaffBookingLinks })
+  const { data: rows = [], isLoading, error, refetch } = useQuery({ queryKey: ['admin', 'staff-booking-links'], queryFn: fetchStaffBookingLinks })
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 16)
   const [form, setForm] = useState({ campus: selectedCampus, title: '', expires_at: tomorrow })
   const selectedCartCampus = cart[0]?.campusId
@@ -339,6 +339,11 @@ function BookingLinksPanel() {
       notify.error('無法複製連結，請檢查瀏覽器權限')
     }
   }
+  if (isLoading) return <p role="status" className="py-8 text-sm text-gray-500 dark:text-gray-400">正在確認代客連結狀態…</p>
+  if (error) return <section role="alert" className={cardClass}>
+    <p className="text-sm text-red-700 dark:text-red-300">代客連結狀態載入失敗，請重新載入後再操作，不代表沒有建立過連結。</p>
+    <button type="button" onClick={() => refetch()} className="mt-3 min-h-11 rounded-lg border border-violet-300 px-4 text-sm font-semibold text-violet-700 dark:text-violet-300">重新載入連結狀態</button>
+  </section>
   return <div className="space-y-5"><section className={cardClass}><h2 className="font-semibold text-gray-900 dark:text-white">建立代客訂課連結</h2><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">先幫客人選好課程，再建立連結。客人登入後會直接看到訂單明細，填完資料即可送出及付款。</p><a href={`/${window.location.pathname.split('/')[1] || 'snowland'}/booking?staff_prepare=1`} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-700 dark:text-violet-300"><Plus size={16} />先幫客人選課</a><div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">{cart.length ? <><b>已選 {cart.length} 組課程</b><ul className="mt-2 space-y-1">{cart.map(group => <li key={group.id}>{group.resortName} · {group.courses.map(course => `${course.courseTemplateName} ${course.date}`).join('、')} · {group.peopleCount} 人</li>)}</ul></> : '尚未選課。按「先幫客人選課」，完成後回到此頁建立連結。'}</div>{cart.length > 0 && !cartCampusMatches && <p role="alert" className="mb-3 text-sm text-red-600">同一連結只能包含同一校區且有課程的組別，請回選課畫面調整。</p>}<div className="grid items-end gap-3 md:grid-cols-4"><Field label="訂單歸屬校區"><select className={inputClass} value={form.campus} onChange={e => setForm({ ...form, campus: e.target.value })}><option value="">請選校區</option>{activeCampuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="用途／客人名稱"><input className={inputClass} placeholder="例如：王小姐三日課" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></Field><Field label="連結失效時間"><input className={inputClass} type="datetime-local" value={form.expires_at} onChange={e => setForm({ ...form, expires_at: e.target.value })} /></Field><button disabled={!cartCampusMatches || Number(form.campus) !== selectedCartCampus || !form.title || create.isPending} onClick={() => create.mutate()} className="flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}><Plus size={16} />建立連結</button></div></section><section className={cardClass}><div className="space-y-3">{rows.map(r => <div key={r.id} className="flex flex-col gap-3 rounded-lg border border-gray-100 p-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between"><div><b>{r.title}</b><p className="text-xs text-gray-500 dark:text-gray-400">{r.is_available ? '可使用' : '已失效'} · 到期 {new Date(r.expires_at).toLocaleString()}</p></div><button disabled={!r.is_available} onClick={() => copy(r.url)} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600 disabled:opacity-40">複製連結</button></div>)}{!rows.length && <Empty text="尚未建立連結。" />}</div></section></div>
 }
 

@@ -2313,7 +2313,7 @@ export default function BookingFlowPage() {
           <div role={staffLinkStatus === 'invalid' ? 'alert' : 'status'} className="w-full rounded-sm border border-[#dbe3ec] bg-white p-8 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
             <h1 className="text-xl font-semibold">{staffLinkStatus === 'invalid' ? '代客訂課連結已失效' : '正在確認代客訂課連結'}</h1>
             <p className="mt-3 text-sm text-[#64748b]">{staffLinkStatus === 'invalid' ? '請向工作人員索取新連結，或改用一般訂課。' : '請稍候，確認校區後即可開始預約。'}</p>
-            {staffLinkStatus === 'invalid' && <a href={window.location.pathname} className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">改用一般訂課</a>}
+            {staffLinkStatus === 'invalid' && <a href={window.location.pathname} className="mt-6 min-h-11 inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">改用一般訂課</a>}
           </div>
         </main>
         <SiteFooter />

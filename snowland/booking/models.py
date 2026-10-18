@@ -789,7 +789,10 @@ class StaffBookingLink(models.Model):
 
     @property
     def is_available(self):
-        return self.is_active and self.campus.is_active and not self.used_at and self.expires_at > timezone.now()
+        if not (self.is_active and self.campus.is_active and not self.used_at and self.expires_at > timezone.now()):
+            return False
+        from .staff_link_snapshot import staff_cart_is_current
+        return staff_cart_is_current(self)
 
 @receiver(user_signed_up)
 def user_signed_up_callback(request, user, **kwargs):

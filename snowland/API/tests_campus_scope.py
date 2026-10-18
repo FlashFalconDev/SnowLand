@@ -129,6 +129,10 @@ class CampusScopeApiTests(TestCase):
         self.assertFalse(StaffBookingLink.objects.filter(title='空白代客連結').exists())
 
     def test_staff_booking_link_does_not_publish_internal_snapshot_fields(self):
+        template=CourseTemplate.objects.create(course_type=CourseType.objects.create(
+            category=CourseCategory.objects.create(client=self.tenant,name='隱私選課測試'),name='單板'),
+            name='有效測試課程',duration_hours=3)
+        template.resorts.add(self.resort_a)
         link = StaffBookingLink.objects.create(
             client=self.tenant, campus=self.campus_a, created_by=self.superuser,
             expires_at=timezone.now() + timedelta(days=1),
@@ -137,7 +141,7 @@ class CampusScopeApiTests(TestCase):
                 'peopleCount': 2,
                 'internal_note': '不應公開的內部備註',
                 'courses': [{
-                    'courseTemplateId': 1,
+                    'courseTemplateId': template.pk,
                     'date': (timezone.localdate() + timedelta(days=30)).isoformat(),
                     'internal_note': '不應公開的課程備註',
                 }],
@@ -149,7 +153,7 @@ class CampusScopeApiTests(TestCase):
             'resort': self.resort_a.name,
             'peopleCount': 2,
             'courses': [{
-                'courseTemplateId': 1,
+                'courseTemplateId': template.pk,
                 'date': (timezone.localdate() + timedelta(days=30)).isoformat(),
             }],
         }])
