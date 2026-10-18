@@ -83,6 +83,41 @@ class CoachLeaveCalendarDateTests(TestCase):
         self.assertEqual(self.api.get(self.url).status_code,200)
         self.assertFalse(OperatingPolicy.objects.exists())
 
+    def test_admin_consecutive_day_setting_immediately_controls_coach_read_and_submit(self):
+        # Three days are rejected by the existing two-day rule before changing it.
+        before=self.post(end_date='2026-10-23')
+        self.assertEqual(before.status_code,400)
+        self.assertIn('最多連續 2 天',before.data['msg'])
+        policy=OperatingPolicy.objects.get(client=self.tenant,campus=self.campus)
+        admin=APIClient();admin.force_authenticate(User.objects.create_superuser('policy-hq'))
+        updated=admin.patch(f'/api/admin/snowland/operating-policies/{policy.pk}/',
+            {'leave_max_consecutive_days':3},format='json')
+        self.assertEqual(updated.status_code,200,updated.data)
+        self.assertEqual(self.api.get(self.url).data['data']['leave_max_consecutive_days'],3)
+        accepted=self.post(end_date='2026-10-23')
+        self.assertEqual(accepted.status_code,200,accepted.data)
+        self.assertEqual(CoachLeaveRequest.objects.get().leave_days,3)
+        rejected=self.post(end_date='2026-10-24')
+        self.assertEqual(rejected.status_code,400,rejected.data)
+        self.assertIn('最多連續 3 天',rejected.data['msg'])
+        self.assertEqual(CoachLeaveRequest.objects.count(),1)
+
+    def test_invalid_policy_integer_fields_do_not_partially_change_saved_rules(self):
+        policy=OperatingPolicy.objects.get(client=self.tenant,campus=self.campus)
+        admin=APIClient();admin.force_authenticate(User.objects.create_superuser('policy-validation-hq'))
+        url=f'/api/admin/snowland/operating-policies/{policy.pk}/'
+        for field in ('unpaid_hold_days','provisional_extra_groups','leave_advance_days','leave_daily_coach_limit','leave_max_consecutive_days'):
+            for value in (-1,1.5,True,'',None,{},[]):
+                with self.subTest(field=field,value=value):
+                    response=admin.patch(url,{field:value,'cancellation_fee_percent':7},format='json')
+                    self.assertEqual(response.status_code,400,response.data)
+                    self.assertIn(field,response.data)
+                    policy.refresh_from_db()
+                    self.assertEqual(getattr(policy,field),{'unpaid_hold_days':3,'provisional_extra_groups':3,
+                        'leave_advance_days':3,'leave_daily_coach_limit':2,'leave_max_consecutive_days':2}[field])
+                    self.assertEqual(policy.cancellation_fee_percent,5)
+                    self.assertEqual(policy.leave_max_consecutive_days,2)
+
     def affected_course(self):
         group=ReservationGroup.objects.create(client=self.tenant,campus=self.campus,user=self.user)
         reservation=Reservation.objects.create(group=group,preferred_coach=self.coach,status='manually_assigned')

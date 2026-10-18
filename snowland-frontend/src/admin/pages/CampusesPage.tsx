@@ -14,17 +14,34 @@ const EMPTY_FORM: CampusWriteData = {
   name: '', code: '', description: '', is_active: true, display_order: 0, resort_ids: [],
 }
 
+const POLICY_NUMBERS = [
+  { key: 'unpaid_hold_days', label: '未付款保留', suffix: '天' },
+  { key: 'provisional_extra_groups', label: '未付款可加排', suffix: '組' },
+  { key: 'leave_advance_days', label: '請假需提前', suffix: '天' },
+  { key: 'leave_daily_coach_limit', label: '每日請假上限', suffix: '人' },
+  { key: 'leave_max_consecutive_days', label: '連續請假上限', suffix: '天' },
+] as const
+type PolicyNumberKey = typeof POLICY_NUMBERS[number]['key']
+type PolicyDraft = Omit<OperatingPolicy, PolicyNumberKey> & Record<PolicyNumberKey, number | string>
+
 function errorMessage(error: unknown, fallback: string) {
-  const data = (error as { response?: { data?: Record<string, unknown> } })?.response?.data
+  const response = (error as { response?: { status?: number; data?: Record<string, unknown> } })?.response
+  const data = response?.data
+  if (response?.status === 404) return '這筆設定已變更或無法存取，請重新載入頁面後再試。'
+  if (response?.status === 401) return '登入已失效，請重新登入後再試。'
+  if (response?.status && response.status >= 500) return fallback
   if (typeof data?.msg === 'string') return data.msg
   if (typeof data?.detail === 'string') return data.detail
   const fieldLabels: Record<string, string> = {
     name: '校區名稱', code: '內部代碼', resort_ids: '可用雪場', non_field_errors: '資料',
+    campus: '適用範圍', cancellation_rules: '退費級距', cancellation_fee_percent: '退款手續費',
+    ...Object.fromEntries(POLICY_NUMBERS.map(({ key, label }) => [key, label])),
   }
   const fieldErrors = Object.entries(fieldLabels).flatMap(([field, label]) => {
     const value = data?.[field]
     const messages = Array.isArray(value) ? value : [value]
-    return messages.filter((item): item is string => typeof item === 'string').map((item) => `${label}：${item}`)
+    return messages.filter((item): item is string => typeof item === 'string').map((item) =>
+      `${label}：${POLICY_NUMBERS.some(({ key }) => key === field) ? '請輸入0～32767的整數' : item}`)
   })
   return fieldErrors.join('；') || fallback
 }
@@ -245,22 +262,39 @@ export default function CampusesPage() {
 
 function PolicyCard({ campuses, policy, selectedCampusId, hasOverride, canEdit, onSelect, onSaved }: { campuses: Campus[]; policy: OperatingPolicy; selectedCampusId: number | null; hasOverride: boolean; canEdit: boolean; onSelect: (id: number | null) => void; onSaved: () => void }) {
   const notification = useNotification()
-  const [draft, setDraft] = useState(policy)
+  const [draft, setDraft] = useState<PolicyDraft>(policy)
   const [confirmReset, setConfirmReset] = useState(false)
-  const mutation = useMutation({ mutationFn: () => hasOverride
-    ? updateOperatingPolicy(policy.id, draft)
+  const [policyError, setPolicyError] = useState('')
+  // Portable PositiveSmallIntegerField storage range, not a fixed business rule.
+  const invalidNumber = POLICY_NUMBERS.find(({ key }) => draft[key] === '' || !Number.isInteger(Number(draft[key])) || Number(draft[key]) < 0 || Number(draft[key]) > 32767)
+  const mutation = useMutation({ mutationFn: () => {
+    if (invalidNumber || !refundRulesValid || !feeValid) throw new Error('請先修正營運規則欄位')
+    const payload: OperatingPolicy = {
+      ...draft,
+      unpaid_hold_days: Number(draft.unpaid_hold_days),
+      provisional_extra_groups: Number(draft.provisional_extra_groups),
+      leave_advance_days: Number(draft.leave_advance_days),
+      leave_daily_coach_limit: Number(draft.leave_daily_coach_limit),
+      leave_max_consecutive_days: Number(draft.leave_max_consecutive_days),
+    }
+    return hasOverride
+    ? updateOperatingPolicy(policy.id, payload)
     : createOperatingPolicy({
         campus: selectedCampusId,
-        unpaid_hold_days: draft.unpaid_hold_days,
-        provisional_extra_groups: draft.provisional_extra_groups,
+        unpaid_hold_days: payload.unpaid_hold_days,
+        provisional_extra_groups: payload.provisional_extra_groups,
         cancellation_fee_percent: draft.cancellation_fee_percent,
         cancellation_rules: draft.cancellation_rules,
-        leave_advance_days: draft.leave_advance_days,
-        leave_daily_coach_limit: draft.leave_daily_coach_limit,
-        leave_max_consecutive_days: draft.leave_max_consecutive_days,
+        leave_advance_days: payload.leave_advance_days,
+        leave_daily_coach_limit: payload.leave_daily_coach_limit,
+        leave_max_consecutive_days: payload.leave_max_consecutive_days,
         course_reminder_days: draft.course_reminder_days,
         settings: draft.settings,
-      }), onSuccess: () => { notification.success('營運規則已儲存'); onSaved() }, onError: (error) => notification.error(errorMessage(error, '儲存失敗')) })
+      })
+    }, onMutate: () => setPolicyError(''),
+    onSuccess: () => { notification.success('營運規則已儲存'); onSaved() },
+    onError: (error) => { const message = errorMessage(error, '營運規則尚未儲存，請稍後再試'); setPolicyError(message); notification.error(message) },
+  })
   const resetMutation = useMutation({
     mutationFn: () => deleteOperatingPolicy(policy.id),
     onSuccess: () => {
@@ -271,16 +305,16 @@ function PolicyCard({ campuses, policy, selectedCampusId, hasOverride, canEdit, 
     onError: (error) => notification.error(errorMessage(error, '無法重設校區規則')),
   })
   const resetDialog = useAdminDialog(confirmReset, resetMutation.isPending, () => setConfirmReset(false))
-  useEffect(() => setDraft(policy), [policy, selectedCampusId])
+  useEffect(() => { setDraft(policy); setPolicyError('') }, [policy, selectedCampusId])
   const refundRulesValid = draft.cancellation_rules.length > 0 && draft.cancellation_rules.every((rule, index) =>
     Number.isInteger(rule.days_before) && rule.days_before >= 0 && Number.isInteger(rule.refund_percent) && rule.refund_percent >= 0 && rule.refund_percent <= 100 &&
     draft.cancellation_rules.findIndex(other => other.days_before === rule.days_before) === index)
-  const feeValid = Number(draft.cancellation_fee_percent) >= 0 && Number(draft.cancellation_fee_percent) <= 100
-  const numberField = (key: keyof OperatingPolicy, label: string, suffix: string) => (
-    <label className="block">
+  const feeValid = String(draft.cancellation_fee_percent).trim() !== '' && Number(draft.cancellation_fee_percent) >= 0 && Number(draft.cancellation_fee_percent) <= 100
+  const numberField = (key: PolicyNumberKey, label: string, suffix: string) => (
+    <label key={key} className="block">
       <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{label}</span>
       <div className="flex items-center">
-        <input type="number" min={0} value={String(draft[key])} onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })} className="w-full rounded-l-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+        <input type="number" min={0} max={32767} step={1} required aria-label={label} aria-invalid={invalidNumber?.key === key} value={String(draft[key])} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} className="min-h-11 w-full rounded-l-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
         <span className="rounded-r-lg border border-l-0 border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300">{suffix}</span>
       </div>
     </label>
@@ -298,7 +332,9 @@ function PolicyCard({ campuses, policy, selectedCampusId, hasOverride, canEdit, 
       {selectedCampusId !== null && hasOverride && <p className="mb-4 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-800 dark:bg-violet-900/20 dark:text-violet-200">此校區使用專屬規則；全公司預設日後變更時，不會自動套用到這裡。</p>}
       {!canEdit && <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">全公司預設僅供查看；如需修改，請聯絡總部管理員。</p>}
       <fieldset disabled={!canEdit} className={!canEdit ? 'opacity-60' : undefined}>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{numberField('unpaid_hold_days', '未付款保留', '天')}{numberField('provisional_extra_groups', '未付款可加排', '組')}{numberField('leave_advance_days', '請假需提前', '天')}{numberField('leave_daily_coach_limit', '每日請假上限', '人')}</div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{POLICY_NUMBERS.map(({ key, label, suffix }) => numberField(key, label, suffix))}</div>
+      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">連續請假天數含開始及結束當天；連續天數或每日人數設為0，代表不開放一般請假申請。</p>
+      {invalidNumber && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{invalidNumber.label}：請輸入0～32767的整數，不可留空。</p>}
       <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700">
         <h3 className="font-semibold text-gray-900 dark:text-white">取消退費規則</h3>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">訂單管理取消時，系統依距上課天數選擇符合的級距；手續費依原訂單金額另扣。特殊情況可在該訂單手動指定。</p>
@@ -314,10 +350,11 @@ function PolicyCard({ campuses, policy, selectedCampusId, hasOverride, canEdit, 
         {(!refundRulesValid || !feeValid) && <p role="alert" className="mt-2 text-sm text-red-600">請確認天數不重複且為非負整數、退費比例與手續費介於 0～100%。</p>}
       </div>
       <div className="mt-5 flex flex-wrap gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
-        <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !refundRulesValid || !feeValid} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">儲存營運規則<ChevronRight size={16} /></button>
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !!invalidNumber || !refundRulesValid || !feeValid} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">儲存營運規則<ChevronRight size={16} /></button>
         {selectedCampusId !== null && hasOverride && <button type="button" onClick={() => setConfirmReset(true)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700">改回沿用全公司預設</button>}
       </div>
       </fieldset>
+      {policyError && <p role="alert" className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">{policyError}</p>}
       {confirmReset && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
         <div ref={(element) => { resetDialog.current = element }} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="policy-reset-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
           <h3 id="policy-reset-title" className="text-lg font-semibold text-gray-900 dark:text-white">改回全公司預設？</h3>
