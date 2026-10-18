@@ -19,6 +19,7 @@ import { useNotification } from '../../context'
 import ReviewPlacementFields from '../../components/ReviewPlacementFields'
 import GalleryFields from '../../components/GalleryFields'
 import PhotographyPageEditor from '../../components/PhotographyPageEditor'
+import AboutPageEditor from '../../components/AboutPageEditor'
 import ArticlePageEditor from '../../components/ArticlePageEditor'
 import GuideArticleFields from '../../components/GuideArticleFields'
 import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
@@ -358,6 +359,7 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (item.location_key === 'about.snowland' && isRecord(item.metadata?.layout)) return `學校介紹原版型 · ${Object.keys(isRecord(item.metadata.layout.values) ? item.metadata.layout.values : {}).length}個欄位`
   if (isRecord(item.metadata?.article)) return String(item.metadata.article.lead || item.metadata.article.title || '原文章內容')
   if (['photography.winter', 'photography.summer'].includes(item.location_key)) {
     const content = isRecord(item.metadata?.photography) ? item.metadata.photography : {}
@@ -1288,8 +1290,9 @@ function ContentDrawer({
   } : makeEmptyForm(initialLocation || groupInfo?.locations[0]?.key, initialLocation ? drawerLocationMap[initialLocation] : groupInfo?.locations[0]))
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
+  const isAboutPage = form.location_key === 'about.snowland'
   const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
-  const isStructuredPage = isPhotographyPage || isArticlePage
+  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
@@ -1443,7 +1446,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage ? (
+            {isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1466,7 +1469,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {isAboutPage ? <AboutPageEditor metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (

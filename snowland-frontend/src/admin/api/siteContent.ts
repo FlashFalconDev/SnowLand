@@ -1,5 +1,15 @@
 import adminApi from './axios'
 
+export interface AboutSchema {
+  version: number; page_key: 'about'; title: string
+  sections: { id: string; label: string; fields: { key: string; kind: 'text' | 'image'; label: string; value: string; source_heading?: string }[] }[]
+}
+
+export async function fetchAboutSchema(): Promise<AboutSchema> {
+  const res = (await adminApi.get('/site-content/about-schema/')) as unknown as { data: AboutSchema }
+  return res.data
+}
+
 export interface PhotographySchema {
   season: 'winter' | 'summer'; version: number; title: string
   sections: { id: string; label: string; fields: { key: string; kind: 'text' | 'image' | 'link'; label: string; value: string }[] }[]

@@ -536,6 +536,14 @@ class SiteContentAdminViewSet(ModelViewSet):
     permission_classes = [IsTenantManager]
     permission_key = 'cms'
 
+    @action(detail=False, methods=['get'], url_path='about-schema')
+    def about_schema(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'cms')
+        if denied is not None:
+            return denied
+        from Client.about_pages import about_schema
+        return Response({'code': 200, 'data': about_schema()})
+
     @action(detail=False, methods=['get'], url_path='photography-schema')
     def photography_schema(self, request, *args, **kwargs):
         denied = _require_admin_permission(request, 'cms')

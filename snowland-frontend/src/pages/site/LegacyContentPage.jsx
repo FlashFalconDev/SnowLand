@@ -172,11 +172,13 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
   const { items: cmsPageItems, isLoading: pageLoading, error: pageError } = useSiteContent(cmsLocationKey, { limit: 20 });
   const { items: articleItems } = useSiteContent('guides.articles');
   const page = siteContentToPage(cmsPageItems[0]);
-  if (!page) return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
+  const aboutValues = page?.layout?.values;
+  const aboutUnavailable = pageKey === 'about' && !(page?.layout?.version === 1 && page.layout.page_key === 'about' && aboutValues && typeof aboutValues === 'object' && !Array.isArray(aboutValues) && Object.keys(aboutValues).length && Object.values(aboutValues).every(value => typeof value === 'string'));
+  if (!page || aboutUnavailable) return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
     <SiteHeader forceTransparent />
     <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
       <p role={pageError ? 'alert' : 'status'} className={`text-sm ${pageError ? 'text-red-600' : 'text-[#64748b]'}`}>
-        {pageError ? '內容暫時無法載入，請稍後再試。' : pageLoading ? '內容載入中。' : '目前沒有已發布的內容。'}
+        {pageError ? '內容暫時無法載入，請稍後再試。' : pageLoading ? '內容載入中。' : aboutUnavailable ? '學校介紹內容更新中，請稍後再查看。' : '目前沒有已發布的內容。'}
       </p>
     </main><SiteFooter />
   </div>;
@@ -185,6 +187,8 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
 
 function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = false, forceLogoColor = false }) {
   const isAboutPage = pageKey === "about";
+  const aboutContent = page.layout;
+  const c = (key) => aboutContent?.values?.[key] ?? "";
   const isJoinUsPage = pageKey === "join-us";
   const isGuidesFaqPage = pageKey === "guides-faq";
   const isGuidesPreparationPage = pageKey === "guides-preparation";
@@ -830,50 +834,49 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
     ];
     const aboutResortsHighlight = (
       <span className="text-brand-blue font-bold">
-        星野Tomamu度假村／留壽都渡假村／手稻滑雪場 / 札幌國際雪場
-      </span>
+        {c("about_001")}</span>
     );
     const aboutSections = [
       {
         id: "origin",
-        englishTitle: "Our story",
-        title: "關於 SnowLand",
+        englishTitle: c("about_002"),
+        title: c("about_003"),
         paragraphs: [
-          "SnowLand 在北海道已經經營多個雪季，起源於我們多年在日本的親子滑雪教學經驗。我們始終相信，滑雪不只是運動，更是一段能夠創造美好回憶的旅程。",
-          "在雪地的學習過程中，家長與孩子一起嘗試、一起跌倒、也一起克服挑戰。這些過程讓彼此建立更深的信任與依賴，也讓滑雪成為家庭共同完成的一段珍貴經歷。",
-          "我們希望在 SnowLand 所營造的環境中，每個家庭都能安心學習、自在探索，在滑雪的過程中留下屬於彼此的雪地回憶。",
+          c("about_004"),
+          c("about_005"),
+          c("about_006"),
         ],
-        image: "/about/About-section-1.jpg",
+        image: c("about_007"),
       },
       {
         id: "school",
-        englishTitle: "Registered Ski school",
-        title: "專業滑雪學校",
+        englishTitle: c("about_008"),
+        title: c("about_009"),
         paragraphs: [
-          <>SnowLand滑雪學校為{aboutResortsHighlight}官方許可，於日本合法登記的滑雪學校，擁有多年北海道雪場教學經歷。</>,
-          "提供中文、粵語、英文等多語言教學選擇，以確保每位學員都能在熟悉和舒適的語言環境中自在學習滑雪技巧。",
-          "無論您是初次接觸滑雪的初心者，還是有一定滑雪經驗滑雪玩家，我們將根據您的需求和程度，量身定制最適合的教學計畫，以耐心與專業經驗陪你一起成長。我們注重教學的互動性和實踐性，通過系統化的教學流程，幫助您快速掌握滑雪技巧，並在過程中感受到樂趣和成就感。",
+          <>{c("about_010")}{aboutResortsHighlight}{c("about_011")}</>,
+          c("about_012"),
+          c("about_013"),
         ],
-        image: "/about/About-section-2.jpg",
+        image: c("about_014"),
       },
       {
         id: "feedback",
-        englishTitle: "Student Feedback System",
-        title: "學員回饋機制",
-        paragraphs: getSectionParagraphs(blocks, "學員回饋機制"),
-        image: "/about/About-section-3.jpg",
+        englishTitle: c("about_015"),
+        title: c("about_016"),
+        paragraphs: c("about_017").split("\n").filter(Boolean),
+        image: c("about_018"),
       },
       {
         id: "booking",
-        englishTitle: "Course Booking System",
-        title: "課程預約系統",
-        paragraphs: getSectionParagraphs(blocks, "課程預約系統"),
-        image: "/about/About-section-4.jpg",
+        englishTitle: c("about_019"),
+        title: c("about_020"),
+        paragraphs: c("about_021").split("\n").filter(Boolean),
+        image: c("about_022"),
       },
     ];
     const visionParagraphs = [
-      "滑雪是一項能夠帶來無限樂趣和挑戰的運動，同時也是一種能夠拓展人生視野、增進人與大自然連結的方式。",
-      "透過SnowLand滑雪學校的教學，啟發您對滑雪的熱情，我們希望陪你穩健的從零出發，也陪你愛上這片雪白的世界。",
+      c("about_023"),
+      c("about_024"),
     ];
 
     useEffect(() => {
@@ -908,8 +911,8 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
           <section className="relative h-[70vh] min-h-[520px] w-full overflow-hidden">
             <div className="absolute inset-0">
               <motion.img
-                src="/about/About-hero.jpg"
-                alt="SnowLand About Hero"
+                src={c("about_025")}
+                alt={c("about_026")}
                 className="absolute inset-0 h-full w-full object-cover object-center scale-[1.08] md:scale-[1.12]"
                 style={prefersReducedMotion ? undefined : { y: aboutHeroY }}
               />
@@ -917,13 +920,12 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
             </div>
             <div className="relative z-10 flex h-full items-center justify-center px-6 text-center text-white">
               <div className="max-w-2xl space-y-6">
-                <p className={`${aboutOverlineClass} text-white/80`}>About</p>
+                <p className={`${aboutOverlineClass} text-white/80`}>{c("about_027")}</p>
                 <h1 className="text-3xl md:text-5xl font-semibold tracking-wide font-display">
-                  SnowLand 滑雪學校
-                </h1>
+                  {c("about_028")}</h1>
                 <div className="text-base md:text-lg leading-relaxed text-white/90">
-                  <p>滑雪，不只是運動</p>
-                  <p>它是一段與家人共同完成的旅程。</p>
+                  <p>{c("about_029")}</p>
+                  <p>{c("about_030")}</p>
                 </div>
               </div>
             </div>
@@ -998,8 +1000,8 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
           <section className="relative w-full overflow-hidden bg-[#f7f6f3]">
             <div className="absolute inset-0">
               <motion.img
-                src="/about/About-vision.jpg"
-                alt="SnowLand Vision"
+                src={c("about_031")}
+                alt={c("about_032")}
                 className="absolute -top-[24%] left-0 right-0 h-[148%] w-full object-cover object-top scale-[1.05] md:scale-[1.08]"
                 style={prefersReducedMotion ? undefined : { y: aboutVisionY }}
               />
@@ -1007,8 +1009,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
             </div>
             <div className="relative z-10 max-w-4xl mx-auto px-6 py-24 text-center text-white">
               <h2 className="text-2xl font-semibold tracking-wide font-display">
-                Vision
-              </h2>
+                {c("about_033")}</h2>
               <div className="mt-8 space-y-4 text-sm md:text-base leading-relaxed text-white/90">
                 {visionParagraphs.map((text, index) => (
                   <p key={`vision-${index}`}>{text}</p>

@@ -103,6 +103,7 @@ export const siteContentToPage = (item) => {
   if (storedPage && typeof storedPage === 'object') {
     return {
       ...storedPage,
+      layout: item.metadata?.layout,
       title: item.title || storedPage.title,
       subtitle: item.subtitle || storedPage.subtitle,
       summary: item.summary || storedPage.summary,
@@ -111,6 +112,7 @@ export const siteContentToPage = (item) => {
     };
   }
   return {
+    layout: item.metadata?.layout,
     title: item.title,
     subtitle: item.subtitle,
     summary: item.summary,
