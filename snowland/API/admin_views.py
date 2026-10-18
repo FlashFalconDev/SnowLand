@@ -2040,7 +2040,11 @@ class OrderAdminViewSet(ModelViewSet):
 
         elif action == 'schedule':
             # 觸發 AI 排課
-            if not coach_changes and not booking_changes:
+            retryable = instance.reservations.filter(
+                status='created', preferred_coach__isnull=True,
+                shared_course_class__isnull=True, bookings__isnull=False,
+            ).exists()
+            if not coach_changes and not booking_changes and not retryable:
                 save_payment_status()
                 return Response({'code': 200, 'msg': '付款狀態已儲存' if payment_status else '沒有變更，無需排課'})
 
@@ -2063,7 +2067,8 @@ class OrderAdminViewSet(ModelViewSet):
             try:
                 from booking.scheduler import assign_coachs
                 reservations_to_assign = list(
-                    instance.reservations.select_related('preferred_coach', 'resort', 'course_type')
+                    instance.reservations.filter(status='created', shared_course_class__isnull=True)
+                    .select_related('preferred_coach', 'resort', 'course_type')
                     .prefetch_related('bookings', 'rejected_coaches')
                 )
                 ok, _schedule_report = assign_coachs(reservations_to_assign=reservations_to_assign)
@@ -2078,7 +2083,7 @@ class OrderAdminViewSet(ModelViewSet):
                     record_order_revision(instance, user=request.user, change_type='modify', reason=data.get('reason', '後台修改並重新排課'))
                     return Response({
                         'code': 200,
-                        'msg': f'排課成功！已更新 {len(coach_changes) + len(booking_changes)} 筆資料',
+                        'msg': f'排課成功！已處理 {len(reservations_to_assign)} 組待排課程',
                     })
                 # 失敗 → 回滾
                 self._rollback_coach_changes(coach_changes)

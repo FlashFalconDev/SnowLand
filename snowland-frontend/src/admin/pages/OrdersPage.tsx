@@ -730,6 +730,10 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
     coachAssignments[reservation.id] !== (reservation.preferred_coach_id ?? null),
   )
   const hasOrderChanges = hasBookingChanges || hasCoachChanges || paymentStatus !== order.payment_status
+  const canScheduleUnassigned = order.reservations.some(reservation =>
+    reservation.status === 'created' && !reservation.preferred_coach_id &&
+    !reservation.shared_course_class_id && reservation.bookings.length > 0,
+  )
 
   return (
     <>
@@ -870,7 +874,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                       }))}
                       className="min-h-11 max-w-[70%] px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                     >
-                      <option value="">{availableCoaches.length === 0 ? '目前沒有可排教練' : '不指定（系統自動排）'}</option>
+                      <option value="">不指定（等待排課）</option>
                       {selectedCoachMissing && (
                         <option value={selectedCoachId} disabled>
                           {selectedCoachId === r.preferred_coach_id ? `${r.preferred_coach || '原指派教練'}（目前不在可排清單）` : '所選教練已不可排，請重新選擇'}
@@ -905,6 +909,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                   這筆課程尚未排課成功。未付款的排課失敗訂單會在建立後 30 分鐘自動取消；也可以請客人改選其他日期後重新下單。
                 </div>
               )}
+              {r.status === 'manually_assigned' && <p className="mt-3 rounded-lg bg-violet-50 p-3 text-sm leading-6 text-violet-800 dark:bg-violet-900/20 dark:text-violet-200">人工排定已鎖定教練，不會因其他訂單自動排課而被換走；如需改派，請在此訂單明確修改。</p>}
 
               {canComplete && <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-100">
                 <p>課程都已結束。確認實際授課完成後，才會納入教練時數與薪資，並建立學員評量。</p>
@@ -993,8 +998,9 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             <>
               {saveMutation.isError && <p role="alert" className="w-full break-words rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">尚未儲存：{(saveMutation.error as any)?.response?.data?.msg || '更新失敗，請重新核對後再試。'}</p>}
               <p role={invalidBooking ? 'alert' : undefined} className={`w-full text-sm ${invalidBooking ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                {invalidBooking ? '課程結束時間須晚於開始時間，請檢查日期與時段。' : !hasOrderChanges ? '尚未修改任何資料。' : '請確認課程、教練與付款狀態後再儲存。'}
+                {invalidBooking ? '課程結束時間須晚於開始時間，請檢查日期與時段。' : !hasOrderChanges ? canScheduleUnassigned ? '有尚未安排教練的課程，可直接按「儲存並 AI 排課」；不必先改資料。' : '尚未修改任何資料。' : '請確認課程、教練與付款狀態後再儲存。'}
               </p>
+              <p className="w-full text-xs leading-6 text-gray-500 dark:text-gray-400">改成「不指定」後，只儲存會移除教練並等待排課，不會在背景立即重排；要立即安排請按「儲存並 AI 排課」。未修改的已排課程會保留。</p>
               <button
                 onClick={() => { resetOrderEdits(); setEditing(false) }}
                 disabled={saveMutation.isPending}
@@ -1013,7 +1019,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               </button>
               <button
                 onClick={() => saveMutation.mutate('schedule')}
-                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking)}
+                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking)}
                 className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 style={{ backgroundColor: PRIMARY }}
               >

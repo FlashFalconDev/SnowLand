@@ -21,11 +21,11 @@ ASSIGNED_RESERVATION_STATUSES = [
     'manually_assigned',
     'pending_coach_confirmation',
     'completed',
+    'form_filled',
 ]
 
 MOVABLE_ASSIGNED_STATUSES = [
     'auto_assigned',
-    'manually_assigned',
     'pending_coach_confirmation',
 ]
 
@@ -118,6 +118,11 @@ def assign_coachs(reservations_to_assign=None):
     """
     
     if reservations_to_assign is not None:
+        # An administrative batch can include unchanged sibling lines. Manual
+        # assignments and course history stay locked; explicitly changed lines
+        # are reset to created by the caller before requesting a new assignment.
+        reservations_to_assign = [reservation for reservation in reservations_to_assign
+            if reservation.status not in ('manually_assigned', 'completed', 'form_filled', 'cancelled', 'deleted')]
         incoming_ids = {r.id for r in reservations_to_assign}
     else:
         incoming_ids = set()
