@@ -17,6 +17,7 @@ const NewsPage = lazy(() => import('./NewsPage'))
 const TomamuCoursePage = lazy(() => import('./TomamuCoursePage'))
 const HokkaidoCoursePage = lazy(() => import('./HokkaidoCoursePage'))
 const ResortCoursePage = lazy(() => import('./ResortCoursePage'))
+const CourseAreaPage = lazy(() => import('../../components/site/CourseAreaPage'))
 const OffPisteGuidePage = lazy(() => import('./OffPisteGuidePage'))
 const CourseHowToBookPage = lazy(() => import('./CourseHowToBookPage'))
 const SkiResortsPage = lazy(() => import('./SkiResortsPage'))
@@ -76,6 +77,11 @@ function SapporoRedirect() {
   return <Navigate to={target} replace />
 }
 
+function ResortOrAreaPage() {
+  const {resort} = useParams()
+  return resort?.endsWith('-area') ? <CourseAreaPage /> : <ResortCoursePage />
+}
+
 export default function SiteRoutes() {
   // Start preloading other pages once HomePage is shown
   usePreloadPages()
@@ -99,7 +105,7 @@ export default function SiteRoutes() {
           <Route path="/course/sapporo/:section" element={<SapporoRedirect />} />
           <Route path="/course/off-piste-guide" element={<OffPisteGuidePage />} />
           <Route path="/course/hokkaido" element={<HokkaidoCoursePage />} />
-          <Route path="/course/:resort" element={<ResortCoursePage />} />
+          <Route path="/course/:resort" element={<ResortOrAreaPage />} />
           <Route path="/course/:resort/:section" element={<ResortCoursePage />} />
           <Route path="/course/how-to-book" element={<CourseHowToBookPage />} />
 

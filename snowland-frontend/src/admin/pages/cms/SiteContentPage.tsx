@@ -22,6 +22,7 @@ import PhotographyPageEditor from '../../components/PhotographyPageEditor'
 import AboutPageEditor from '../../components/AboutPageEditor'
 import ArticlePageEditor from '../../components/ArticlePageEditor'
 import GuideArticleFields from '../../components/GuideArticleFields'
+import CourseAreaFields from '../../components/CourseAreaFields'
 import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
 import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
@@ -99,6 +100,7 @@ const DEFAULT_GROUPS: GroupInfo[] = [
     description: '官網導覽列的滑雪課程與相關資訊',
     locations: [
       { key: 'course.tomamu', label: '星野滑雪課程', hint: '星野 Tomamu 課程頁內容、價目表與說明', type: 'page' },
+      { key: 'course.areas', label: '官網校區導覽', hint: '官網滑雪課程選單的校區名稱、順序及雪場分組；不影響營運權限', type: 'page' },
       { key: 'course.off-piste-guide', label: '野雪嚮導', hint: '野雪嚮導課程頁內容', type: 'page' },
       { key: 'course.hokkaido', label: '北海道其他雪場課程', hint: '其他雪場課程頁內容', type: 'page' },
       { key: 'course.how-to-book', label: '預約流程', hint: '滑雪課程預約流程說明', type: 'page' },
@@ -241,6 +243,13 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
     const location = DEFAULT_GROUPS[0].locations.find(location => location.key === 'homepage.courses')!
     if (homeGroup) homeGroup.locations.push(location)
     else groups.push({ ...DEFAULT_GROUPS[0], locations: [location] })
+  }
+  if (!groups.some(group => group.locations.some(location => location.key === 'course.areas'))) {
+    const courses = DEFAULT_GROUPS.find(group => group.id === 'courses')!
+    const location = courses.locations.find(location => location.key === 'course.areas')!
+    const group = groups.find(group => group.id === 'courses')
+    if (group) group.locations.push(location)
+    else groups.push({...courses, locations:[location]})
   }
   return groups
 }
@@ -415,6 +424,7 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'course.hokkaido': { path: '/course/hokkaido' },
   'course.how-to-book': { path: '/course/how-to-book' },
   'course.resorts': { path: '/course/hokkaido' },
+  'course.areas': { path: '/course/hokkaido' },
   'course.resort-pages': { path: '/course/hokkaido' },
   'course.pricing': { path: '/course/tomamu/price' },
   'course.info': { path: '/course/tomamu' },
@@ -454,7 +464,7 @@ const getTenantBasePath = () => {
 const buildOfficialPreviewUrl = (locationKey: string, externalId = '') => {
   const route = locationKey === 'course.pricing' && externalId
     ? { path: `/course/${encodeURIComponent(externalId)}/price` }
-    : locationKey === 'course.resort-pages' && externalId
+    : ['course.resort-pages','course.areas'].includes(locationKey) && externalId
       ? { path: `/course/${encodeURIComponent(externalId)}` }
     : SITE_PREVIEW_ROUTES[locationKey] || { path: '/' }
   const basePath = getTenantBasePath()
@@ -1302,7 +1312,7 @@ function ContentDrawer({
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
   const isAboutPage = ['about.snowland', 'about.join-us'].includes(form.location_key)
   const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
-  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage
+  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || form.location_key === 'course.areas'
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
@@ -1427,6 +1437,13 @@ function ContentDrawer({
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{pricingResortOptions.length ? '選擇官網雪場列表中的雪場。' : '目前沒有雪場列表，請填入官網網址 /course/ 後面的雪場代號。'}</p>
                 </label>
               )}
+              {form.location_key === 'course.areas' && (
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">官網校區網址代號（建立後固定）</span>
+                  <input required disabled={Boolean(item)} value={form.external_id} onChange={event=>setForm(prev=>({...prev,external_id:event.target.value.trim().toLowerCase()}))} placeholder="例如 tomamu-area" className={inputClass} />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">請以-area結尾；校區名稱、雪場分組及排序仍可隨時修改。</p>
+                </label>
+              )}
               {form.location_key === 'course.resorts' && (
                 <label className="mt-4 block">
                   <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">官網雪場網址代號</span>
@@ -1479,7 +1496,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (
@@ -1558,7 +1575,7 @@ function ContentDrawer({
                   </select>
                 </label>
                 <TextInput label="來源" value={form.source} placeholder="Google / Instagram / Facebook" onChange={(value) => setForm((prev) => ({ ...prev, source: value }))} />
-                {form.location_key !== 'course.pricing' && form.location_key !== 'course.resorts' && form.location_key !== 'course.resort-pages' && <TextInput label="外部 ID" value={form.external_id} placeholder="貼文 ID / 評論 ID，可空白" onChange={(value) => setForm((prev) => ({ ...prev, external_id: value }))} />}
+                {!['course.areas','course.pricing','course.resorts','course.resort-pages'].includes(form.location_key) && <TextInput label="外部 ID" value={form.external_id} placeholder="貼文 ID / 評論 ID，可空白" onChange={(value) => setForm((prev) => ({ ...prev, external_id: value }))} />}
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">標籤</span>
                   <input

@@ -1,0 +1,6 @@
+[
+  {"external_id":"tomamu-area","title":"星野校區","subtitle":"TOMAMU AREA","metadata":{"resort_slugs":["tomamu","sahoro","mt-racey"]}},
+  {"external_id":"furano-area","title":"富良野 / 旭川校區","subtitle":"FURANO / ASAHIKAWA AREA","metadata":{"resort_slugs":["furano","kamui","pippu","asahikawasantapresentpark","canmore"]}},
+  {"external_id":"sapporo-area","title":"札幌校區","subtitle":"SAPPORO AREA","metadata":{"resort_slugs":["teine","sapporo-kokusai","onze","asari"]}},
+  {"external_id":"rusutsu-area","title":"留壽都校區","subtitle":"RUSUTSU AREA","metadata":{"resort_slugs":["rusutsu","kiroro"]}}
+]

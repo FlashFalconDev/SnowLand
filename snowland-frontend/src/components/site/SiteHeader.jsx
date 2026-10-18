@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import logo from '../../assets/site/logo-white.png';
 import { homepageAssetBase } from '../../data/site/assetPaths';
 import { faqLink } from '../../data/site/navigationLinks';
+import { useSiteContent } from '../../hooks/useSiteContent';
 
 function CartIcon() {
   return (
@@ -63,6 +64,13 @@ function SiteHeader({
   const [openDesktopSection, setOpenDesktopSection] = useState(null);
   const langMenuRef = useRef(null);
   const location = useLocation();
+  const courseAreas = useSiteContent('course.areas', {contentType:'page'});
+  const courseMenuItems = [
+    ...courseAreas.items.filter(item => /^[a-z0-9]+(?:-[a-z0-9]+)*-area$/.test(item.external_id)).map(item => ({label:item.title,to:`/course/${item.external_id}`})),
+    {label:'北海道所有雪場',to:'/course/hokkaido'},
+    {label:'野雪嚮導',to:'/course/off-piste-guide'},
+    {label:'預約流程',to:'/course/how-to-book'},
+  ];
   const pathParts = location.pathname.replace(/\/+$/, '').split('/');
   const isHome = location.pathname === "/" || (pathParts.length === 2 && pathParts[0] === '');
   const trackCompactState = forceTransparent || isHome;
@@ -111,10 +119,7 @@ function SiteHeader({
   const mobileNavItems = visibleNavItems.filter((item) => item.label !== memberItem.label);
   const mobileSubItems = {
     滑雪課程: [
-      { label: "星野滑雪課程", to: "/course/tomamu" },
-      { label: "野雪嚮導", to: "/course/off-piste-guide" },
-      { label: "北海道其他雪場課程", to: "/course/hokkaido" },
-      { label: "預約流程", to: "/course/how-to-book" },
+      ...courseMenuItems,
     ],
     海外攝影: [
       { label: "冬季雪地攝影", to: "/photography/winter" },
@@ -249,6 +254,10 @@ function SiteHeader({
               <div
                 key={item.label}
                 className={`relative ${item.variant ? "" : "group"}`}
+                onMouseEnter={() => {if (!item.to) setOpenDesktopSection(item.label);}}
+                onMouseLeave={() => setOpenDesktopSection(null)}
+                onBlur={event => {if (!event.currentTarget.contains(event.relatedTarget)) setOpenDesktopSection(null);}}
+                onKeyDown={event => { if (event.key === 'Escape') {setOpenDesktopSection(null);event.currentTarget.querySelector('button')?.focus();} }}
               >
                 {item.to ? (
                   <SiteLink
@@ -268,9 +277,10 @@ function SiteHeader({
                 ) : (
                   <button
                     type="button"
+                    aria-expanded={isDesktopSectionOpen}
                     onClick={() => {
                       if (["海外攝影", "滑雪課程", "滑雪攻略", "最新消息", "關於Snowland"].includes(item.label)) {
-                        setOpenDesktopSection((prev) => (prev === item.label ? null : item.label));
+                        setOpenDesktopSection(item.label);
                       }
                     }}
                     onBlur={() => {
@@ -305,12 +315,14 @@ function SiteHeader({
                     data-desktop-nav={item.label}
                     className={`absolute left-0 top-full pt-3 transition-all duration-200 ${
                       isDesktopSectionOpen
-                        ? "opacity-100 translate-y-0 pointer-events-auto"
-                        : "opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto"
+                        ? "visible opacity-100 translate-y-0 pointer-events-auto"
+                        : "invisible opacity-0 translate-y-2 pointer-events-none"
                     }`}
                     onMouseLeave={() => setOpenDesktopSection(null)}
                   >
                     <div className="w-48 bg-white text-[#1f2937] font-display">
+                      {item.label === '滑雪課程' && courseAreas.isLoading && <p role="status" className="px-4 py-3 text-xs text-[#64748b]">校區載入中…</p>}
+                      {item.label === '滑雪課程' && courseAreas.error && <button type="button" onClick={courseAreas.refetch} className="min-h-11 px-4 text-left text-xs text-red-700">校區載入失敗，點此重試</button>}
                       {(item.label === "海外攝影"
                         ? [
                             { label: "冬季雪地攝影", to: "/photography/winter" },
@@ -319,12 +331,7 @@ function SiteHeader({
                             { label: "預約攝影流程", to: "/photography/how-to-book" },
                           ]
                         : item.label === "滑雪課程"
-                          ? [
-                                { label: "星野滑雪課程", to: "/course/tomamu" },
-                              { label: "野雪嚮導", to: "/course/off-piste-guide" },
-                              { label: "北海道其他雪場課程", to: "/course/hokkaido" },
-                              { label: "預約流程", to: "/course/how-to-book" },
-                            ]
+                          ? courseMenuItems
                           : item.label === "滑雪攻略"
                             ? [
                                 { label: "雪場攻略", to: "/guides/skiresorts" },
@@ -351,7 +358,7 @@ function SiteHeader({
                               key={label}
                               to={to}
                               onClick={() => setOpenDesktopSection(null)}
-                              className="block px-4 py-2 text-sm font-medium font-display hover:bg-[#f3f4f6]"
+                              className="flex min-h-11 items-center px-4 py-2 text-sm font-medium font-display hover:bg-[#f3f4f6]"
                             >
                               {label}
                             </SiteLink>
@@ -424,7 +431,7 @@ function SiteHeader({
               setIsMobileMenuOpen(true);
               setOpenMobileSection(null);
             }}
-            className={`cursor-pointer ${useDarkText ? "text-[#1f2937]" : "text-white"}`}
+            className={`cursor-pointer min-h-11 min-w-11 flex items-center justify-center ${useDarkText ? "text-[#1f2937]" : "text-white"}`}
             aria-label="Open menu"
           >
             <svg className="h-7 w-7 sm:h-8 sm:w-8 drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -452,7 +459,7 @@ function SiteHeader({
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", stiffness: 320, damping: 28 }}
-              className="fixed right-0 top-0 z-[60] h-full w-[min(18rem,calc(100vw-1rem))] bg-white px-5 py-8 shadow-2xl font-display"
+              className="fixed right-0 top-0 z-[60] h-full overflow-y-auto w-[min(18rem,calc(100vw-1rem))] bg-white px-5 py-8 shadow-2xl font-display"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold tracking-[0.3em] text-[#94a3b8] font-display">
@@ -460,7 +467,7 @@ function SiteHeader({
                 </span>
                 <button
                   type="button"
-                  className="text-[#1f2937]"
+                  className="min-h-11 min-w-11 text-[#1f2937]"
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     setOpenMobileSection(null);
@@ -475,7 +482,7 @@ function SiteHeader({
                   <div key={item.label} className="flex flex-col gap-2">
                     <button
                       type="button"
-                      className="flex items-center justify-between text-base font-medium text-[#1f2937] font-display"
+                      className="flex min-h-11 items-center justify-between text-base font-medium text-[#1f2937] font-display"
                       aria-expanded={openMobileSection === item.label}
                       onClick={() => {
                         setOpenMobileSection((prev) => (prev === item.label ? null : item.label));
@@ -486,12 +493,14 @@ function SiteHeader({
                         {openMobileSection === item.label ? "−" : "+"}
                       </span>
                     </button>
+                    {openMobileSection === item.label && item.label === '滑雪課程' && courseAreas.isLoading && <p role="status" className="text-xs text-[#64748b]">校區載入中…</p>}
+                    {openMobileSection === item.label && item.label === '滑雪課程' && courseAreas.error && <button type="button" onClick={courseAreas.refetch} className="min-h-11 text-left text-xs text-red-700">校區載入失敗，點此重試</button>}
                     {openMobileSection === item.label &&
                       (mobileSubItems[item.label] ?? []).map((subItem) => (
                         <SiteLink
                           key={subItem.label}
                           to={subItem.to}
-                          className="pl-3 text-sm font-medium text-[#475569] font-display"
+                          className="flex min-h-11 items-center pl-3 text-sm font-medium text-[#475569] font-display"
                           onClick={() => {
                             setIsMobileMenuOpen(false);
                             setOpenMobileSection(null);

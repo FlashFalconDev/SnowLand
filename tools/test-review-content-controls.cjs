@@ -29,6 +29,7 @@ function harness({rulesError=false}={}){
     if(name==='../../components/AboutPageEditor')return{default:function AboutPageEditor(){return null}}
     if(name==='../../components/ArticlePageEditor')return{default:function ArticlePageEditor(){return null}}
     if(name==='../../components/GuideArticleFields')return{default:function GuideArticleFields(){return null}}
+    if(name==='../../components/CourseAreaFields')return{default:function CourseAreaFields(){return null}}
     if(name==='../../../hooks/useSiteContent')return{GUIDE_CATEGORIES:['裝備與技巧'],guideArticleMode:item=>item.metadata?.article_mode||(item.link_url&&!item.body?'external':'internal')}
     if(name==='../../utils/articleContent')return articleContext.exports
     throw new Error('Unexpected dependency '+name)
@@ -37,6 +38,7 @@ function harness({rulesError=false}={}){
   const custom={groups:[{id:'custom',label:'自訂',locations:[{key:'custom.page',label:'原自訂頁',type:'page'}]}]}
   const normalized=ctx.exports.normalize(custom)
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='homepage.courses')),'custom CMS structure must still offer homepage course management')
+  assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='course.areas')),'custom CMS structure must retain course area management')
   assert.equal(normalized[0].locations[0].key,'custom.page');assert.equal(custom.groups.length,1)
   return{block:ctx.exports.DraftBlock,preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},drawerAgain:props=>{cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
 }

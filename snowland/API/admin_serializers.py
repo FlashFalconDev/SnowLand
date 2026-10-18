@@ -260,6 +260,12 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location == 'course.areas':
+            from Client.course_areas import validate_course_area
+            try:
+                attrs['metadata'] = validate_course_area(attrs, self.instance, getattr(self.context.get('request'), 'tenant', None))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
         if location == 'homepage.courses':
             from Client.article_pages import safe_article_url
             if content_type != 'page':
