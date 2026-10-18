@@ -40,6 +40,8 @@ function homepage(status,rows=[]){
     if(name==='framer-motion')return{useScroll:()=>({scrollYProgress:0}),useTransform:()=>0,motion:new Proxy({},{get:()=>props=>React.createElement('div',null,props.children)})}
     if(name==='../../api/websiteCoaches')return{useWebsiteCoachCards:()=>({coaches:[],isLoading:false,error:false,retry(){}})}
     if(name==='../../api/booking')return{fetchSiteContent:async()=>[]}
+    if(name==='../../hooks/useSiteContent')return{useSiteContent:()=>({items:[],isLoading:false,error:null})}
+    if(name==='../../components/site/HomepagePresentation')return{__esModule:true,default:()=>null,ContentState:()=>null,HomepageCoachHeading:()=>null,HomepageContactBanner:()=>null}
     if(name.startsWith('../../components/'))return()=>null
     if(name.startsWith('../../assets/'))return'/qa-asset.jpg'
     throw new Error(name)

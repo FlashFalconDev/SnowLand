@@ -260,7 +260,7 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
-        if location in ('homepage.hero','homepage.intro'):
+        if location in ('homepage.hero','homepage.intro','homepage.coaches','homepage.contact'):
             from Client.homepage_presentation import validate_homepage_presentation
             try:
                 attrs['metadata'] = validate_homepage_presentation(attrs,self.instance,getattr(self.context.get('request'),'tenant',None))

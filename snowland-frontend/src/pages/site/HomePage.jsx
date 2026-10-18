@@ -8,7 +8,8 @@ import CoachLoadNotice from '../../components/site/CoachLoadNotice';
 import { useWebsiteCoachCards } from '../../api/websiteCoaches';
 import { fetchSiteContent } from '../../api/booking';
 import SiteFooter from '../../components/site/SiteFooter';
-import HomepagePresentation from '../../components/site/HomepagePresentation';
+import HomepagePresentation, {ContentState, HomepageCoachHeading, HomepageContactBanner} from '../../components/site/HomepagePresentation';
+import {useSiteContent} from '../../hooks/useSiteContent';
 
 function HomePage() {
   const containerRef = useRef(null);
@@ -27,6 +28,8 @@ function HomePage() {
   const reviewTextRefs = useRef([]);
   const [clampedReviewIndices, setClampedReviewIndices] = useState([]);
   const { coaches: coachCards, isLoading: coachesLoading, error: coachesError, retry: retryCoaches } = useWebsiteCoachCards();
+  const coachSectionResult=useSiteContent('homepage.coaches');
+  const coachSection=coachSectionResult.items[0];
   const coachScrollerRef = useRef(null);
   const coachItemRefs = useRef([]);
   const [activeCoachIndex, setActiveCoachIndex] = useState(0);
@@ -234,21 +237,9 @@ function HomePage() {
         <div className="pb-16 md:pb-24"></div>
       </section>
 
-      <section id="homepage-coaches" className="bg-white scroll-mt-24">
+      {coachSection ? <section id="homepage-coaches" className="bg-white scroll-mt-24">
         <div className="max-w-6xl mx-auto px-6 md:px-10 py-16 md:py-24">
-          <div className="text-center mb-12 md:mb-16">
-            <p className="text-xs md:text-sm tracking-[0.3em] uppercase text-[#6b7280] font-medium font-display">
-              COACH
-            </p>
-            <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-              <SiteLink
-                to="/coach"
-                className="no-underline text-[#1f2937] hover:text-[#1f2937]"
-              >
-                教練團隊
-              </SiteLink>
-            </h2>
-          </div>
+          <HomepageCoachHeading item={coachSection} />
 
           <CoachLoadNotice isLoading={coachesLoading} error={coachesError} count={coachCards.length} retry={retryCoaches} />
           <div className="md:hidden">
@@ -298,16 +289,16 @@ function HomePage() {
                 );
               })}
             </div>
-            <div className="mt-4 flex items-center justify-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               {coachCards.map((coach, index) => (
                 <button
                   key={`coach-dot-${coach.name}`}
                   type="button"
                   onClick={() => scrollToCoachIndex(index)}
                   aria-label={`View ${coach.name}`}
-                  className={`h-2 w-2 rounded-full transition-colors ${activeCoachIndex === index ? "bg-[#2b5f8f]" : "bg-[#cbd5e1]"
-                    }`}
-                />
+                  aria-pressed={activeCoachIndex === index}
+                  className="min-h-11 min-w-11 inline-flex items-center justify-center"
+                ><span className={`h-2 w-2 rounded-full transition-colors ${activeCoachIndex === index ? "bg-[#2b5f8f]" : "bg-[#cbd5e1]"}`} /></button>
               ))}
             </div>
           </div>
@@ -332,41 +323,11 @@ function HomePage() {
             })}
           </div>
         </div>
-      </section>
+      </section> : <ContentState result={coachSectionResult} label="首頁教練區" />}
 
       <SpecialOffers />
 
-      <section className="bg-white">
-        <div className="max-w-4xl mx-auto px-6 md:px-10 py-16 md:py-20 text-center">
-          <div
-            className="relative mx-auto w-full max-w-[724px] overflow-hidden rounded-sm border border-[#e2e8f0] px-6 py-8 md:h-[190px] md:px-10 md:py-0 flex flex-col items-center justify-center bg-cover"
-            style={{
-              backgroundImage: "url(/Course/off-piste-guide/off-piste-guide-006.jpg)",
-              backgroundPosition: "center 60%",
-            }}
-          >
-            <div className="absolute inset-0 bg-black/20" />
-            <div className="relative z-10">
-              <h2 className="text-2xl font-semibold text-white font-display">
-                <span className="block md:inline">不知道該選哪個雪場</span>
-                <span className="block md:inline">或課程天數？</span>
-              </h2>
-              <p className="mt-4 text-sm md:text-base text-white/90 leading-relaxed">
-                <span className="block md:inline">歡迎與我們聯繫，協助你規劃</span>
-                <span className="block md:inline">最適合你的滑雪旅程。</span>
-              </p>
-              <div className="mt-8">
-                <SiteLink
-                  to="/contact"
-                  className="inline-flex items-center justify-center rounded-full bg-[#8ec8f0] px-6 py-3 text-sm font-semibold text-white hover:bg-[#7bbbe7] transition-colors"
-                >
-                  立即諮詢
-                </SiteLink>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <HomepageContactBanner />
 
       <SiteFooter />
 

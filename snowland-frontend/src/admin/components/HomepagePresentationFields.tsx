@@ -7,6 +7,20 @@ export default function HomepagePresentationFields({value,onChange}:Props) {
   const extras=Array.isArray(metadata.extra_paragraphs)?metadata.extra_paragraphs as string[]:[]
   const text=(label:string,key:'title'|'summary'|'subtitle',multiline=false)=><label key={key} className="block text-sm text-gray-700 dark:text-gray-200">{label}{multiline?<textarea value={value[key]} rows={3} className={inputClass} onChange={event=>onChange({[key]:event.target.value})}/>:<input value={value[key]} className={inputClass} onChange={event=>onChange({[key]:event.target.value})}/>}</label>
   const metaText=(label:string,key:string)=><label key={key} className="block text-sm text-gray-700 dark:text-gray-200">{label}<textarea rows={2} value={String(metadata[key] || '')} className={inputClass} onChange={event=>meta({[key]:event.target.value})}/></label>
+  if (['homepage.coaches','homepage.contact'].includes(value.location_key)) {
+    const coach=value.location_key==='homepage.coaches'
+    return <section aria-label={coach?'首頁教練區設定':'首頁諮詢區設定'} className="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{coach?'2. 首頁教練區':'2. 首頁底部諮詢區'}</h3>
+      <p className="text-xs leading-5 text-gray-600 dark:text-gray-300">{coach?'這裡只改首頁區塊標題與說明；教練姓名、照片、介紹與排序，請到「基本設定 → 教練管理」維護。':'沿用首頁原有版型。這裡只改諮詢橫幅，不會更改聯絡頁的收件方式或收款帳戶。'}</p>
+      {text('標題','title',!coach)}
+      {coach && text('英文小標','subtitle')}
+      {text('說明文字（可空白）','summary',true)}
+      {!coach && <label className="block text-sm text-gray-700 dark:text-gray-200">背景圖片網址（可留空）<input value={value.image_url} className={inputClass} onChange={event=>onChange({image_url:event.target.value})}/></label>}
+      {!coach && <label className="block text-sm text-gray-700 dark:text-gray-200">按鈕文字<input value={String(metadata.button_text || '')} className={inputClass} onChange={event=>meta({button_text:event.target.value})}/></label>}
+      <label className="block text-sm text-gray-700 dark:text-gray-200">{coach?'標題點擊連結（可留空）':'按鈕連結（可留空）'}<input value={value.link_url} className={inputClass} placeholder={coach?'/coach':'/contact'} onChange={event=>onChange({link_url:event.target.value})}/></label>
+      <p className="text-xs text-gray-500 dark:text-gray-400">清空連結即不提供跳轉；隱藏整區請調整上方「狀態」。</p>
+    </section>
+  }
   return <section aria-label={hero?'首頁主視覺設定':'首頁學校介紹設定'} className="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
     <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{hero?'2. 首頁第一屏':'2. 首頁學校介紹'}</h3>
     <p className="text-xs leading-5 text-gray-600 dark:text-gray-300">沿用官網原版型，儲存後才會更新。此處只修改展示內容，不影響課程價格或學校介紹內頁。</p>

@@ -28,7 +28,7 @@ def validate_homepage_presentation(attrs, instance, tenant):
     location=value('location_key')
     legacy_page=bool(instance and instance.content_type=='page' and value('content_type')=='page')
     if value('content_type')!='setting' and not legacy_page:
-        raise ValueError('首頁主視覺與學校介紹請使用區塊設定類型')
+        raise ValueError('首頁展示區塊請使用區塊設定類型')
     from .models import SiteContent
     duplicates=SiteContent.objects.filter(client=tenant,location_key=location)
     if instance:duplicates=duplicates.exclude(pk=instance.pk)
@@ -57,5 +57,5 @@ def validate_homepage_presentation(attrs, instance, tenant):
             if mode=='image' and not value('image_url'):raise ValueError('圖片背景請填寫圖片網址')
     if value('status')=='active':
         if not value('title').strip():raise ValueError('公開前請填寫標題')
-        if value('link_url') and not metadata.get('button_text','').strip():raise ValueError('有按鈕連結時，請填寫按鈕文字')
+        if location!='homepage.coaches' and value('link_url') and not metadata.get('button_text','').strip():raise ValueError('有按鈕連結時，請填寫按鈕文字')
     return metadata

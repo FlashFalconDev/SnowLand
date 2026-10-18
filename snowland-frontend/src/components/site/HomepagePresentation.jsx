@@ -5,10 +5,38 @@ import SiteLink from './SiteLink';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
 import {useSiteContent} from '../../hooks/useSiteContent';
 
-function ContentState({result,label}) {
+export function ContentState({result,label}) {
   if (result.isLoading) return <p role="status" className="px-6 py-32 text-center text-sm text-[#475569]">正在載入{label}…</p>;
   if (result.error) return <div role="alert" className="px-6 py-32 text-center text-sm text-red-700">{label}載入失敗。<button type="button" className="min-h-11 px-3 underline" onClick={result.refetch}>重新載入{label}</button></div>;
   return null;
+}
+
+export function HomepageCoachHeading({item}) {
+  return <div className="text-center mb-12 md:mb-16">
+    {item.subtitle && <p className="text-xs md:text-sm tracking-[0.3em] uppercase text-[#6b7280] font-medium font-display">{item.subtitle}</p>}
+    <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
+      {item.link_url ? <SiteLink to={item.link_url} className="no-underline text-[#1f2937] hover:text-[#1f2937]">{item.title}</SiteLink> : item.title}
+    </h2>
+    {item.summary && <p className="mt-4 whitespace-pre-line text-sm text-[#6b7280]">{item.summary}</p>}
+  </div>;
+}
+
+export function HomepageContactBanner() {
+  const result=useSiteContent('homepage.contact'),item=result.items[0];
+  if (!item) return <ContentState result={result} label="首頁諮詢區" />;
+  const lines=text=>String(text || '').split('\n').map((line,index)=><span key={index} className="block md:inline">{line}</span>);
+  return <section id="homepage-contact" className="bg-white scroll-mt-24">
+    <div className="max-w-4xl mx-auto px-6 md:px-10 py-16 md:py-20 text-center">
+      <div className="relative mx-auto w-full max-w-[724px] overflow-hidden rounded-sm border border-[#e2e8f0] px-6 py-8 md:min-h-[190px] md:px-10 md:py-8 flex flex-col items-center justify-center bg-[#143a53] bg-cover" style={{backgroundImage:item.image_url?`url(${JSON.stringify(item.image_url)})`:undefined,backgroundPosition:'center 60%'}}>
+        <div className="absolute inset-0 bg-black/20" />
+        <div className="relative z-10 min-w-0 w-full break-words">
+          <h2 className="text-2xl font-semibold text-white font-display">{lines(item.title)}</h2>
+          {item.summary && <p className="mt-4 text-sm md:text-base text-white/90 leading-relaxed">{lines(item.summary)}</p>}
+          {item.link_url && item.metadata?.button_text && <div className="mt-8"><SiteLink to={item.link_url} className="min-h-11 inline-flex items-center justify-center rounded-full bg-[#8ec8f0] px-6 py-3 text-sm font-semibold text-white hover:bg-[#7bbbe7] transition-colors">{item.metadata.button_text}</SiteLink></div>}
+        </div>
+      </div>
+    </div>
+  </section>;
 }
 
 export default function HomepagePresentation({containerRef,y,opacity}) {

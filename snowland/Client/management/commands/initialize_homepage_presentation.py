@@ -6,7 +6,7 @@ from Client.models import Client, SiteContent
 
 
 class Command(BaseCommand):
-    help = 'Preview original homepage hero and school introduction; --apply adds only missing sections.'
+    help = 'Preview original homepage hero, introduction, coach heading and contact banner; --apply adds only missing sections.'
 
     def add_arguments(self, parser):
         parser.add_argument('--client', required=True)
@@ -21,7 +21,7 @@ class Command(BaseCommand):
         for row in defaults:
             matches = list(SiteContent.objects.filter(client=tenant,location_key=row['location_key']))
             if len(matches)>1 or any(item.content_type not in ('setting','page') for item in matches):
-                raise CommandError('首頁主視覺或介紹有多筆／類型不符，未寫入，請先核對')
+                raise CommandError('首頁展示區塊有多筆／類型不符，未寫入，請先核對')
         count = 0
         for row in defaults:
             if SiteContent.objects.filter(client=tenant,location_key=row['location_key']).exists():

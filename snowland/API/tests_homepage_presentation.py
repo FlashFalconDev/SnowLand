@@ -21,7 +21,7 @@ class HomepagePresentationTests(TestCase):
 
     def test_preview_original_source_and_idempotent_preserve(self):
         self.initialize();self.assertEqual(SiteContent.objects.count(),0)
-        self.initialize(True);self.assertEqual(SiteContent.objects.count(),2)
+        self.initialize(True);self.assertEqual(SiteContent.objects.count(),4)
         row=SiteContent.objects.get(location_key='homepage.hero')
         self.assertEqual(row.title,'北海道星野TOMAMU\n官方許可滑雪學校');self.assertEqual(row.metadata['youtube_id'],'m-4vgzqVNqI')
         row.title='自行修改';row.status='hidden';row.metadata={'media_type':'none','custom':'保留'};row.save()
@@ -82,3 +82,27 @@ class HomepagePresentationTests(TestCase):
             self.assertEqual(self.api.patch(url,{'metadata':{**row.metadata,'youtube_id':value}},format='json').status_code,400)
         response=self.api.patch(url,{'image_url':'/vite.svg','metadata':{**row.metadata,'media_type':'image','youtube_id':'未使用的舊輸入'}},format='json')
         self.assertEqual(response.status_code,200,response.data)
+
+    def test_coach_heading_and_contact_banner_reflect_changes_hide_and_preserve(self):
+        self.initialize(True);self.staff()
+        for location,title in [('homepage.coaches','QA教練區'),('homepage.contact','QA諮詢區')]:
+            row=SiteContent.objects.get(location_key=location);url=f'/api/admin/snowland/site-content/{row.pk}/'
+            data={'title':title,'summary':'QA說明\n第二行','subtitle':'QA EN','link_url':'/booking','metadata':{'button_text':'QA預約','custom':'保留'}}
+            response=self.api.patch(url,data,format='json');self.assertEqual(response.status_code,200,response.data)
+            published=self.api.get(self.public,{'location_key':location}).data
+            self.assertEqual(len(published),1);self.assertEqual(published[0]['title'],title)
+            self.assertEqual(published[0]['metadata']['custom'],'保留')
+            self.assertEqual(self.api.patch(url,{'status':'hidden'},format='json').status_code,200)
+            self.assertEqual(self.api.get(self.public,{'location_key':location}).data,[])
+            self.initialize(True);row.refresh_from_db();self.assertEqual(row.title,title);self.assertEqual(row.status,'hidden')
+
+    def test_coach_contact_invalid_links_and_duplicate_settings_are_rejected_without_partial_write(self):
+        self.initialize(True);self.staff()
+        for location in ['homepage.coaches','homepage.contact']:
+            row=SiteContent.objects.get(location_key=location);url=f'/api/admin/snowland/site-content/{row.pk}/'
+            for patch in [{'link_url':'javascript:alert(1)'},{'link_url':'//evil.test'},{'image_url':'data:image/svg+xml,evil'},{'title':' '}]:
+                response=self.api.patch(url,{'summary':'不可半寫',**patch},format='json')
+                self.assertEqual(response.status_code,400,(location,patch,response.data))
+            row.refresh_from_db();self.assertNotEqual(row.summary,'不可半寫')
+            duplicate=self.api.post('/api/admin/snowland/site-content/',{'location_key':location,'content_type':'setting','title':'重複','status':'draft'},format='json')
+            self.assertEqual(duplicate.status_code,400,duplicate.data)

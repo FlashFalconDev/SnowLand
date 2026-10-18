@@ -92,8 +92,9 @@ const DEFAULT_GROUPS: GroupInfo[] = [
       { key: 'homepage.intro', label: '首頁學校介紹', hint: '首頁照片、學校介紹、粗體文字、展開段落與了解更多按鈕', type: 'setting' },
       { key: 'homepage.courses', label: '熱門課程', hint: '首頁課程卡片：名稱、短文字、圖片、按鈕、排序與上下架', type: 'page' },
       { key: 'homepage.reviews', label: '學生評價', hint: '首頁下方的評論卡片', type: 'review' },
-      { key: 'homepage.coaches', label: '教練團隊區塊', hint: '首頁教練區塊文字或設定', type: 'setting' },
+      { key: 'homepage.coaches', label: '教練團隊區塊', hint: '首頁教練區標題、說明、連結及上下架；教練卡片由教練管理維護', type: 'setting' },
       { key: 'homepage.offers', label: '首頁限定優惠', hint: '首頁的優惠圖片卡', type: 'offer' },
+      { key: 'homepage.contact', label: '首頁諮詢區塊', hint: '首頁底部諮詢標題、說明、背景圖、按鈕與上下架', type: 'setting' },
     ],
   },
   {
@@ -253,7 +254,7 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
     if (group) group.locations.push(location)
     else groups.push({...courses, locations:[location]})
   }
-  for (const key of ['homepage.hero','homepage.intro']) {
+  for (const key of ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact']) {
     if (!groups.some(group=>group.locations.some(location=>location.key===key))) {
       const home=groups.find(group=>group.id==='homepage')!
       home.locations.push(DEFAULT_GROUPS[0].locations.find(location=>location.key===key)!)
@@ -427,6 +428,7 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'homepage.courses': { path: '/', hash: 'homepage-courses' },
   'homepage.reviews': { path: '/', hash: 'homepage-reviews' },
   'homepage.coaches': { path: '/', hash: 'homepage-coaches' },
+  'homepage.contact': { path: '/', hash: 'homepage-contact' },
   'homepage.offers': { path: '/', hash: 'homepage-offers' },
   'course.tomamu': { path: '/course/tomamu' },
   'course.off-piste-guide': { path: '/course/off-piste-guide' },
@@ -1320,7 +1322,7 @@ function ContentDrawer({
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
   const isAboutPage = ['about.snowland', 'about.join-us'].includes(form.location_key)
-  const isHomepagePresentation = ['homepage.hero','homepage.intro'].includes(form.location_key)
+  const isHomepagePresentation = ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact'].includes(form.location_key)
   const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
   const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || form.location_key === 'course.areas'
   const isGuideListing = form.location_key === 'guides.articles'
@@ -1610,7 +1612,7 @@ function ContentDrawer({
               </p>
             </div>
             {isStructuredPage ? <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-              <p>請在左側展開區塊，或搜尋要修改的文字與方案。</p>
+              <p>{isHomepagePresentation ? '直接修改左側有名稱的欄位，再按「儲存變更」。' : '請在左側展開區塊，或搜尋要修改的文字與方案。'}</p>
               <p>儲存後，可從外層「正式官網預覽」查看完整排版。</p>
               <p>照片與說明各有對應欄位；實際收費不會在這裡變更。</p>
             </div> : <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />}
