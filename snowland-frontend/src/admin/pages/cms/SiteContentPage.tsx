@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useNotification } from '../../context'
 import ReviewPlacementFields from '../../components/ReviewPlacementFields'
+import GalleryFields from '../../components/GalleryFields'
 import {
   createSiteContent,
   deleteSiteContent,
@@ -351,6 +352,12 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (item.location_key === 'photography.gallery') {
+    const metadata = item.metadata || {}
+    const types = Array.isArray(metadata.shoot_types) ? metadata.shoot_types : []
+    return [metadata.media_type === 'video' ? 'YouTube影片' : '照片', metadata.location, metadata.section, ...types]
+      .filter(value => typeof value === 'string' && value.trim()).join(' · ')
+  }
   if (item.location_key === 'course.resort-pages') {
     const resort = isRecord(item.metadata?.resort) ? item.metadata.resort : {}
     const tabs = Array.isArray(resort.tabs) ? resort.tabs.filter(isRecord) : []
@@ -810,6 +817,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           group={activeGroup}
           initialLocation={createLocation}
           item={editing}
+          galleryItems={contentItems.filter(content => content.location_key === 'photography.gallery')}
           resortOptions={contentItems
             .filter((content) => content.location_key === 'course.resorts')
             .map((content) => ({
@@ -985,7 +993,7 @@ function ContentTile({
             <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{period}</span>
             {item.is_pinned && <span className="rounded-full bg-[#fef3c7] px-2 py-1 text-xs font-semibold text-amber-800">置頂</span>}
           </div>
-          <TagList tags={item.tags} />
+          {item.location_key !== 'photography.gallery' && <TagList tags={item.tags} />}
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
@@ -1206,6 +1214,7 @@ function ContentDrawer({
   group,
   initialLocation,
   item,
+  galleryItems,
   resortOptions,
   onClose,
   onSubmit,
@@ -1216,6 +1225,7 @@ function ContentDrawer({
   group: ContentGroup
   initialLocation: string | null
   item: SiteContentItem | null
+  galleryItems: SiteContentItem[]
   resortOptions: { value: string; label: string }[]
   onClose: () => void
   onSubmit: (data: SiteContentWriteData) => void
@@ -1413,7 +1423,10 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {form.location_key === 'course.pricing' ? (
+            {form.location_key === 'photography.gallery' ? (
+              <GalleryFields metadata={form.metadata || {}} imageUrl={form.image_url} items={galleryItems} published={form.status === 'active'}
+                onChange={metadata => setForm(prev => ({ ...prev, metadata }))} onImageChange={image_url => setForm(prev => ({ ...prev, image_url }))} />
+            ) : form.location_key === 'course.pricing' ? (
               <CoursePricingEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
             ) : form.location_key === 'course.resort-pages' ? (
               <ResortTabsEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
@@ -1426,7 +1439,7 @@ function ContentDrawer({
             {form.content_type === 'review' && <ReviewPlacementFields metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />}
             <FormSection title="4. 連結與顯示順序">
               <div className="grid gap-4 md:grid-cols-2">
-                <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />
+                {form.location_key !== 'photography.gallery' && <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />}
                 <TextInput label="點擊後連結" value={form.link_url} placeholder="/specialoffers/earlybird" onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">

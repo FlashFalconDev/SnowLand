@@ -38,6 +38,8 @@ import SiteHeader from '@/components/site/SiteHeader'
 import SiteFooter from '@/components/site/SiteFooter'
 import LoginPage from '@/pages/LoginPage'
 import CartModal from '@/components/booking/CartModal'
+import CourseCategoryOptions from '@/components/booking/CourseCategoryOptions'
+import useCourseCategories from '@/hooks/useCourseCategories'
 import SchedulingFailedModal from '@/components/booking/SchedulingFailedModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import Toast, { ToastType } from '@/components/ui/Toast'
@@ -49,7 +51,6 @@ import { fetchAdminMe } from '@/admin/api/auth'
 import { hasAdminPermission } from '@/admin/permissions'
 import type { CartItem, Course } from '@/types/booking'
 import {
-  fetchCourseCategories,
   fetchCourseTypes,
   fetchResorts,
   fetchCoaches,
@@ -794,7 +795,7 @@ export default function BookingFlowPage() {
   } = store
 
   // ===== API 資料 =====
-  const [courseCategories, setCourseCategories] = useState<any[]>([])
+  const { categories: courseCategories, status: categoryStatus, retry: retryCategories } = useCourseCategories(serviceType)
   const [courseTypes, setCourseTypes] = useState<any[]>([])
   const [resorts, setResorts] = useState<any[]>([])
   const [coaches, setCoaches] = useState<any[]>([])
@@ -945,17 +946,6 @@ export default function BookingFlowPage() {
       .catch(() => { if (!cancelled) setStaffLinkStatus('invalid') })
     return () => { cancelled = true }
   }, [staffLinkToken, replaceCart])
-
-  // 載入課程大類與雪場列表
-  useEffect(() => {
-    if (serviceType) {
-      fetchCourseCategories(serviceType)
-        .then((data: any) => setCourseCategories(Array.isArray(data) ? data : []))
-        .catch((e) => { console.error(e); setCourseCategories([]) })
-    } else {
-      setCourseCategories([])
-    }
-  }, [serviceType])
 
   useEffect(() => {
     if (serviceType && resorts.length === 0) {
@@ -1263,7 +1253,6 @@ export default function BookingFlowPage() {
     setNeedEquipment(false)
     setEquipmentOption(null)
     setEquipmentAssistanceTimeSlot(null)
-    setCourseCategories([])
     setCourseTypes([])
     setCoaches([])
     setTemplates([])
@@ -1616,7 +1605,6 @@ export default function BookingFlowPage() {
     setNeedEquipment(false)
     setEquipmentOption(null)
     setEquipmentAssistanceTimeSlot(null)
-    setCourseCategories([])
     setCourseTypes([])
     setCoaches([])
     setTemplates([])
@@ -2458,6 +2446,7 @@ export default function BookingFlowPage() {
                   coachLevelOptions={coachLevelOptions}
                   state={{
                     serviceType,
+                    categoryStatus,
                     selectedCourseCategory, selectedCourseCategoryName, selectedCourseType,
                     selectedResort, selectedResortName, selectedCampusId, selectedCampusName,
                     peopleCount, hasUnder6, under7CanSelfSki, abilityLevelCounts, selectedAbilityLevel,
@@ -2468,6 +2457,7 @@ export default function BookingFlowPage() {
                     equipmentAssistanceTimeSlotId, equipmentAssistanceTimeLabel,
                   }}
                   actions={{
+                    retryCategories,
                     setSelectedCourseCategory: handleSelectCourseCategory,
                     setSelectedResort: handleSelectResort,
                     setSelectedCourseType: handleSelectCourseType,
@@ -2863,26 +2853,8 @@ function Step2SkiConfiguration({
       </div>
 
       {field === 'category' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl mx-auto">
-          {courseCategories.map((category: any) => (
-            <button
-              key={category.id}
-              onClick={() => actions.setSelectedCourseCategory(category.id, category.name)}
-              className={`p-5 rounded-sm border-2 text-left transition-colors ${
-                state.selectedCourseCategory === category.id
-                  ? 'border-[#2b5f8f] bg-[#e9eef3]'
-                  : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
-              }`}
-            >
-              <p className="font-semibold text-[#1f2937] font-display">{category.name}</p>
-            </button>
-          ))}
-          {courseCategories.length === 0 && (
-            <p className="col-span-2 text-center text-sm text-[#6b7280] py-8">
-              載入課程大類中...
-            </p>
-          )}
-        </div>
+        <CourseCategoryOptions categories={courseCategories} status={state.categoryStatus} selected={state.selectedCourseCategory}
+          onSelect={actions.setSelectedCourseCategory} onRetry={actions.retryCategories} />
       )}
 
       {field === 'resort' && (

@@ -22,10 +22,11 @@ function harness({rulesError=false}={}){
     if(name==='../../context')return{useNotification:()=>({success(){},error(){}})}
     if(name==='../../api/siteContent')return api
     if(name==='../../components/ReviewPlacementFields')return{default:function ReviewPlacementFields(){return null}}
+    if(name==='../../components/GalleryFields')return{default:function GalleryFields(){return null}}
     throw new Error('Unexpected dependency '+name)
   }})
-  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;',ctx)
-  return{render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
+  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;exports.preview=getContentPreviewText;',ctx)
+  return{preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
 }
 function find(node,predicate){if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=find(child,predicate);if(found)return found}return null}
 for(const kind of ['review','media']){
@@ -35,13 +36,15 @@ for(const kind of ['review','media']){
   assert.ok(!html.includes('首頁主視覺'))
   if(kind==='review'){assert.ok(html.includes('Google 評論自動同步尚未啟用'));assert.ok(html.includes('自訂評價頁'))}
   else assert.ok(!html.includes('自訂評價頁'))
-  const tree=app.drawer({groups:groups.filter(g=>g.locations.some(l=>l.type===kind)),contentTypes:[kind],group:props.initialGroup,initialLocation:null,item:null,resortOptions:[],onClose(){},onSubmit(){},isSaving:false})
+  const tree=app.drawer({groups:groups.filter(g=>g.locations.some(l=>l.type===kind)),contentTypes:[kind],group:props.initialGroup,initialLocation:null,item:null,galleryItems:[],resortOptions:[],onClose(){},onSubmit(){},isSaving:false})
   const select=find(tree,node=>node.type==='select'&&node.props.value===kind)
   assert.ok(select)
   assert.equal(React.Children.toArray(select.props.children).length,1,'Advanced content type must stay restricted too')
   assert.equal(!!find(tree,node=>typeof node.type==='function'&&node.type.name==='ReviewPlacementFields'),kind==='review')
+  assert.equal(!!find(tree,node=>typeof node.type==='function'&&node.type.name==='GalleryFields'),kind==='media')
 }
 assert.ok(renderToStaticMarkup(harness().render({})).includes('管理頁面'),'CMS editor retains original workspace')
+assert.equal(harness().preview({location_key:'photography.gallery',metadata:{location:'富良野',section:'森林',shoot_types:['情侶']},tags:['不使用的舊標籤']}),'照片 · 富良野 · 森林 · 情侶')
 const failed=harness({rulesError:true}),tree=failed.render({contentTypes:['review']})
 const retry=find(tree,node=>node.type==='button'&&node.props.children==='重新載入')
 assert.ok(retry);retry.props.onClick();assert.equal(failed.refetched(),2)
