@@ -232,10 +232,13 @@ function FullOrdersPage() {
     if (pageData?.page && pageData.page !== page) setPage(pageData.page)
   }, [page, pageData?.page])
 
-  const { data: viewing, isLoading: isViewingLoading, error: viewingError } = useQuery({
+  const { data: viewing, isFetching: isViewingLoading, error: viewingError, refetch: refetchViewing } = useQuery({
     queryKey: ['admin', 'orders', 'detail', viewingId],
     queryFn: () => fetchOrder(viewingId as number),
     enabled: viewingId !== null,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
   })
 
   return (
@@ -436,34 +439,73 @@ function FullOrdersPage() {
         </div>
       </div>
 
-      {viewingId !== null && isViewingLoading && (
-        <OrderDetailStatusDrawer title="載入訂單明細中" onClose={() => setViewingId(null)} />
-      )}
-      {viewingId !== null && viewingError && (
+      {viewingId !== null && (isViewingLoading || viewingError) && (
         <OrderDetailStatusDrawer
-          title="明細載入失敗"
-          message={(viewingError as any)?.response?.data?.msg || (viewingError as any)?.response?.data?.detail || (viewingError as any)?.message || '請稍後再試'}
+          title={viewingError ? '明細載入失敗' : '載入訂單明細中'}
+          error={viewingError}
+          isRetrying={isViewingLoading}
+          onRetry={() => refetchViewing()}
           onClose={() => setViewingId(null)}
         />
       )}
-      {viewing && <OrderDetailDrawer order={viewing} onClose={() => setViewingId(null)} />}
+      {viewingId !== null && viewing && <div className={isViewingLoading || viewingError ? 'invisible' : undefined} aria-hidden={Boolean(isViewingLoading || viewingError)}><OrderDetailDrawer order={viewing} onClose={() => setViewingId(null)} /></div>}
     </div>
   )
 }
 
-function OrderDetailStatusDrawer({ title, message = '請稍候...', onClose }: { title: string; message?: string; onClose: () => void }) {
+function getOrderDetailErrorMessage(error: unknown): string {
+  const code = (error as any)?.response?.status
+  if (code === 401) return '登入狀態已失效，請關閉後重新登入，再查看訂單。'
+  if (code === 403) return '目前沒有權限查看這筆訂單，請確認登入帳號與管理校區，或請總部協助。'
+  if (code === 404) return '目前無法取得這筆訂單，可能已移除或不在可查看範圍。可重試，或關閉後重新整理清單。'
+  if (code) return '訂單明細暫時無法載入，請稍後重試；這不表示訂單已被刪除。'
+  return '連線未完成，請確認網路連線後重試。'
+}
+
+export function OrderDetailStatusDrawer({ title, message = '請稍候...', onClose, error, onRetry, isRetrying = false }: {
+  title: string; message?: string; onClose: () => void; error?: unknown; onRetry?: () => void; isRetrying?: boolean
+}) {
+  const panel = useRef<HTMLDivElement>(null)
+  const failed = Boolean(error)
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    panel.current?.focus()
+    return () => {
+      document.body.style.overflow = overflow
+      if (previous && previous !== document.body && previous.isConnected && getComputedStyle(previous).visibility !== 'hidden') previous.focus()
+      else Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')).reverse()
+        .find(element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')?.focus()
+    }
+  }, [])
+  useEffect(() => { panel.current?.focus() }, [failed])
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 animate-fadeIn" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col bg-white shadow-2xl animate-slideIn dark:bg-gray-800">
-        <div className="px-6 py-4 text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
-          <h2 className="text-lg font-semibold">{title}</h2>
+      <div className="fixed inset-0 z-[70] bg-black/50 animate-fadeIn" onClick={onClose} />
+      <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="order-detail-status-title" aria-busy={isRetrying} tabIndex={-1}
+        className="fixed inset-y-0 right-0 z-[71] flex w-full max-w-2xl flex-col bg-white shadow-2xl outline-none animate-slideIn dark:bg-gray-800"
+        onKeyDown={event => {
+          if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); return }
+          if (event.key !== 'Tab') return
+          const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+          const first = buttons[0], last = buttons[buttons.length - 1]
+          if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last?.focus() }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+        }}>
+        <div className="flex items-center justify-between gap-3 px-6 py-3 text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
+          <h2 id="order-detail-status-title" className="text-lg font-semibold">{title}</h2>
+          <button type="button" aria-label="關閉訂單載入視窗" onClick={onClose} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"><X size={20} /></button>
         </div>
-        <div className="flex flex-1 items-center justify-center p-8 text-center">
-          <div>
-            <Loader2 size={32} className="mx-auto mb-3 animate-spin" style={{ color: PRIMARY }} />
-            <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6 text-center">
+          <div role={failed ? 'alert' : 'status'}>
+            {failed && !isRetrying ? <AlertCircle aria-hidden="true" size={32} className="mx-auto mb-3 text-red-600 dark:text-red-400" /> : <Loader2 aria-hidden="true" size={32} className="mx-auto mb-3 animate-spin" style={{ color: PRIMARY }} />}
+            <p className="break-words text-sm leading-7 text-gray-600 dark:text-gray-300">{failed ? getOrderDetailErrorMessage(error) : message}</p>
           </div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-3 border-t border-gray-200 p-4 dark:border-gray-700">
+          <button type="button" onClick={onClose} className="min-h-11 rounded-lg border border-gray-300 px-4 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200">關閉</button>
+          {failed && onRetry && <button type="button" disabled={isRetrying} aria-busy={isRetrying} onClick={onRetry} className="min-h-11 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60">{isRetrying ? '正在重新載入…' : '重新載入明細'}</button>}
         </div>
       </div>
     </>
@@ -473,6 +515,14 @@ function OrderDetailStatusDrawer({ title, message = '請稍候...', onClose }: {
 export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order: Order; onClose: () => void; readOnly?: boolean }) {
   const notify = useNotification()
   const qc = useQueryClient()
+  const orderPanel = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    orderPanel.current?.focus()
+    return () => { document.body.style.overflow = overflow; previous?.focus() }
+  }, [])
   const [composingNotice, setComposingNotice] = useState(false)
   const [amending, setAmending] = useState(false)
   const { data: noticeAdmin } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
@@ -684,7 +734,15 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/50 animate-fadeIn" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl flex flex-col animate-slideIn">
+      <div ref={orderPanel} role="dialog" aria-modal="true" aria-label={`訂單 ${order.sn}`} tabIndex={-1}
+        className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl outline-none flex flex-col animate-slideIn"
+        onKeyDown={event => {
+          if (event.key !== 'Tab' || (event.target as HTMLElement).closest('[role="dialog"]') !== event.currentTarget) return
+          const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]')).filter(element => element.getClientRects().length > 0)
+          const first = elements[0], last = elements[elements.length - 1]
+          if (event.shiftKey && (document.activeElement === first || document.activeElement === orderPanel.current)) { event.preventDefault(); last?.focus() }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+        }}>
         <div className="relative px-4 py-4 text-white sm:px-6" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
           <div className="flex flex-wrap items-center gap-2 pr-10">
             <h2 className="mr-1 font-mono text-base font-semibold sm:text-lg">{order.sn}</h2>

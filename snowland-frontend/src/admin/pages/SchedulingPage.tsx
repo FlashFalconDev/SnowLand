@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Filter, Calendar as CalendarIcon, Loader2, A
 import { assignSharedClassCoach, fetchGroupCandidates, fetchScheduleCalendar, fetchSharedClassCoaches, fetchSharedClassOpeningOptions, fetchSharedClassSchedule, openSharedClass, rescheduleSharedClass, type GroupCandidate, type ScheduleBooking } from '../api/schedule'
 import { fetchAdminMe } from '../api/auth'
 import { fetchOrder, type Order } from '../api/orders'
-import { OrderDetailDrawer } from './OrdersPage'
+import { OrderDetailDrawer, OrderDetailStatusDrawer } from './OrdersPage'
 
 const PRIMARY = '#8b5cf6'
 const EQUIPMENT_COLOR = '#d97706'
@@ -267,10 +267,13 @@ export default function SchedulingPage() {
     onError: (error: any) => setRescheduleError(error?.response?.data?.msg || '整班改期失敗，請重新確認時段。'),
   })
 
-  const { data: selectedOrder, isFetching: isOrderLoading } = useQuery<Order>({
+  const { data: selectedOrder, isFetching: isOrderLoading, error: orderError, refetch: refetchOrder } = useQuery<Order>({
     queryKey: ['admin', 'orders', selectedOrderId],
     queryFn: () => fetchOrder(selectedOrderId!),
     enabled: !!selectedOrderId,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
   })
 
   const firstDay = new Date(year, month, 1).getDay()
@@ -785,7 +788,7 @@ export default function SchedulingPage() {
                           <button
                             type="button"
                             onClick={() => openBookingOrder(firstBooking)}
-                            className="shrink-0 rounded border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                            className="min-h-11 shrink-0 rounded border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
                           >
                             查看訂單
                           </button>
@@ -830,19 +833,22 @@ export default function SchedulingPage() {
           </div>
         </div>
       )}
-      {isOrderLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="flex items-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-medium text-gray-700 shadow-lg dark:bg-gray-800 dark:text-gray-200">
-            <Loader2 size={16} className="animate-spin" />
-            載入訂單資料...
-          </div>
-        </div>
-      )}
-      {selectedOrder && (
-        <OrderDetailDrawer
-          order={selectedOrder}
+      {selectedOrderId !== null && (isOrderLoading || orderError) && (
+        <OrderDetailStatusDrawer
+          title={orderError ? '明細載入失敗' : '載入訂單明細中'}
+          error={orderError}
+          isRetrying={isOrderLoading}
+          onRetry={() => refetchOrder()}
           onClose={() => setSelectedOrderId(null)}
         />
+      )}
+      {selectedOrderId !== null && selectedOrder && (
+        <div className={isOrderLoading || orderError ? 'invisible' : undefined} aria-hidden={Boolean(isOrderLoading || orderError)}>
+          <OrderDetailDrawer
+            order={selectedOrder}
+            onClose={() => setSelectedOrderId(null)}
+          />
+        </div>
       )}
     </div>
   )
