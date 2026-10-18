@@ -64,6 +64,17 @@ assert.ok(find(articleDrawer,n=>typeof n.type==='function'&&n.type.name==='Artic
 assert.ok(!find(articleDrawer,n=>typeof n.type==='function'&&n.type.name==='ContentBlocksEditor'))
 find(articleDrawer,n=>n.type==='form').props.onSubmit({preventDefault(){}})
 assert.equal(articleSaved.title,'新標題');assert.equal(articleSaved.summary,'新說明');assert.equal(articleSaved.image_url,'/new.svg');assert.equal(articleSaved.metadata.article.html,'<p>原HTML</p>')
+let importedSaved
+const importedApp=harness(),importedProps={groups:[{id:'guides',label:'攻略',locations:[{key:'guides.articles',label:'精選文章',type:'article'}]}],group:'guides',item:{id:287,location_key:'guides.articles',content_type:'article',title:'卡片標題',tags:[],metadata:{category:'原分類',date:'2026.8.18',article_mode:'internal',article:{title:'原標題',heroImage:'/cover.jpg',html:'<p>完整正文</p>'}}},galleryItems:[],resortOptions:[],articleCategories:['原分類'],onClose(){},onSubmit:data=>importedSaved=data,isSaving:false}
+let importedDrawer=importedApp.drawer(importedProps)
+const importedEditor=find(importedDrawer,n=>typeof n.type==='function'&&n.type.name==='ArticlePageEditor')
+assert.ok(importedEditor,'匯入攻略必須編輯完整原文，不是通用空白區塊')
+assert.equal(importedEditor.props.showDate,false,'日期只在文章分類區填一次')
+importedEditor.props.onChange({...importedProps.item.metadata,article:{title:'新完整標題',heroImage:'/new-cover.jpg',lead:'新摘要',html:'<p>修改全文</p>'}})
+importedDrawer=importedApp.drawerAgain(importedProps)
+find(importedDrawer,n=>n.type==='form').props.onSubmit({preventDefault(){}})
+assert.equal(importedSaved.title,'新完整標題');assert.equal(importedSaved.image_url,'/new-cover.jpg');assert.equal(importedSaved.summary,'新摘要')
+assert.equal(importedSaved.metadata.article.html,'<p>修改全文</p>');assert.equal(importedSaved.metadata.article.date,'2026.8.18');assert.equal(importedSaved.metadata.category,'原分類')
 const offerDrawer=harness().drawer({groups:[{id:'news',label:'消息',locations:[{key:'offers.earlybird',label:'早鳥',type:'page'}]}],group:'news',item:{id:10,location_key:'offers.earlybird',content_type:'page',title:'早鳥',tags:[],metadata:{}},galleryItems:[],resortOptions:[],onClose(){},onSubmit(){},isSaving:false})
 const offerHtml=renderToStaticMarkup(offerDrawer)
 assert.ok(offerHtml.includes('後台列表縮圖（官網圖片請在正文中修改）'))

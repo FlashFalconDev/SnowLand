@@ -1288,7 +1288,7 @@ function ContentDrawer({
   } : makeEmptyForm(initialLocation || groupInfo?.locations[0]?.key, initialLocation ? drawerLocationMap[initialLocation] : groupInfo?.locations[0]))
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
-  const isArticlePage = form.location_key === 'guides.packing' || (form.location_key === 'guides.article-pages' && isRecord(form.metadata?.article))
+  const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
   const isStructuredPage = isPhotographyPage || isArticlePage
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
@@ -1340,6 +1340,7 @@ function ContentDrawer({
       metadata: {
         ...(metadata || {}),
         blocks: normalizedBlocks,
+        ...(isArticlePage && isGuideListing ? {article:{...(metadata?.article as Record<string,unknown>),date:metadata?.date || ''}} : {}),
       },
     })
   }
@@ -1465,7 +1466,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (

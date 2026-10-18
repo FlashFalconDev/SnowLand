@@ -3,6 +3,8 @@ const inputClass='mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-whit
 
 export default function GuideArticleFields({metadata,mode,categories,onChange}:Props) {
   const update=(patch:Record<string,unknown>)=>onChange({...metadata,...patch})
+  const dateParts = String(metadata.date || '').replace(/\./g,'-').split('-')
+  const inputDate = dateParts.length === 3 ? dateParts.map((part,index)=>index ? part.padStart(2,'0') : part).join('-') : ''
   return <section aria-label="文章分類與閱讀方式" className="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
     <h3 className="text-sm font-semibold text-gray-900 dark:text-white">文章分類與閱讀方式</h3>
     <label className="block text-sm text-gray-700 dark:text-gray-200">文章分類
@@ -11,7 +13,7 @@ export default function GuideArticleFields({metadata,mode,categories,onChange}:P
     </label>
     <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">可選既有分類，或輸入新名稱。公開文章後，分類會出現在官網，不必另外設定。</p>
     <label className="block text-sm text-gray-700 dark:text-gray-200">文章顯示日期
-      <input type="date" value={String(metadata.date || '').replace(/\./g,'-')} className={inputClass} onChange={event=>update({date:event.target.value})} />
+      <input type="date" value={inputDate} className={inputClass} onChange={event=>update({date:event.target.value})} />
     </label>
     <label className="block text-sm text-gray-700 dark:text-gray-200">閱讀方式
       <select value={mode} className={inputClass} onChange={event=>update({article_mode:event.target.value})}>

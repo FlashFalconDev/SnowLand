@@ -11,6 +11,13 @@ export default function GuideArticlePage() {
   const { items, isLoading, error, refetch } = useSiteContent(validId ? 'guides.articles' : null, {contentId:articleId,limit:1});
   const item = items.find(row => String(row.id) === articleId && guideArticleMode(row) === 'internal');
   const blocks = Array.isArray(item?.metadata?.blocks) ? item.metadata.blocks : item?.body ? [{type:'paragraph',text:item.body}] : [];
+  const importedArticle = item?.metadata?.article;
+  // Dynamically inserted lazy iframes stayed blank after scrolling in Chrome.
+  // Load article videos immediately; leave ordinary image loading unchanged.
+  const importedHtml = typeof importedArticle?.html === 'string' ? importedArticle.html
+    .replace(/<iframe\b[^>]*>/gi, tag=>tag.replace(/loading="lazy"/gi,'loading="eager"'))
+    .replace(/<table\b/gi,'<table tabindex="0"') : '';
+  const coverInBody = !!item?.image_url && [...importedHtml.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/gi)].some(match => match[1].replace(/&amp;/g,'&') === item.image_url);
   const category = item?.metadata?.category || item?.tags?.[0] || '';
   return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
     <SiteHeader forceTransparent forceDarkText forceLogoColor />
@@ -21,9 +28,12 @@ export default function GuideArticlePage() {
           <p className="text-sm text-[#64748b]">{category}{category && item.metadata?.date ? ' ｜ ' : ''}{item.metadata?.date || ''}</p>
           <h1 className="text-3xl md:text-4xl font-semibold leading-relaxed font-display">{item.title}</h1>
           {item.summary && <p className="text-base leading-8 text-[#64748b]">{item.summary}</p>}
-          {item.image_url && !blocks.some(block => block?.type === 'image' && block.src === item.image_url) && <img src={item.image_url} alt={item.title} className="w-full h-auto rounded-sm" />}
+          {item.image_url && !coverInBody && !blocks.some(block => block?.type === 'image' && block.src === item.image_url) && <img src={item.image_url} alt={item.title} className="w-full h-auto rounded-sm" />}
         </header>
-        <div className="space-y-6 text-base leading-8 text-[#475569]">
+        {importedHtml ? <>
+          {/<table\b/i.test(importedHtml) && <p className="mb-4 text-sm text-[#64748b] md:hidden">表格可左右滑動，查看完整比較內容。</p>}
+          <div className="article-content imported-guide text-base leading-8 text-[#475569]" dangerouslySetInnerHTML={{__html:importedHtml}} />
+        </> : <div className="space-y-6 text-base leading-8 text-[#475569]">
           {blocks.map((block,index) => {
             if (!block || typeof block !== 'object') return null;
             if (block.type === 'paragraph') return <p key={index} className="whitespace-pre-line">{typeof block.text === 'string' ? block.text : ''}</p>;
@@ -32,7 +42,7 @@ export default function GuideArticlePage() {
             if (block.type === 'list' && Array.isArray(block.items)) { const Tag = block.ordered ? 'ol' : 'ul'; return <Tag key={index} className={`pl-6 space-y-2 ${block.ordered ? 'list-decimal' : 'list-disc'}`}>{block.items.filter(text=>typeof text==='string').map((text,i)=><li key={i}>{text}</li>)}</Tag>; }
             return null;
           })}
-        </div>
+        </div>}
       </article>}
     </main><SiteFooter />
   </div>;

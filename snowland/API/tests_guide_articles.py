@@ -91,3 +91,21 @@ class GuideArticleTests(TestCase):
         payload=deepcopy(self.payload);payload['metadata']['category']=''
         self.assertEqual(self.api.post(self.url,payload,format='json').status_code,400)
         self.assertEqual(SiteContent.objects.count(),0)
+
+    def test_imported_rich_article_can_be_edited_and_hidden_with_video_validation(self):
+        payload=deepcopy(self.payload)
+        article={'title':payload['title'],'heroImage':'/qa.svg','html':'<h2>原標題</h2><p>完整正文</p><table><tr><td>原表格</td></tr></table><iframe src="https://www.youtube.com/embed/ouVZgVr3HJ4" title="影片"></iframe>'}
+        payload['metadata']={**payload['metadata'],'blocks':[],'article':article}
+        created=self.api.post(self.url,payload,format='json')
+        self.assertEqual(created.status_code,201,created.data)
+        row_id=created.data['data']['id'];detail=f'{self.url}{row_id}/'
+        public=f'/booking/snowland/api/site-content/?location_key=guides.articles&content_id={row_id}'
+        self.assertEqual(APIClient().get(public).data[0]['metadata']['article']['html'],article['html'])
+        metadata=deepcopy(payload['metadata']);metadata['article']['html']='<iframe src="https://evil.test/embed/ouVZgVr3HJ4"></iframe>'
+        self.assertEqual(self.api.patch(detail,{'metadata':metadata},format='json').status_code,400)
+        self.assertEqual(SiteContent.objects.get(pk=row_id).metadata,payload['metadata'])
+        metadata['article']['html']=article['html'].replace('完整正文','後台修改正文')
+        self.assertEqual(self.api.patch(detail,{'metadata':metadata},format='json').status_code,200)
+        self.assertIn('後台修改正文',APIClient().get(public).data[0]['metadata']['article']['html'])
+        self.assertEqual(self.api.patch(detail,{'status':'hidden'},format='json').status_code,200)
+        self.assertEqual(APIClient().get(public).data,[])

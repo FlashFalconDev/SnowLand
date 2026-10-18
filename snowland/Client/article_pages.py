@@ -21,8 +21,18 @@ def safe_article_url(value, *, link=False):
         return False
 
 
+def youtube_embed(value):
+    if not isinstance(value, str) or '\\' in value or any(ord(c) < 32 for c in value):
+        return False
+    try:
+        url = urlsplit(value)
+        return url.scheme == 'https' and url.netloc == 'www.youtube.com' and bool(re.fullmatch(r'/embed/[A-Za-z0-9_-]{11}', url.path)) and not url.fragment
+    except ValueError:
+        return False
+
+
 class ArticleHTMLValidator(HTMLParser):
-    tags = {'p','div','span','h1','h2','h3','h4','h5','h6','ul','ol','li','strong','em','b','i','u','s','a','img','figure','figcaption','br','hr','table','thead','tbody','tfoot','tr','td','th','caption','blockquote'}
+    tags = {'p','div','span','h1','h2','h3','h4','h5','h6','ul','ol','li','strong','em','b','i','u','s','a','img','figure','figcaption','br','hr','table','thead','tbody','tfoot','tr','td','th','caption','blockquote','iframe'}
     attributes = {'id','class','style','href','src','alt','title','width','height','loading','decoding','aria-describedby','srcset','sizes','target','rel','colspan','rowspan','scope'}
 
     def __init__(self, published=False):
@@ -32,6 +42,10 @@ class ArticleHTMLValidator(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag not in self.tags:
             raise ValueError('文章含不支援的內容，請只使用一般段落、圖片、連結與表格')
+        if tag == 'iframe':
+            if len(dict(attrs)) != len(attrs) or not youtube_embed(dict(attrs).get('src')) or any(name not in {'src','title','loading','allowfullscreen','width','height'} for name, _ in attrs):
+                raise ValueError('影片只支援YouTube嵌入網址，不允許其他嵌入程式')
+            return
         if tag == 'img' and self.published and not (dict(attrs).get('src') or '').strip():
             raise ValueError('公開前請填寫每張圖片的網址')
         for name, value in attrs:
@@ -116,6 +130,9 @@ def validate_guide_article(data, instance=None):
                     raise ValueError('圖片說明必須是文字')
                 if not safe_article_url(block.get('src','')):
                     raise ValueError('文章圖片請使用完整http/https網址或站內路徑')
+    if 'article' in metadata:
+        validate_article_metadata(metadata, value('status','draft') == 'active' and mode == 'internal')
+        has_text = bool(re.sub(r'<[^>]+>', '', metadata['article'].get('html','')).strip())
     if not safe_article_url(value('image_url')) or not safe_article_url(value('link_url')):
         raise ValueError('封面與文章連結請使用完整http/https網址或站內路徑')
     if value('status', 'draft') == 'active':

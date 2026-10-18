@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-type HtmlField = { id: number; label: string; kind: 'text' | 'image' | 'link'; node: Node }
+type HtmlField = { id: number; label: string; kind: 'text' | 'image' | 'link' | 'video'; node: Node }
 type Article = { title?: string; date?: string; heroImage?: string; lead?: string; html?: string; relatedLinks?: {title: string; url: string}[] }
 const inputClass = 'mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white'
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -21,11 +21,12 @@ function readDraft(html: string) {
     fields.push({id: fields.length, label: `圖片：${image.alt || `第${imageNumber}張`}`, kind: 'image', node: image})
   }
   for (const link of document.body.querySelectorAll('a[href]')) fields.push({id: fields.length, label: `連結：${link.textContent || fields.length + 1}`, kind: 'link', node: link})
+  for (const video of document.body.querySelectorAll('iframe')) fields.push({id: fields.length, label: `YouTube影片：${video.getAttribute('title') || fields.length + 1}`, kind: 'video', node: video})
   return {document, fields}
 }
-const valueOf = (field: HtmlField) => field.kind === 'text' ? field.node.textContent || '' : (field.node as Element).getAttribute(field.kind === 'image' ? 'src' : 'href') || ''
+const valueOf = (field: HtmlField) => field.kind === 'text' ? field.node.textContent || '' : (field.node as Element).getAttribute(field.kind === 'link' ? 'href' : 'src') || ''
 
-export default function ArticlePageEditor({ metadata, onChange }: { metadata: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
+export default function ArticlePageEditor({ metadata, onChange, showDate = true }: { metadata: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void; showDate?: boolean }) {
   const article = record(metadata.article) as Article
   const [draft, setDraft] = useState(() => readDraft(typeof article.html === 'string' ? article.html : ''))
   const [search, setSearch] = useState('')
@@ -35,7 +36,7 @@ export default function ArticlePageEditor({ metadata, onChange }: { metadata: Re
     if (field.kind === 'text') field.node.textContent = value
     else {
       const element = field.node as Element
-      element.setAttribute(field.kind === 'image' ? 'src' : 'href', value)
+      element.setAttribute(field.kind === 'link' ? 'href' : 'src', value)
       // A legacy srcset would otherwise keep showing the old picture.
       if (field.kind === 'image') { element.removeAttribute('srcset'); element.removeAttribute('sizes') }
     }
@@ -59,7 +60,7 @@ export default function ArticlePageEditor({ metadata, onChange }: { metadata: Re
   const visible = draft.fields.filter(field => !search.trim() || matches?.includes(field.id))
   return <section aria-label="原文章編輯" className="space-y-4">
     <p className="rounded-lg bg-blue-50 p-3 text-sm leading-6 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200">這裡直接編輯官網的原文章，保留原本表格、條列與文字格式。搜尋原文可快速找到段落；不需要編寫HTML。儲存後官網才會更新。</p>
-    {([['title','文章標題'],['date','顯示日期'],['heroImage','首圖網址'],['lead','開頭說明']] as const).map(([key,label]) => <label key={key} className="block text-sm text-gray-700 dark:text-gray-200">{label}<textarea rows={key === 'lead' ? 4 : 2} className={inputClass} value={article[key] || ''} onChange={event => update({[key]:event.target.value})} /></label>)}
+    {([['title','文章標題'],['date','顯示日期'],['heroImage','首圖網址'],['lead','開頭說明']] as const).filter(([key]) => showDate || key !== 'date').map(([key,label]) => <label key={key} className="block text-sm text-gray-700 dark:text-gray-200">{label}<textarea rows={key === 'lead' ? 4 : 2} className={inputClass} value={article[key] || ''} onChange={event => update({[key]:event.target.value})} /></label>)}
     <label className="block text-sm text-gray-700 dark:text-gray-200">搜尋原文章（{visible.length}/{draft.fields.length} 欄位）<input type="search" className={inputClass} value={search} placeholder="輸入原文、圖片說明或網址" onChange={event => {
       const query = event.target.value.trim().toLowerCase()
       setSearch(event.target.value)
