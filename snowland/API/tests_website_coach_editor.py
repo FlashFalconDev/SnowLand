@@ -54,6 +54,23 @@ class WebsiteCoachEditorTests(TestCase):
         result=self.api.get('/booking/snowland/api/website-coaches/',{'slug':'real','include_profile':'1'})
         self.assertEqual(result.data['data']['list'][0]['profile'],{**profile,'reviews':[]})
 
+    def test_photo_accepts_site_paths_and_http_urls(self):
+        for photo in ['/snowland/vite.svg', 'https://example.com/coach.jpg', 'http://example.com/coach.jpg', '']:
+            with self.subTest(photo=photo):
+                result=self.api.patch(self.detail,{'img':photo},format='json')
+                self.assertEqual(result.status_code,200,result.data)
+                self.coach.refresh_from_db()
+                self.assertEqual(self.coach.img,photo)
+
+    def test_unsafe_photo_does_not_partially_update_profile(self):
+        for photo in ['//example.com/coach.jpg', '/\\example.com/coach.jpg',
+                      'javascript:alert(1)', 'data:image/svg+xml,test', 'https://', '/photo\n.jpg']:
+            with self.subTest(photo=photo):
+                result=self.api.patch(self.detail,{'img':photo,'website_card_bio':'不應殘留'},format='json')
+                self.assertEqual(result.status_code,400,result.data)
+                self.coach.refresh_from_db()
+                self.assertEqual(self.coach.website_card_bio,'')
+
     def test_profile_storage_failure_rolls_back_basic_website_changes(self):
         from unittest.mock import patch
         from Client.models import SiteContent

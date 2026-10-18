@@ -18,13 +18,13 @@ const card = source.slice(source.indexOf('function EvaluationCard('), source.ind
 const row = { id: 1, member_name: 'QA', coach_name: 'QA教練', course_date: '2026-10-17', order_number: 'QA-only',
   coach_notes: '原評語', self_assessment: {}, learning_progress: { turn: '持續練習' }, trail_names: ['QA雪道'], media: [] }
 
-function render(canEdit, editing, mediaUrl = '') {
+function render(canEdit, editing, mediaUrl = '', selectedTrails) {
   let index = 0, mutation
   const calls = []
   const context = vm.createContext({ React, Date, Number, URL, ...progress.exports,
     PRIMARY: '#8b5cf6', inputClass: '',
     useQueryClient: () => ({ invalidateQueries() {} }), useNotification: () => ({ success() {}, error() {} }),
-    useState: initial => { const n = index++; return [n === 0 ? editing : n === 5 ? mediaUrl : initial, () => {}] },
+    useState: initial => { const n = index++; return [n === 0 ? editing : n === 3 && selectedTrails !== undefined ? selectedTrails : n === 5 ? mediaUrl : initial, () => {}] },
     useMutation: options => { mutation = options; return { isPending: false, mutate() {} } },
     updateEvaluation: async (...args) => calls.push(args), Save: () => null, Loader2: () => null,
     Field: ({ label, children }) => React.createElement('label', null, label, children),
@@ -52,6 +52,12 @@ async function main() {
   await editable.save()
   assert.equal(editable.calls[0][1].coach_notes, '原評語')
   assert.ok(editable.calls[0][1].completed_at)
+  const unchecked = render(true, true, '', [])
+  assert.match(unchecked.html, /QA雪道/, 'unchecking a historical trail must not remove its option')
+  assert.match(unchecked.html, /原有記錄/)
+  assert.doesNotMatch(unchecked.html, /type="checkbox" checked/)
+  await unchecked.save()
+  assert.deepEqual(Array.from(unchecked.calls[0][1].trail_names), [], 'retaining the option must not reselect it')
   console.log('PASS actual EvaluationCard: readonly/editor controls, private upload kept, media-only payload and coach payload')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

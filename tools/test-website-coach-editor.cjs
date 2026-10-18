@@ -8,7 +8,7 @@ function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))re
 function setup({editing=null,fail=false,error=false,search=''}={}){
   const states=[search,'',editing],calls=[],invalidations=[],messages=[];let i=0,retries=0
   const hooks={...React,useState:initial=>{const index=i++;if(!(index in states))states[index]=initial;return[states[index],v=>states[index]=v]}}
-  const ctx=vm.createContext({React,exports:{},require:name=>{
+  const ctx=vm.createContext({React,URL,exports:{},require:name=>{
     if(name==='react')return hooks
     if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
     if(name==='../../components/PromptModal')return{default:function PromptModal(){return null}}
@@ -25,6 +25,10 @@ const values={img:'/qa.jpg',website_slug:'REAL',website_card_bio:'新簡介',web
   const app=setup(),html=renderToStaticMarkup(app.render())
   assert.ok(html.includes('QA真正教練'));assert.ok(!html.includes('Cash 校長'));assert.ok(!html.includes('刪除教練'));assert.ok(!html.includes('新增教練</button>'))
   assert.equal(app.ctx.exports.validateWebsiteCoach(values),undefined)
+  coach.img='/vite.svg'
+  assert.ok(find(setup().render(),n=>n.type==='img'&&n.props.alt===coach.name).key.endsWith('/vite.svg'))
+  coach.img=''
+  for(const img of ['//example.com/coach.jpg','/\\example.com/coach.jpg','/photo\n.jpg','https://','https://example.com/'+ 'x'.repeat(200)])assert.ok(app.ctx.exports.validateWebsiteCoach({...values,img}))
   for(const changed of [{website_sort_order:''},{website_sort_order:'1.5'},{website_sort_order:'Infinity'},{website_slug:''},{website_slug:'bad/path'},{img:'javascript:alert(1)'},{website_card_bio:'x'.repeat(161)}])assert.ok(app.ctx.exports.validateWebsiteCoach({...values,...changed}))
   assert.equal(app.ctx.exports.validateWebsiteCoach({...values,website_enabled:'false',website_slug:''}),undefined)
   assert.ok(renderToStaticMarkup(setup({search:'not-found'}).render()).includes('沒有符合條件'))
@@ -42,9 +46,9 @@ const values={img:'/qa.jpg',website_slug:'REAL',website_card_bio:'新簡介',web
   assert.equal(updated.sections[0].lines.length,2);assert.equal(updated.sections[0].media[0].src,'/qa.jpg')
   assert.equal(updated.videos[0].src,profile.videos[0].src);assert.equal(updated.reviews[0].name,'QA')
   assert.equal(app.ctx.exports.profileSectionText({sections:[{title:'教學理念',lines:{}}]},'教學理念'),'')
-  let cancelled=0
+  let cancelled=0,promptState=0
   const prompt=vm.createContext({React,exports:{},require:name=>{
-    if(name==='react')return{useState:value=>[value,()=>{}],useEffect(){},useRef:()=>({current:null})}
+    if(name==='react')return{useState:value=>[promptState++===1?'QA驗證錯誤':value,()=>{}],useEffect(){},useRef:()=>({current:null})}
     if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
     throw new Error(name)
   }})
@@ -53,6 +57,8 @@ const values={img:'/qa.jpg',website_slug:'REAL',website_card_bio:'新簡介',web
   const formNode=find(dialog,n=>n.type==='form')
   assert.equal(formNode.props.role,'dialog');assert.ok(formNode.props.className.includes('100dvh'))
   assert.ok(find(dialog,n=>n.type==='div'&&n.props.className?.includes('overflow-y-auto')))
+  assert.ok(find(dialog,n=>n.props.role==='alert'))
+  assert.equal(find(find(dialog,n=>n.type==='div'&&n.props.className?.includes('overflow-y-auto')),n=>n.props.role==='alert'),null)
   assert.equal(find(dialog,n=>n.type==='label').props.htmlFor,find(dialog,n=>n.type==='input').props.id)
   formNode.props.onKeyDown({key:'Escape',stopPropagation(){}});assert.equal(cancelled,1)
   console.log('PASS real coach CMS list, form validation, restricted payload, save refresh/close, retained failed form and error retry')

@@ -246,7 +246,7 @@ function EvaluationCard({ row, coachView = false }: { row: Evaluation; coachView
   const [progress, setProgress] = useState(learningProgressToText(row.learning_progress || {}))
   const [selectedTrails, setSelectedTrails] = useState<string[]>(Array.isArray(row.trail_names) ? row.trail_names : [])
   const [extraTrails, setExtraTrails] = useState('')
-  const trailOptions = Array.from(new Set([...(row.available_trails || []), ...selectedTrails]))
+  const trailOptions = Array.from(new Set([...(row.available_trails || []), ...(row.trail_names || []), ...selectedTrails]))
   const trails = Array.from(new Set([...selectedTrails, ...extraTrails.split(/[、,\n]/).map(value => value.trim()).filter(Boolean)]))
   const [mediaUrl, setMediaUrl] = useState('')
   const [mediaType, setMediaType] = useState<'photo' | 'video'>('photo')

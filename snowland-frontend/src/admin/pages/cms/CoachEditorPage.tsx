@@ -40,7 +40,16 @@ export function validateWebsiteCoach(values: Record<string, string>): string | u
   if (data.website_slug && !/^[a-z0-9_-]+$/.test(data.website_slug)) return '官網代號只能使用英文字母、數字、短橫線或底線'
   if (!values.website_sort_order.trim() || !Number.isSafeInteger(data.website_sort_order) || data.website_sort_order < -2147483648 || data.website_sort_order > 2147483647) return '排序請填寫有效整數'
   if (data.website_card_bio.length > 160) return '卡片簡介最多160字'
-  if (data.img && !/^(https?:\/\/|\/(?!\/))/.test(data.img)) return '照片請填寫 https 網址或站內圖片路徑'
+  if (data.img) {
+    const message = '照片請填寫 http/https 網址或站內圖片路徑（最多200字）'
+    if (data.img.length > 200 || /[\\\x00-\x1f\x7f]/.test(values.img)) return message
+    if (!/^\/(?!\/)/.test(data.img)) {
+      try {
+        const url = new URL(data.img)
+        if (!/^https?:$/.test(url.protocol) || !url.hostname) return message
+      } catch { return message }
+    }
+  }
 }
 
 export default function CoachEditorPage() {
@@ -82,7 +91,7 @@ export default function CoachEditorPage() {
         <p className="text-sm text-gray-500 dark:text-gray-400">共 {filtered.length} 位教練</p>
         {!filtered.length && <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">{coaches.length ? '沒有符合條件的教練，請調整搜尋或狀態。' : '尚無教練資料，請先由管理員在教練管理建立。'}</div>}
         {filtered.map(coach => <div key={coach.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700">{coach.img ? <img src={coach.img} alt={coach.name} loading="lazy" className="h-full w-full object-cover" onError={e => { e.currentTarget.hidden = true }} /> : <ImageIcon className="text-gray-400" />}</div>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700">{coach.img ? <img key={coach.img} src={coach.img} alt={coach.name} loading="lazy" className="h-full w-full object-cover" onError={e => { e.currentTarget.hidden = true }} /> : <ImageIcon className="text-gray-400" />}</div>
           <div className="min-w-0 flex-1"><p className="break-words font-semibold">{coach.name}</p><p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">{coach.website_slug || '尚未設定官網代號'} · 排序 {coach.website_sort_order}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{coach.website_enabled ? '官網上架' : '官網下架'}</p></div>
           <button type="button" disabled={!coach.can_manage} title={coach.can_manage ? '編輯官網資料' : '跨校區教練請由總部修改'} onClick={() => setEditing(coach)} className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 text-sm text-violet-600 hover:bg-violet-50 disabled:opacity-50 dark:text-violet-400 dark:hover:bg-violet-900/20" aria-label={'編輯' + coach.name}><Edit size={16} />{coach.can_manage ? '編輯' : '總部管理'}</button>
         </div>)}

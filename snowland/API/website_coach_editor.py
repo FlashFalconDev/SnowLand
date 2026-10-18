@@ -1,6 +1,8 @@
 """CMS edits the existing coach's website fields, never operational/pay fields."""
 from collections.abc import Mapping
 import json
+from django.core.validators import URLValidator
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.middleware.csrf import get_token
 from rest_framework import serializers
@@ -17,10 +19,26 @@ from .admin_views import IsTenantManager
 class WebsiteCoachEditorSerializer(serializers.ModelSerializer):
     can_manage=serializers.SerializerMethodField()
     website_profile=serializers.JSONField(required=False)
+    img=serializers.CharField(required=False,allow_blank=True,allow_null=True,max_length=200,trim_whitespace=False)
     class Meta:
         model=Coach
         fields=['id','name','can_manage','img','website_enabled','website_slug','website_sort_order','website_card_bio','website_profile']
         read_only_fields=['id','name','can_manage']
+
+    def validate_img(self, value):
+        if not value:
+            return value
+        message='照片請填寫 http/https 網址或站內圖片路徑'
+        if '\\' in value or any(ord(char)<32 or ord(char)==127 for char in value):
+            raise serializers.ValidationError(message)
+        value=value.strip()
+        if value.startswith('/') and not value.startswith('//'):
+            return value
+        try:
+            URLValidator(schemes=['http','https'])(value)
+        except DjangoValidationError:
+            raise serializers.ValidationError(message)
+        return value
 
     def get_can_manage(self, obj):
         request=self.context['request']

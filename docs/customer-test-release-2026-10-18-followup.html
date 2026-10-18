@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SnowLand｜10/18 後續修正測試版</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#24384b;font:16px/1.65 system-ui,"Microsoft JhengHei",sans-serif}main{max-width:900px;margin:auto;padding:24px 16px 48px}header,section{padding:22px;border-radius:14px;margin-bottom:16px;background:white;border:1px solid #dae3ed}header{background:#234d70;color:white}h1{margin:0 0 8px;font-size:26px}h2{margin:0 0 12px;font-size:20px}p{margin:8px 0}li{margin:8px 0}code{overflow-wrap:anywhere}.note{background:#fff7e3}a{color:#24638e}summary{cursor:pointer;font-weight:600}dt{font-weight:600;margin-top:12px}dd{margin:4px 0 12px}small{color:#586c7f}
+</style>
+</head>
+<body><main>
+<header><h1>SnowLand｜10/18 後續修正</h1><p>接續核心測試版 f9b2aff8；這份是修正與測試結果，不是全站正式驗收完成證明。</p></header>
+<section><h2>測試結果</h2><p><strong>完整後端：916項，913通過、3略過、0失敗。</strong><br>31支前端檢查、前端編譯、Django檢查及migration缺漏檢查通過。</p><p>本機MySQL待執行migration為0；這批修正沒有新增migration。不代表測試機或正式庫已更新。</p><details><summary>測試範圍與限制</summary><p>完整後端採隔離SQLite、保留真實migration，耗時24.068秒。快速密碼雜湊只在測試設定，正常網站設定未變。略過的是兩支手動URL／效能腳本，以及需另行授權的真實OpenAI呼叫。</p><p>瀏覽器抽驗沿用3000／8999，包含桌面與390×844手機。API測試、實際點擊與外部服務驗收分開記錄，不互相替代。</p></details></section>
+<section><h2>這版修正哪些功能</h2><dl>
+<dt>員工授權與校區指派</dt><dd>一般總部可新增、修改及撤銷員工權限；校區選項正常載入。最大管理員欄位只對有權限者開放，不能靠員工管理權限修改校區。</dd>
+<dt>教練介紹、照片與評價彈窗</dt><dd>站內圖片路徑可儲存；修正網址後圖片立即恢復。移除重複介紹與空影片／空相簿；評價彈窗支援Escape、Tab及焦點返回。手機表單錯誤不再藏在長表單底部。</dd>
+<dt>學習評量雪道選項</dt><dd>取消勾選歷史雪道後仍可重新勾選，不會直接消失；會員與教練的評量同步已實點核對。</dd>
+<dt>行政獎金退款扣回</dt><dd>修正分次、跨月退款的四捨五入漏扣；全額退款可扣回原月結分攤尾差，不超扣或重複扣回。</dd>
+<dt>營運報表匯出</dt><dd>CSV／Excel實際下載的校區與雪場篩選金額已核對；Excel計算說明完整換行顯示，不再被截斷。</dd>
+</dl></section>
+<section class="note"><h2>仍未算驗收通過</h2><ul>
+<li>照片／影片的真實選檔上傳：依Jim決定，留到測試機人工驗收；不把預置照片或API測試當作已點選上傳。</li>
+<li>Google／LINE真人登入、實際金流退款、外部郵件送達與正式排程；IG／Google商家同步授權。</li>
+<li>仍需確認的稅金、跨期佣金、點數與額外未付款限制規則，以及正式文件定稿。</li>
+<li>未完成的聯絡表單收件、其餘未逐頁驗證內容與最新客戶簡報的全量核對。</li>
+</ul><p>這些不因本輪自動化測試通過而自動視為完成。正式資料清理、匯入與部署沒有執行。</p></section>
+<section><h2>版本與更新</h2><p>交付版本以GitHub此修正版PR與合併後的test commit為準。拉取Git不等於服務或資料庫已更新；本次沒有部署、重啟服務或修改AWS資料庫。</p><p>測試過程使用合成帳號與訂單，沒有實際發薪、退款或對客通知。測試帳密及本機設定不放進Git。</p></section>
+</main></body></html>

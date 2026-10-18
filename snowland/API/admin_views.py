@@ -842,6 +842,7 @@ class CampusAdminViewSet(ModelViewSet):
     serializer_class = CampusAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'campuses'
+    read_permission_keys = ('staff',)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)

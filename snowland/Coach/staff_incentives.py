@@ -104,9 +104,16 @@ def calculate_staff_incentive(*, user, campus, month):
             if StaffIncentiveLine.objects.filter(entry_key=key).exists():
                 continue
             base = min(cancellation.refund_amount, remaining_base)
-            amount = min(_money(Decimal(base) * source.percent / 100), remaining_amount)
-            if not base or not amount:
+            if not base:
                 continue
+            # Round the cumulative refunded base, not each small refund separately.
+            # Keep zero-valued lines so later months retain that refunded base.
+            cumulative_base = source.base_amount - remaining_base + base
+            deducted_amount = source.amount - remaining_amount
+            # A full refund also recovers any cent allocated by monthly rounding.
+            target_amount = (source.amount if cumulative_base == source.base_amount else
+                _money(Decimal(cumulative_base) * source.percent / 100))
+            amount = max(min(target_amount - deducted_amount, remaining_amount), 0)
             StaffIncentiveLine.objects.create(statement=statement, group=source.group, cancellation=cancellation,
                 source_line=source, entry_key=key, line_type='refund', order_number=source.order_number,
                 event_date=refunded_day, base_amount=base, percent=source.percent, amount=-amount)
