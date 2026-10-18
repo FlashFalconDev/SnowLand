@@ -3,10 +3,8 @@ import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
-import tomamuResort from '../../assets/site/Homepage-Tomamu ski resort.jpg';
-import offPisteCourse from '../../assets/site/Homepage-course-Off piste.jpg';
-import hokkaidoCourse from '../../assets/site/Homepage-course-Hokkaido.jpg';
 import SpecialOffers from '../../components/site/SpecialOffers';
+import PopularCourses from '../../components/site/PopularCourses';
 import CoachLoadNotice from '../../components/site/CoachLoadNotice';
 import { useWebsiteCoachCards } from '../../api/websiteCoaches';
 import { fetchSiteContent } from '../../api/booking';
@@ -23,7 +21,6 @@ function HomePage() {
   const y = useTransform(scrollYProgress, [0, 1], ["0%", "50%"]);
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
   const [showAboutMore, setShowAboutMore] = useState(false);
-  const [expandedCourses, setExpandedCourses] = useState({});
   const [isReviewsPaused, setIsReviewsPaused] = useState(false);
   const [expandedReviewIndex, setExpandedReviewIndex] = useState(null);
   const [cmsReviews, setCmsReviews] = useState([]);
@@ -42,32 +39,6 @@ function HomePage() {
   const coachItemRefs = useRef([]);
   const [activeCoachIndex, setActiveCoachIndex] = useState(0);
   const totalCoachCards = coachCards.length;
-  const resortCards = [
-    {
-      title: "星野 TOMAMU",
-      image: tomamuResort,
-      description:
-        "在北海道中心體驗世界級粉雪，星野 Tomamu 擁有 29 條雪道，涵蓋初、中、進階不同難度，及開放夜間滑雪。從新手友善的平坦滑坡到具挑戰性的道外與樹林區，適合各程度的滑雪者。滑雪之外還有豐富的雪上活動設施：雪地卡丁車、夢幻的愛絲冰城，以及可俯瞰山谷與森林的霧冰平台，不滑雪也能盡情欣賞雪山美景。",
-      cta: "立即查看課程",
-      href: "/course/tomamu"
-    },
-    {
-      title: "野雪嚮導",
-      image: offPisteCourse,
-      description:
-        "探索真正的粉雪天堂，由具國際認證的嚮導專業帶領，深入北海道山岳地形，體驗滑出雪道邊界的自由與純粹。適合進階滑雪玩家挑戰極致的樂趣。嚮導團隊具備雪崩安全知識與山岳滑行經驗，依每日雪況與天氣做風險評估，即時規劃安全又具挑戰性的路線，全程專業陪伴，帶你體驗北海道原始雪山的壯闊與自由。",
-      cta: "立即查看課程",
-      href: "/course/off-piste-guide"
-    },
-    {
-      title: "北海道",
-      image: hokkaidoCourse,
-      description:
-        "SnowLand 的滑雪課程遍佈北海道各地：神居、聖誕禮物公園、比布、夕張與佐幌等熱門雪場。讓您依興趣與程度選擇最適合的學習環境。每個雪場皆有不同特色與風景。我們的專業教練團隊將協助您規劃最適合您的滑雪體驗。",
-      cta: "立即查看課程",
-      href: "/course/hokkaido"
-    }
-  ];
   React.useEffect(() => {
     let mounted = true;
     setReviewsStatus('loading');
@@ -329,80 +300,7 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="bg-white">
-        <div className="max-w-6xl mx-auto px-6 md:px-10 py-16 md:py-24">
-          <div className="text-center mb-12 md:mb-16">
-            <p className="text-xs md:text-sm tracking-[0.3em] uppercase text-[#6b7280] font-medium font-display">
-              Course
-            </p>
-            <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-              熱門課程
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 md:gap-16">
-            {resortCards.map((resort) => (
-              <article
-                key={resort.title}
-                className="group flex flex-col items-center w-full max-w-md mx-auto"
-              >
-                <h3 className="text-xl font-semibold text-[#2b2b2b] font-display tracking-wide text-center">
-                  {resort.title}
-                </h3>
-
-                <div className="mt-6 w-full">
-                  <div className="relative w-full h-56 md:h-60 shadow-[0_16px_28px_rgba(15,23,42,0.12)] overflow-hidden">
-                    <img loading="lazy" decoding="async"
-                      src={resort.image}
-                      alt={`${resort.title} Course`}
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/10 to-transparent opacity-70 transition-opacity duration-300 group-hover:opacity-90"></div>
-                  </div>
-                </div>
-
-                <div className="mt-6 text-[#3f3f3f] text-sm leading-relaxed w-full">
-                  <p
-                    style={
-                      expandedCourses[resort.title]
-                        ? undefined
-                        : {
-                          display: "-webkit-box",
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                        }
-                    }
-                  >
-                    {resort.description}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedCourses((prev) => ({
-                        ...prev,
-                        [resort.title]: !prev[resort.title],
-                      }))
-                    }
-                    className="mt-3 inline-flex items-center text-sm font-semibold text-[#1f2937] hover:text-[#0f172a] transition-colors underline underline-offset-4"
-                  >
-                    {expandedCourses[resort.title] ? "收起" : "展開"}
-                  </button>
-                  <div className="w-12 h-px bg-[#c4c4c4] my-6 mx-auto"></div>
-                  <div className="mt-6 text-center">
-                    <SiteLink
-                      to={resort.href}
-                      className="inline-flex items-center justify-center px-8 py-2 rounded-full border border-[#1f2937] text-sm font-semibold text-[#1f2937] hover:border-[#4A6B8A] hover:bg-[#4A6B8A] hover:text-white transition-colors"
-                    >
-                      {resort.cta}
-                    </SiteLink>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
+      <PopularCourses />
 
       <section id="homepage-reviews" className="bg-[#f3f6f9] scroll-mt-24">
         <div className="max-w-6xl mx-auto px-6 md:px-10 pt-16 md:pt-24">

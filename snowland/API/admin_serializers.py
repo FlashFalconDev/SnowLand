@@ -260,6 +260,18 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location == 'homepage.courses':
+            from Client.article_pages import safe_article_url
+            if content_type != 'page':
+                raise serializers.ValidationError({'content_type': '熱門課程請使用頁面類型'})
+            for field in ('link_url', 'image_url'):
+                value = attrs.get(field, getattr(self.instance, field, ''))
+                if not safe_article_url(value):
+                    raise serializers.ValidationError({field: '請使用完整http/https網址或站內路徑'})
+            if attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active':
+                for field in ('title', 'link_url'):
+                    if not attrs.get(field, getattr(self.instance, field, '')).strip():
+                        raise serializers.ValidationError({field: '公開熱門課程前請填寫名稱與課程連結'})
         if location in ('about.snowland', 'about.join-us'):
             from Client.about_pages import validate_about_metadata
             try:

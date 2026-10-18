@@ -33,7 +33,11 @@ function harness({rulesError=false}={}){
     if(name==='../../utils/articleContent')return articleContext.exports
     throw new Error('Unexpected dependency '+name)
   }})
-  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;exports.preview=getContentPreviewText;exports.DraftBlock=DraftBlock;',ctx)
+  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;exports.preview=getContentPreviewText;exports.DraftBlock=DraftBlock;exports.normalize=normalizeCmsStructureGroups;',ctx)
+  const custom={groups:[{id:'custom',label:'自訂',locations:[{key:'custom.page',label:'原自訂頁',type:'page'}]}]}
+  const normalized=ctx.exports.normalize(custom)
+  assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='homepage.courses')),'custom CMS structure must still offer homepage course management')
+  assert.equal(normalized[0].locations[0].key,'custom.page');assert.equal(custom.groups.length,1)
   return{block:ctx.exports.DraftBlock,preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},drawerAgain:props=>{cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
 }
 function find(node,predicate){if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=find(child,predicate);if(found)return found}return null}

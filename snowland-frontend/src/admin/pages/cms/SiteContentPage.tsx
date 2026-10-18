@@ -87,6 +87,7 @@ const DEFAULT_GROUPS: GroupInfo[] = [
     description: '首頁會看到的主視覺、評價、教練區塊與優惠卡',
     locations: [
       { key: 'homepage.hero', label: '首頁主視覺', hint: '首頁第一屏標題、圖片與主要文案', type: 'setting' },
+      { key: 'homepage.courses', label: '熱門課程', hint: '首頁課程卡片：名稱、短文字、圖片、按鈕、排序與上下架', type: 'page' },
       { key: 'homepage.reviews', label: '學生評價', hint: '首頁下方的評論卡片', type: 'review' },
       { key: 'homepage.coaches', label: '教練團隊區塊', hint: '首頁教練區塊文字或設定', type: 'setting' },
       { key: 'homepage.offers', label: '首頁限定優惠', hint: '首頁的優惠圖片卡', type: 'offer' },
@@ -233,7 +234,15 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
     && !groupIds.has('about')
   )
 
-  return looksLikeLegacyDefaultStructure ? DEFAULT_GROUPS : groups
+  if (looksLikeLegacyDefaultStructure) return DEFAULT_GROUPS
+  // Introduce the required card section without resetting custom CMS groups.
+  const homeGroup = groups.find(group => group.id === 'homepage')
+  if (!groups.some(group => group.locations.some(location => location.key === 'homepage.courses'))) {
+    const location = DEFAULT_GROUPS[0].locations.find(location => location.key === 'homepage.courses')!
+    if (homeGroup) homeGroup.locations.push(location)
+    else groups.push({ ...DEFAULT_GROUPS[0], locations: [location] })
+  }
+  return groups
 }
 
 const makeEmptyForm = (locationKey?: string, location?: LocationInfo): SiteContentWriteData => {
@@ -397,6 +406,7 @@ type SitePreviewRoute = {
 
 const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'homepage.hero': { path: '/' },
+  'homepage.courses': { path: '/', hash: 'homepage-courses' },
   'homepage.reviews': { path: '/', hash: 'homepage-reviews' },
   'homepage.coaches': { path: '/', hash: 'homepage-coaches' },
   'homepage.offers': { path: '/', hash: 'homepage-offers' },
@@ -1454,7 +1464,7 @@ function ContentDrawer({
               <FormSection title="2. 前台會看到的標題">
                 <div className="grid gap-4 md:grid-cols-2">
                   <TextInput label={form.content_type === 'review' ? '學員稱呼' : '標題'} value={form.title} onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
-                  <TextInput label="副標題" value={form.subtitle} onChange={(value) => setForm((prev) => ({ ...prev, subtitle: value }))} />
+                  <TextInput label={form.location_key === 'homepage.courses' ? '按鈕文字' : '副標題'} value={form.subtitle} onChange={(value) => setForm((prev) => ({ ...prev, subtitle: value }))} />
                 </div>
 
                 <label className="mt-4 block">
@@ -1469,7 +1479,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (
