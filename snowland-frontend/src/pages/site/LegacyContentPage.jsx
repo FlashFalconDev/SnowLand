@@ -1368,10 +1368,10 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                 {dealsCategoryLinks.map((link) => {
                   const isActive = link.key === activeDealsKey;
                   return (
-                    <a
+                    <SiteLink
                       key={link.key}
-                      href={link.href}
-                      className={`relative pb-4 transition-colors duration-200 group ${
+                      to={link.href}
+                      className={`relative inline-flex min-h-11 items-center pb-4 transition-colors duration-200 group ${
                         isActive ? "text-[#111827]" : "hover:text-[#2b5f8f]"
                       }`}
                       aria-current={isActive ? "page" : undefined}
@@ -1382,7 +1382,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                           isActive ? "w-full bg-[#111827]" : "w-0 bg-[#2b5f8f] group-hover:w-full"
                         }`}
                       />
-                    </a>
+                    </SiteLink>
                   );
                 })}
               </div>

@@ -128,3 +128,30 @@ def validate_guide_article(data, instance=None):
         if mode == 'internal' and any(block.get('type') == 'image' and not block.get('src','').strip() for block in metadata.get('blocks', [])):
             raise ValueError('公開前請填寫每張圖片的網址，或移除空白圖片')
     return metadata
+
+
+def validate_offer_metadata(metadata, published, image_url=''):
+    """Keep the imported layout, validating only editable block data."""
+    page=metadata.get('page', {})
+    blocks=metadata.get('blocks', page.get('blocks', []) if isinstance(page,dict) else [])
+    if not isinstance(blocks,list) or len(blocks)>500:
+        raise ValueError('優惠正文區塊格式不正確')
+    if not safe_article_url(image_url):
+        raise ValueError('封面圖片請使用完整http/https網址或站內路徑')
+    for block in blocks:
+        if not isinstance(block,dict) or block.get('type') not in ('heading','paragraph','list','image'):
+            raise ValueError('請使用標題、文字、條列或圖片區塊')
+        kind=block['type']
+        if kind in ('heading','paragraph') and not isinstance(block.get('text',''),str):
+            raise ValueError('優惠標題及段落必須是文字')
+        if kind=='heading' and (type(block.get('level',2)) is not int or block.get('level',2) not in (1,2,3,4)):
+            raise ValueError('標題層級請使用1至4')
+        if kind=='list' and (not isinstance(block.get('items'),list) or not all(isinstance(item,str) for item in block['items'])):
+            raise ValueError('條列清單請每行填寫一段文字')
+        if kind=='image':
+            src=block.get('src','')
+            if not isinstance(block.get('alt',''),str):
+                raise ValueError('圖片說明必須是文字')
+            if not safe_article_url(src) or (published and not src.strip()):
+                raise ValueError('公開前請填寫有效圖片網址，或移除空白圖片')
+    return metadata

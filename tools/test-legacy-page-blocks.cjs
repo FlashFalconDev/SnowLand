@@ -20,6 +20,9 @@ assert.equal(page.blocks[0].text,'QA後台修改','前台必須讀後台儲存�
 assert.equal(original.metadata.page.blocks[0].text,old[0].text)
 assert.equal(context.exports.siteContentToPage({...original,metadata:{...original.metadata,blocks:[]}}).blocks.length,0,'明確清空必須生效，不回退舊稿')
 assert.equal(context.exports.siteContentToPage(original).blocks.length,156)
+assert.equal(context.exports.normalize({blocks:[]},'舊內文','/old.jpg').length,0,'明確清空正文不可重新帶回舊圖或舊文字')
+const offer=rows.find(r=>r.location_key==='offers.earlybird')
+assert.deepEqual(plain(context.exports.normalize(offer.metadata,offer.body,offer.image_url)),plain(offer.metadata.page.blocks),'儲存優惠原稿不可把h1與h4全部降成h2')
 console.log('PASS original preparation blocks preserved, CMS edits visible, intentional empty and legacy-only data handled')
 function find(node,test){if(!node||typeof node!=='object')return null;if(test(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=find(child,test);if(found)return found}return null}
 let edited

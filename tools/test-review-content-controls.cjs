@@ -14,7 +14,7 @@ function harness({rulesError=false}={}){
     return[states[i],value=>states[i]=typeof value==='function'?value(states[i]):value]
   }}
   const api={fetchSiteContents(){},fetchReviewContentGroups(){},createSiteContent(){},updateSiteContent(){},deleteSiteContent(){}}
-  const ctx=vm.createContext({React,exports:{},window:{location:{pathname:'/snowland/console/reviews/manual'}},require:name=>{
+  const ctx=vm.createContext({React,URL,exports:{},window:{location:{pathname:'/snowland/console/reviews/manual'}},require:name=>{
     if(name==='react')return hooks
     if(name==='@tanstack/react-query')return{
       useQuery:options=>options.queryKey.includes('review-locations')?{data:groups,isLoading:false,error:rulesError?new Error('QA'):null,refetch(){refetched++}}:{data:[],isLoading:false,error:null,refetch(){refetched++}},
@@ -32,8 +32,8 @@ function harness({rulesError=false}={}){
     if(name==='../../utils/articleContent')return articleContext.exports
     throw new Error('Unexpected dependency '+name)
   }})
-  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;exports.preview=getContentPreviewText;',ctx)
-  return{preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
+  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;exports.preview=getContentPreviewText;exports.DraftBlock=DraftBlock;',ctx)
+  return{block:ctx.exports.DraftBlock,preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},drawerAgain:props=>{cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
 }
 function find(node,predicate){if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=find(child,predicate);if(found)return found}return null}
 for(const kind of ['review','media']){
@@ -64,6 +64,23 @@ assert.ok(find(articleDrawer,n=>typeof n.type==='function'&&n.type.name==='Artic
 assert.ok(!find(articleDrawer,n=>typeof n.type==='function'&&n.type.name==='ContentBlocksEditor'))
 find(articleDrawer,n=>n.type==='form').props.onSubmit({preventDefault(){}})
 assert.equal(articleSaved.title,'新標題');assert.equal(articleSaved.summary,'新說明');assert.equal(articleSaved.image_url,'/new.svg');assert.equal(articleSaved.metadata.article.html,'<p>原HTML</p>')
+const offerDrawer=harness().drawer({groups:[{id:'news',label:'消息',locations:[{key:'offers.earlybird',label:'早鳥',type:'page'}]}],group:'news',item:{id:10,location_key:'offers.earlybird',content_type:'page',title:'早鳥',tags:[],metadata:{}},galleryItems:[],resortOptions:[],onClose(){},onSubmit(){},isSaving:false})
+const offerHtml=renderToStaticMarkup(offerDrawer)
+assert.ok(offerHtml.includes('後台列表縮圖（官網圖片請在正文中修改）'))
+assert.ok(!offerHtml.includes('點擊後連結'),'原優惠頁不讀取的卡片連結欄位不可誤導使用者')
+const badImage=renderToStaticMarkup(harness().block({block:{id:'qa',type:'image',src:'javascript:alert(1)',alt:'QA'},index:0}))
+assert.ok(!badImage.includes('<img')&&badImage.includes('圖片網址格式不正確'),'未儲存草稿也不可把危險網址送進圖片預覽')
+for(const level of [1,2,3,4])assert.ok(renderToStaticMarkup(harness().block({block:{id:'qa',type:'heading',level,text:'原層級'},index:0})).startsWith(`<h${level}`))
+for(const manualThumbnail of ['', '/custom-thumbnail.jpg']){
+ let fixed
+ const app=harness(),props={groups:[{id:'news',label:'消息',locations:[{key:'offers.earlybird',label:'早鳥',type:'page'}]}],group:'news',item:{id:10,location_key:'offers.earlybird',content_type:'page',title:'早鳥',image_url:manualThumbnail,tags:[],metadata:{blocks:[{id:'img',type:'image',src:'/old.jpg',alt:''}]}},galleryItems:[],resortOptions:[],onClose(){},onSubmit:data=>fixed=data,isSaving:false}
+ let tree=app.drawer(props)
+ find(tree,n=>typeof n.type==='function'&&n.type.name==='ContentBlocksEditor').props.onChange([{id:'img',type:'image',src:'javascript:alert(1)',alt:''}])
+ tree=app.drawerAgain(props)
+ find(tree,n=>typeof n.type==='function'&&n.type.name==='ContentBlocksEditor').props.onChange([{id:'img',type:'image',src:'/new.jpg',alt:''}])
+ tree=app.drawerAgain(props);find(tree,n=>n.type==='form').props.onSubmit({preventDefault(){}})
+ assert.equal(fixed.image_url,manualThumbnail||'/new.jpg','修正正文圖片後自動縮圖也要跟著改，另設縮圖則必須保留')
+}
 const failed=harness({rulesError:true}),tree=failed.render({contentTypes:['review']})
 const retry=find(tree,node=>node.type==='button'&&node.props.children==='重新載入')
 assert.ok(retry);retry.props.onClick();assert.equal(failed.refetched(),2)

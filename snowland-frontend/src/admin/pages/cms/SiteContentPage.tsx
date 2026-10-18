@@ -275,7 +275,7 @@ const getLocationLabel = (key: string) => DEFAULT_LOCATION_MAP[key]?.label || ke
 const getLocationHint = (key: string) => DEFAULT_LOCATION_MAP[key]?.hint || ''
 
 type CmsContentBlock =
-  | { id: string; type: 'heading'; text: string; level: 2 | 3 }
+  | { id: string; type: 'heading'; text: string; level: 1 | 2 | 3 | 4 }
   | { id: string; type: 'paragraph'; text: string }
   | { id: string; type: 'image'; src: string; alt: string }
   | { id: string; type: 'list'; items: string[]; ordered: boolean }
@@ -296,7 +296,7 @@ const normalizeContentBlocks = (metadata: Record<string, unknown> | undefined, b
           id,
           type: 'heading',
           text: typeof block.text === 'string' ? block.text : '',
-          level: block.level === 3 ? 3 : 2,
+          level: [1,2,3,4].includes(Number(block.level)) ? Number(block.level) as 1 | 2 | 3 | 4 : 2,
         }
       }
       if (block.type === 'paragraph') {
@@ -322,7 +322,7 @@ const normalizeContentBlocks = (metadata: Record<string, unknown> | undefined, b
     })
     .filter((block): block is CmsContentBlock => Boolean(block))
 
-  if (blocks.length) return blocks
+  if (blocks.length || Array.isArray(metadata?.blocks) || Array.isArray(page.blocks)) return blocks
 
   const fallbackBlocks: CmsContentBlock[] = []
   if (imageUrl) {
@@ -1291,6 +1291,7 @@ function ContentDrawer({
   const isArticlePage = form.location_key === 'guides.packing' || (form.location_key === 'guides.article-pages' && isRecord(form.metadata?.article))
   const isStructuredPage = isPhotographyPage || isArticlePage
   const isGuideListing = form.location_key === 'guides.articles'
+  const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
   const pricingResortOptions = resortOptions.length && form.external_id && !resortOptions.some((option) => option.value === form.external_id)
     ? [{ value: form.external_id, label: form.external_id }, ...resortOptions]
@@ -1310,7 +1311,8 @@ function ContentDrawer({
     setForm((prev) => ({
       ...prev,
       body: blocksToPlainText(blocks),
-      image_url: prev.image_url || getFirstBlockImage(blocks),
+      image_url: !prev.image_url || prev.image_url === getFirstBlockImage(normalizeContentBlocks(prev.metadata, prev.body, prev.image_url))
+        ? getFirstBlockImage(blocks) : prev.image_url,
       metadata: {
         ...(prev.metadata || {}),
         blocks,
@@ -1481,10 +1483,10 @@ function ContentDrawer({
 
             {form.content_type === 'review' && <ReviewPlacementFields metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />}
             {isGuideListing && <GuideArticleFields metadata={{...form.metadata,category:form.metadata?.category ?? form.tags[0] ?? ''}} mode={guideMode} categories={articleCategories} onChange={metadata=>setForm(prev=>({...prev,metadata}))} />}
-            <FormSection title={isStructuredPage ? '4. 顯示順序' : '4. 連結與顯示順序'}>
+            <FormSection title={isStructuredPage || isOfferPage ? '4. 顯示順序' : '4. 連結與顯示順序'}>
               {!isStructuredPage && <div className="grid gap-4 md:grid-cols-2">
-                {form.location_key !== 'photography.gallery' && <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />}
-                {(!isGuideListing || guideMode === 'external') && <TextInput label={isGuideListing ? '既有文章網址' : '點擊後連結'} value={form.link_url} placeholder={isGuideListing ? 'https://example.com/article' : '/specialoffers/earlybird'} onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />}
+                {form.location_key !== 'photography.gallery' && <TextInput label={isOfferPage ? '後台列表縮圖（官網圖片請在正文中修改）' : '封面圖片（可空白，會抓第一張正文圖片）'} value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />}
+                {!isOfferPage && (!isGuideListing || guideMode === 'external') && <TextInput label={isGuideListing ? '既有文章網址' : '點擊後連結'} value={form.link_url} placeholder={isGuideListing ? 'https://example.com/article' : '/specialoffers/earlybird'} onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />}
               </div>}
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <TextInput
@@ -2074,9 +2076,11 @@ function ContentBlocksEditor({
                 <div className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)]">
                   <label className="block">
                     <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">層級</span>
-                    <select value={block.level} onChange={(event) => updateBlock(block.id, { level: Number(event.target.value) as 2 | 3 })} className={inputClass}>
+                    <select value={block.level} onChange={(event) => updateBlock(block.id, { level: Number(event.target.value) as 1 | 2 | 3 | 4 })} className={inputClass}>
+                      <option value={1}>主標題（原稿）</option>
                       <option value={2}>大標</option>
                       <option value={3}>小標</option>
+                      <option value={4}>次小標（原稿）</option>
                     </select>
                   </label>
                   <TextInput label="標題文字" value={block.text} onChange={(value) => updateBlock(block.id, { text: value })} />
@@ -2339,13 +2343,17 @@ function DraftContentPreview({
 
 function DraftBlock({ block, index }: { block: CmsContentBlock; index: number }) {
   if (block.type === 'heading') {
-    const HeadingTag = block.level === 3 ? 'h3' : 'h2'
-    return <HeadingTag className={block.level === 3 ? 'text-lg font-semibold text-[#1f2937]' : 'text-xl font-semibold text-[#111827]'}>{block.text}</HeadingTag>
+    const HeadingTag = `h${block.level}` as 'h1' | 'h2' | 'h3' | 'h4'
+    const size = {1:'text-2xl',2:'text-xl',3:'text-lg',4:'text-base'}[block.level]
+    return <HeadingTag className={`${size} font-semibold text-[#1f2937]`}>{block.text}</HeadingTag>
   }
   if (block.type === 'paragraph') {
     return <p className="whitespace-pre-line text-sm leading-7 text-[#475569]">{block.text}</p>
   }
   if (block.type === 'image') {
+    let safe = block.src.startsWith('/') && !block.src.startsWith('//')
+    try { const url = new URL(block.src); safe = ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname) } catch { /* Relative paths are checked above. */ }
+    if (!safe || /[\\\u0000-\u001f]/.test(block.src)) return <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">圖片網址格式不正確，請使用完整http/https網址或站內路徑。</p>
     return (
       <figure className="overflow-hidden rounded-sm bg-[#e2e8f0]">
         <img src={block.src} alt={block.alt || `內容圖片 ${index + 1}`} className="h-auto w-full" />

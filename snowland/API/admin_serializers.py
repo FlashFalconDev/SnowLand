@@ -260,6 +260,14 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location in ('offers.earlybird','offers.referral','offers.promo'):
+            from Client.article_pages import validate_offer_metadata
+            try:
+                attrs['metadata'] = validate_offer_metadata(metadata,
+                    attrs.get('status',getattr(self.instance,'status','draft'))=='active',
+                    attrs.get('image_url',getattr(self.instance,'image_url','')))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata':str(exc)})
         if location == 'guides.articles':
             from Client.article_pages import validate_guide_article
             try:
