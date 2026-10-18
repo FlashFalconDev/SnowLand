@@ -7,7 +7,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from Client.models import Client
-from Coach.models import Coach, CoachResort
+from Coach.models import Coach, CoachCourseLevel, CoachResort
+from Coursekit.models import CourseCategory, CourseTemplate, CourseType
 from Resorts.models import Campus, Resorts
 from booking.models import Booking, OrderRevision, Payment, Reservation, ReservationGroup
 
@@ -22,11 +23,17 @@ class OrderAssignmentScopeTests(TestCase):
         self.other_resort = Resorts.objects.create(client=self.tenant, name='niseko', display_name='Niseko')
         self.campus.resorts.add(self.resort)
         self.other_campus.resorts.add(self.other_resort)
+        category = CourseCategory.objects.create(client=self.tenant, name='QA單板')
+        self.kind = CourseType.objects.create(category=category, name='QA初階單板')
+        self.template = CourseTemplate.objects.create(course_type=self.kind, name='QA四小時', duration_hours=4)
+        self.template.resorts.add(self.resort)
         self.group = ReservationGroup.objects.create(client=self.tenant, campus=self.campus)
-        self.reservation = Reservation.objects.create(group=self.group, resort=self.resort, status='created')
+        self.reservation = Reservation.objects.create(group=self.group, resort=self.resort, status='created',
+            course_type=self.kind, course_template=self.template, max_ability_level='no_exp')
         self.booking = Booking.objects.create(
             reservation=self.reservation, date=timezone.localdate() + timedelta(days=2),
             start_time=time(9), end_time=time(13),
+            course_template=self.template,
         )
         self.payment = Payment.objects.create(reservation_group=self.group, status='pending')
         self.api = APIClient()
@@ -34,9 +41,10 @@ class OrderAssignmentScopeTests(TestCase):
         self.url = f'/api/admin/snowland/orders/{self.group.id}/'
 
     def coach(self, *, tenant=None, campus=None, resort=None):
-        coach = Coach.objects.create(client=tenant or self.tenant, name='測試教練')
+        coach = Coach.objects.create(client=tenant or self.tenant, name='測試教練', languages=['zh'])
         coach.campuses.add(campus or self.campus)
         CoachResort.objects.create(coach=coach, resort=resort or self.resort)
+        CoachCourseLevel.objects.create(coach=coach, course_type=self.kind, ability_levels=['level6'], price_level='Lv1')
         return coach
 
     def test_rejects_coach_outside_tenant_campus_or_resort_without_changing_payment(self):

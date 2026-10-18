@@ -557,6 +557,36 @@ def get_feasible_coaches(language, resort, course_type, max_ability_level, rejec
     
     return final_coaches
 
+def get_manual_assignment_coaches(reservation, bookings):
+    """The picker and save endpoint must agree on every lesson's qualifications."""
+    if not bookings or not reservation.resort_id:
+        return []
+    template_ids = list(dict.fromkeys(booking.course_template_id or reservation.course_template_id for booking in bookings))
+    templates = {template.pk: template for template in CourseTemplate.objects.filter(
+        pk__in=[pk for pk in template_ids if pk]).select_related('course_type__category')}
+    rejected_ids = list(reservation.rejected_coaches.values_list('pk', flat=True))
+    qualified = None
+    for template_id in template_ids:
+        template = templates.get(template_id)
+        if template_id and template is None:
+            return []
+        kind = template.course_type if template else reservation.course_type
+        if not kind or kind.category.client_id != reservation.group.client_id:
+            return []
+        candidates = get_feasible_coaches(
+            reservation.language, reservation.resort, kind.pk, reservation.max_ability_level,
+            rejected_coach_ids=rejected_ids, course_template=template,
+        )
+        if qualified is None:
+            qualified = candidates
+        else:
+            ids = {coach.pk for coach in candidates}
+            qualified = [coach for coach in qualified if coach.pk in ids]
+        if not qualified:
+            return []
+    return qualified or []
+
+
 def coach_can_teach_course(coach, desired_course_type):
     """
     用 CoachCourseLevel 判斷教練是否會這個課程類型

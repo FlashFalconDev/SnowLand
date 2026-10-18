@@ -1958,7 +1958,7 @@ class OrderAdminViewSet(ModelViewSet):
             # Validate the whole batch before writing any course, payment or revision.
             assigned = [change for change in coach_changes if change['new_coach_id']]
             if assigned:
-                from booking.scheduler import can_assign_all_bookings
+                from booking.scheduler import can_assign_all_bookings, get_manual_assignment_coaches
                 coach_ids = {change['new_coach_id'] for change in assigned}
                 list(Coach.objects.select_for_update().filter(pk__in=coach_ids).order_by('pk'))
                 released = {change['reservation'].pk for change in coach_changes}
@@ -1976,6 +1976,8 @@ class OrderAdminViewSet(ModelViewSet):
                     bookings = list(reservation.bookings.all())
                     if not bookings:
                         return Response({'code': 400, 'msg': '這組課程沒有上課時段，不能指派教練'}, status=400)
+                    if coach_id not in {coach.pk for coach in get_manual_assignment_coaches(reservation, bookings)}:
+                        return Response({'code': 400, 'msg': '教練已不符合課程語言、學員程度、模板資格或可接課名單，請核對教練／課程設定並重新選擇；原訂單與付款未變更'}, status=400)
                     for booking in bookings:
                         update = new_slots.get(booking.pk)
                         slot = SimpleNamespace(reservation=reservation,

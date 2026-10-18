@@ -64,7 +64,8 @@ class ManualAssignmentConflictTests(TestCase):
 
     def test_two_reservations_cannot_take_the_same_coach_in_one_save(self):
         coach = self.coach()
-        second = Reservation.objects.create(group=self.group, resort=self.resort, status='created')
+        second = Reservation.objects.create(group=self.group, resort=self.resort, status='created',
+            course_type=self.kind, course_template=self.template, max_ability_level='no_exp')
         slot = Booking.objects.create(reservation=second, date=self.booking.date,
                                       start_time=time(10), end_time=time(14))
         response = self.assign(coach, reservation_updates=[
@@ -147,7 +148,8 @@ class ManualAssignmentConflictTests(TestCase):
         self.reservation.save()
         self.booking.is_scheduled = True
         self.booking.save()
-        replacement = Reservation.objects.create(group=self.group, resort=self.resort, status='created')
+        replacement = Reservation.objects.create(group=self.group, resort=self.resort, status='created',
+            course_type=self.kind, course_template=self.template, max_ability_level='no_exp')
         slot = Booking.objects.create(reservation=replacement, date=self.booking.date,
                                       start_time=time(9), end_time=time(13))
         response = self.assign(coach, reservation_updates=[

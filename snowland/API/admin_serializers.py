@@ -1733,21 +1733,12 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         return items
 
     def get_available_coaches(self, reservation):
-        if not reservation.resort or not reservation.course_type:
-            return []
         try:
             from collections import defaultdict
-            from booking.scheduler import get_feasible_coaches, can_assign_all_bookings
+            from booking.scheduler import get_manual_assignment_coaches, can_assign_all_bookings
 
-            rejected_ids = list(reservation.rejected_coaches.values_list('id', flat=True))
-            feasible_coaches = get_feasible_coaches(
-                reservation.language,
-                reservation.resort,
-                reservation.course_type,
-                reservation.max_ability_level,
-                rejected_coach_ids=rejected_ids,
-                course_template=reservation.course_template,
-            )
+            bookings = list(reservation.bookings.all())
+            feasible_coaches = get_manual_assignment_coaches(reservation, bookings)
 
             coach_busy_map = defaultdict(list)
             busy_bookings = self.context.get('_coach_busy_bookings')
@@ -1771,7 +1762,6 @@ class OrderAdminSerializer(serializers.ModelSerializer):
                 if coach_id:
                     coach_busy_map[coach_id].append((booking.date, booking.start_time, booking.end_time))
 
-            bookings = list(reservation.bookings.all())
             return [
                 {
                     'id': coach.id,
