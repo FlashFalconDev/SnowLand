@@ -1,11 +1,13 @@
 from datetime import timedelta
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from API import tests_operations as fixtures
 from Coach.models import Coach, CoachCourseLevel, CoachLeaveRequest, CoachResort
+from Resorts.models import Campus
 from booking.models import Booking, Payment, Reservation, ReservationGroup
 
 
@@ -118,3 +120,96 @@ class CoachRejectionReassignmentTests(TestCase):
         self.reject()
         self.assertIsNone(self.reservation.preferred_coach_id)
         self.assertFalse(self.reservation.bookings.filter(is_scheduled=True).exists())
+
+    def manually_reassigned_course(self):
+        replacement = self.alternative()
+        replacement.auto_assignment_enabled = False
+        replacement.user = User.objects.create_user('replacement-coach', email='replacement@example.test')
+        replacement.save(update_fields=['auto_assignment_enabled', 'user'])
+        profile = replacement.user.userprofile
+        profile.is_coach = True
+        profile.save(update_fields=['is_coach'])
+        self.reservation.language = 'zh'
+        self.reservation.max_ability_level = 'level3'
+        self.reservation.save(update_fields=['language', 'max_ability_level'])
+        original_times = list(self.reservation.bookings.order_by('pk').values_list(
+            'id', 'date', 'start_time', 'end_time', 'course_type', 'course_name'))
+        original_prices = (self.reservation.course_fee, self.reservation.coach_fee, self.reservation.discount_amount)
+        rejected = self.reject()
+        self.assertIn('行政', rejected.data['msg'])
+        self.assertIsNone(self.reservation.preferred_coach_id)
+        self.assertFalse(self.reservation.bookings.filter(is_scheduled=True).exists())
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('reassign-hq', 'reassign-hq@example.test', 'QA-only'))
+        result = admin.put(f'/api/admin/snowland/orders/{self.group.pk}/', {
+            'action': 'save', 'reservation_updates': [{'reservation_id': self.reservation.pk, 'coach_id': replacement.pk}],
+        }, format='json')
+        self.assertEqual(result.status_code, 200, result.data)
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.preferred_coach_id, replacement.pk)
+        self.assertEqual(self.reservation.status, 'manually_assigned')
+        self.assertFalse(self.reservation.bookings.filter(is_scheduled=False).exists())
+        self.assertEqual(list(self.reservation.bookings.order_by('pk').values_list(
+            'id', 'date', 'start_time', 'end_time', 'course_type', 'course_name')), original_times)
+        self.assertEqual((self.reservation.course_fee, self.reservation.coach_fee, self.reservation.discount_amount), original_prices)
+        self.assertEqual(list(self.group.payments.values_list('status', flat=True)), ['paid'])
+        self.assertTrue(self.reservation.rejected_coaches.filter(pk=self.coach.pk).exists())
+        return replacement
+
+    def test_reject_then_hq_manual_assignment_moves_all_lessons_between_coach_views(self):
+        replacement = self.manually_reassigned_course()
+        for path in ('my-courses/', 'my-calendar/', 'pending/'):
+            response = self.api.get('/api/admin/snowland/coach/' + path)
+            self.assertEqual(response.status_code, 200, response.data)
+            self.assertEqual(response.data['data']['list'], [])
+        other = APIClient()
+        other.force_authenticate(replacement.user)
+        courses = other.get('/api/admin/snowland/coach/my-courses/')
+        self.assertEqual(courses.status_code, 200, courses.data)
+        self.assertEqual([row['id'] for row in courses.data['data']['list']], [self.reservation.pk])
+        self.assertEqual(courses.data['data']['list'][0]['status'], 'manually_assigned')
+        self.assertEqual(len(courses.data['data']['list'][0]['bookings']), 2)
+        calendar = other.get('/api/admin/snowland/coach/my-calendar/')
+        self.assertEqual(calendar.status_code, 200, calendar.data)
+        self.assertEqual({row['id'] for row in calendar.data['data']['list']}, {self.booking_1.pk, self.booking_2.pk})
+        self.assertEqual(other.get('/api/admin/snowland/coach/pending/').data['data']['list'], [])
+
+    def test_previous_coach_cannot_use_old_confirmation_or_admin_save_to_undo_reassignment(self):
+        replacement = self.manually_reassigned_course()
+        for action in ('accept', 'reject'):
+            response = self.api.post(self.url, {'action': action}, format='json')
+            self.assertEqual(response.status_code, 404, response.data)
+        response = self.api.put(f'/api/admin/snowland/orders/{self.group.pk}/', {
+            'action': 'save', 'payment_status': 'pending',
+            'reservation_updates': [{'reservation_id': self.reservation.pk, 'coach_id': self.coach.pk}],
+        }, format='json')
+        self.assertEqual(response.status_code, 403, response.data)
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.preferred_coach_id, replacement.pk)
+        self.assertEqual(list(self.group.payments.values_list('status', flat=True)), ['paid'])
+
+    def test_wrong_campus_manager_cannot_manually_reassign_rejected_course_or_change_payment(self):
+        replacement = self.alternative()
+        replacement.auto_assignment_enabled = False
+        replacement.save(update_fields=['auto_assignment_enabled'])
+        self.reject()
+        other_campus = Campus.objects.create(client=self.client_tenant, code='other-campus', name='其他校區')
+        user = User.objects.create_user('wrong-campus-manager')
+        profile = user.userprofile
+        profile.is_manager = True
+        profile.manager_client = self.client_tenant
+        profile.role = 'campus_manager'
+        profile.save()
+        profile.campuses.add(other_campus)
+        manager = APIClient()
+        manager.force_authenticate(user)
+        self.assertEqual(manager.get(f'/api/admin/snowland/orders/{self.group.pk}/').status_code, 404)
+        response = manager.put(f'/api/admin/snowland/orders/{self.group.pk}/', {
+            'action': 'save', 'payment_status': 'pending',
+            'reservation_updates': [{'reservation_id': self.reservation.pk, 'coach_id': replacement.pk}],
+        }, format='json')
+        self.assertEqual(response.status_code, 403, response.data)
+        self.reservation.refresh_from_db()
+        self.assertIsNone(self.reservation.preferred_coach_id)
+        self.assertFalse(self.reservation.bookings.filter(is_scheduled=True).exists())
+        self.assertEqual(list(self.group.payments.values_list('status', flat=True)), ['paid'])
