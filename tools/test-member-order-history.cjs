@@ -45,6 +45,11 @@ for (const [name, check] of [
   ['fully cancelled order still shows historical course', () => {
     assert.ok(renderCard({ ...order, reservations: [cancelled] }).includes('歷史雪場'))
   }],
+  ['photo summary uses service setting, not the category name', () => {
+    const html = renderCard({...order,reservations:[{...active,service_type:'photo',course_type:'影像方案'}]})
+    assert.ok(html.includes('攝影方案') && html.includes('攝影師') && html.includes('預約數量'))
+    assert.ok(!html.includes('>教練</span>') && !html.includes('>人數</span>'))
+  }],
   ['detail marks cancelled course instead of presenting it as active', () => {
     const html = renderToStaticMarkup(React.createElement(context.Orders, { data: { orders: [order] } }))
     assert.ok(html.includes('歷史雪場'))

@@ -40,6 +40,7 @@ import LoginPage from '@/pages/LoginPage'
 import CartModal from '@/components/booking/CartModal'
 import CourseCategoryOptions from '@/components/booking/CourseCategoryOptions'
 import useCourseCategories from '@/hooks/useCourseCategories'
+import { hasUnconfirmedCartPrice, isPhotoCartGroup } from '@/utils/cartService'
 import SchedulingFailedModal from '@/components/booking/SchedulingFailedModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import Toast, { ToastType } from '@/components/ui/Toast'
@@ -402,12 +403,6 @@ const getCartEditSignature = (cart: CartItem[]) =>
       course.timeSlotEnd,
     ].join('@')).join('|'),
   ].join(':')).join('||')
-
-const isPhotoCartGroup = (group: CartItem) =>
-  /攝影|photography/i.test([
-    group.courseCategory,
-    ...group.courses.map((course) => `${course.courseTypeName} ${course.courseTemplateName}`),
-  ].join(' '))
 
 const abilityLevels = [
   {
@@ -1488,7 +1483,7 @@ export default function BookingFlowPage() {
       if (createdReservationIds.length > 0 && !submittedReservation) return false
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
-        if (cart.some(group => group.totalPrice == null) && !discountPreview) return false
+        if (hasUnconfirmedCartPrice(cart)) return false
         return cart.length > 0 && !!contactInfo.name.trim() && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
       }
       // 3b 付款階段：銀行可先稍後匯款；若要送出已匯款資訊才需要 5 碼後綴。
@@ -1841,7 +1836,7 @@ export default function BookingFlowPage() {
     }
 
     // 開啟新預約組 + 加入課程
-    startNewReservationGroup()
+    startNewReservationGroup(serviceType || undefined)
     coursesToAdd.forEach((course) => {
       addCourseToCurrentGroup({
         segmentId,
@@ -1923,6 +1918,10 @@ export default function BookingFlowPage() {
   const submitBooking = async () => {
     if (cart.length === 0) {
       showToast('購物車是空的', 'warning')
+      return
+    }
+    if (hasUnconfirmedCartPrice(cart)) {
+      showToast('請先修改課程，重新選擇日期、時段並確認價格，再送出訂單。', 'warning')
       return
     }
     setIsSubmitting(true)
@@ -3636,6 +3635,7 @@ function Step3Confirmation({
                       : `共 ${cart.length} 組預約、${totalCourses} 堂課。同一組請按「新增同組其他課程」，會以同一位教練排課；「增加新組別課程」會獨立排課。`}
               </span>
             </div>
+            {canEditCart && hasUnconfirmedCartPrice(cart) && <p role="alert" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">請先按「修改」重新選擇日期、時段並確認價格，再送出訂單。折扣預覽不代表課程設定已確認。</p>}
             {cart.map((group: any, groupIndex: number) => {
               const courseSegments = groupCartCoursesBySegment(group.courses || [])
               return (
@@ -3697,16 +3697,16 @@ function Step3Confirmation({
                   )}
                 </div>
 
-                {canEditCart && group.rebookSource && <p className="mx-4 mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm leading-6 text-[#1e4e73]">將沿用上次可管理的 {group.rebookSource.learnerCount} 位學員姓名、年齡區間與滑雪程度；其他成人需重新邀請。保險資料與聲明簽名須重新確認。</p>}
+                {canEditCart && group.rebookSource && !isPhotoCartGroup(group) && <p className="mx-4 mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm leading-6 text-[#1e4e73]">將沿用上次可管理的 {group.rebookSource.learnerCount} 位學員姓名、年齡區間與滑雪程度；其他成人需重新邀請。保險資料與聲明簽名須重新確認。</p>}
                 {canEditCart && group.rebookLearnersReset && <p role="status" className="mx-4 mt-4 rounded-sm bg-amber-50 p-3 text-sm leading-6 text-amber-900">人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。</p>}
-                <div className="grid grid-cols-2 gap-2 px-4 py-4 sm:grid-cols-3 lg:grid-cols-5">
+                <div className={`grid grid-cols-2 gap-2 px-4 py-4 ${isPhotoCartGroup(group) ? '' : 'sm:grid-cols-3 lg:grid-cols-5'}`}>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
-                      <Users size={13} /> 人數
+                      <Users size={13} /> {isPhotoCartGroup(group) ? '預約數量' : '人數'}
                     </p>
-                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.peopleCount || 1} 人</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.peopleCount || 1} {isPhotoCartGroup(group) ? '組' : '人'}</p>
                   </div>
-                  <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
+                  {!isPhotoCartGroup(group) && <><div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="text-[11px] font-semibold text-[#94a3b8]">程度</p>
                     <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.abilityLevelName || getCoachAbilityLabel(group.abilityLevel) || '未指定'}</p>
                   </div>
@@ -3731,7 +3731,11 @@ function Step3Confirmation({
                     <p className="mt-1 text-sm font-semibold text-[#1f2937]">
                       {getEquipmentOptionLabel(group.equipmentOption, group.equipment)}
                     </p>
-                  </div>
+                  </div></>}
+                  {isPhotoCartGroup(group) && <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
+                    <p className="text-[11px] font-semibold text-[#94a3b8]">攝影師</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">由學校安排</p>
+                  </div>}
                 </div>
 
                 <div className="space-y-2 px-4 pb-4">

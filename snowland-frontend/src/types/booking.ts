@@ -140,6 +140,7 @@ export interface Course {
 // 預約組（一個預約可以包含多堂課）
 export interface ReservationGroup {
   id: string // 唯一識別碼
+  serviceType?: 'ski' | 'photo'
   rebookSource?: { reservationId: number; peopleCount: number; learnerCount: number }
   rebookLearnersReset?: boolean
 

@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { useBookingStore } from '@/store/bookingStore'
+import { hasUnconfirmedCartPrice, isPhotoCartGroup } from '@/utils/cartService'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 
 interface CartModalProps {
@@ -64,8 +65,7 @@ export default function CartModal({ isOpen, onClose, onConfirm, onEditGroup }: C
 
   const totalAmount = cart.reduce((sum, group) => sum + (group.totalPrice || 0), 0)
   const totalCourses = cart.reduce((sum, group) => sum + group.courses.length, 0)
-  const hasPendingPrice = cart.some((group) => group.totalPrice == null || !Number.isFinite(group.totalPrice)
-    || group.courses.some((course) => course.price == null || !Number.isFinite(course.price)))
+  const hasPendingPrice = hasUnconfirmedCartPrice(cart)
   const hasSharedClass = cart.some((group) => group.courses.some((course) => course.sharedClassEnabled))
 
   if (!isOpen) return null
@@ -148,7 +148,7 @@ export default function CartModal({ isOpen, onClose, onConfirm, onEditGroup }: C
                   className="rounded-sm border border-[#e5e9f2] bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
                 >
                   {onEditGroup && <button type="button" onClick={() => onEditGroup(group.id)} className="mb-4 min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">修改這組課程</button>}
-                  {group.rebookSource && <p className="mb-4 rounded-sm bg-[#eef4fa] p-3 text-xs leading-6 text-[#1e4e73]">將沿用上次可管理的 {group.rebookSource.learnerCount} 位學員姓名、年齡區間與滑雪程度；其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。</p>}
+                  {group.rebookSource && !isPhotoCartGroup(group) && <p className="mb-4 rounded-sm bg-[#eef4fa] p-3 text-xs leading-6 text-[#1e4e73]">將沿用上次可管理的 {group.rebookSource.learnerCount} 位學員姓名、年齡區間與滑雪程度；其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。</p>}
                   {group.rebookLearnersReset && <p role="status" className="mb-4 rounded-sm bg-amber-50 p-3 text-xs leading-6 text-amber-900">人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。</p>}
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -186,15 +186,16 @@ export default function CartModal({ isOpen, onClose, onConfirm, onEditGroup }: C
                     </button>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                    <MetaItem icon={User} label="教練" value={group.courses[0]?.sharedClassEnabled ? '由學校安排' : (group.coachName || '不指定')} />
-                    <MetaItem icon={Users} label="人數" value={`${group.peopleCount} 人`} />
+                  <div className={`mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 ${isPhotoCartGroup(group) ? '' : 'lg:grid-cols-5'}`}>
+                    <MetaItem icon={User} label={isPhotoCartGroup(group) ? '攝影師' : '教練'} value={isPhotoCartGroup(group) || group.courses[0]?.sharedClassEnabled ? '由學校安排' : (group.coachName || '不指定')} />
+                    <MetaItem icon={Users} label={isPhotoCartGroup(group) ? '預約數量' : '人數'} value={`${group.peopleCount} ${isPhotoCartGroup(group) ? '組' : '人'}`} />
+                    {!isPhotoCartGroup(group) && <>
                     <MetaItem icon={Languages} label="語言" value={getLanguageLabel(group.language)} />
                     <MetaItem icon={Package} label="裝備" value={getEquipmentLabel(group.equipmentOption, group.equipment)} />
                     <MetaItem label="能力" value={group.abilityLevelName || group.abilityLevel} />
                     {group.equipmentAssistanceTimeLabel && (
                       <MetaItem icon={Clock} label="裝備協助" value={group.equipmentAssistanceTimeLabel} />
-                    )}
+                    )}</>}
                   </div>
 
                   <div className="mt-4 border-t border-[#edf1f6] pt-4">

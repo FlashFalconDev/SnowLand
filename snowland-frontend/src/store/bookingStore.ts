@@ -38,7 +38,7 @@ interface BookingStore extends BookingState {
   }) => void
 
   // 預約組操作
-  startNewReservationGroup: () => void
+  startNewReservationGroup: (serviceType?: 'ski' | 'photo') => void
   addCourseToCurrentGroup: (course: Course) => void
   finishCurrentGroupAndAddToCart: (replaceGroupId?: string) => void
 
@@ -133,10 +133,11 @@ export const useBookingStore = create<BookingStore>()(
   }),
 
       // 開始新的預約組（當前置選項完成時調用）
-      startNewReservationGroup: () => {
+      startNewReservationGroup: (serviceType) => {
         const state = get()
         const newGroup: ReservationGroup = {
           id: `group-${Date.now()}`,
+          ...(serviceType ? { serviceType } : {}),
           coach: state.selectedCoach || 'any',
           coachName: state.selectedCoach
             ? (state.selectedCoachName || `教練 #${state.selectedCoach}`)

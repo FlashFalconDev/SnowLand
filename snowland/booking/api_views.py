@@ -2863,6 +2863,7 @@ class MemberCenterAPI(APIView):
                     'id': reservation.id,
                     'resort': reservation.resort.display_name if reservation.resort else '未指定',
                     'course_type': reservation.course_type.name if reservation.course_type else '',
+                    'service_type': reservation.course_type.category.service_type if reservation.course_type else 'ski',
                     'course_template': reservation.course_template.name if reservation.course_template else '',
                     'coach': reservation.preferred_coach.name if reservation.preferred_coach else '安排中',
                     'is_shared_class': reservation.shared_course_class_id is not None,
@@ -3281,6 +3282,7 @@ class MemberCenterAPI(APIView):
                 })
             cart.append({
                 'id': f'rebook-{reservation.id}',
+                'serviceType': reservation.course_type.category.service_type if reservation.course_type else 'ski',
                 'rebookSource': rebook_source_details(reservation, request.user),
                 'coach': specified_coach.pk if specified_coach else 'any',
                 'coachName': '由學校安排' if is_shared_class else (specified_coach.name if specified_coach else '不指定'),

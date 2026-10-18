@@ -1250,6 +1250,18 @@ class OperationsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data['cart']), 1)
         self.assertEqual(response.data['cart'][0]['campusId'], self.campus.id)
+        self.assertEqual(response.data['cart'][0]['serviceType'], 'ski')
+
+        self.category.service_type = 'photo'
+        self.category.name = '自訂影像方案'
+        self.category.save()
+        photo = api.post('/booking/snowland/api/member-center/', {
+            'quick_rebook_group_id': self.group.id,
+        }, format='json')
+        self.assertEqual(photo.data['cart'][0]['serviceType'], 'photo')
+        member = api.get('/booking/snowland/api/member-center/')
+        self.assertEqual(member.status_code, 200)
+        self.assertEqual(member.data['orders'][0]['reservations'][0]['service_type'], 'photo')
 
         stranger = User.objects.create_user('stranger')
         api.force_authenticate(stranger)
