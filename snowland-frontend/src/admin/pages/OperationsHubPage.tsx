@@ -349,6 +349,7 @@ function BookingLinksPanel() {
 
 const insuranceStatuses = { pending: '尚未投保', checking: '對資料中', processing: '處理中', insured: '已投保完成' }
 const insuranceStatusColors = { pending: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200', checking: 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-200', processing: 'bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-200', insured: 'bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-200' }
+const canProcessInsurance = (row: { can_process_insurance?: boolean; can_mark_complete: boolean }) => row.can_process_insurance ?? row.can_mark_complete
 
 function InsurancePanel() {
   const qc = useQueryClient(); const notify = useNotification()
@@ -394,7 +395,7 @@ function InsurancePanel() {
             {row.can_mark_complete && !row.waiver_completed_at && !row.waiver_requires_resign && <button disabled={complete.isPending} onClick={() => complete.mutate({ id: row.id, field: 'waiver' })} className="min-h-11 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">標記聲明書完成</button>}
           </div>
         </div>
-        {!row.can_mark_complete && <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">僅供查看，不能修改學員資料或標記完成。</p>}
+        {!row.can_mark_complete && <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">學員填寫資料與聲明書僅供查看，不能修改或標記完成。{canProcessInsurance(row) && '可在「查看資料」維護投保作業回報。'}</p>}
         {expandedId === row.id && <InsuranceDetail id={row.id} />}
       </div>)}{!visibleRows.length && <Empty text={rows.length ? '找不到符合條件的學員。' : status === 'missing' ? '目前沒有待補的學員；可切換全部資料查看。' : '目前沒有符合完成狀態的學員資料。'} />}</div>
       {datedRows.length > pageSize && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400"><span>共 {datedRows.length} 位，顯示第 {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, datedRows.length)} 位</span><div className="flex gap-2"><button disabled={currentPage === 1} onClick={() => { setPage(value => Math.max(value - 1, 1)); setExpandedId(null) }} className="min-h-11 rounded-lg border border-gray-200 px-3 py-2 disabled:opacity-40 dark:border-gray-600">上一頁</button><span className="px-2 py-2">{currentPage} / {pageCount}</span><button disabled={currentPage === pageCount} onClick={() => { setPage(value => Math.min(value + 1, pageCount)); setExpandedId(null) }} className="min-h-11 rounded-lg border border-gray-200 px-3 py-2 disabled:opacity-40 dark:border-gray-600">下一頁</button></div></div>}
@@ -419,7 +420,7 @@ function InsuranceDetail({ id }: { id: number }) {
         {data.waiver_document_snapshot && <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看當時簽署的聲明書內容</summary><div className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white p-4 leading-7 dark:border-gray-700 dark:bg-gray-800">{data.waiver_document_snapshot}</div></details>}
       </div>
       <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">以上為會員填寫及簽署的唯讀紀錄，不會因後台標記完成而修改簽名或文件內容。</p>
-      {data.can_mark_complete && <InsuranceProcessingForm key={`${data.id}-${data.insurance_processing_updated_at || 'new'}`} row={data} />}
+      {canProcessInsurance(data) && <InsuranceProcessingForm key={`${data.id}-${data.insurance_processing_updated_at || 'new'}`} row={data} />}
     </>}
   </div>
 }
@@ -441,9 +442,9 @@ function InsuranceProcessingForm({ row }: { row: InsuranceRecordDetail }) {
     <h3 className="font-semibold text-gray-900 dark:text-white">投保作業回報</h3>
     <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">這是人工作業紀錄，不會向保險公司送件，也不會改動學員資料或聲明書。金額未知可留空，不會當作0元。</p>
     <fieldset disabled={save.isPending} className="grid gap-3 sm:grid-cols-3">
-      <Field label="投保進度"><select className={inputClass} value={status} onChange={event => { setStatus(event.target.value as typeof status); setConfirmed(false) }}>{Object.entries(insuranceStatuses).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-      <Field label="投保金額（選填）"><input className={inputClass} type="number" min="0" max="99999999.99" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} /></Field>
-      <Field label="幣別代碼"><input className={inputClass} maxLength={3} pattern="[A-Z]{3}" placeholder="例如 TWD、JPY" required={amount !== ''} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
+      <Field label="投保進度"><select className={`${inputClass} min-h-11`} value={status} onChange={event => { setStatus(event.target.value as typeof status); setConfirmed(false) }}>{Object.entries(insuranceStatuses).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+      <Field label="投保金額（選填）"><input className={`${inputClass} min-h-11`} type="number" min="0" max="99999999.99" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} /></Field>
+      <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder="例如 TWD、JPY" required={amount !== ''} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
     </fieldset>
     {needsConfirmation && <label className="mt-4 flex min-h-11 items-center gap-2 text-sm text-gray-700 dark:text-gray-200"><input type="checkbox" checked={confirmed} disabled={save.isPending} onChange={event => setConfirmed(event.target.checked)} />我已在保險公司完成投保，本次僅記錄結果</label>}
     <button type="submit" disabled={!changed || !valid || save.isPending} className="mt-4 min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{save.isPending ? '儲存中…' : '儲存投保進度'}</button>

@@ -1992,6 +1992,7 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
     waiver_requires_resign = serializers.SerializerMethodField()
     can_remind = serializers.SerializerMethodField()
     can_mark_complete = serializers.SerializerMethodField()
+    can_process_insurance = serializers.SerializerMethodField()
     member_name = serializers.SerializerMethodField()
     order_number = serializers.CharField(source='reservation.group.order_number', read_only=True)
     sn = serializers.SerializerMethodField()
@@ -2000,7 +2001,7 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MemberDetail
-        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'waiver_requires_resign', 'course_dates', 'can_mark_complete', 'can_remind',
+        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'waiver_requires_resign', 'course_dates', 'can_mark_complete', 'can_remind', 'can_process_insurance',
                   'insurance_processing_status', 'insurance_premium_amount', 'insurance_premium_currency', 'insurance_processing_updated_at']
         read_only_fields = [name for name in fields if name != 'age_range']
 
@@ -2034,6 +2035,10 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
             return False
         profile = getattr(request.user, 'userprofile', None)
         return request.user.is_superuser or not (profile and profile.role == 'assistant')
+
+    def get_can_process_insurance(self, obj):
+        request = self.context.get('request')
+        return bool(request and user_has_admin_permission(request.user, 'insurance_records'))
 
     def get_course_dates(self, obj):
         if obj.reservation.status in {'cancelled','deleted'}:

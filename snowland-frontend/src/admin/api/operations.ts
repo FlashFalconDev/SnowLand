@@ -63,6 +63,7 @@ export interface StaffBookingLink {
 export interface InsuranceRecord {
   can_remind: boolean
   can_mark_complete: boolean
+  can_process_insurance?: boolean
   id: number; member_name: string; order_number: string; sn: string; campus_name: string; age_range: string
   insurance_completed_at: string | null; waiver_completed_at: string | null; waiver_requires_resign: boolean; course_dates: string[]
   insurance_processing_status: 'pending' | 'checking' | 'processing' | 'insured'

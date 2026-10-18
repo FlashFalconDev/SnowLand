@@ -154,7 +154,7 @@ function NoAccess({ title, message, onAction, actionLabel }: {
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <button
           onClick={onAction}
-          className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+          className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
           style={{ backgroundColor: PRIMARY }}
         >
           {actionLabel}

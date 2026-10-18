@@ -2462,7 +2462,7 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         profile = getattr(request.user, 'userprofile', None)
-        if request.method not in SAFE_METHODS and self.action != 'reminder' and not request.user.is_superuser and profile and profile.role == 'assistant':
+        if request.method not in SAFE_METHODS and self.action not in ('reminder', 'processing') and not request.user.is_superuser and profile and profile.role == 'assistant':
             raise PermissionDenied('行政小幫手僅能查看保險與聲明書，不能修改或標記完成')
 
     def get_serializer_class(self):
