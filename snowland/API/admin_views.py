@@ -2509,6 +2509,12 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
             if preview['recipient_email'] != data['recipient_email'].strip().lower():
                 return Response({'code':409,'msg':'收件人已改變，請重新開啟提醒視窗確認'},status=409)
             delivery_id = prepare_email(request,member.reservation.group,{**preview,'request_key':data['request_key']})
+            delivery = NotificationDelivery.objects.get(pk=delivery_id)
+            if delivery.payload.get('insurance_reminder_reservation_id') not in (None, member.reservation_id):
+                from .manual_notifications import NotificationConflict
+                raise NotificationConflict('此寄信識別碼屬於其他課程，請重新開啟提醒視窗')
+            delivery.payload = {**delivery.payload, 'insurance_reminder_reservation_id':member.reservation_id}
+            delivery.save(update_fields=['payload'])
         response_status, response = deliver_order_email(delivery_id)
         return Response(response,status=response_status)
 

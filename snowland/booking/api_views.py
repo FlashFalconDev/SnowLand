@@ -3440,14 +3440,24 @@ class MemberNotificationsAPI(APIView):
             group = delivery.group
             if delivery.template.event == 'manual':
                 notice_active=True
+                action_path = '/membership/orders' if group else ''
+                reminder_reservation = payload.get('insurance_reminder_reservation_id')
+                if reminder_reservation and group:
+                    visible_course = Reservation.objects.filter(pk=reminder_reservation, group=group).exclude(status__in=['cancelled','deleted'])
+                    if group.user_id != request.user.pk:
+                        visible_course = visible_course.filter(Q(members__user=request.user)|Q(members__guardian=request.user))
+                    notice_active = visible_course.exists()
+                    action_path = f'/membership/pre-course-forms?reservation={reminder_reservation}' if notice_active else ''
                 if payload.get('amendment_notice'):
                     from .amendment_notifications import amendment_delivery_is_current
                     notice_active=amendment_delivery_is_current(delivery)
+                    if group and group.user_id == request.user.pk:
+                        action_path = payload.get('in_app_action_path')
                 results.append({
                     'id': delivery.pk, 'event': 'manual', 'subject': (payload.get('in_app_subject') or 'SnowLand 通知') if notice_active else '訂單通知（狀態已更新）',
                     'body': (payload.get('in_app_body') or '') if notice_active else '此通知的狀態或訂購人已更新，請以最新訂單資料為準。', 'sent_at': delivery.sent_at.isoformat(),
                     'read_at': payload.get('read_at'), 'legacy': False, 'active': notice_active,
-                    'action_path': (payload.get('in_app_action_path') if payload.get('amendment_notice') and group and group.user_id==request.user.pk else '/membership/orders') if group else '', 'line_group_url': '',
+                    'action_path': action_path, 'line_group_url': '',
                 })
                 continue
             if delivery.template.event in COURSE_RECIPIENT_EVENTS:

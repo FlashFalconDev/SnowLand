@@ -125,5 +125,6 @@ def deliver_order_email(delivery_id):
             NotificationDelivery.objects.create(template=delivery.template, group=delivery.group, recipient=str(user_id),
                 status='sent', scheduled_at=now, sent_at=now, payload={'in_app_mirror_of': delivery.pk,
                     'in_app_subject': delivery.template.subject, 'in_app_body': delivery.template.body, 'in_app_group_url': '',
+                    'insurance_reminder_reservation_id': delivery.payload.get('insurance_reminder_reservation_id'),
                     'local_test': delivery.payload.get('local_test', False)})
     return result_for(delivery)

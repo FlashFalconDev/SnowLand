@@ -77,7 +77,7 @@ export interface InsuranceRecordDetail extends InsuranceRecord {
   media_consent: string
 }
 
-export interface InsuranceReminderPreview { field:'insurance'|'waiver'; recipient_email:string; subject:string; message:string; local_test:boolean }
+export interface InsuranceReminderPreview { field:'insurance'|'waiver'; recipient_email:string; subject:string; message:string; action_url:string; local_test:boolean }
 export const fetchInsuranceReminder = async(id:number,field:'insurance'|'waiver'):Promise<InsuranceReminderPreview> =>
   (await adminApi.get(`/insurance-records/${id}/reminder/?field=${field}`) as unknown as DetailResponse<InsuranceReminderPreview>).data
 export const sendInsuranceReminder = async(id:number,data:{field:'insurance'|'waiver';recipient_email:string;request_key:string}):Promise<{code:number;msg:string}> =>

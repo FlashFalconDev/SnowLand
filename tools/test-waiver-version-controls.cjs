@@ -40,13 +40,18 @@ async function testDialogRejections(){
   let cursor=0,calls=0;const states=[]
   const context=vm.createContext({React,exports:{},crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},require:name=>{
    if(name==='react')return{...React,useEffect(){},useRef:initial=>({current:initial}),useState:initial=>{const slot=cursor++;if(!(slot in states))states[slot]=typeof initial==='function'?initial():initial;return[states[slot],value=>states[slot]=value]}}
-   if(name==='@tanstack/react-query')return{useQuery:()=>({data:{recipient_email:'qa@example.test',subject:'QA',message:'QA',local_test:true},isLoading:false,isError:false})}
+   if(name==='@tanstack/react-query')return{useQuery:()=>({data:{recipient_email:'qa@example.test',subject:'QA',message:'QA',local_test:true,action_url:status===409?'https://booking.example.test/snowland/membership/pre-course-forms?reservation=42':''},isLoading:false,isError:false})}
    if(name==='../api/operations')return{sendInsuranceReminder:async()=>{calls++;throw{response:status?{status,data:{detail:'QA已完成，不需要再提醒'}}:undefined}},fetchInsuranceReminder(){}}
    if(name==='../context')return{useNotification:()=>({success(){}})}
    throw Error(name)
   }})
   vm.runInContext(compile(dialogSource),context)
   const render=()=>{cursor=0;return context.exports.default({id:42,field:'waiver',onClose(){}})}
+  const initial=renderToStaticMarkup(render())
+  if(status===409){
+   assert.ok(initial.includes('預覽會員課前資料入口'));assert.ok(initial.includes('rel="noopener noreferrer"'))
+   assert.ok(initial.includes('https://booking.example.test/snowland/membership/pre-course-forms?reservation=42'))
+  }else assert.ok(initial.includes('不附直達連結'))
   await find(render(),node=>node.type==='button'&&node.props.children==='確認寄出提醒信').props.onClick()
   const html=renderToStaticMarkup(render());assert.equal(calls,1)
   if([400,401,403,404,409].includes(status)){

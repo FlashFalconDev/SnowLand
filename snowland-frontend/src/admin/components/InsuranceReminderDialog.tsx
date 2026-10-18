@@ -26,7 +26,7 @@ export default function InsuranceReminderDialog({ id, field, onClose }: { id:num
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="insurance-reminder-title" tabIndex={-1} className="flex max-h-[calc(100dvh-24px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl outline-none dark:bg-gray-800" onKeyDown={event=>{
       if(event.key==='Escape'&&!pending){onClose();return}
       if(event.key!=='Tab')return
-      const items=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')),first=items[0],last=items[items.length-1]
+      const items=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')),first=items[0],last=items[items.length-1]
       if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){event.preventDefault();last?.focus()}
       else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
     }}>
@@ -37,6 +37,7 @@ export default function InsuranceReminderDialog({ id, field, onClose }: { id:num
           <p className="break-all">收件人：<strong>{data.recipient_email}</strong></p>
           <p className="text-xs leading-6 text-gray-500 dark:text-gray-400">優先使用已綁定家長／學員信箱，沒有時使用已填聯絡信箱或訂購人信箱。只提醒補資料，不會標記完成或自動投保。</p>
           <section className="rounded-lg bg-gray-50 p-4 dark:bg-gray-900"><h3 className="font-semibold">{data.subject}</h3><p className="mt-3 whitespace-pre-wrap break-words leading-7">{data.message}</p></section>
+          {data.action_url ? <a href={data.action_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center font-semibold text-violet-700 underline dark:text-violet-200">預覽會員課前資料入口 ↗</a> : <p role="status" className="text-xs leading-6 text-amber-800 dark:text-amber-200">公開網站網址尚未設定完整；這封信會保留操作說明，但不附直達連結。</p>}
         </>}
         {error&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
       </div>
