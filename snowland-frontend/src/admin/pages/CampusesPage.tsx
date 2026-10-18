@@ -4,6 +4,7 @@ import { AlertCircle, Building2, Check, ChevronRight, Edit3, Loader2, MapPin, Pl
 import { useNotification } from '../context'
 import { fetchAllAccessibleResorts } from '../api/resorts'
 import { fetchAdminMe } from '../api/auth'
+import { useAdminDialog } from '../hooks/useAdminDialog'
 import {
   createCampus, createOperatingPolicy, deleteCampus, deleteOperatingPolicy, fetchCampuses, fetchOperatingPolicies, updateCampus, updateOperatingPolicy,
   type Campus, type CampusWriteData, type OperatingPolicy,
@@ -36,6 +37,7 @@ export default function CampusesPage() {
   const [showForm, setShowForm] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [deleting, setDeleting] = useState<Campus | null>(null)
+  const [deleteError, setDeleteError] = useState('')
   const [policyCampusId, setPolicyCampusId] = useState<number | null>(null)
 
   const campusesQuery = useQuery({ queryKey: ['admin', 'campuses'], queryFn: fetchCampuses })
@@ -63,6 +65,7 @@ export default function CampusesPage() {
 
   const removeCampus = useMutation({
     mutationFn: deleteCampus,
+    onMutate: () => setDeleteError(''),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'campuses'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'me'] })
@@ -70,8 +73,17 @@ export default function CampusesPage() {
       notification.success('校區已刪除')
       setDeleting(null)
     },
-    onError: (error) => notification.error(errorMessage(error, '無法刪除，建議改為停用')),
+    onError: (error) => {
+      const message = errorMessage(error, '無法刪除，建議改為停用')
+      setDeleteError(message)
+      notification.error(message)
+    },
   })
+
+  const dialogBusy = saveCampus.isPending || removeCampus.isPending
+  const closeDialog = () => { if (!dialogBusy) { setShowForm(false); setDeleting(null) } }
+  const campusDialog = useAdminDialog(showForm || !!deleting, dialogBusy, closeDialog)
+  const openDelete = (campus: Campus) => { setDeleteError(''); setDeleting(campus) }
 
   const campuses = campusesQuery.data || []
   const activeCampuses = campuses.filter((campus) => campus.is_active)
@@ -167,7 +179,7 @@ export default function CampusesPage() {
                 </div>
                 {canManageCampuses && <div className="mt-4 flex gap-2 sm:justify-end">
                   <button onClick={() => openEdit(campus)} aria-label={`編輯 ${campus.name}`} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 text-sm font-medium text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-300 dark:hover:bg-violet-900/40 sm:flex-none"><Edit3 size={16} />編輯校區</button>
-                  <button onClick={() => setDeleting(campus)} aria-label={`刪除 ${campus.name}`} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 sm:flex-none"><Trash2 size={16} />刪除校區</button>
+                  <button onClick={() => openDelete(campus)} aria-label={`刪除 ${campus.name}`} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 sm:flex-none"><Trash2 size={16} />刪除校區</button>
                 </div>}
                 <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700">
                   <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200"><MapPin size={16} />可使用雪場</div>
@@ -198,9 +210,9 @@ export default function CampusesPage() {
       {activePolicy && <PolicyCard campuses={activeCampuses} policy={activePolicy} selectedCampusId={policyCampusId} hasOverride={policyCampusId === null || !!selectedPolicy} canEdit={canManageCampuses || policyCampusId !== null} onSelect={setPolicyCampusId} onSaved={() => queryClient.invalidateQueries({ queryKey: ['admin', 'operating-policies'] })} />}
 
       {showForm && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 animate-fadeIn md:items-center md:p-4" onMouseDown={(event) => event.target === event.currentTarget && setShowForm(false)}>
-          <form role="dialog" aria-modal="true" aria-labelledby="campus-form-title" onSubmit={(event) => { event.preventDefault(); saveCampus.mutate(form) }} className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl dark:bg-gray-800 md:max-w-xl md:rounded-2xl">
-            <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' }}><div><h2 id="campus-form-title" className="text-lg font-semibold">{editing ? '編輯校區' : '新增校區'}</h2><p className="mt-0.5 text-xs text-white/80">設定校區資料與可使用的雪場</p></div><button type="button" onClick={() => setShowForm(false)} aria-label="關閉" className="rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white"><X size={20} /></button></div>
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 animate-fadeIn md:items-center md:p-4" onMouseDown={(event) => event.target === event.currentTarget && closeDialog()}>
+          <form ref={(element) => { campusDialog.current = element }} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="campus-form-title" onSubmit={(event) => { event.preventDefault(); if (!saveCampus.isPending) saveCampus.mutate(form) }} className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl dark:bg-gray-800 md:max-w-xl md:rounded-2xl">
+            <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' }}><div><h2 id="campus-form-title" className="text-lg font-semibold">{editing ? '編輯校區' : '新增校區'}</h2><p className="mt-0.5 text-xs text-white/80">設定校區資料與可使用的雪場</p></div><button type="button" disabled={dialogBusy} onClick={closeDialog} aria-label="關閉" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white"><X size={20} /></button></div>
             <div className="space-y-5 overflow-y-auto p-6">
               <label className="block"><span className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">校區名稱 <span className="text-red-500">*</span></span><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="例如：北海道校區" className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" /></label>
               <details className="rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-600">
@@ -212,17 +224,18 @@ export default function CampusesPage() {
               <label className="flex items-center justify-between rounded-lg border p-3 dark:border-gray-600"><span><b>啟用校區</b><small className="block text-gray-500 dark:text-gray-400">停用後仍保留舊訂單</small></span><input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="w-5 h-5" /></label>
             </div>
             {saveError && <p role="alert" className="mx-6 mb-0 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">{saveError}</p>}
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"><button type="button" onClick={() => setShowForm(false)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">取消</button><button disabled={saveCampus.isPending} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">{saveCampus.isPending && <Loader2 size={14} className="animate-spin" />}{saveCampus.isPending ? '儲存中…' : '儲存校區'}</button></div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"><button type="button" disabled={dialogBusy} onClick={closeDialog} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">取消</button><button disabled={saveCampus.isPending} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">{saveCampus.isPending && <Loader2 size={14} className="animate-spin" />}{saveCampus.isPending ? '儲存中…' : '儲存校區'}</button></div>
           </form>
         </div>
       )}
 
       {deleting && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 animate-fadeIn">
-          <div role="dialog" aria-modal="true" aria-labelledby="campus-delete-title" className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800">
-            <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' }}><h3 id="campus-delete-title" className="text-lg font-semibold">刪除校區</h3><button onClick={() => setDeleting(null)} aria-label="關閉" className="rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
+          <div ref={(element) => { campusDialog.current = element }} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="campus-delete-title" className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800">
+            <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' }}><h3 id="campus-delete-title" className="text-lg font-semibold">刪除校區</h3><button disabled={dialogBusy} onClick={closeDialog} aria-label="關閉" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
             <div className="p-6"><p className="text-sm text-gray-700 dark:text-gray-300">確定刪除「<b className="text-gray-900 dark:text-white">{deleting.name}</b>」？</p><p className="mt-2 text-xs text-gray-500 dark:text-gray-400">已有訂單或人員使用時，系統會阻止刪除；可改用停用保留舊資料。</p></div>
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"><button onClick={() => setDeleting(null)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">取消</button><button onClick={() => removeCampus.mutate(deleting.id)} disabled={removeCampus.isPending} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{removeCampus.isPending && <Loader2 size={14} className="animate-spin" />}確認刪除</button></div>
+            {deleteError && <p role="alert" className="mx-6 mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">{deleteError}</p>}
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"><button disabled={dialogBusy} onClick={closeDialog} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">取消</button><button onClick={() => removeCampus.mutate(deleting.id)} disabled={removeCampus.isPending} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{removeCampus.isPending && <Loader2 size={14} className="animate-spin" />}確認刪除</button></div>
           </div>
         </div>
       )}
@@ -257,6 +270,7 @@ function PolicyCard({ campuses, policy, selectedCampusId, hasOverride, canEdit, 
     },
     onError: (error) => notification.error(errorMessage(error, '無法重設校區規則')),
   })
+  const resetDialog = useAdminDialog(confirmReset, resetMutation.isPending, () => setConfirmReset(false))
   useEffect(() => setDraft(policy), [policy, selectedCampusId])
   const refundRulesValid = draft.cancellation_rules.length > 0 && draft.cancellation_rules.every((rule, index) =>
     Number.isInteger(rule.days_before) && rule.days_before >= 0 && Number.isInteger(rule.refund_percent) && rule.refund_percent >= 0 && rule.refund_percent <= 100 &&
@@ -305,7 +319,7 @@ function PolicyCard({ campuses, policy, selectedCampusId, hasOverride, canEdit, 
       </div>
       </fieldset>
       {confirmReset && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
-        <div role="dialog" aria-modal="true" aria-labelledby="policy-reset-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+        <div ref={(element) => { resetDialog.current = element }} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="policy-reset-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
           <h3 id="policy-reset-title" className="text-lg font-semibold text-gray-900 dark:text-white">改回全公司預設？</h3>
           <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">這個校區的專屬規則會移除，立即改用全公司預設；之後公司預設變更也會自動套用。校區、訂單與人員資料不會刪除。</p>
           <div className="mt-6 flex justify-end gap-3">
