@@ -2427,6 +2427,8 @@ class BookingScheduleAdminSerializer(serializers.ModelSerializer):
             return ''
 
     def get_status(self, obj):
+        if obj.reservation and obj.reservation.status == 'completed':
+            return 'completed'
         if obj.is_scheduled:
             return 'scheduled'
         return obj.reservation.status if obj.reservation else 'pending'

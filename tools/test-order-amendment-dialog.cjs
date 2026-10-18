@@ -5,11 +5,11 @@ const compiled=ts.transpileModule(fs.readFileSync(path.join(root,'src/admin/comp
 const item={reservation_id:1,resort:'QA',course_type:'QA課程',number_of_people:1,members:[{id:4,name:'原學員'}],templates:[],coaches:[],equipment_slots:[]}
 const quote={quote_token:'signed',previous_total:9500,new_total:11500,difference_amount:2000}
 const draft={reservation_id:1,number_of_people:2,ability_level_counts:{no_exp:2},retained_member_ids:[4],courses:[]}
-function harness(initial){
+function harness(initial,items=[item]){
   const state=[...initial],refs=[],calls=[];let si=0,ri=0,fail
   const api={fetchOrderAmendmentOptions:async()=>({items:[item]}),previewOrderAmendment:async(...args)=>{calls.push(['preview',...args]);return quote},confirmOrderAmendment:async(...args)=>{calls.push(['confirm',...args]);if(fail)throw fail;return {version:2,new_total:11500,balance_amount:2000,notice:'尚未收退款'}}}
   const hooks={useEffect(){},useState(initialValue){const i=si++;if(!(i in state))state[i]=typeof initialValue==='function'?initialValue():initialValue;return [state[i],value=>state[i]=typeof value==='function'?value(state[i]):value]},useRef(value){const i=ri++;return refs[i]||(refs[i]={current:value})}}
-  const context=vm.createContext({React,crypto,exports:{},require:name=>name==='react'?hooks:name==='@tanstack/react-query'?{useQuery:()=>({data:{items:[item]},isLoading:false}),useQueryClient:()=>({invalidateQueries(){}})}:api})
+  const context=vm.createContext({React,crypto,exports:{},require:name=>name==='react'?hooks:name==='@tanstack/react-query'?{useQuery:()=>({data:{items},isLoading:false}),useQueryClient:()=>({invalidateQueries(){}})}:api})
   vm.runInContext(compiled,context)
   function render(){si=0;ri=0;return context.exports.default({orderId:42,onClose(){}})}
   function find(node,predicate){if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=find(child,predicate);if(found)return found}return null}
@@ -17,6 +17,9 @@ function harness(initial){
   return {state,calls,refs,render,find,button,setFailure(value){fail=value}}
 }
 async function main(){
+  const blocked=harness([],[{...item,blocked_reason:'此課程已結束或取消，不能直接修改'}])
+  assert.match(localRequire('react-dom/server').renderToStaticMarkup(blocked.render()),/目前沒有可直接修改的課程/,'Explain the blocked reason visibly, not only inside an unselectable option')
+  assert.equal(blocked.find(blocked.render(),node=>node.type==='select').props.disabled,true)
   const states=[1,draft,quote,null,'QA原因',true,false,false,'',false]
   let ui=harness(states)
   assert.equal(ui.button('確認保存修改').props.disabled,false)
