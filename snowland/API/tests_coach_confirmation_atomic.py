@@ -2,7 +2,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 from API import tests_operations as fixtures
-from booking.models import Booking
+from booking.models import Booking, Reservation
 
 
 class CoachConfirmationAtomicTests(TestCase):
@@ -28,7 +28,8 @@ class CoachConfirmationAtomicTests(TestCase):
         self.assertTrue(all(self.reservation.bookings.values_list('is_scheduled',flat=True)))
 
     def test_failed_best_effort_reassignment_preserves_clean_manual_fallback(self):
-        def fail_after_write(reservation):
+        def fail_after_write(reservation_id):
+            reservation = Reservation.objects.get(pk=reservation_id)
             reservation.status='auto_assigned';reservation.preferred_coach=self.coach;reservation.save()
             Booking.objects.filter(reservation=reservation).update(is_scheduled=True)
             raise RuntimeError('QA reassignment interrupted')

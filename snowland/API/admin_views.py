@@ -4139,10 +4139,16 @@ def _confirm_individual_course(request, coach, reservation_id, action):
             # A failed attempt must not leave partial scheduler writes behind;
             # keep the already successful rejection for manual assignment.
             with transaction.atomic():
-                new_status = reassign_single_reservation(r)
-            return Response({'code': 200, 'msg': f'已拒絕，重新排課狀態：{new_status}'})
+                reassigned = reassign_single_reservation(r.pk)
+            r.refresh_from_db()
+            if reassigned and r.preferred_coach_id:
+                message = ('已拒絕，已重新安排替代教練，等待對方確認'
+                           if r.status == 'pending_coach_confirmation' else '已拒絕，已重新安排可接課教練')
+            else:
+                message = '已拒絕，目前沒有可用的替代教練，請由行政安排'
+            return Response({'code': 200, 'msg': message})
         except Exception:
-            return Response({'code': 200, 'msg': '已拒絕（無自動重排）'})
+            return Response({'code': 200, 'msg': '已拒絕，自動重排暫時未完成，請由行政核對安排'})
 
     return Response({'code': 400, 'msg': '未知 action'}, status=400)
 

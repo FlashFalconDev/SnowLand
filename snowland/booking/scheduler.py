@@ -935,8 +935,8 @@ def reassign_single_reservation(reservation_id):
     專門用於教練拒絕後的重新分配
     """
     from django.db import models
-    from .models import Reservation, Booking, Coach
-    from Coach.models import CoachResort
+    from .models import Reservation, Booking
+    from Coach.models import Coach, CoachResort
     
     print(f"\n=== 開始單個預約重新排課：Reservation ID {reservation_id} ===")
     
@@ -953,8 +953,8 @@ def reassign_single_reservation(reservation_id):
     
     # 排除當前預約，查詢其他已確認的預約來建立忙碌表
     other_confirmed_reservations = Reservation.objects.exclude(id=reservation_id).filter(
-        models.Q(is_preferred_coach=True) | models.Q(status__in=['auto_assigned', 'manually_assigned', 'pending_coach_confirmation'])
-    )
+        models.Q(is_preferred_coach=True) | models.Q(status__in=ASSIGNED_RESERVATION_STATUSES)
+    ).exclude(status__in=['cancelled', 'deleted'])
     
     print(f"其他已確認預約數量：{other_confirmed_reservations.count()}")
     
@@ -1051,13 +1051,13 @@ def reassign_single_reservation(reservation_id):
                 booking.is_scheduled = True
                 booking.save()
             
-            print(f"✅ 成功將預約 {reservation_id} 分配給教練 {coach.name}")
+            print(f"成功將預約 {reservation_id} 分配給教練 {coach.name}")
             return True
         else:
             print(f"教練 {coach.name} 有時間衝突，跳過")
     
     # 7. 如果所有教練都無法分配，恢復原狀態並設為需人工處理
-    print(f"❌ 無法為預約 {reservation_id} 找到合適的教練")
+    print(f"無法為預約 {reservation_id} 找到合適的教練")
     
     reservation.preferred_coach_id = original_coach_id
     reservation.status = 'manual_assignment_needed' # 需人工排定教練
