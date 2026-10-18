@@ -329,6 +329,7 @@ def _equipment_assistance_calendar_item(reservation, booking, include_coach=True
     }
     if include_coach:
         item['coach_name'] = reservation.preferred_coach.name if reservation.preferred_coach else ''
+        item['coach_id'] = reservation.preferred_coach_id
     return item
 
 
@@ -425,6 +426,25 @@ def _calendar_date_keys(start_date, end_date):
         days.append(current)
         current += timedelta(days=1)
     return days
+
+
+def _calendar_coach_roster(*, tenant, start_date, end_date, campus_ids=None):
+    if not tenant or not start_date or not end_date or end_date < start_date:
+        return [], []
+    coaches = Coach.objects.filter(client=tenant, availability_status__in=['active', 'passive'])
+    if campus_ids is not None:
+        coaches = coaches.filter(campuses__id__in=campus_ids)
+    roster = list(coaches.order_by('name', 'pk').values('id', 'name').distinct())
+    leaves = CoachLeaveRequest.objects.filter(
+        coach_id__in=[row['id'] for row in roster], status='approved',
+        start_date__lte=end_date, end_date__gte=start_date,
+    ).select_related('coach').order_by('coach_id', 'start_date', 'pk')
+    # Calendar access does not grant access to medical or other private leave reasons.
+    return roster, [{
+        'coach_id': leave.coach_id, 'coach_name': leave.coach.name,
+        'start_date': max(leave.start_date, start_date).isoformat(),
+        'end_date': min(leave.end_date, end_date).isoformat(),
+    } for leave in leaves]
 
 
 def _daily_coach_availability_summary(*, tenant, start_date, end_date, campus_ids=None):
@@ -3016,9 +3036,14 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
             end_date=end_date,
             campus_ids=_campus_ids(request),
         )
+        coaches, leaves = _calendar_coach_roster(
+            tenant=getattr(request, 'tenant', None), start_date=start_date, end_date=end_date,
+            campus_ids=_campus_ids(request),
+        )
         return Response({
             'code': 200, 'msg': 'OK',
-            'data': {'list': items, 'total': len(items), 'daily_summary': daily_summary},
+            'data': {'list': items, 'total': len(items), 'daily_summary': daily_summary,
+                     'coaches': coaches, 'leaves': leaves},
         })
 
     @action(detail=False, methods=['get'], url_path='group-candidates')

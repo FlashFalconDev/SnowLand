@@ -9,6 +9,7 @@ import { assignSharedClassCoach, fetchGroupCandidates, fetchScheduleCalendar, fe
 import { fetchAdminMe } from '../api/auth'
 import { fetchOrder, type Order } from '../api/orders'
 import { OrderDetailDrawer, OrderDetailStatusDrawer } from './OrdersPage'
+import CoachScheduleTable from './CoachScheduleTable'
 
 const PRIMARY = '#8b5cf6'
 const EQUIPMENT_COLOR = '#d97706'
@@ -142,6 +143,7 @@ export default function SchedulingPage() {
   const canManageSharedClass = Boolean(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin')
   const today = new Date()
   const [viewMode, setViewMode] = useState<ScheduleViewMode>('month')
+  const [calendarLayout, setCalendarLayout] = useState<'calendar' | 'coaches'>('calendar')
   const [anchorDate, setAnchorDate] = useState(new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [resortFilter, setResortFilter] = useState('')
@@ -299,7 +301,7 @@ export default function SchedulingPage() {
     ...bookings.map((b) => b.resort),
     ...groupCandidates.map((candidate) => candidate.resort_name),
   ].filter(Boolean))), [bookings, groupCandidates])
-  const allCoaches = useMemo(() => Array.from(new Set(bookings.map((b) => b.coach_name).filter(Boolean))), [bookings])
+  const allCoaches = useMemo(() => Array.from(new Set([...bookings.map((b) => b.coach_name), ...(scheduleData?.coaches || []).map(coach => coach.name)].filter(Boolean))), [bookings, scheduleData?.coaches])
   const summaryByDate = useMemo(
     () => new Map(dailySummary.map((summary) => [summary.date, summary])),
     [dailySummary],
@@ -410,7 +412,7 @@ export default function SchedulingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">排課管理</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">切換日、週、多週或月視圖檢視排課</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">切換日、週、多週或月視圖；教練排班表可對照每位教練的課程與休假。</p>
         {isCampusManager && <p className="mt-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm text-purple-800 dark:border-purple-800 dark:bg-purple-900/20 dark:text-purple-200">校區主管只顯示所屬校區從今天起 10 天內的排課；其他日期不會顯示課程。</p>}
       </div>
 
@@ -432,6 +434,8 @@ export default function SchedulingPage() {
             </select>
           </div>
           <div className="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-900">
+            <button type="button" aria-pressed={calendarLayout === 'calendar'} onClick={() => setCalendarLayout('calendar')} className={`min-h-11 rounded-md px-3 text-sm ${calendarLayout === 'calendar' ? 'bg-white text-violet-700 shadow-sm dark:bg-gray-700 dark:text-violet-200' : 'text-gray-600 dark:text-gray-300'}`}>日期日曆</button>
+            <button type="button" aria-pressed={calendarLayout === 'coaches'} onClick={() => { setCalendarLayout('coaches'); if (viewMode === 'month') switchViewMode('week') }} className={`min-h-11 rounded-md px-3 text-sm ${calendarLayout === 'coaches' ? 'bg-white text-violet-700 shadow-sm dark:bg-gray-700 dark:text-violet-200' : 'text-gray-600 dark:text-gray-300'}`}>教練排班表</button>
             {VIEW_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -582,20 +586,20 @@ export default function SchedulingPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900 dark:text-white text-lg">{rangeLabel}</h3>
-              <div className="flex items-center gap-2">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="min-w-0 break-words font-semibold text-gray-900 dark:text-white text-base sm:text-lg">{rangeLabel}</h3>
+              <div className="flex shrink-0 items-center gap-2">
                 <button onClick={goToday}
-                  className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
-                <button onClick={() => shiftView(-1)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
-                <button onClick={() => shiftView(1)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
+                  className="min-h-11 whitespace-nowrap px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
+                <button aria-label="上一個期間" onClick={() => shiftView(-1)} className="inline-flex min-h-11 min-w-11 items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
+                <button aria-label="下一個期間" onClick={() => shiftView(1)} className="inline-flex min-h-11 min-w-11 items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
               </div>
             </div>
 
             {isLoading ? (
               <div className="flex items-center justify-center py-20"><Loader2 size={32} className="animate-spin" style={{ color: PRIMARY }} /></div>
             ) : (
-              viewMode === 'month' ? (
+              calendarLayout === 'coaches' ? <CoachScheduleTable coaches={scheduleData?.coaches || []} leaves={scheduleData?.leaves || []} bookings={bookings.filter(booking => !resortFilter || booking.resort === resortFilter)} days={visibleDays} coachFilter={coachFilter} isOutsideWindow={isOutsideManagerWindow} onOpenOrder={openBookingOrder} onSelectDate={selectDate} /> : viewMode === 'month' ? (
               <>
                 <p className="border-b border-gray-200 px-3 py-2 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400 sm:hidden">綠色數字＝可排教練；紫色數字＝已排課。點日期看明細。</p>
                 <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">

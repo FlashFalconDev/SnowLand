@@ -2369,6 +2369,9 @@ class CustomerAdminSerializer(serializers.Serializer):
 
 class BookingScheduleAdminSerializer(serializers.ModelSerializer):
     reservation_id = serializers.IntegerField(read_only=True)
+    coach_id = serializers.IntegerField(source='reservation.preferred_coach_id', read_only=True, allow_null=True)
+    ability_level = serializers.CharField(source='reservation.max_ability_level', read_only=True, default='')
+    is_preferred_coach = serializers.BooleanField(source='reservation.is_preferred_coach', read_only=True, default=False)
     coach_name = serializers.CharField(source='reservation.preferred_coach.name', read_only=True, default='')
     group_id = serializers.SerializerMethodField()
     order_number = serializers.CharField(source='reservation.group.order_number', read_only=True, default='')
@@ -2386,7 +2389,7 @@ class BookingScheduleAdminSerializer(serializers.ModelSerializer):
         model = Booking
         fields = [
             'id', 'reservation_id', 'group_id', 'order_number', 'sn', 'date', 'start_time', 'end_time',
-            'course_name', 'coach_name', 'user_name', 'resort', 'campus_name', 'campus_is_active',
+            'course_name', 'coach_name', 'coach_id', 'ability_level', 'is_preferred_coach', 'user_name', 'resort', 'campus_name', 'campus_is_active',
             'number_of_people', 'is_scheduled', 'status', 'event_type',
             'service_type',
         ]
