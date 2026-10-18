@@ -3,6 +3,7 @@
  * 集中管理誰是 manager / coach
  */
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, Shield, UserCog, Loader2, AlertCircle, Save, Crown, Star, AlertTriangle, UserPlus, Users } from 'lucide-react'
 import { fetchStaff, updateCustomerPermission, type StaffMember } from '../api/extras'
@@ -11,10 +12,13 @@ import { ADMIN_PERMISSION_DEFINITIONS, groupPermissions } from '../permissions'
 import { fetchCampuses } from '../api/campuses'
 
 const PRIMARY = '#8b5cf6'
+const COMPANY_SCOPE_ROLES = new Set(['hq_admin', 'marketing', 'web_editor', 'insurance', 'assistant'])
 
 export default function StaffPermissionsPage() {
-  const [search, setSearch] = useState('')
-  const [searchMode, setSearchMode] = useState(false)
+  const [searchParams] = useSearchParams()
+  const initialSearch = searchParams.get('q')?.trim() || ''
+  const [search, setSearch] = useState(initialSearch)
+  const [searchMode, setSearchMode] = useState(!!initialSearch)
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
 
@@ -25,15 +29,15 @@ export default function StaffPermissionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3 sm:items-center">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">員工權限</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">設定使用者為最大管理員、後台人員或教練</p>
         </div>
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+          className="inline-flex flex-shrink-0 items-center justify-center gap-2 whitespace-nowrap px-3 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 sm:px-4"
           style={{ backgroundColor: PRIMARY }}
         >
           <UserPlus size={16} />
@@ -50,7 +54,7 @@ export default function StaffPermissionsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜尋使用者（姓名 / Email / 帳號）..."
+              placeholder="搜尋現有員工；新員工請輸入完整 Email"
               className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
             />
           </div>
@@ -91,12 +95,43 @@ export default function StaffPermissionsPage() {
           <UserCog size={48} className="mx-auto mb-3 text-gray-300" />
           <p className="text-sm text-gray-500">{searchMode ? '沒有符合的使用者' : '目前沒有員工'}</p>
           {!searchMode && (
-            <p className="text-xs text-gray-400 mt-2">使用上方搜尋找出使用者，給他們開通後台人員 / 教練權限</p>
+            <p className="text-xs text-gray-400 mt-2">新員工請輸入完整 Email 搜尋，再設定後台或教練權限。</p>
           )}
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="divide-y divide-gray-100 dark:divide-gray-700 lg:hidden">
+            {staff.map((s) => (
+              <div key={s.id} className="p-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0"
+                    style={{ backgroundColor: PRIMARY }}
+                  >
+                    {(s.name || s.username || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-gray-900 dark:text-white">{s.name}</div>
+                    <div className="text-xs text-gray-500 break-all">@{s.username}</div>
+                    <div className="mt-2 flex flex-wrap gap-1"><RoleBadges staff={s} /></div>
+                    {s.is_coach && !s.has_coach_record && (
+                      <div className="mt-1 flex items-center gap-1 text-xs text-orange-600">
+                        <AlertTriangle size={10} />未綁定 Coach 紀錄
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingStaff(s)}
+                  className="mt-3 min-h-10 w-full rounded-lg border border-violet-300 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300 dark:hover:bg-violet-900/20"
+                >
+                  編輯權限
+                </button>
+              </div>
+            ))}
+          </div>
+          <table className="hidden w-full text-sm lg:table">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
                 <th className="px-5 py-3 text-left font-medium text-gray-600 dark:text-gray-300">使用者</th>
@@ -218,14 +253,14 @@ function MemberPickerModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 animate-fadeIn">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-2xl max-h-[86vh] overflow-hidden flex flex-col">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-          <div>
+        <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 flex items-start justify-between gap-2 sm:px-6">
+          <div className="min-w-0">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">選擇會員新增授權</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">搜尋會員姓名、Email 或帳號，選取後即可設定後台 / 教練權限。</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">已有 SnowLand 資料可用姓名搜尋；新員工請輸入完整 Email。</p>
           </div>
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            className="shrink-0 whitespace-nowrap px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700 rounded-lg sm:px-3"
           >
             關閉
           </button>
@@ -245,7 +280,7 @@ function MemberPickerModal({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="輸入會員姓名 / Email / 帳號"
+                placeholder="姓名或完整 Email"
                 className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                 autoFocus
               />
@@ -322,6 +357,10 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
   const [role, setRole] = useState(staff.role || '')
   const [campusIds, setCampusIds] = useState<number[]>(staff.campus_ids || [])
   const { data: campuses = [] } = useQuery({ queryKey: ['admin', 'campuses'], queryFn: fetchCampuses })
+  const activeCampuses = campuses.filter(campus => campus.is_active)
+  const selectedCampusIds = campusIds.filter(id => activeCampuses.some(campus => campus.id === id))
+  const companyScope = COMPANY_SCOPE_ROLES.has(role)
+  const campusRequired = !isSuperuser && isManager && !companyScope && selectedCampusIds.length === 0
   const permissionGroups = groupPermissions()
   const togglePermission = (key: string) => {
     setPermissions((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key])
@@ -336,7 +375,7 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
       is_coach: isCoach,
       permissions: !isSuperuser && isManager ? permissions : [],
       role: isSuperuser ? 'hq_admin' : role,
-      campus_ids: isSuperuser ? [] : campusIds,
+      campus_ids: isSuperuser || companyScope ? [] : selectedCampusIds,
     }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['admin', 'staff'] })
@@ -403,7 +442,7 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
                 <Shield size={14} className="text-purple-600 dark:text-purple-400" />
                 <span className="text-sm font-medium text-gray-900 dark:text-white">後台人員</span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">可進入後台所有頁面、管理訂單、教練、雪場、課程設定等</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">可使用下方勾選的後台功能；看到哪些校區資料由工作角色與負責校區決定。</p>
             </div>
           </label>
 
@@ -414,8 +453,11 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
                 <select value={role} onChange={e => setRole(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">
                   <option value="">一般後台人員</option><option value="hq_admin">總部管理員</option><option value="marketing">行銷</option><option value="web_editor">網站編輯</option><option value="insurance">保險人員</option><option value="assistant">助理</option><option value="campus_principal">校區校長</option><option value="campus_manager">校區主管</option><option value="photographer">攝影人員</option>
                 </select>
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">總部管理員可看全部校區；其他角色請勾選負責校區。</p>
-                {role !== 'hq_admin' && <div className="mt-3 flex flex-wrap gap-2">{campuses.map(c => <label key={c.id} className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition-colors ${campusIds.includes(c.id) ? 'border-violet-400 bg-violet-50 text-violet-700 dark:border-violet-500 dark:bg-violet-900/30 dark:text-violet-300' : 'border-gray-200 bg-white text-gray-700 hover:border-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'}`}><input type="checkbox" className="sr-only" checked={campusIds.includes(c.id)} onChange={() => setCampusIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])} />{c.name}</label>)}</div>}
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{companyScope ? '此角色可查看全部校區；可操作功能仍以下方勾選為準。' : '請勾選負責校區；只能看到所選校區的資料。'}</p>
+                {!companyScope && <>
+                  <div className="mt-3 flex flex-wrap gap-2">{activeCampuses.map(c => <label key={c.id} className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition-colors ${selectedCampusIds.includes(c.id) ? 'border-violet-400 bg-violet-50 text-violet-700 dark:border-violet-500 dark:bg-violet-900/30 dark:text-violet-300' : 'border-gray-200 bg-white text-gray-700 hover:border-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'}`}><input type="checkbox" className="sr-only" checked={selectedCampusIds.includes(c.id)} onChange={() => setCampusIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])} />{c.name}</label>)}</div>
+                  {campusRequired && <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">請至少選擇一個使用中的校區，才能儲存。</p>}
+                </>}
               </div>
             <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -499,7 +541,7 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
           <button onClick={onClose} disabled={mutation.isPending} className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">取消</button>
           <button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || campusRequired}
             className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
             style={{ backgroundColor: PRIMARY }}
           >

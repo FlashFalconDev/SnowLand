@@ -13,11 +13,14 @@ export interface CourseSession {
 
 export interface CourseTemplate {
   id: number
+  can_manage: boolean
   course_type: number
   course_type_name: string
   name: string
   display_order: number
   duration_hours: number
+  payroll_hours: string | null
+  can_manage_payroll_hours: boolean
   max_capacity: number
   billing_mode: 'private' | 'per_person'
   minimum_group_size: number
@@ -58,12 +61,38 @@ export interface CourseCategory {
   types: CourseType[]
 }
 
+export interface CourseTemplateEditorOptions {
+  resorts: { id: number; name: string; display_name: string; can_select: boolean }[]
+  coaches: { id: number; name: string; can_select: boolean }[]
+}
+
+export type PricingTemplate = Pick<CourseTemplate,
+  'id' | 'name' | 'duration_hours' | 'max_capacity' | 'billing_mode' | 'resorts' |
+  'booking_open_date' | 'booking_close_date' | 'course_start_date' | 'course_end_date'
+>
+export interface PricingCourseType { id: number; name: string; templates: PricingTemplate[] }
+export interface PricingCourseCategory { id: number; name: string; types: PricingCourseType[] }
+export interface PricingResort { id: number; display_name: string }
+export interface PricingCatalog {
+  list: PricingCourseCategory[]
+  total: number
+  resort_ids: number[]
+  resorts: PricingResort[]
+}
+
 interface ListResp<T> { code: number; msg: string; data: { list: T[]; total: number } }
 interface DetailResp<T> { code: number; msg: string; data: T }
 
 export async function fetchCourseCategories(): Promise<CourseCategory[]> {
   const res = (await adminApi.get('/course-categories/')) as unknown as ListResp<CourseCategory>
   return res.data?.list || []
+}
+
+export async function fetchPricingCatalog(): Promise<PricingCatalog> {
+  const res = (await adminApi.get('/course-pricing/catalog/')) as unknown as {
+    code: number; msg: string; data: PricingCatalog
+  }
+  return res.data
 }
 
 export async function fetchCourseTypes(): Promise<CourseType[]> {
@@ -74,6 +103,13 @@ export async function fetchCourseTypes(): Promise<CourseType[]> {
 export async function fetchCourseTemplates(): Promise<CourseTemplate[]> {
   const res = (await adminApi.get('/course-templates/')) as unknown as ListResp<CourseTemplate>
   return res.data?.list || []
+}
+
+export async function fetchCourseTemplateEditorOptions(): Promise<CourseTemplateEditorOptions> {
+  const res = (await adminApi.get('/course-templates/editor-options/')) as unknown as {
+    code: number; msg: string; data: CourseTemplateEditorOptions
+  }
+  return res.data
 }
 
 // ============== Category CRUD ==============

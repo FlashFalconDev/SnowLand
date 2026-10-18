@@ -22,6 +22,8 @@ export interface CoachLeave {
   reviewed_at: string | null
   created_at: string
   updated_at: string
+  can_review: boolean
+  review_block_reason: string
 }
 
 interface ListResp { code: number; msg: string; data: { list: CoachLeave[]; total: number } }
@@ -30,6 +32,15 @@ interface DetailResp { code: number; msg: string; data: CoachLeave }
 export async function fetchCoachLeaves(): Promise<CoachLeave[]> {
   const res = (await adminApi.get('/coach-leaves/')) as unknown as ListResp
   return res.data?.list || []
+}
+
+export async function fetchSpecialLeaveOptions(): Promise<{ can_create: boolean; coaches: { id: number; name: string }[] }> {
+  const res = await adminApi.get('/coach-leaves/special-options/') as any
+  return res.data
+}
+
+export async function createSpecialLeave(payload: { coach: number; start_date: string; end_date: string; reason: string }) {
+  return adminApi.post('/coach-leaves/', { ...payload, confirm_special_leave: true })
 }
 
 export async function reviewLeave(

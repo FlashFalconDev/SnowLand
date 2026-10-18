@@ -2,10 +2,10 @@
  * 排課管理（接 API）
  */
 import { useState, useMemo, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Filter, Calendar as CalendarIcon, Loader2, AlertCircle } from 'lucide-react'
-import { fetchGroupCandidates, fetchScheduleCalendar, type GroupCandidate, type ScheduleBooking } from '../api/schedule'
+import { assignSharedClassCoach, fetchGroupCandidates, fetchScheduleCalendar, fetchSharedClassCoaches, fetchSharedClassOpeningOptions, fetchSharedClassSchedule, openSharedClass, rescheduleSharedClass, type GroupCandidate, type ScheduleBooking } from '../api/schedule'
 import { fetchAdminMe } from '../api/auth'
 import { fetchOrder, type Order } from '../api/orders'
 import { OrderDetailDrawer } from './OrdersPage'
@@ -75,11 +75,14 @@ function hasKnownAbilityLevel(level: string) {
 
 function candidateStatus(candidate: GroupCandidate) {
   if (!hasKnownAbilityLevel(candidate.ability_level)) return '先確認學員程度'
+  if (candidate.shared_class_id) {
+    if (candidate.shared_class_status === 'cancelled') return '班級已取消'
+    if (candidate.shared_class_status === 'collecting') return `湊班中，尚差 ${Math.max((candidate.minimum_students ?? 0) - candidate.registered_students, 0)} 人`
+    if (candidate.paid_students === undefined) return '已成班'
+    return `已成班，${candidate.paid_students}/${candidate.registered_students} 人已付款`
+  }
   if (candidate.assigned_students > 0) return '已有排課，請先核對'
-  if (candidate.registered_students < 3) return `尚差 ${3 - candidate.registered_students} 人報名`
-  if (candidate.paid_students === undefined) return '報名達 3 人，待總部確認'
-  if (candidate.paid_students < 3) return '報名達 3 人，待付款'
-  return '已付款達 3 人，待人工確認'
+  return '候選名單，尚未建立班級'
 }
 
 function formatDateKey(date: Date) {
@@ -132,8 +135,11 @@ function getRangeLabel(mode: ScheduleViewMode, rangeStart: Date, rangeEnd: Date)
 
 export default function SchedulingPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const isCampusManager = adminMe?.user?.role === 'campus_manager'
+  const isCampusOrderViewer = isCampusManager || adminMe?.user?.role === 'campus_principal'
+  const canManageSharedClass = Boolean(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin')
   const today = new Date()
   const [viewMode, setViewMode] = useState<ScheduleViewMode>('month')
   const [anchorDate, setAnchorDate] = useState(new Date(today.getFullYear(), today.getMonth(), today.getDate()))
@@ -142,6 +148,23 @@ export default function SchedulingPage() {
   const [coachFilter, setCoachFilter] = useState('')
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
   const [showAllCandidates, setShowAllCandidates] = useState(false)
+  const [editingSharedClassId, setEditingSharedClassId] = useState<number | null>(null)
+  const [selectedSharedCoachId, setSelectedSharedCoachId] = useState('')
+  const [sharedClassMessage, setSharedClassMessage] = useState('')
+  const [sharedClassError, setSharedClassError] = useState('')
+  const [reschedulingClassId, setReschedulingClassId] = useState<number | null>(null)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleSession, setRescheduleSession] = useState('')
+  const [rescheduleError, setRescheduleError] = useState('')
+  const [showOpeningForm, setShowOpeningForm] = useState(false)
+  const [openingCampus, setOpeningCampus] = useState('')
+  const [openingResort, setOpeningResort] = useState('')
+  const [openingTemplate, setOpeningTemplate] = useState('')
+  const [openingSession, setOpeningSession] = useState('')
+  const [openingDate, setOpeningDate] = useState('')
+  const [openingLevel, setOpeningLevel] = useState('')
+  const [openingLanguage, setOpeningLanguage] = useState('zh')
+  const [openingError, setOpeningError] = useState('')
 
   const todayStr = formatDateKey(today)
   const managerVisibleEnd = formatDateKey(addDays(today, 10))
@@ -166,8 +189,83 @@ export default function SchedulingPage() {
     queryKey: ['admin', 'group-candidates', rangeStart, rangeEnd],
     queryFn: () => fetchGroupCandidates({ start: rangeStart, end: rangeEnd }),
   })
+  const { data: openingOptions } = useQuery({
+    queryKey: ['admin', 'shared-class-opening-options'],
+    queryFn: fetchSharedClassOpeningOptions,
+    enabled: canManageSharedClass,
+    retry: false,
+  })
+  const openingCampusInfo = openingOptions?.campuses?.find((campus) => campus.id === Number(openingCampus))
+  const openingTemplates = openingOptions?.templates?.filter((template) => template.resort_ids.includes(Number(openingResort))) || []
+  const openingTemplateInfo = openingTemplates.find((template) => template.id === Number(openingTemplate))
+  const openingMutation = useMutation({
+    onMutate: () => {
+      setOpeningError('')
+      setSharedClassMessage('')
+    },
+    mutationFn: () => openSharedClass({
+      campus_id: Number(openingCampus), resort_id: Number(openingResort),
+      template_id: Number(openingTemplate), session_id: Number(openingSession),
+      date: openingDate, ability_level: openingLevel, language: openingLanguage,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'group-candidates'] })
+      setAnchorDate(parseDateKey(openingDate))
+      setSelectedDate(openingDate)
+      setShowOpeningForm(false)
+      setOpeningError('')
+      setSharedClassMessage('已開班；客人可在訂課日曆看到這個時段並加入湊班。')
+    },
+    onError: (error: any) => setOpeningError(error?.response?.data?.msg || '開班失敗，請確認課程期間與校區雪場設定。'),
+  })
   const visibleCandidates = groupCandidates.filter((candidate) => !resortFilter || candidate.resort_name === resortFilter)
   const selectedCandidates = selectedDate ? visibleCandidates.filter((candidate) => candidate.date === selectedDate) : []
+  const { data: sharedCoachOptions, isLoading: sharedCoachesLoading, error: sharedCoachesError } = useQuery({
+    queryKey: ['admin', 'shared-class-coaches', editingSharedClassId],
+    queryFn: () => fetchSharedClassCoaches(editingSharedClassId!),
+    enabled: editingSharedClassId !== null,
+    retry: false,
+  })
+  const sharedCoachMutation = useMutation({
+    onMutate: () => { setSharedClassError(''); setSharedClassMessage('') },
+    mutationFn: () => assignSharedClassCoach(editingSharedClassId!, Number(selectedSharedCoachId)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'group-candidates'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] })
+      setEditingSharedClassId(null)
+      setSelectedSharedCoachId('')
+      setSharedClassError('')
+      setSharedClassMessage('整班教練已更新，所有同班訂單同步改派。')
+    },
+    onError: (error: any) => setSharedClassError(error?.response?.data?.msg || '整班指派失敗，請重新確認教練與時段。'),
+  })
+  const { data: scheduleOptions, isLoading: scheduleOptionsLoading, error: scheduleOptionsError } = useQuery({
+    queryKey: ['admin', 'shared-class-schedule', reschedulingClassId],
+    queryFn: () => fetchSharedClassSchedule(reschedulingClassId!),
+    enabled: reschedulingClassId !== null,
+    retry: false,
+  })
+  const rescheduleMutation = useMutation({
+    onMutate: () => { setRescheduleError(''); setSharedClassMessage('') },
+    mutationFn: async () => {
+      const date = rescheduleDate
+      const [startTime, endTime] = rescheduleSession.split('|')
+      const message = await rescheduleSharedClass(reschedulingClassId!, date, startTime, endTime)
+      return { message, date }
+    },
+    onSuccess: ({ message, date }) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'group-candidates'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] })
+      setReschedulingClassId(null)
+      setRescheduleError('')
+      setAnchorDate(parseDateKey(date))
+      setSelectedDate(date)
+      setSharedClassMessage(message)
+    },
+    onError: (error: any) => setRescheduleError(error?.response?.data?.msg || '整班改期失敗，請重新確認時段。'),
+  })
 
   const { data: selectedOrder, isFetching: isOrderLoading } = useQuery<Order>({
     queryKey: ['admin', 'orders', selectedOrderId],
@@ -241,7 +339,7 @@ export default function SchedulingPage() {
   }, [selectedBookings])
   const openBookingOrder = (booking: { date: string; group_id?: number | null; sn?: string }) => {
     setSelectedDate(booking.date)
-    if (booking.group_id && isCampusManager) {
+    if (booking.group_id && (!adminMe?.user || isCampusOrderViewer)) {
       navigate(`/snowland/console/orders?search=${encodeURIComponent(booking.sn || String(booking.group_id))}`)
     } else if (booking.group_id) {
       setSelectedOrderId(Number(booking.group_id))
@@ -282,7 +380,7 @@ export default function SchedulingPage() {
             : 'border border-transparent px-2 py-1.5 text-xs hover:border-current'
         }`}
         style={{ backgroundColor: `${eventColor}1a`, color: eventColor }}
-        title="開啟訂單詳細資訊"
+        title={!adminMe?.user || isCampusOrderViewer ? '查看訂單' : '開啟訂單詳細資訊'}
       >
         {compact ? (
           <>{booking.start_time?.substring(0, 5)} {getCalendarEventTitle(booking)}</>
@@ -349,35 +447,124 @@ export default function SchedulingPage() {
         </div>
       </div>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800" aria-label="團體合班候選">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800" aria-label="團體班與合班候選">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h2 className="font-semibold text-gray-900 dark:text-white">團體合班候選</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">同校區、雪場、課程、日期時段與程度分開累計。報名達 3 人後仍須確認付款；不會自動開班或更改付款。</p>
+            <h2 className="font-semibold text-gray-900 dark:text-white">團體班與合班候選</h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">「跨訂單班級」顯示實際成班狀態及該班門檻；「候選名單」只供人工核對，不代表已建立班級。</p>
           </div>
-          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-200">本範圍 {visibleCandidates.length} 組</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-200">本範圍 {visibleCandidates.length} 組</span>
+            {canManageSharedClass && openingOptions?.enabled && <button type="button" onClick={() => { setShowOpeningForm(!showOpeningForm); setOpeningError(''); setSharedClassMessage('') }} className="min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">{showOpeningForm ? '收起開班表單' : '學校先開團體班'}</button>}
+          </div>
         </div>
+        {showOpeningForm && openingOptions?.enabled && <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-900/20">
+          <p className="text-sm text-gray-700 dark:text-gray-200">先選校區和雪場，再選課程、日期、時段與程度。開班不會產生訂單或收款；客人報名滿最低人數才開放付款。</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="text-sm font-medium text-gray-900 dark:text-white">校區
+              <select value={openingCampus} onChange={(event) => { setOpeningCampus(event.target.value); setOpeningResort(''); setOpeningTemplate(''); setOpeningSession('') }} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"><option value="">請選校區</option>{openingOptions.campuses?.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select>
+            </label>
+            <label className="text-sm font-medium text-gray-900 dark:text-white">雪場
+              <select value={openingResort} onChange={(event) => { setOpeningResort(event.target.value); setOpeningTemplate(''); setOpeningSession('') }} disabled={!openingCampus} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-white"><option value="">請選雪場</option>{openingCampusInfo?.resorts.map((resort) => <option key={resort.id} value={resort.id}>{resort.name}</option>)}</select>
+            </label>
+            <label className="text-sm font-medium text-gray-900 dark:text-white">團體班課程
+              <select value={openingTemplate} onChange={(event) => { setOpeningTemplate(event.target.value); setOpeningSession('') }} disabled={!openingResort} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-white"><option value="">請選課程</option>{openingTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} · {template.minimum_students} 人成班</option>)}</select>
+            </label>
+            <label className="text-sm font-medium text-gray-900 dark:text-white">上課日期
+              <input type="date" min={todayStr} value={openingDate} onChange={(event) => setOpeningDate(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+            </label>
+            <label className="text-sm font-medium text-gray-900 dark:text-white">時段
+              <select value={openingSession} onChange={(event) => setOpeningSession(event.target.value)} disabled={!openingTemplate} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-white"><option value="">請選時段</option>{openingTemplateInfo?.sessions.map((session) => <option key={session.id} value={session.id}>{session.label}</option>)}</select>
+            </label>
+            <label className="text-sm font-medium text-gray-900 dark:text-white">學員程度
+              <select value={openingLevel} onChange={(event) => setOpeningLevel(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"><option value="">請選程度</option>{openingOptions.levels?.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            </label>
+            <label className="text-sm font-medium text-gray-900 dark:text-white">授課語言
+              <select value={openingLanguage} onChange={(event) => setOpeningLanguage(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white">{openingOptions.languages?.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            </label>
+          </div>
+          {openingTemplates.length === 0 && openingResort && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">這個雪場尚未設定可開放的團體班課程，請先到「課程架構」設定。</p>}
+          {openingError && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{openingError}</p>}
+          <button type="button" disabled={!openingCampus || !openingResort || !openingTemplate || !openingDate || !openingSession || !openingLevel || openingMutation.isPending} onClick={() => openingMutation.mutate()} className="mt-3 min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">{openingMutation.isPending ? '開班中…' : '確認開班'}</button>
+        </div>}
+        {sharedClassMessage && <p role="status" className="mt-3 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800 dark:bg-green-900/30 dark:text-green-200">{sharedClassMessage}</p>}
         {candidatesLoading ? <p className="mt-4 text-sm text-gray-500">載入合班候選中…</p> : candidatesError ? (
           <p className="mt-4 text-sm text-red-600">合班候選載入失敗，請重新整理頁面。</p>
         ) : visibleCandidates.length === 0 ? (
-          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">目前範圍沒有團體課程報名候選。</p>
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">目前範圍沒有團體班或合班候選。</p>
         ) : <>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             {(showAllCandidates ? visibleCandidates : visibleCandidates.slice(0, 6)).map((candidate) => (
-              <div key={`${candidate.campus_id}-${candidate.resort_id}-${candidate.template_id}-${candidate.date}-${candidate.start_time}-${candidate.ability_level}`} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <div key={`${candidate.campus_id}-${candidate.resort_id}-${candidate.template_id}-${candidate.date}-${candidate.start_time}-${candidate.ability_level}-${candidate.shared_class_id || 'candidate'}`} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-medium text-gray-900 dark:text-white">{candidate.date} {candidate.start_time}–{candidate.end_time}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{candidate.shared_class_id ? candidate.opening_mode === 'school' && candidate.registered_students === 0 ? '學校預開班' : '跨訂單班級' : '候選名單'} · {candidate.date} {candidate.start_time}–{candidate.end_time}</p>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{candidate.campus_name} · {candidate.resort_name} · {candidate.template_name} · {candidate.ability_level === 'no_exp' ? '等級 0' : candidate.ability_level.startsWith('level') ? `等級 ${candidate.ability_level.slice(5)}` : '程度待確認'}</p>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${hasKnownAbilityLevel(candidate.ability_level) && candidate.registered_students >= 3 ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200'}`}>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${candidate.shared_class_status === 'ready' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200' : candidate.shared_class_status === 'collecting' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200'}`}>
                     {candidateStatus(candidate)}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">報名 {candidate.registered_students} 人{candidate.paid_students !== undefined && ` · 已付款 ${candidate.paid_students} 人`}{candidate.assigned_students > 0 && ` · 已排課 ${candidate.assigned_students} 人`} · {candidate.orders.length} 筆訂單</p>
+                <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">報名 {candidate.registered_students}{candidate.minimum_students !== null && `/${candidate.minimum_students}`} 人{candidate.paid_students !== undefined && ` · 已付款 ${candidate.paid_students} 人`}{candidate.assigned_students > 0 && ` · ${candidate.shared_class_id ? '已指派教練' : '已排課'} ${candidate.assigned_students} 人`} · {candidate.orders.length} 筆訂單</p>
+                {candidate.shared_class_id && candidate.assigned_students > 0 && candidate.paid_students !== undefined && candidate.paid_students < candidate.registered_students && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">未付款的訂單暫不顯示於正式排課月曆。</p>}
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {candidate.orders.map((order) => <button key={`${order.group_id}-${candidate.ability_level}`} type="button" onClick={() => navigate(`/snowland/console/orders?search=${encodeURIComponent(order.order_number || String(order.group_id))}`)} className="rounded-md border border-gray-200 px-2 py-1 text-xs text-violet-700 hover:bg-violet-50 dark:border-gray-600 dark:text-violet-300 dark:hover:bg-gray-700" title="查看訂單並人工調整">{order.order_number || `訂單 #${order.group_id}`} · {order.students} 人{order.already_assigned ? ' · 已排課' : ''}</button>)}
+                  {candidate.orders.map((order) => <button key={`${order.group_id}-${candidate.ability_level}`} type="button" onClick={() => navigate(`/snowland/console/orders?search=${encodeURIComponent(order.order_number || String(order.group_id))}`)} className="rounded-md border border-gray-200 px-2 py-1 text-xs text-violet-700 hover:bg-violet-50 dark:border-gray-600 dark:text-violet-300 dark:hover:bg-gray-700" title={isCampusOrderViewer ? '查看校區訂單摘要' : '查看訂單'}>{order.order_number || `訂單 #${order.group_id}`} · {order.students} 人{order.already_assigned ? ` · ${candidate.shared_class_id && order.payment_status !== 'paid' ? '教練已指派' : '已排課'}` : ''}</button>)}
                 </div>
+                {canManageSharedClass && candidate.shared_class_id && candidate.orders.length > 0 && candidate.shared_class_status !== 'cancelled' && <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                  <button type="button" onClick={() => {
+                    const nextId = reschedulingClassId === candidate.shared_class_id ? null : candidate.shared_class_id
+                    setReschedulingClassId(nextId)
+                    setRescheduleDate(candidate.date)
+                    setRescheduleSession(`${candidate.start_time}|${candidate.end_time}`)
+                    setRescheduleError('')
+                    setSharedClassMessage('')
+                  }} className="min-h-11 rounded-lg border border-violet-500 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-gray-700">
+                    {reschedulingClassId === candidate.shared_class_id ? '收起整班改期' : '整班調整日期／時段'}
+                  </button>
+                  {reschedulingClassId === candidate.shared_class_id && <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/50">
+                    {scheduleOptionsLoading ? <p className="text-sm text-gray-600 dark:text-gray-300">正在讀取可選時段…</p> : scheduleOptionsError ? <p role="alert" className="text-sm text-red-600 dark:text-red-300">無法讀取班級時段，請稍後再試。</p> : <>
+                      <p className="text-sm text-gray-700 dark:text-gray-200">會同步修改 {scheduleOptions?.affected_orders ?? candidate.orders.length} 筆訂單，不會改動已收金額。儲存後請通知客人確認新時間。</p>
+                      <div className="mt-3 flex flex-wrap items-end gap-2">
+                        <label className="min-w-40 flex-1 text-sm font-medium text-gray-900 dark:text-white">新日期
+                          <input type="date" min={todayStr} value={rescheduleDate} disabled={rescheduleMutation.isPending} onChange={(event) => { setRescheduleDate(event.target.value); setRescheduleError('') }} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+                        </label>
+                        <label className="min-w-40 flex-1 text-sm font-medium text-gray-900 dark:text-white">上課時段
+                          <select value={rescheduleSession} disabled={rescheduleMutation.isPending} onChange={(event) => { setRescheduleSession(event.target.value); setRescheduleError('') }} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+                            <option value="">請選擇</option>
+                            {scheduleOptions?.sessions.map((session) => <option key={`${session.start_time}|${session.end_time}`} value={`${session.start_time}|${session.end_time}`}>{session.start_time}–{session.end_time}</option>)}
+                          </select>
+                        </label>
+                        <button type="button" disabled={!rescheduleDate || !rescheduleSession || rescheduleMutation.isPending || (rescheduleDate === candidate.date && rescheduleSession === `${candidate.start_time}|${candidate.end_time}`)} onClick={() => rescheduleMutation.mutate()} className="min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">{rescheduleMutation.isPending ? '儲存中…' : '儲存整班時段'}</button>
+                      </div>
+                      {rescheduleError && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">{rescheduleError}</p>}
+                    </>}
+                  </div>}
+                </div>}
+                {canManageSharedClass && candidate.shared_class_id && candidate.shared_class_status === 'ready' && <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                  <button type="button" onClick={() => {
+                    setEditingSharedClassId(editingSharedClassId === candidate.shared_class_id ? null : candidate.shared_class_id)
+                    setSelectedSharedCoachId('')
+                    setSharedClassError('')
+                    setSharedClassMessage('')
+                  }} className="min-h-11 rounded-lg border border-violet-500 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-gray-700">
+                    {editingSharedClassId === candidate.shared_class_id ? '收起整班改派' : '整班指派／更換教練'}
+                  </button>
+                  {editingSharedClassId === candidate.shared_class_id && <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/50">
+                    {sharedCoachesLoading ? <p className="text-sm text-gray-600 dark:text-gray-300">正在查詢可接課教練…</p> : sharedCoachesError ? <p role="alert" className="text-sm text-red-600 dark:text-red-300">無法查詢教練，請稍後再試。</p> : <>
+                      <p className="text-sm text-gray-700 dark:text-gray-200">目前教練：{sharedCoachOptions?.current_coach_name || '尚未指派'}。儲存後會同步更新這班所有訂單。</p>
+                      {sharedCoachOptions?.coaches.length ? <div className="mt-3 flex flex-wrap items-end gap-2">
+                        <label className="min-w-48 flex-1 text-sm font-medium text-gray-900 dark:text-white">選擇教練
+                          <select value={selectedSharedCoachId} disabled={sharedCoachMutation.isPending} onChange={(event) => { setSelectedSharedCoachId(event.target.value); setSharedClassError('') }} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+                            <option value="">請選擇</option>
+                            {sharedCoachOptions.coaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}{coach.availability_status === 'passive' ? '（需確認接課）' : ''}</option>)}
+                          </select>
+                        </label>
+                        <button type="button" disabled={!selectedSharedCoachId || sharedCoachMutation.isPending} onClick={() => sharedCoachMutation.mutate()} className="min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">{sharedCoachMutation.isPending ? '儲存中…' : '儲存整班教練'}</button>
+                      </div> : <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">目前沒有符合課程資格且無撞課／請假的教練，請先檢查教練設定或時段。</p>}
+                      {sharedClassError && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">{sharedClassError}</p>}
+                    </>}
+                  </div>}
+                </div>}
               </div>
             ))}
           </div>
@@ -434,7 +621,7 @@ export default function SchedulingPage() {
                         key={i}
                         onClick={() => selectDate(cell.dateStr)}
                         role="button"
-                        aria-label={`${cell.dateStr}，已排 ${dayBookings.length} 項，團體報名候選 ${dayCandidateCount} 組，可排 ${daySummary?.free_coaches ?? 0} 位教練`}
+                        aria-label={`${cell.dateStr}，已排 ${dayBookings.length} 項，團體班與候選 ${dayCandidateCount} 組，可排 ${daySummary?.free_coaches ?? 0} 位教練`}
                         tabIndex={0}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -462,7 +649,7 @@ export default function SchedulingPage() {
                             )}
                           </div>
                         )}
-                        {dayCandidateCount > 0 && <div className="mt-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 sm:px-1.5 sm:text-[11px]">報名候選 {dayCandidateCount} 組</div>}
+                        {dayCandidateCount > 0 && <div className="mt-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 sm:px-1.5 sm:text-[11px]">班級／候選 {dayCandidateCount} 組</div>}
                         <div className="mt-1 hidden space-y-0.5 sm:block">
                           {dayBookings.slice(0, 2).map((b) => renderEventButton(b, true))}
                           {dayBookings.length > 2 && <div className="text-xs text-gray-500 px-1">+ {dayBookings.length - 2} 更多</div>}
@@ -522,7 +709,7 @@ export default function SchedulingPage() {
                             </div>
                           )}
                         </div>
-                        {dayCandidateCount > 0 && <div className="mb-2 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">團體報名候選 {dayCandidateCount} 組，點日期查看</div>}
+                        {dayCandidateCount > 0 && <div className="mb-2 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">團體班與候選 {dayCandidateCount} 組，點日期查看</div>}
                         {dayBookings.length === 0 ? (
                           <div className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-gray-500 dark:border-gray-600 dark:text-gray-400">
                             沒有排課
@@ -547,8 +734,8 @@ export default function SchedulingPage() {
                 <h3 className="font-semibold text-gray-900 dark:text-white text-sm">{selectedDate || '選擇一天查看排程'}</h3>
                 {selectedSummary && (
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    可排教練 {selectedSummary.free_coaches} / 可接課 {selectedSummary.total_coaches}
-                    {selectedSummary.booked_coaches > 0 && `，已排 ${selectedSummary.booked_coaches}`}
+                    可排教練 {selectedSummary.free_coaches} / {selectedSummary.total_coaches} 位（啟用校區）
+                    {selectedSummary.booked_coaches > 0 && `，已排教練 ${selectedSummary.booked_coaches} 位`}
                     {selectedSummary.leave_coaches > 0 && `，請假 ${selectedSummary.leave_coaches}`}
                   </p>
                 )}
@@ -556,10 +743,11 @@ export default function SchedulingPage() {
             </div>
 
             {selectedCandidates.length > 0 && <div className="border-b border-gray-200 p-3 dark:border-gray-700">
-              <h4 className="mb-2 text-xs font-semibold text-amber-800 dark:text-amber-200">當天團體報名候選（尚未開班）</h4>
+              <h4 className="mb-2 text-xs font-semibold text-amber-800 dark:text-amber-200">當天團體班與合班候選</h4>
               <div className="space-y-2">
-                {selectedCandidates.map((candidate) => <div key={`${candidate.campus_id}-${candidate.resort_id}-${candidate.template_id}-${candidate.start_time}-${candidate.ability_level}`} className="rounded-lg bg-amber-50 p-2 text-xs text-gray-700 dark:bg-amber-900/20 dark:text-gray-200">
-                  <p className="font-medium">{candidate.start_time}–{candidate.end_time} · {candidate.campus_name} · {candidate.resort_name} · {candidate.template_name} · {candidate.ability_level === 'no_exp' ? '等級 0' : candidate.ability_level.startsWith('level') ? `等級 ${candidate.ability_level.slice(5)}` : '程度待確認'}</p>
+                {selectedCandidates.map((candidate) => <div key={`${candidate.campus_id}-${candidate.resort_id}-${candidate.template_id}-${candidate.start_time}-${candidate.ability_level}-${candidate.shared_class_id || 'candidate'}`} className="rounded-lg bg-amber-50 p-2 text-xs text-gray-700 dark:bg-amber-900/20 dark:text-gray-200">
+                  <p className="font-medium">{candidate.shared_class_id ? '跨訂單班級' : '候選名單'} · {candidate.start_time}–{candidate.end_time} · {candidate.campus_name} · {candidate.resort_name} · {candidate.template_name} · {candidate.ability_level === 'no_exp' ? '等級 0' : candidate.ability_level.startsWith('level') ? `等級 ${candidate.ability_level.slice(5)}` : '程度待確認'}</p>
+                  <p className="mt-1">{candidateStatus(candidate)}</p>
                   <p className="mt-1">報名 {candidate.registered_students} 人 · {candidate.orders.length} 筆訂單{candidate.paid_students !== undefined && ` · 已付款 ${candidate.paid_students} 人`}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {candidate.orders.map((order) => <button key={order.group_id} type="button" onClick={() => navigate(`/snowland/console/orders?search=${encodeURIComponent(order.order_number || String(order.group_id))}`)} className="rounded border border-amber-300 px-2 py-1 text-violet-700 hover:bg-white dark:border-amber-700 dark:text-violet-300 dark:hover:bg-gray-800">查看 {order.order_number || `#${order.group_id}`}</button>)}
@@ -569,6 +757,8 @@ export default function SchedulingPage() {
             </div>}
             {!selectedDate ? (
               <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">點選左側日期查看當天排課</div>
+            ) : isLoading ? (
+              <div role="status" className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">正在載入當天排程…</div>
             ) : selectedBookings.length === 0 ? (
               <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">當天沒有排課</div>
             ) : (
@@ -585,6 +775,11 @@ export default function SchedulingPage() {
                           <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                             {firstBooking?.user_name || '—'} · 共 {group.bookings.length} 小單
                           </div>
+                          {firstBooking?.campus_name && (
+                            <div className="mt-1 text-xs text-gray-500 dark:text-gray-300">
+                              {firstBooking.campus_name}{firstBooking.campus_is_active === false && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">已停用</span>}
+                            </div>
+                          )}
                         </div>
                         {group.groupId && firstBooking && (
                           <button

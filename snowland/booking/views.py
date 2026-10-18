@@ -1,5 +1,5 @@
 from django.shortcuts import render, get_object_or_404
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from django.conf import settings
@@ -20,6 +20,8 @@ from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseS
 from .utils import build_course_data_optimized  # 新增：匯入優化的資料建構函數
 from django.core.cache import cache  # 新增：快取支援
 from .decorators import require_tenant  # 🔥 新增：匯入裝飾器
+from .operations import resolve_payment_account
+from .payment_access import can_access_payment, payment_url_for_group
 
 
 def get_client_ip(request):
@@ -136,12 +138,6 @@ def payment(request, client_code):
     tenant = request.tenant  # 🔥 由裝飾器確保存在
 
     next_url = PAYMENT_HOST.replace('/booking/', f'/booking/{client_code}/') + '?reservation_group=' + reservation_group_pk
-    bank_info = {
-        'account_name': '雪域有限公司',
-        'account_number': '123-456-789012',
-        'branch_name': '信義分行',
-        'bank_name': '台灣銀行',
-    }
     context = {'next_url': next_url, 'reservation_group_pk': reservation_group_pk}
 
     # 🔥 多租戶過濾（裝飾器已確保 tenant 存在）
@@ -149,6 +145,13 @@ def payment(request, client_code):
         pk=reservation_group_pk,
         client=tenant
     ).first()
+
+    if group and not can_access_payment(group, request.user, request.GET.get('access_token', '')):
+        raise Http404
+    if group and not group.user_id:
+        next_url = payment_url_for_group(PAYMENT_HOST.replace('/booking/', f'/booking/{client_code}/'), group)
+        context['next_url'] = next_url
+        context['payment_access_token'] = request.GET.get('access_token', '')
     
     if group:
         # 獲取所有未被軟刪除的預約
@@ -220,13 +223,22 @@ def payment(request, client_code):
             context['message'] = '此預約群組的總費用為0，無需付款'
             return render(request, 'booking/payment.html', context)
 
+        account = resolve_payment_account(group)
+        bank_info = {
+            'bank_name': account.bank_name if account else tenant.bank_name,
+            'branch_name': account.bank_branch if account else tenant.bank_branch,
+            'account_number': account.account_number if account else tenant.bank_account_number,
+            'account_name': account.account_holder if account else tenant.bank_account_holder,
+        }
+        context['bank_transfer_ready'] = all(bank_info.values())
+
         user_ip = get_client_ip(request)
         # # 模擬國外IP（開發測試用）
         # from django.conf import settings
         # if settings.DEBUG:
         #     user_ip = "8.8.8.8"  # 美國IP
 
-        # paymentType = 'newebpay'
+        paymentType = 'TT'
         try:
             resp = requests.get(f"https://ipinfo.io/{user_ip}/json", timeout=2)
             if resp.status_code == 200:
@@ -553,6 +565,7 @@ def API(request, tunnel, Client_Info=None):
                             for (start_s, end_s) in main_segments:
                                 Booking.objects.create(
                                     reservation=reservation,
+                                    course_template=course_slot.template,
                                     course_type=ctype,
                                     course_name=course_slot.template.name,
                                     date=date,
@@ -647,7 +660,7 @@ def API(request, tunnel, Client_Info=None):
                         response_data = {"message": "預約成功,正在等待教練確認接課"}
                     else:
                         # 所有預約都成功自動分配
-                        payment_url = PAYMENT_HOST + '?reservation_group=' + str(group.pk)
+                        payment_url = payment_url_for_group(PAYMENT_HOST, group)
                         response_data = {
                             "message": "預約成功,已排定教練",
                             "payment_url": payment_url,
@@ -795,8 +808,16 @@ def API(request, tunnel, Client_Info=None):
             reservation_group_pk = body.get("reservation_group_pk")
             paymentType = body.get("paymentType")
             resv = get_object_or_404(ReservationGroup, pk=reservation_group_pk)
-            user_data = body.get("user")
-            user_id = user_data.get("id")
+            if not request.user.is_authenticated:
+                return JsonResponse({'error': '請先登入'}, status=401)
+            if not can_access_payment(resv, request.user, body.get('access_token', '')):
+                return JsonResponse({'error': '找不到預約群組'}, status=404)
+            user_id = request.user.id
+            payment = Payment.objects.filter(reservation_group=resv).order_by('-created_at').first()
+            if not payment:
+                return JsonResponse({'error': '找不到付款資料'}, status=404)
+            if payment.status in {'paid', 'expired'}:
+                return JsonResponse({'error': '此訂單已付款或付款期限已結束'}, status=400)
             if paymentType == "newebpay":
                 if not all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
                     return JsonResponse({'error': '信用卡付款尚未開放，請改用銀行匯款'}, status=503)
@@ -835,9 +856,8 @@ def API(request, tunnel, Client_Info=None):
                 return JsonResponse({"message": "Payment confirmed", 'html': response}, status=200)
             elif paymentType == "TT":
                 senderAccount = body.get("senderAccount")
-                user = User.objects.get(id=user_id)
+                user = request.user
                 # 使用匯款付款
-                payment = Payment.objects.get(reservation_group=resv)
                 payment.status = 'pending'
                 payment.bank_account = senderAccount
                 payment.user = user
@@ -910,28 +930,8 @@ def API(request, tunnel, Client_Info=None):
             return JsonResponse(reservations_list, safe=False, status=200)
         
     elif tunnel == 'payment_gmail':
-        if request.method == 'POST':
-            from .scheduler import send_gmail
-            body = request.data
-            gmail = body.get('gmail')
-            payment_url = body.get('payment_url')
-            subject = "滑雪課程預約付款連結"
-            body = f"""
-            親愛的用戶您好，
-
-            您的滑雪課程預約已完成，請點擊下方連結進行付款以完成訂單：
-
-            付款連結：{payment_url}
-
-            若有任何問題，歡迎隨時與我們聯繫。
-            感謝您的預約，祝您有美好的一天！
-
-            雪域創遊SNOWLAND 敬上
-            """
-            to_email = gmail
-
-            result = send_gmail(subject, body, to_email)
-            return JsonResponse({"message": "成功傳送", 'result': result}, status=200)
+        from .payment_email import send_payment_email
+        return send_payment_email(request)
 
 
 # # 後端自己的時段配置表 (舊版，已由 Coursekit.models.Course 取代)

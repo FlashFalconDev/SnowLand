@@ -117,6 +117,7 @@ function NotificationBell() {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
+        aria-label="查看通知"
         className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg relative"
       >
         <Bell size={20} />
@@ -400,7 +401,10 @@ function AdminLayoutContent() {
       setAdminCheck(null)
       return
     }
-    fetchAdminMe().then(setAdminCheck)
+    const refreshAdminScope = () => { void fetchAdminMe().then(setAdminCheck) }
+    refreshAdminScope()
+    window.addEventListener('snowland:campuses-updated', refreshAdminScope)
+    return () => window.removeEventListener('snowland:campuses-updated', refreshAdminScope)
   }, [user])
 
   useEffect(() => {
@@ -415,12 +419,14 @@ function AdminLayoutContent() {
       if (campusScope !== defaultScope) window.location.reload()
       return
     }
-    if (adminUser.can_view_all_campuses || !adminUser.campuses?.length) return
-    const allowed = new Set(adminUser.campuses.map((campus) => String(campus.id)))
-    if (!allowed.has(campusScope)) {
-      const onlyCampus = String(adminUser.campuses[0].id)
-      localStorage.setItem('snowland_admin_campus_scope', onlyCampus)
-      setCampusScope(onlyCampus)
+    const allowed = new Set((adminUser.campuses || []).map((campus) => String(campus.id)))
+    if (!adminUser.can_view_all_campuses && !allowed.size) return
+    if ((campusScope !== 'all' && !allowed.has(campusScope)) ||
+        (campusScope === 'all' && !adminUser.can_view_all_campuses && allowed.size)) {
+      const fallbackScope = adminUser.can_view_all_campuses ? 'all' : String(adminUser.campuses?.[0]?.id)
+      localStorage.setItem('snowland_admin_campus_scope', fallbackScope)
+      setCampusScope(fallbackScope)
+      window.location.reload()
     }
   }, [adminCheck, campusScope])
 
@@ -564,6 +570,8 @@ function AdminLayoutContent() {
         { id: 'my-pending', label: '待確認課程', path: `${basePath}/console/my/pending` },
         { id: 'my-courses-list', label: '我的所有課程', path: `${basePath}/console/my/courses` },
         { id: 'my-calendar', label: '我的月曆', path: `${basePath}/console/my/calendar` },
+        { id: 'my-evaluations', label: '我的學習評量', path: `${basePath}/console/my/evaluations` },
+        { id: 'my-payroll', label: '我的薪資', path: `${basePath}/console/my/payroll` },
       ],
     },
     {
@@ -653,6 +661,7 @@ function AdminLayoutContent() {
       <NoManagerPermission
         user={user}
         onLogout={() => logout(`${basePath}/console`)}
+        onRetry={() => { setAdminCheck(null); void fetchAdminMe().then(setAdminCheck) }}
         basePath={basePath}
         errorCode={adminCheck.errorCode}
         errorMsg={adminCheck.errorMsg}
@@ -771,7 +780,7 @@ function AdminLayoutContent() {
 
           <div className="flex items-center gap-2">
             {!!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
-              <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title="切換日常資料的校區範圍；總部設定頁仍可管理全部校區">
+              <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title={adminCheck.user.can_view_all_campuses ? '切換日常資料的校區範圍；總部設定頁仍可管理全部校區' : '目前可查看的校區範圍'}>
                 <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">目前範圍</span>
                 <select
                   aria-label="目前管理校區"
@@ -791,7 +800,7 @@ function AdminLayoutContent() {
             >
               <Globe size={20} />
             </button>
-            <NotificationBell />
+            {hasAdminPermission(adminCheck?.user, 'notifications') && <NotificationBell />}
             <ThemeToggleButton />
             <button
               onClick={() => logout(`${basePath}/console`)}
@@ -802,6 +811,23 @@ function AdminLayoutContent() {
             </button>
           </div>
         </header>
+
+        {!!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+          <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 sm:hidden">
+            <label className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
+              <span className="shrink-0">目前範圍</span>
+              <select
+                aria-label="目前管理校區"
+                value={campusScope}
+                onChange={(event) => changeCampusScope(event.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-semibold text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              >
+                {adminCheck.user.can_view_all_campuses && <option value="all">全部校區</option>}
+                {adminCheck.user.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
 
         <main className="p-4 md:p-6">
           <Outlet />
@@ -831,13 +857,11 @@ function PageBreadcrumb({ navItems }: { navItems: NavItem[] }) {
       continue
     }
     for (const c of item.children) {
-      if (location.pathname === c.path || location.pathname.startsWith(c.path + '/')) {
+      if ((location.pathname === c.path || location.pathname.startsWith(c.path + '/')) && (!child || c.path.length > child.path.length)) {
         parent = item
         child = c
-        break
       }
     }
-    if (parent) break
   }
 
   if (!parent || !child) {
@@ -857,12 +881,14 @@ function PageBreadcrumb({ navItems }: { navItems: NavItem[] }) {
 function NoManagerPermission({
   user,
   onLogout,
+  onRetry,
   basePath,
   errorCode,
   errorMsg,
 }: {
   user: { name?: string; email?: string; picture?: string }
   onLogout: () => Promise<void> | void
+  onRetry: () => void
   basePath: string
   errorCode: number | null
   errorMsg: string
@@ -946,16 +972,23 @@ function NoManagerPermission({
           </div>
         )}
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          {!is403 && <button
+            onClick={onRetry}
+            className="flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            style={{ backgroundColor: PRIMARY }}
+          >
+            重新驗證
+          </button>}
           <button
             onClick={() => window.location.href = basePath || '/'}
-            className="flex-1 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+            className="flex-1 min-w-[120px] px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
           >
             回首頁
           </button>
           <button
             onClick={() => onLogout()}
-            className="flex-1 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            className="flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
             style={{ backgroundColor: PRIMARY }}
           >
             切換帳號

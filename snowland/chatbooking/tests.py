@@ -17,7 +17,7 @@ from django.utils import timezone
 from Client.models import Client, SiteContent
 from Coach.models import Coach, CoachCourseLevel, CoachResort
 from Coursekit.models import CourseCategory, CoursePricing, CourseSession, CourseTemplate, CourseType
-from Resorts.models import Resorts
+from Resorts.models import Campus, Resorts
 from booking.models import Booking, Payment, Reservation, ReservationGroup
 
 from .ai.orchestrator import AIReply, run_ai_turn
@@ -1132,9 +1132,11 @@ class ChatSupportAdminAPITests(TestCase):
             password="test-password",
         )
         self.manager.userprofile.is_manager = True
+        self.manager.userprofile.manager_client = self.tenant
+        self.manager.userprofile.role = "hq_admin"
         self.manager.userprofile.admin_permissions = ["chat_support"]
         self.manager.userprofile.save(
-            update_fields=["is_manager", "admin_permissions"],
+            update_fields=["is_manager", "manager_client", "role", "admin_permissions"],
         )
         self.client.force_login(self.manager)
         self.session = ChatBookingSession.objects.create(
@@ -1814,6 +1816,8 @@ class ChatBookingAIOrchestratorTests(TestCase):
 
 class ChatBookingOrderIntegrationTests(TestCase):
     def setUp(self):
+        self.member = User.objects.create_user('chat-order-member', 'chat-member@example.test')
+        self.client.force_login(self.member)
         self.tenant = Client.objects.create(name="SnowLand Test", internal_code="snowland-test")
         self.resort = Resorts.objects.create(
             client=self.tenant,
@@ -1821,6 +1825,8 @@ class ChatBookingOrderIntegrationTests(TestCase):
             display_name="測試雪場",
             auto_scheduling_enabled=False,
         )
+        self.campus = Campus.objects.create(client=self.tenant, name='測試校區', code='chat-order')
+        self.campus.resorts.add(self.resort)
         self.category = CourseCategory.objects.create(
             client=self.tenant,
             name="雙板",
@@ -1879,6 +1885,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
     def create_complete_chat_session(self):
         session = ChatBookingSession.objects.create(
             client=self.tenant,
+            user=self.member,
             channel=ChatBookingSession.CHANNEL_API,
             slot_values=self.complete_values,
             current_step="confirmation",
@@ -1892,12 +1899,21 @@ class ChatBookingOrderIntegrationTests(TestCase):
         draft = make_quote(session)
         return confirm_quoted_session(
             session,
-            None,
+            session.user,
             idempotency_key=idempotency_key,
             expected_state_version=session.state_version,
             expected_quote_hash=draft.quote_hash,
             input_data={"confirmed": True},
         )
+
+    def test_anonymous_chat_confirmation_cannot_create_order(self):
+        session = self.create_complete_chat_session()
+        session.user = None
+        session.save(update_fields=['user'])
+        result = self.quote_and_confirm(session, 'anonymous-denied')
+        self.assertFalse(result.ok)
+        self.assertIn('登入', result.error)
+        self.assertFalse(ReservationGroup.objects.exists())
 
     def test_quote_confirm_and_duplicate_confirm_create_one_order(self):
         created = self.client.post(
@@ -1946,6 +1962,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
         )
         self.assertEqual(first.status_code, 200, first.content)
         self.assertEqual(ReservationGroup.objects.count(), 1)
+        self.assertTrue(ReservationGroup.objects.get().booking_contact['policy_accepted_at'])
         self.assertEqual(first.json()["payment"]["total_amount"], 10000)
 
         second = self.client.post(
@@ -1977,7 +1994,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
         self.assertEqual(draft.quote["total"], 20000)
         result = confirm_quoted_session(
             session,
-            None,
+            session.user,
             idempotency_key="two-cart-items",
             expected_state_version=session.state_version,
             expected_quote_hash=draft.quote_hash,
@@ -1993,7 +2010,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
 
         replay = confirm_quoted_session(
             session,
-            None,
+            session.user,
             idempotency_key="two-cart-items",
             expected_state_version=session.state_version,
             expected_quote_hash=draft.quote_hash,
@@ -2040,6 +2057,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
     def test_ai_confirmation_tool_creates_one_real_order(self):
         session = ChatBookingSession.objects.create(
             client=self.tenant,
+            user=self.member,
             channel=ChatBookingSession.CHANNEL_API,
             slot_values=self.complete_values,
             current_step="confirmation",
@@ -2107,6 +2125,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
             languages=["zh"],
             availability_status="active",
         )
+        coach.campuses.add(self.campus)
         CoachResort.objects.create(coach=coach, resort=self.resort)
         CoachCourseLevel.objects.create(
             coach=coach,
@@ -2169,6 +2188,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
             languages=["zh"],
             availability_status="active",
         )
+        coach.campuses.add(self.campus)
         CoachResort.objects.create(coach=coach, resort=self.resort)
         CoachCourseLevel.objects.create(
             coach=coach,

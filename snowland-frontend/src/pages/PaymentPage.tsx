@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle, CreditCard, Building2, Copy, Check, Home } from 'lucide-react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { CheckCircle, CreditCard, Building2, Copy, Check, ArrowLeft } from 'lucide-react'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import Toast, { ToastType } from '@/components/ui/Toast'
 
@@ -35,12 +35,14 @@ interface PaymentData {
 export default function PaymentPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { clientCode = 'snowland' } = useParams<{ clientCode: string }>()
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [selectedMethod, setSelectedMethod] = useState<'newebpay' | 'bank_transfer'>('bank_transfer')
   const [senderAccount, setSenderAccount] = useState('')
   const [copied, setCopied] = useState(false)
+  const [showLaterReminder, setShowLaterReminder] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isOpen: boolean }>({
     message: '',
     type: 'info',
@@ -49,6 +51,10 @@ export default function PaymentPage() {
   const [loadingMessage, setLoadingMessage] = useState('')
 
   const reservationGroupId = searchParams.get('reservation_group')
+  const accessToken = searchParams.get('access_token') || ''
+  const returnToOrders = () => navigate(`/${clientCode}/membership/orders${reservationGroupId ? `/${reservationGroupId}` : ''}`)
+  const leavePayment = () => accessToken ? navigate(`/${clientCode}/`) : returnToOrders()
+  const leaveLabel = accessToken ? '返回官網' : '返回我的訂單'
   const money = (amount: number) => amount.toLocaleString('zh-TW')
 
   const showToast = (message: string, type: ToastType = 'info') => {
@@ -66,7 +72,7 @@ export default function PaymentPage() {
     const fetchPaymentData = async () => {
       try {
         const response = await fetch(
-          `/booking/snowland/api/payment-info/?reservation_group=${reservationGroupId}`,
+          `/booking/snowland/api/payment-info/?${new URLSearchParams({ reservation_group: reservationGroupId, ...(accessToken ? { access_token: accessToken } : {}) })}`,
           {
             credentials: 'include', // 包含 session cookies
           }
@@ -83,6 +89,7 @@ export default function PaymentPage() {
 
         setLoadError('')
         setPaymentData(data)
+        setSelectedMethod(data.payment_methods?.includes('bank_transfer') ? 'bank_transfer' : 'newebpay')
         setLoading(false)
       } catch (error) {
         setLoadError('無法連接到伺服器，請稍後再試')
@@ -92,7 +99,7 @@ export default function PaymentPage() {
     }
 
     fetchPaymentData()
-  }, [reservationGroupId, navigate])
+  }, [reservationGroupId, accessToken, navigate])
 
   const handleCopyAccount = () => {
     navigator.clipboard.writeText(paymentData?.bank_info?.bank_account_number || '')
@@ -106,7 +113,8 @@ export default function PaymentPage() {
       ? new Date(paymentData.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
       : '訂單付款期限'
     showToast(`請於 ${deadline} 前完成匯款；匯款後再回付款連結補後五碼。`, 'success')
-    setTimeout(() => navigate('..'), 800)
+    if (accessToken) setShowLaterReminder(true)
+    else setTimeout(returnToOrders, 800)
   }
 
   const handleConfirmBankTransfer = async () => {
@@ -127,7 +135,8 @@ export default function PaymentPage() {
         body: JSON.stringify({
           reservation_group_id: reservationGroupId,
           payment_type: 'bank_transfer',
-          sender_account: senderAccount
+          sender_account: senderAccount,
+          access_token: accessToken,
         })
       })
 
@@ -140,9 +149,9 @@ export default function PaymentPage() {
       }
 
       showToast('匯款資訊已提交，請等待確認', 'success')
-      setTimeout(() => {
-        navigate('..')
-      }, 2000)
+      setPaymentData(current => current ? { ...current, payment_status: 'pending' } : current)
+      setLoadingMessage('')
+      if (!accessToken) setTimeout(returnToOrders, 2000)
     } catch (error) {
       showToast('提交失敗，請稍後再試', 'error')
       setLoadingMessage('')
@@ -161,7 +170,8 @@ export default function PaymentPage() {
         credentials: 'include', // 包含 session cookies
         body: JSON.stringify({
           reservation_group_id: reservationGroupId,
-          payment_type: 'newebpay'
+          payment_type: 'newebpay',
+          access_token: accessToken,
         })
       })
 
@@ -194,9 +204,9 @@ export default function PaymentPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#f7f8fa] flex items-center justify-center">
         <div className="text-center">
-          <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-primary-500 border-r-transparent mb-4"></div>
+          <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-[#2b5f8f] border-r-transparent mb-4"></div>
           <p className="text-gray-600">載入付款資訊中...</p>
         </div>
       </div>
@@ -204,33 +214,36 @@ export default function PaymentPage() {
   }
 
   if (!paymentData) {
-    return <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-6">
-      <div role="alert" className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-lg">
+    return <main className="flex min-h-screen items-center justify-center bg-[#f7f8fa] p-6">
+      <div role="alert" className="w-full max-w-md rounded-sm border border-red-200 bg-white p-6 text-center shadow-sm">
         <h1 className="text-xl font-bold text-gray-900">無法顯示付款資訊</h1>
         <p className="mt-3 text-sm text-red-700">{loadError || '請確認訂單連結是否正確。'}</p>
-        <button onClick={() => navigate('..')} className="mt-5 rounded-full bg-primary-600 px-5 py-2 font-semibold text-white">返回首頁</button>
+        <button onClick={leavePayment} className="mt-5 rounded-full bg-[#2b5f8f] px-5 py-2 font-semibold text-white">{leaveLabel}</button>
       </div>
     </main>
   }
 
   const canUseNewebpay = paymentData.payment_methods?.includes('newebpay') === true
+  const canUseBankTransfer = paymentData.payment_methods?.includes('bank_transfer') === true
   const isPaid = paymentData.payment_status === 'paid'
+  const isPending = paymentData.payment_status === 'pending'
+  const canSubmitPayment = !isPaid && !isPending
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+    <div className="min-h-screen bg-[#f7f8fa]">
       {/* 頂部導航 */}
-      <nav className="bg-white/80 shadow-sm backdrop-blur-md">
+      <nav className="border-b border-[#dbe3ec] bg-white">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-primary-700 sm:text-2xl">
-              <span className="sm:hidden">課程付款</span><span className="hidden sm:inline">雪域滑雪課程預約 - 付款</span>
+            <h1 className="text-xl font-bold text-[#1f2937] sm:text-2xl">
+              課程付款
             </h1>
             <button
-              onClick={() => navigate('..')}
-              className="flex items-center gap-2 whitespace-nowrap rounded-full bg-gray-200 px-4 py-2 text-gray-600 transition-all hover:bg-gray-300"
+              onClick={leavePayment}
+              className="flex items-center gap-2 whitespace-nowrap rounded-full border border-[#dbe3ec] bg-white px-4 py-2 text-sm font-semibold text-[#2b5f8f] transition-colors hover:bg-[#eef4fa]"
             >
-              <Home size={20} />
-              <span>返回首頁</span>
+              <ArrowLeft size={18} />
+              <span>{leaveLabel}</span>
             </button>
           </div>
         </div>
@@ -239,7 +252,7 @@ export default function PaymentPage() {
       {/* 主要內容 */}
       <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         {/* 訂單摘要 */}
-        <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
+        <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
           <h2 className="mb-6 text-2xl font-bold text-gray-800">訂單摘要</h2>
 
           <div className="space-y-4">
@@ -292,74 +305,81 @@ export default function PaymentPage() {
 
           <div className="mt-6 flex items-center justify-between border-t-2 border-gray-200 pt-6">
             <span className="text-xl font-semibold text-gray-700">總金額</span>
-            <span className="text-3xl font-bold text-red-500">
+            <span className="text-3xl font-bold text-[#2b5f8f]">
               NT$ {money(paymentData.total_amount)}
             </span>
           </div>
         </div>
 
         {isPaid && <div role="status" className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 font-semibold text-emerald-800">此訂單已付款，無需再次提交匯款資料。</div>}
+        {isPending && <div role="status" className="mb-8 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 font-semibold text-[#1e4e73]">匯款資料已送出，正在等待 SnowLand 確認付款；請勿重複匯款。如需更正匯款資料，請聯繫客服。{accessToken && <p className="mt-2 text-sm font-normal">請保留這個付款連結，之後可回來查看付款狀態。</p>}</div>}
+        {showLaterReminder && canSubmitPayment && <div role="status" className="mb-8 rounded-sm border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">目前尚未回報匯款。請保留這個付款連結，在付款期限內完成匯款後，再回來填寫匯款帳戶後五碼。</div>}
 
         {/* 付款方式選擇 */}
-        {!isPaid && <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
+        {canSubmitPayment && <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
           <h2 className="mb-6 text-2xl font-bold text-gray-800">選擇付款方式</h2>
 
           <div className="grid gap-4 md:grid-cols-2">
             {/* 銀行匯款 */}
-            <button
+            {canUseBankTransfer && <button
               onClick={() => setSelectedMethod('bank_transfer')}
               className={`rounded-xl border-2 p-6 text-left transition-all ${
                 selectedMethod === 'bank_transfer'
-                  ? 'border-primary-500 bg-primary-50 shadow-lg'
-                  : 'border-gray-200 bg-white hover:border-primary-300'
+                  ? 'border-[#2b5f8f] bg-[#eaf4fb]'
+                  : 'border-[#dbe3ec] bg-white hover:border-[#8eb5d2]'
               }`}
             >
               <div className="flex items-center gap-4">
                 <div className={`flex h-12 w-12 items-center justify-center rounded-full ${
-                  selectedMethod === 'bank_transfer' ? 'bg-primary-200' : 'bg-gray-200'
+                  selectedMethod === 'bank_transfer' ? 'bg-[#d7e9f5]' : 'bg-gray-200'
                 }`}>
-                  <Building2 size={24} className={selectedMethod === 'bank_transfer' ? 'text-primary-600' : 'text-gray-600'} />
+                  <Building2 size={24} className={selectedMethod === 'bank_transfer' ? 'text-[#2b5f8f]' : 'text-gray-600'} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-gray-800">銀行匯款</h3>
                   <p className="text-sm text-gray-600">匯款後等待確認</p>
                 </div>
                 {selectedMethod === 'bank_transfer' && (
-                  <CheckCircle className="text-primary-500" size={24} />
+                  <CheckCircle className="text-[#2b5f8f]" size={24} />
                 )}
               </div>
-            </button>
+            </button>}
 
             {/* 藍新支付 */}
             {canUseNewebpay && <button
               onClick={() => setSelectedMethod('newebpay')}
               className={`rounded-xl border-2 p-6 text-left transition-all ${
                 selectedMethod === 'newebpay'
-                  ? 'border-primary-500 bg-primary-50 shadow-lg'
-                  : 'border-gray-200 bg-white hover:border-primary-300'
+                  ? 'border-[#2b5f8f] bg-[#eaf4fb]'
+                  : 'border-[#dbe3ec] bg-white hover:border-[#8eb5d2]'
               }`}
             >
               <div className="flex items-center gap-4">
                 <div className={`flex h-12 w-12 items-center justify-center rounded-full ${
-                  selectedMethod === 'newebpay' ? 'bg-primary-200' : 'bg-gray-200'
+                  selectedMethod === 'newebpay' ? 'bg-[#d7e9f5]' : 'bg-gray-200'
                 }`}>
-                  <CreditCard size={24} className={selectedMethod === 'newebpay' ? 'text-primary-600' : 'text-gray-600'} />
+                  <CreditCard size={24} className={selectedMethod === 'newebpay' ? 'text-[#2b5f8f]' : 'text-gray-600'} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-gray-800">藍新支付</h3>
                   <p className="text-sm text-gray-600">信用卡/ATM/超商</p>
                 </div>
                 {selectedMethod === 'newebpay' && (
-                  <CheckCircle className="text-primary-500" size={24} />
+                  <CheckCircle className="text-[#2b5f8f]" size={24} />
                 )}
               </div>
             </button>}
           </div>
+          {!canUseBankTransfer && !canUseNewebpay && (
+            <p role="alert" className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
+              付款方式尚未設定完成，請聯繫客服協助，暫時不要匯款。
+            </p>
+          )}
         </div>}
 
         {/* 銀行匯款資訊 */}
-        {!isPaid && selectedMethod === 'bank_transfer' && (
-          <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
+        {canSubmitPayment && canUseBankTransfer && selectedMethod === 'bank_transfer' && (
+          <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
             <h2 className="mb-6 text-2xl font-bold text-gray-800">銀行匯款資訊</h2>
 
             <div className="mb-6 space-y-4 rounded-lg bg-blue-50 p-6">
@@ -395,7 +415,7 @@ export default function PaymentPage() {
               </div>}
               <div className="flex justify-between border-t-2 border-blue-200 pt-4">
                 <span className="text-lg font-bold text-gray-700">匯款金額</span>
-                <span className="text-2xl font-bold text-red-500">
+                <span className="text-2xl font-bold text-[#2b5f8f]">
                   NT$ {money(paymentData.total_amount)}
                 </span>
               </div>
@@ -412,7 +432,7 @@ export default function PaymentPage() {
                 onChange={(e) => setSenderAccount(e.target.value.replace(/\D/g, '').slice(0, 5))}
                 placeholder="請輸入您的匯款帳戶後五碼"
                 maxLength={5}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                className="w-full rounded-sm border border-[#cbd5e1] px-4 py-3 focus:border-[#2b5f8f] focus:outline-none focus:ring-2 focus:ring-[#d7e9f5]"
               />
               <p className="mt-2 text-sm text-gray-600">
                 若尚未匯款，可先按「稍後匯款」離開；完成匯款後再回付款連結填寫後五碼。
@@ -422,14 +442,14 @@ export default function PaymentPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <button
                 onClick={handleBankTransferLater}
-                className="rounded-full border border-primary-500 bg-white px-8 py-4 text-lg font-bold text-primary-700 transition-all hover:bg-primary-50"
+                className="rounded-full border border-[#2b5f8f] bg-white px-8 py-4 text-lg font-bold text-[#2b5f8f] transition-colors hover:bg-[#eaf4fb]"
               >
                 稍後匯款
               </button>
               <button
                 onClick={handleConfirmBankTransfer}
                 disabled={senderAccount.length !== 5}
-                className="rounded-full bg-gradient-to-r from-primary-500 to-purple-500 px-8 py-4 text-lg font-bold text-white shadow-lg transition-all hover:scale-105 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full bg-[#2b5f8f] px-8 py-4 text-lg font-bold text-white transition-colors hover:bg-[#1e4e73] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 確認已匯款
               </button>
@@ -438,22 +458,22 @@ export default function PaymentPage() {
         )}
 
         {/* 藍新支付 */}
-        {!isPaid && canUseNewebpay && selectedMethod === 'newebpay' && (
-          <div className="mb-8 rounded-3xl bg-white p-8 shadow-xl">
+        {canSubmitPayment && canUseNewebpay && selectedMethod === 'newebpay' && (
+          <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
             <h2 className="mb-6 text-2xl font-bold text-gray-800">藍新支付</h2>
 
-            <div className="mb-6 rounded-lg bg-purple-50 p-6 text-center">
+            <div className="mb-6 rounded-sm bg-[#eaf4fb] p-6 text-center">
               <p className="mb-4 text-gray-700">
                 點擊下方按鈕將跳轉到藍新金流付款頁面
               </p>
-              <p className="text-lg font-bold text-purple-600">
+              <p className="text-lg font-bold text-[#2b5f8f]">
                 付款金額：NT$ {money(paymentData.total_amount)}
               </p>
             </div>
 
             <button
               onClick={handleNewebpayPayment}
-              className="w-full rounded-full bg-gradient-to-r from-primary-500 to-purple-500 px-8 py-4 text-lg font-bold text-white shadow-lg transition-all hover:scale-105 hover:shadow-xl"
+              className="w-full rounded-full bg-[#2b5f8f] px-8 py-4 text-lg font-bold text-white transition-colors hover:bg-[#1e4e73]"
             >
               前往付款
             </button>

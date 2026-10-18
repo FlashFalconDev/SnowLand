@@ -19,6 +19,7 @@ interface CartModalProps {
   isOpen: boolean
   onClose: () => void
   onConfirm: () => void
+  onEditGroup?: (groupId: string) => void
 }
 
 type RemovePending =
@@ -41,7 +42,7 @@ const equipmentLabels: Record<string, string> = {
 }
 
 const formatCurrency = (value?: number | null) => {
-  if (value === null || value === undefined) return '價格計算中'
+  if (value === null || value === undefined) return '待重新試算'
   return `NT$ ${value.toLocaleString()}`
 }
 
@@ -55,7 +56,7 @@ const getEquipmentLabel = (option?: string | null, needsEquipment?: boolean) => 
   return needsEquipment ? '需要協助' : '不需協助'
 }
 
-export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps) {
+export default function CartModal({ isOpen, onClose, onConfirm, onEditGroup }: CartModalProps) {
   const cart = useBookingStore((state) => state.cart)
   const removeFromCart = useBookingStore((state) => state.removeFromCart)
   const removeCourseFromGroup = useBookingStore((state) => state.removeCourseFromGroup)
@@ -63,7 +64,8 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
 
   const totalAmount = cart.reduce((sum, group) => sum + (group.totalPrice || 0), 0)
   const totalCourses = cart.reduce((sum, group) => sum + group.courses.length, 0)
-  const hasPendingPrice = cart.some((group) => group.totalPrice === null)
+  const hasPendingPrice = cart.some((group) => group.totalPrice == null || !Number.isFinite(group.totalPrice)
+    || group.courses.some((course) => course.price == null || !Number.isFinite(course.price)))
   const hasSharedClass = cart.some((group) => group.courses.some((course) => course.sharedClassEnabled))
 
   if (!isOpen) return null
@@ -133,7 +135,11 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
                 <p className="mt-1">
                   {hasSharedClass
                     ? '這筆報名需單獨結帳。滿成班人數並安排教練後，系統才會通知付款。'
-                    : '每張卡是一組設定。同一批學生與教練會放在同一組；同一天多堂課也會逐堂列出。要改整組設定，請移除整組後重新選。'}
+                    : !onEditGroup
+                      ? '每張卡是一組設定；若需修改，請移除該組後重新選擇課程、日期與時段。'
+                      : hasPendingPrice
+                      ? '已保留上次的預約設定。請點「修改這組課程」選擇新課程、日期與時段，重新確認價格；不會沿用舊價或直接建立訂單。'
+                      : '每張卡是一組設定，同一天多堂課會逐堂列出。可修改這組課程，完成新設定後才替換，原購物車會先保留。'}
                 </p>
               </div>
               {cart.map((group, groupIndex) => (
@@ -141,6 +147,9 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
                   key={group.id}
                   className="rounded-sm border border-[#e5e9f2] bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
                 >
+                  {onEditGroup && <button type="button" onClick={() => onEditGroup(group.id)} className="mb-4 min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">修改這組課程</button>}
+                  {group.rebookSource && <p className="mb-4 rounded-sm bg-[#eef4fa] p-3 text-xs leading-6 text-[#1e4e73]">將沿用上次可管理的 {group.rebookSource.learnerCount} 位學員姓名、年齡區間與滑雪程度；其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。</p>}
+                  {group.rebookLearnersReset && <p role="status" className="mb-4 rounded-sm bg-amber-50 p-3 text-xs leading-6 text-amber-900">人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。</p>}
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#94a3b8]">
@@ -256,7 +265,7 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
                 <div>
                   <p className="text-xs font-semibold tracking-[0.12em] text-[#64748b]">{hasSharedClass ? '成班後應付' : 'Total'}</p>
                   <p className="mt-1 text-2xl font-bold text-[#2b5f8f]">
-                    {hasPendingPrice ? '價格計算中' : `NT$ ${totalAmount.toLocaleString()}`}
+                    {hasPendingPrice ? '請先重新試算' : `NT$ ${totalAmount.toLocaleString()}`}
                   </p>
                   <p className="mt-1 text-xs text-[#64748b]">
                     {hasSharedClass
@@ -267,7 +276,7 @@ export default function CartModal({ isOpen, onClose, onConfirm }: CartModalProps
                 <button
                   type="button"
                   onClick={onConfirm}
-                  disabled={cart.length === 0}
+                  disabled={cart.length === 0 || hasPendingPrice}
                   className="inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#1f4a6f] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   確認預約
@@ -311,7 +320,7 @@ function MetaItem({
       {Icon && <Icon size={15} className="shrink-0 text-[#2b5f8f]" />}
       <div className="min-w-0">
         <p className="text-[11px] font-semibold text-[#94a3b8]">{label}</p>
-        <p className="truncate text-sm text-[#1f2937]">{value || '未指定'}</p>
+        <p className="break-words text-sm leading-relaxed text-[#1f2937]">{value || '未指定'}</p>
       </div>
     </div>
   )

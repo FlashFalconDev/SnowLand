@@ -39,7 +39,8 @@ interface BookingDetail {
 
 interface CancellationPreview {
   original_amount: number
-  refund_amount: number
+  refund_amount: number | null
+  requires_cash_review: boolean
   refund_percent: number
   handling_fee_percent: number
   days_before: number
@@ -276,7 +277,7 @@ export default function HistoryPage() {
 
       {/* 主要內容 */}
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        {profile && <section className="mb-6 grid gap-4 rounded-2xl bg-white p-5 shadow-lg sm:grid-cols-[1fr_auto]"><div><p className="text-xs font-semibold uppercase tracking-wider text-gray-400">會員等級</p><h2 className="mt-1 text-xl font-bold text-gray-800">{profile.level} · {profile.points.toLocaleString()} 點</h2><p className="mt-1 text-sm text-gray-500">推薦好友訂課可累積點數；舊生資格{profile.alumni_verified ? '已確認' : '尚待確認'}。</p></div><button onClick={async () => { await navigator.clipboard.writeText(profile.referral_code); showToast('推薦碼已複製', 'success') }} className="flex items-center justify-center gap-2 rounded-xl border border-primary-200 px-5 py-3 font-mono font-bold text-primary-700"><Copy size={16} />{profile.referral_code}</button></section>}
+        {profile && <section className="mb-6 grid gap-4 rounded-2xl bg-white p-5 shadow-lg sm:grid-cols-[1fr_auto]"><div><p className="text-xs font-semibold uppercase tracking-wider text-gray-400">會員等級</p><h2 className="mt-1 text-xl font-bold text-gray-800">{({new:'新會員',alumni:'舊生',silver:'銀級',gold:'金級'} as Record<string,string>)[profile.level] || profile.level} · {profile.points.toLocaleString()} 點</h2><p className="mt-1 text-sm text-gray-500">舊生資格{profile.alumni_verified ? '已確認' : '尚待確認'}；實際折扣與回饋以已啟用活動為準。</p></div><button onClick={async () => { await navigator.clipboard.writeText(profile.referral_code); showToast('推薦碼已複製', 'success') }} className="flex items-center justify-center gap-2 rounded-xl border border-primary-200 px-5 py-3 font-mono font-bold text-primary-700"><Copy size={16} />{profile.referral_code}</button></section>}
         {/* 篩選器 */}
         {history.length > 0 && (
           <div className="mb-6 rounded-2xl bg-white p-4 shadow-lg">
@@ -534,7 +535,7 @@ export default function HistoryPage() {
           <h2 className="text-xl font-bold text-gray-900">申請取消與退款</h2>
           <p className="mt-1 text-sm text-gray-600">訂單 #{cancellationGroupId}；送出後需由客服審核，不會立即取消課程或退款。</p>
           {cancellationLoading && !cancellationPreview ? <p className="mt-5 text-gray-600">正在計算退費金額…</p> : cancellationPreview && <div className="mt-5 space-y-4">
-            <div className="rounded-xl bg-violet-50 p-4 text-violet-950"><b>預計退款 NT$ {cancellationPreview.refund_amount.toLocaleString()}</b><p className="mt-1 text-sm">距課程 {cancellationPreview.days_before} 天 · 退 {cancellationPreview.refund_percent}% · 再扣原價的 {cancellationPreview.handling_fee_percent}% 手續費</p></div>
+            <div className="rounded-xl bg-violet-50 p-4 text-violet-950"><b>{cancellationPreview.requires_cash_review?'退款金額待核對實收款':`預計退款 NT$ ${(cancellationPreview.refund_amount??0).toLocaleString()}`}</b><p className="mt-1 text-sm">{cancellationPreview.requires_cash_review?'訂單有未結清補／退差額，先交 SnowLand 核對實收款，不會自動計入尚未收到的補款。':`距課程 ${cancellationPreview.days_before} 天 · 退 ${cancellationPreview.refund_percent}% · 再扣原價的 ${cancellationPreview.handling_fee_percent}% 手續費`}</p></div>
             {cancellationPreview.request_status && cancellationPreview.request_status !== 'rejected' ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">此訂單已有取消申請，狀態：{{ requested: '待客服審核', approved: '已核准', refunded: '已退款' }[cancellationPreview.request_status] || cancellationPreview.request_status}。請聯絡客服查詢。</p> : <>
               <label className="block text-sm font-medium text-gray-700">取消原因<select value={cancellationForm.reason} onChange={e => setCancellationForm({ ...cancellationForm, reason: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 bg-white p-2 text-gray-900"><option value="schedule">行程變更</option><option value="health">健康因素</option><option value="weather">天候因素</option><option value="duplicate">重複訂單</option><option value="other">其他</option></select></label>
               <label className="block text-sm font-medium text-gray-700">補充說明<textarea value={cancellationForm.reason_note} onChange={e => setCancellationForm({ ...cancellationForm, reason_note: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-gray-900" rows={2} /></label>

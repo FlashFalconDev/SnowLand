@@ -6,10 +6,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from Client.models import Client
+from Coach.models import Coach
 from Control.models import UserProfile
 from Coursekit.models import CourseCategory, CourseTemplate, CourseType
 from Resorts.models import Campus, Resorts
-from booking.models import Booking, Payment, Reservation, ReservationGroup
+from booking.models import Booking, Payment, Reservation, ReservationGroup, SharedCourseClass
 
 
 class GroupCandidateApiTests(TestCase):
@@ -74,6 +75,27 @@ class GroupCandidateApiTests(TestCase):
         self.assertEqual(rows['level2']['registered_students'], 1)
         self.assertEqual(rows['level2']['paid_students'], 0)
 
+    def test_formal_shared_class_is_separate_from_unlinked_candidates_and_uses_its_own_minimum(self):
+        linked = self.add_booking(counts={'level1': 2}, payment_status='pending')
+        self.add_booking(counts={'level1': 1}, payment_status='paid')
+        shared_class = SharedCourseClass.objects.create(
+            client=self.tenant, campus=self.campus, resort=self.resort,
+            template=self.template, date=self.day, start_time=time(9), end_time=time(13),
+            ability_level='level1', minimum_students=4, max_capacity=6,
+        )
+        linked.reservations.update(shared_course_class=shared_class)
+
+        response = self.query()
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = response.data['data']['list']
+        self.assertEqual(len(rows), 2)
+        formal = next(row for row in rows if row['shared_class_id'] == shared_class.id)
+        candidate = next(row for row in rows if row['shared_class_id'] is None)
+        self.assertEqual((formal['minimum_students'], formal['registered_students']), (4, 2))
+        self.assertEqual(formal['shared_class_status'], 'collecting')
+        self.assertEqual((candidate['minimum_students'], candidate['registered_students']), (None, 1))
+        self.assertIsNone(candidate['shared_class_status'])
+
     def test_campus_and_date_scope_exclude_other_orders(self):
         own = self.add_booking()
         other_campus = Campus.objects.create(client=self.tenant, name='道央', code='central')
@@ -94,6 +116,7 @@ class GroupCandidateApiTests(TestCase):
         manager = User.objects.create_user('east-manager', 'east@example.test', 'test-password')
         profile = UserProfile.objects.get(user=manager)
         profile.is_manager = True
+        profile.manager_client = self.tenant
         profile.role = 'campus_manager'
         profile.admin_permissions = ['scheduling']
         profile.save()
@@ -122,11 +145,31 @@ class GroupCandidateApiTests(TestCase):
         self.assertNotIn('paid_students', principal_row)
         self.assertNotIn('payment_status', principal_row['orders'][0])
 
+    def test_inactive_campus_history_is_not_new_group_candidate(self):
+        active_group = self.add_booking()
+        inactive_campus = Campus.objects.create(
+            client=self.tenant, name='停用校區', code='inactive',
+        )
+        inactive_campus.resorts.add(self.resort)
+        self.add_booking(campus=inactive_campus)
+        inactive_campus.is_active = False
+        inactive_campus.save(update_fields=['is_active'])
+
+        response = self.query()
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['data']['total'], 1)
+        self.assertEqual(response.data['data']['list'][0]['campus_id'], self.campus.id)
+        self.assertEqual(
+            [order['group_id'] for order in response.data['data']['list'][0]['orders']],
+            [active_group.id],
+        )
+
     def test_invalid_range_and_missing_permission_are_rejected(self):
         self.assertEqual(self.api.get(self.url).status_code, 400)
         manager = User.objects.create_user('no-schedule', 'no-schedule@example.test', 'test-password')
         profile = UserProfile.objects.get(user=manager)
         profile.is_manager = True
+        profile.manager_client = self.tenant
         profile.role = 'campus_manager'
         profile.admin_permissions = ['orders']
         profile.save()
@@ -138,6 +181,9 @@ class GroupCandidateApiTests(TestCase):
 
     def test_already_assigned_orders_are_flagged_before_manual_grouping(self):
         assigned = self.add_booking(counts={'level1': 2}, status='auto_assigned')
+        reservation = assigned.reservations.get()
+        reservation.preferred_coach = Coach.objects.create(client=self.tenant, name='已排課教練')
+        reservation.save(update_fields=['preferred_coach'])
         Booking.objects.filter(reservation__group=assigned).update(is_scheduled=True)
         unassigned = self.add_booking(counts={'level1': 1})
 
@@ -149,3 +195,22 @@ class GroupCandidateApiTests(TestCase):
         orders = {order['group_id']: order for order in row['orders']}
         self.assertTrue(orders[assigned.id]['already_assigned'])
         self.assertFalse(orders[unassigned.id]['already_assigned'])
+
+    def test_preferred_coach_does_not_mark_manual_assignment_needed_as_scheduled(self):
+        group = self.add_booking(status='manual_assignment_needed')
+        reservation = group.reservations.get()
+        reservation.preferred_coach = Coach.objects.create(client=self.tenant, name='待確認教練')
+        reservation.save(update_fields=['preferred_coach'])
+
+        response = self.query()
+        self.assertEqual(response.status_code, 200, response.data)
+        row = response.data['data']['list'][0]
+        self.assertEqual(row['registered_students'], 1)
+        self.assertEqual(row['assigned_students'], 0)
+        self.assertFalse(row['orders'][0]['already_assigned'])
+
+        Booking.objects.filter(reservation=reservation).update(is_scheduled=True)
+        response = self.query()
+        row = response.data['data']['list'][0]
+        self.assertEqual(row['assigned_students'], 0)
+        self.assertFalse(row['orders'][0]['already_assigned'])

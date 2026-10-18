@@ -34,14 +34,14 @@ export default function PendingConfirmationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">待確認課程</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">系統指派給您的課程，請確認接受或拒絕</p>
           <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">顯示所有需要您確認的課程，請即時接受或拒絕</p>
         </div>
         {items.length > 0 && (
-          <div className="px-3 py-1.5 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 rounded-full text-sm font-medium flex items-center gap-2">
+          <div className="px-3 py-1.5 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 rounded-full text-sm font-medium flex shrink-0 items-center gap-2 whitespace-nowrap">
             <AlertCircle size={14} />{items.length} 筆待處理
           </div>
         )}

@@ -6,9 +6,13 @@ import adminApi from './axios'
 interface Resp { code: number; msg: string; data?: any }
 
 // ==================== 訂單寄信 ====================
+export async function fetchOrderEmailMode(orderId: number): Promise<{ local_test: boolean }> {
+  const response = await adminApi.get(`/orders/${orderId}/send-email/`) as unknown as Resp
+  return response.data
+}
 export async function sendOrderEmail(
   orderId: number,
-  payload: { recipient_email: string; subject: string; message: string }
+  payload: { recipient_email: string; subject: string; message: string; request_key?: string }
 ): Promise<Resp> {
   const res = (await adminApi.post(`/orders/${orderId}/send-email/`, payload)) as unknown as Resp
   return res
@@ -86,6 +90,7 @@ export async function coachConfirm(reservationId: number, action: 'accept' | 're
 // ==================== 教練我的課程 ====================
 export interface MyCourse {
   id: number
+  shared_class_id?: number | null
   group_id: number
   user_name: string
   resort: string
@@ -161,4 +166,17 @@ export async function fetchMyLeaves(): Promise<MyLeave[]> {
 export async function applyLeave(payload: { start_date: string; end_date: string; reason: string }): Promise<Resp> {
   const res = (await adminApi.post('/coach/apply-leave/', payload)) as unknown as Resp
   return res
+}
+
+export interface CoachLeaveRules {
+  today: string
+  minimum_start_date: string
+  leave_advance_days: number
+  leave_max_consecutive_days: number
+  leave_daily_coach_limit: number
+}
+
+export async function fetchCoachLeaveRules(): Promise<CoachLeaveRules> {
+  const res = await adminApi.get('/coach/apply-leave/') as unknown as { data: CoachLeaveRules }
+  return res.data
 }

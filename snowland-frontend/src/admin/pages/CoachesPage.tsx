@@ -350,7 +350,53 @@ export default function CoachesPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="divide-y divide-gray-200 dark:divide-gray-700 md:hidden">
+            {filtered.map((coach) => {
+              const statusOpt = STATUS_OPTIONS.find((option) => option.value === coach.availability_status) || STATUS_OPTIONS[0]
+              return (
+                <div key={coach.id} className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900 dark:text-white">{coach.name}</div>
+                      {coach.user_email && <div className="break-all text-xs text-gray-500 dark:text-gray-400">{coach.user_email}</div>}
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusOpt.cls}`}>{statusOpt.label}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {coach.campus_assignments?.map((campus) => (
+                      <span key={campus.id} className={`rounded px-2 py-1 text-xs ${campus.is_active
+                        ? 'bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200'
+                        : 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200'}`}>
+                        {campus.name}{campus.is_active ? '' : '（已停用）'}
+                      </span>
+                    ))}
+                    {coach.auto_assignment_enabled === false && (
+                      <span className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">不參與自動排課</span>
+                    )}
+                    {coach.customer_selectable === false && <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200">不開放客人指定</span>}
+                  </div>
+                  <div className="flex gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+                    <button type="button" onClick={() => setEditingId(coach.id)} disabled={!coach.can_manage}
+                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 disabled:opacity-40 dark:border-gray-600 dark:text-gray-200">
+                      <Edit size={15} />編輯
+                    </button>
+                    <button type="button" onClick={() => setDeleteTarget(coach)} disabled={deleteMutation.isPending || !coach.can_manage}
+                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-gray-300 text-sm font-medium text-red-600 disabled:opacity-40 dark:border-gray-600 dark:text-red-400">
+                      <Trash2 size={15} />刪除
+                    </button>
+                  </div>
+                  {!coach.can_manage && <p className="text-xs text-gray-500 dark:text-gray-400">跨校區共用教練請由總部管理員修改。</p>}
+                </div>
+              )
+            })}
+            {filtered.length === 0 && (
+              <p className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                {coaches.length === 0 ? '尚未建立任何教練' : '沒有符合條件的教練'}
+              </p>
+            )}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                 <tr>
@@ -388,9 +434,19 @@ export default function CoachesPage() {
                             {coach.user_email && (
                               <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{coach.user_email}</div>
                             )}
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {coach.customer_selectable === false && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200">不開放客人指定</span>}
+                              {coach.campus_assignments?.map((campus) => (
+                                <span key={campus.id} className={`rounded px-1.5 py-0.5 text-xs ${campus.is_active
+                                  ? 'bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200'
+                                  : 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200'}`}>
+                                  {campus.name}{campus.is_active ? '' : '（已停用）'}
+                                </span>
+                              ))}
+                            </div>
                             {coach.auto_assignment_enabled === false && (
                               <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 md:hidden">
-                                僅指定
+                                不參與自動排課
                               </span>
                             )}
                           </div>
@@ -441,7 +497,7 @@ export default function CoachesPage() {
                         </span>
                         {coach.auto_assignment_enabled === false && (
                           <span className="ml-2 inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-                            僅指定
+                            不參與自動排課
                           </span>
                         )}
                       </td>
@@ -493,6 +549,7 @@ export default function CoachesPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         <div className="flex items-center justify-between px-5 py-4 border-t border-gray-200 dark:border-gray-700">
@@ -533,8 +590,8 @@ export default function CoachesPage() {
 
 function makeEmptyCoach(): Coach {
   return {
-    id: 0, name: '', campus_ids: [], can_manage: true, user_id: null, user_email: '', user_name: '', user_username: '', languages: ['zh'],
-    availability_status: 'active', auto_assignment_enabled: true, schedule_visibility: 'ten_days', assignment_score: 0, img: '',
+    id: 0, name: '', campus_ids: [], campus_assignments: [], can_manage: true, user_id: null, user_email: '', user_name: '', user_username: '', languages: ['zh'],
+    availability_status: 'active', auto_assignment_enabled: true, customer_selectable: true, schedule_visibility: 'ten_days', assignment_score: 0, img: '',
     website_enabled: false, website_slug: '', website_sort_order: 0, website_card_bio: '',
     certifications: [],
     resorts: [], course_levels: [], created_at: '',
@@ -559,6 +616,8 @@ function CoachEditDrawer({
     user_username: coach.user_username || '',
     schedule_visibility: coach.schedule_visibility || 'ten_days',
     auto_assignment_enabled: coach.auto_assignment_enabled !== false,
+    customer_selectable: coach.customer_selectable !== false,
+    img: coach.img || '',
     website_enabled: Boolean(coach.website_enabled),
     website_slug: coach.website_slug || '',
     website_sort_order: Number(coach.website_sort_order) || 0,
@@ -569,7 +628,10 @@ function CoachEditDrawer({
   const [campusIds, setCampusIds] = useState<number[]>(coach.campus_ids || [])
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const canBindMember = hasAdminPermission(adminMe?.user, 'staff')
-  const availableCampuses = adminMe?.user?.campuses?.filter((campus) => campus.is_active) || []
+  const availableCampuses = [
+    ...(adminMe?.user?.campuses?.filter((campus) => campus.is_active) || []),
+    ...(coach.campus_assignments || []).filter((campus) => !campus.is_active),
+  ]
   const effectiveCampusIds = campusIds.length
     ? campusIds
     : !adminMe?.user?.can_view_all_campuses ? (adminMe?.user?.assigned_campus_ids || []) : []
@@ -847,6 +909,7 @@ function CoachEditDrawer({
       languages: form.languages,
       availability_status: form.availability_status,
       auto_assignment_enabled: form.auto_assignment_enabled,
+      customer_selectable: form.customer_selectable,
       schedule_visibility: form.schedule_visibility,
       assignment_score: form.assignment_score,
       img: form.img || '',
@@ -904,7 +967,7 @@ function CoachEditDrawer({
                     onChange={(event) => setCampusIds((current) => event.target.checked
                       ? [...new Set([...current, campus.id])]
                       : current.filter((id) => id !== campus.id))} />
-                  {campus.name}
+                  {campus.name}{campus.is_active ? '' : '（已停用，原有歸屬）'}
                 </label>
               ))}
             </div>
@@ -912,7 +975,7 @@ function CoachEditDrawer({
           {/* 基本資料 */}
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">基本資料</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   姓名 <span className="text-red-500">*</span>
@@ -1011,7 +1074,7 @@ function CoachEditDrawer({
               />
               顯示在官網老師頁
             </label>
-            <div className="mt-4 grid grid-cols-2 gap-4">
+            <div className="mt-4 flex flex-col gap-4 sm:grid sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   官網代號 {form.website_enabled && <span className="text-red-500">*</span>}
@@ -1098,7 +1161,7 @@ function CoachEditDrawer({
                           <Trash2 size={14} />
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-3 sm:grid sm:grid-cols-2">
                         <div>
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">類別</label>
                           <select
@@ -1218,9 +1281,13 @@ function CoachEditDrawer({
               <span>
                 <span className="block text-sm font-medium text-gray-900 dark:text-white">參與自動排課</span>
                 <span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">
-                  關閉後，客人仍可指定這位教練；未指定教練的訂單不會自動分派給他。
+                  關閉後，未指定教練的訂單不會自動分派給他；客人能否指定，由下方開關決定。
                 </span>
               </span>
+            </label>
+            <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/40">
+              <input type="checkbox" checked={form.customer_selectable} onChange={event => setForm({ ...form, customer_selectable: event.target.checked })} className="mt-1 h-4 w-4 accent-violet-600" />
+              <span><span className="block text-sm font-medium text-gray-900 dark:text-white">顯示在客人指定教練名單</span><span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">關閉後，客人無法指定這位教練。後台仍可人工指派；是否參與自動排課，依上方開關設定。官網教練介紹的顯示不受影響。</span></span>
             </label>
           </section>
 

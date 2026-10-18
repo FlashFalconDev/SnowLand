@@ -3,10 +3,11 @@ import { X, AlertCircle, Calendar, Sparkles } from 'lucide-react'
 interface SchedulingFailedModalProps {
   isOpen: boolean
   onClose: () => void
-  onTrySuperSchedule: () => void
+  onTrySuperSchedule?: () => void
   onWaitForStaff?: () => void   // 等待課服處理（新）
   onChangeDate?: () => void     // 改其他日期（回 Step 2）（新）
   onSelectSuggestion?: (date: string, period: string) => void
+  isSuggestionBookable?: (date: string) => boolean
   message: string
   conflictDetails?: {
     identifier?: string
@@ -28,12 +29,15 @@ export default function SchedulingFailedModal({
   onWaitForStaff,
   onChangeDate,
   onSelectSuggestion,
+  isSuggestionBookable,
   message,
   conflictDetails,
 }: SchedulingFailedModalProps) {
   if (!isOpen) return null
 
-  const hasSuggestions = conflictDetails?.suggestions && Object.keys(conflictDetails.suggestions).length > 0
+  const suggestions = Object.entries(conflictDetails?.suggestions || {})
+    .filter(([date]) => !isSuggestionBookable || isSuggestionBookable(date))
+  const hasSuggestions = suggestions.length > 0 && Boolean(onSelectSuggestion)
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
@@ -55,7 +59,10 @@ export default function SchedulingFailedModal({
               </div>
             </div>
             <button
+              type="button"
               onClick={onClose}
+              aria-label="關閉並保留訂單，等待課服處理"
+              title="保留訂單，等待課服處理"
               className="rounded-full p-2 text-gray-400 transition-colors hover:bg-white hover:text-gray-600"
             >
               <X size={24} />
@@ -110,7 +117,7 @@ export default function SchedulingFailedModal({
                 建議調整到以下時段
               </h3>
               <div className="space-y-3">
-                {Object.entries(conflictDetails!.suggestions!).map(([date, periods]) => (
+                {suggestions.map(([date, periods]) => (
                   <div key={date} className="rounded-lg border border-gray-200 bg-white p-4">
                     <div className="mb-2 font-semibold text-gray-800">
                       {date}
@@ -162,7 +169,7 @@ export default function SchedulingFailedModal({
                 改選其他日期
               </button>
             )}
-            <button
+            {onTrySuperSchedule && <button
               onClick={onTrySuperSchedule}
               className="rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 px-4 py-3 text-center font-semibold text-white shadow hover:opacity-90 transition-opacity"
             >
@@ -170,10 +177,10 @@ export default function SchedulingFailedModal({
                 <Sparkles size={16} />
                 進階排課
               </span>
-            </button>
+            </button>}
           </div>
           <p className="mt-3 text-center text-xs text-gray-500">
-            訂單已建立但需要進一步處理 — 課服會主動聯繫您，或您可改選其他日期/嘗試進階排課
+            {onChangeDate ? '訂單已建立但需要進一步處理 — 課服會主動聯繫您，或您可改選其他日期/嘗試進階排課' : '訂單已保留，課服會聯絡您協助處理。'}
           </p>
         </div>
       </div>

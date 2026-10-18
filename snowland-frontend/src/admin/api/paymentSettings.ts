@@ -46,6 +46,11 @@ export async function createPaymentAccount(data: Omit<PaymentAccount, 'id'>): Pr
   return res.data || res
 }
 
+export async function updatePaymentAccount(id: number, data: Omit<PaymentAccount, 'id'>): Promise<PaymentAccount> {
+  const res = await adminApi.patch(`/payment-accounts/${id}/`, data) as any
+  return res.data || res
+}
+
 export async function deletePaymentAccount(id: number): Promise<void> {
   await adminApi.delete(`/payment-accounts/${id}/`)
 }

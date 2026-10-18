@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SnowLand｜10/18 核心測試版</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#24384b;font:16px/1.65 system-ui,"Microsoft JhengHei",sans-serif}main{max-width:900px;margin:auto;padding:24px 16px 48px}header,section{padding:22px;border-radius:14px;margin-bottom:16px;background:white;border:1px solid #dae3ed}header{background:#234d70;color:white}h1{margin:0 0 8px;font-size:26px}h2{margin:0 0 12px;font-size:20px}p{margin:8px 0}li{margin:8px 0}code{overflow-wrap:anywhere}.note{background:#fff7e3}.route{display:grid;grid-template-columns:1fr 1fr;gap:12px}.route p{padding:12px;background:#f2f6fa;border-radius:8px}a{color:#24638e}@media(max-width:600px){.route{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main>
+<header><h1>SnowLand｜10/18 核心測試版</h1><p>供客戶測試，不是正式上線完成證明。版本號以實際交付的 Git test commit 為準。</p></header>
+<section class="note"><h2>目前交付狀態</h2><p><strong>核心驗收通過；合併狀態以 GitHub PR 與 test commit 為準。</strong>完整後端基線 907 項：904 通過、3 略過；最後的付款歷史修正另跑 108 項相關回歸全部通過。28 支前端檢查及前端編譯通過。這版不會自動更新測試機，也不會自動清除或匯入客戶資料；不代表全站或第三方服務已全部驗收。</p></section>
+<section><h2>本輪實際點過的核心流程</h2><ol>
+<li><strong>訂課與付款狀態：</strong>選課、最低人數限制、程度分配、來源必填、價格試算、建立訂單、自動指派教練、稍後匯款、後五碼回報、後台確認付款、會員顯示同步。</li>
+<li><strong>會員訂單與課前資料：</strong>本人訂單詳情、取消課程歷史標示、課前連結定位、按訂課人數建立學員、姓名與年齡先存及重載；不會因此標成保險或聲明已完成。</li>
+<li><strong>教練課程：</strong>Email 登入、月曆選日期、定位對應課程、單／雙板月份時數。修正自訂課程類別導致分類時數為 0。</li>
+<li><strong>教練請假：</strong>超過天數阻擋、一般申請、總部批准／拒絕、拒絕原因必填、教練重新登入看到審核結果。</li>
+<li><strong>後台訂單聯絡與付款：</strong>聯絡人姓名、Email、電話、通訊軟體與訂購會員分開顯示；校區限制角色不會取得完整聯絡快照。多筆付款紀錄不再使儲存出現 500，只更新最新付款，保留舊紀錄。</li>
+</ol><p>以上使用本機假資料與測試銀行資訊，沒有實際匯款、刷卡或對客寄信。手機抽查為 390×844；不代表所有頁面已逐頁驗收。</p></section>
+<section><h2>客戶最短測試路線</h2><div class="route">
+<p><strong>會員</strong><br><code>/snowland/membership</code><br>登入 → 訂課 → 會員訂單 → 課前資料。</p>
+<p><strong>管理者</strong><br><code>/snowland/console</code><br>訂單 → 核對聯絡／付款／教練 → 請假審核。</p>
+<p><strong>教練</strong><br>登入 → 我的課程／月曆 → 請假 → 查看審核結果。</p>
+<p><strong>校區角色</strong><br>用各自帳號登入，確認只能看到所屬校區與該角色允許的摘要。</p>
+</div><p>請由 SnowLand 自行建立測試帳號與可變營運設定。不需要提供個人密碼；分享給客戶前，請換成測試機網址，不使用開發機 localhost。</p></section>
+<section><h2>這版不承諾已完成的部分</h2><ul>
+<li>Google／LINE 真實帳號登入、信用卡金流／實際退款、外部 Email／LINE 送達及正式排程。</li>
+<li>Instagram／Google 商家評論自動同步所需的官方帳號授權。</li>
+<li>尚待確認的薪資稅金／跨期佣金、點數自動發放與額外未付款訂單限制規則。</li>
+<li>正式法務文件定稿、正式資料清理及既有訂單匯入。</li>
+<li>尚未逐頁完成的其他畫面與功能；聯絡表單目前明確標示未啟用，不會假裝送出成功。</li>
+</ul><p>收款帳戶、課程與雪場日常資料由後台維護，不需要客戶另外交固定資料讓程式寫死。</p></section>
+<section><h2>更新測試機時</h2><p>先確認下載的是這次交付的 <code>test</code> commit；備份並確認 SnowLand 資料庫連線後，由負責部署的人檢查 migration 計畫，再更新前後端及重啟原服務。不要在未確認連線與備份時直接修改 AWS 正式庫。</p><p>本機驗收固定前端 3000／後端 8999；沒有因瀏覽器問題改 port。</p></section>
+</main></body></html>

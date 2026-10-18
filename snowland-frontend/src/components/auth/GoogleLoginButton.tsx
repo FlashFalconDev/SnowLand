@@ -80,7 +80,28 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
 
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let renderedWidth = 0
     activeCredentialHandler = handleCredentialResponse
+
+    const renderGoogleButton = () => {
+      const container = googleButtonRef.current
+      if (!container || !window.google) return
+
+      const width = Math.floor(container.getBoundingClientRect().width)
+      if (width <= 0 || width === renderedWidth) return
+
+      container.replaceChildren()
+      window.google.accounts.id.renderButton(container, {
+        theme: 'outline',
+        size: 'large',
+        width,
+        text: 'signin_with',
+        locale: 'zh_TW',
+      })
+      renderedWidth = width
+    }
+    const resizeObserver = new ResizeObserver(renderGoogleButton)
+    if (googleButtonRef.current) resizeObserver.observe(googleButtonRef.current)
 
     // 等待 Google SDK 載入
     const initializeGoogleSignIn = () => {
@@ -95,19 +116,7 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
           googleSdkInitialized = true
         }
 
-        // 渲染 Google 登入按鈕
-        if (googleButtonRef.current) {
-          window.google.accounts.id.renderButton(
-            googleButtonRef.current,
-            {
-              theme: 'outline',
-              size: 'large',
-              width: googleButtonRef.current.offsetWidth,
-              text: 'signin_with',
-              locale: 'zh_TW',
-            }
-          )
-        }
+        renderGoogleButton()
       } else {
         // Google SDK 還沒載入,等待一下再試
         retryTimer = setTimeout(initializeGoogleSignIn, 100)
@@ -118,6 +127,7 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
     return () => {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
+      resizeObserver.disconnect()
     }
   }, [])
 

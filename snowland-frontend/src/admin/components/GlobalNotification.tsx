@@ -35,7 +35,7 @@ export function GlobalNotification() {
   const Icon = iconMap[notification.type]
 
   return (
-    <div className="fixed top-4 right-4 z-[9999] animate-slide-in">
+    <div role="alert" className="fixed left-4 right-4 top-4 z-[9999] sm:left-auto sm:max-w-sm">
       <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg ${colorMap[notification.type]}`}>
         <Icon size={20} className={iconColorMap[notification.type]} />
         <span className="text-sm font-medium">{notification.message}</span>
@@ -44,13 +44,6 @@ export function GlobalNotification() {
         </button>
       </div>
 
-      <style>{`
-        @keyframes slide-in {
-          from { opacity: 0; transform: translateX(100%); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        .animate-slide-in { animation: slide-in 0.3s ease-out; }
-      `}</style>
     </div>
   )
 }

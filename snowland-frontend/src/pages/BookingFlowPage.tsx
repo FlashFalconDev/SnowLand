@@ -45,6 +45,8 @@ import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import { useBookingStore } from '@/store/bookingStore'
 import { useAuth } from '@/hooks/useAuth'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
+import { fetchAdminMe } from '@/admin/api/auth'
+import { hasAdminPermission } from '@/admin/permissions'
 import type { CartItem, Course } from '@/types/booking'
 import {
   fetchCourseCategories,
@@ -67,6 +69,7 @@ import {
 // ========== 類型 ==========
 type ServiceType = 'ski' | 'photo'
 type MainStep = 1 | 2 | 3 | 4
+type CompletionFlow = 'payment' | 'bank_submitted' | 'bank_later' | 'coach' | 'staff' | 'collecting_class'
 
 type BankInfo = {
   bank_name: string
@@ -77,8 +80,10 @@ type BankInfo = {
 
 type SubmittedReservation = {
   reservation_group_ids: number[]
+  payment_access_tokens: Record<number, string>
   total_amount: number
-  bank_info: BankInfo
+  payment_infos: { reservation_group_id: number; total_amount: number; bank_info: BankInfo }[]
+  payment_methods: string[]
   payment_expires_at: string | null
 }
 
@@ -92,6 +97,11 @@ const emptyBankInfo: BankInfo = {
   bank_branch: '',
   bank_account_number: '',
   bank_account_holder: '',
+}
+
+const memberContactName = (name?: string, email?: string) => {
+  const value = (name || '').trim()
+  return value.toLowerCase() === (email || '').trim().toLowerCase() ? '' : value
 }
 
 const MESSENGER_OPTIONS: SelectOption[] = [
@@ -164,6 +174,19 @@ const getReservationGroupIdsFromResponse = (response: any) => {
   }
 
   return Array.from(ids)
+}
+
+const getPaymentAccessTokensFromResponse = (response: any): Record<number, string> => {
+  const tokens: Record<number, string> = {}
+  const urls = [response?.payment_url, ...(response?.payment_urls || []).map((item: any) => item?.payment_url)]
+  urls.forEach((url: unknown) => {
+    if (typeof url !== 'string') return
+    const params = new URLSearchParams(url.split('?')[1] || '')
+    const groupId = Number(params.get('reservation_group'))
+    const token = params.get('access_token')
+    if (Number.isFinite(groupId) && groupId > 0 && token) tokens[groupId] = token
+  })
+  return tokens
 }
 
 const toDateKey = (date: Date) => {
@@ -707,20 +730,41 @@ const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []
 }
 
 export default function BookingFlowPage() {
+  const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
+  const membershipUrl = useSiteLink('/membership')
+  const bookingUrl = useSiteLink('/booking')
   const [searchParams] = useSearchParams()
   const requestedService = searchParams.get('service')
+  const staffPreparing = searchParams.get('staff_prepare') === '1'
+  const staffConsoleUrl = useSiteLink('/console/booking-links')
+  const [staffOperator, setStaffOperator] = useState(false)
+  const [staffOperatorLoading, setStaffOperatorLoading] = useState(staffPreparing)
+  const staffPrepareMode = staffPreparing && staffOperator
+
+  useEffect(() => {
+    if (!staffPreparing) return
+    let cancelled = false
+    fetchAdminMe().then(result => {
+      if (!cancelled) setStaffOperator(hasAdminPermission(result.user, 'orders'))
+    }).finally(() => { if (!cancelled) setStaffOperatorLoading(false) })
+    return () => { cancelled = true }
+  }, [staffPreparing])
 
   // ===== 流程狀態 =====
-  const [currentStep, setCurrentStep] = useState<MainStep>(1)
+  const [currentStep, setCurrentStep] = useState<MainStep>(() =>
+    searchParams.get('resume_checkout') === '1' && useBookingStore.getState().cart.length > 0 ? 3 : 1,
+  )
   const [serviceType, setServiceType] = useState<ServiceType | ''>(
     requestedService === 'photo' || requestedService === 'ski' ? requestedService : ''
   )
   const [step2Index, setStep2Index] = useState(0) // Step 2 的子欄位索引
+  const lastPositionedStep = useRef('')
   const [appendTargetGroupId, setAppendTargetGroupId] = useState<string | null>(null)
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
 
   // UI 狀態
-  const [isCartOpen, setIsCartOpen] = useState(false)
+  const [isCartOpen, setIsCartOpen] = useState(() => searchParams.get('rebook') === '1' && useBookingStore.getState().cart.length > 0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isOpen: boolean }>({
     message: '', type: 'info', isOpen: false,
@@ -767,13 +811,21 @@ export default function BookingFlowPage() {
     course_start_date: string | null
     course_end_date: string | null
     available_dates: string[]
+    shared_class_dates?: Record<string, Array<{
+      start_time: string
+      end_time: string
+      status: 'collecting' | 'ready'
+      registered_students: number
+      minimum_students: number
+      remaining_capacity: number
+    }>>
   } | null>(null)
   const [coachSearchTerm, setCoachSearchTerm] = useState('')
   const [coachLevelFilter, setCoachLevelFilter] = useState('all')
 
   // 聯絡資料
   const [contactInfo, setContactInfo] = useState({
-    name: user?.name || '',
+    name: memberContactName(user?.name, user?.email),
     email: user?.email || '',
     phone: '',
     messengerType: '',
@@ -789,14 +841,21 @@ export default function BookingFlowPage() {
   const [referrerDetail, setReferrerDetail] = useState('')
   const [messengerOptions, setMessengerOptions] = useState<SelectOption[]>(MESSENGER_OPTIONS)
   const [referralSourceOptions, setReferralSourceOptions] = useState<SelectOption[]>(REFERRAL_SOURCE_OPTIONS)
-  const staffLinkToken = useMemo(() => new URLSearchParams(window.location.search).get('staff_link') || '', [])
-  const [staffLinkInfo, setStaffLinkInfo] = useState<{ title: string; campus: { id: number; name: string }; created_by: string } | null>(null)
+  const staffLinkToken = searchParams.get('staff_link') || ''
+  const [staffLinkInfo, setStaffLinkInfo] = useState<{ title: string; campus: { id: number; name: string }; created_by: string; cart_snapshot: CartItem[] } | null>(null)
+  const [staffLinkStatus, setStaffLinkStatus] = useState<'none' | 'loading' | 'valid' | 'invalid'>(staffLinkToken ? 'loading' : 'none')
+  const staffSelectedCart = Boolean(staffLinkInfo?.cart_snapshot?.length)
   const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card'>('bank')
   const [acceptedPolicy, setAcceptedPolicy] = useState(false)
 
   // 預約送出後的付款階段資訊
   const [submittedReservation, setSubmittedReservation] = useState<SubmittedReservation | null>(null)
+  const [submittedCart, setSubmittedCart] = useState<CartItem[]>([])
+  const [createdReservationIds, setCreatedReservationIds] = useState<number[]>([])
+  const [paymentAccessTokens, setPaymentAccessTokens] = useState<Record<number, string>>({})
+  const [paymentInfoError, setPaymentInfoError] = useState('')
   const [completionNotice, setCompletionNotice] = useState('')
+  const [completionFlow, setCompletionFlow] = useState<CompletionFlow>('payment')
   const [senderAccount, setSenderAccount] = useState('')
   const referralSourceValue = useMemo(() => {
     const source = referrer.trim()
@@ -827,7 +886,7 @@ export default function BookingFlowPage() {
     if (user) {
       setContactInfo((prev) => ({
         ...prev,
-        name: prev.name || user.name || '',
+        name: prev.name || memberContactName(user.name, user.email),
         email: prev.email || user.email || '',
       }))
     }
@@ -864,11 +923,28 @@ export default function BookingFlowPage() {
   }, [])
 
   useEffect(() => {
-    if (!staffLinkToken) return
+    if (!staffLinkToken) {
+      setStaffLinkInfo(null)
+      setStaffLinkStatus('none')
+      return
+    }
+    let cancelled = false
+    setStaffLinkInfo(null)
+    setStaffLinkStatus('loading')
     resolveStaffBookingLink(staffLinkToken)
-      .then((info) => setStaffLinkInfo(info))
-      .catch(() => showToast('代客訂課連結已失效，請向工作人員索取新連結', 'error'))
-  }, [staffLinkToken])
+      .then((info) => {
+        if (!cancelled) {
+          setStaffLinkInfo(info)
+          if (info.cart_snapshot?.length) {
+            replaceCart(info.cart_snapshot)
+            setCurrentStep(3)
+          }
+          setStaffLinkStatus('valid')
+        }
+      })
+      .catch(() => { if (!cancelled) setStaffLinkStatus('invalid') })
+    return () => { cancelled = true }
+  }, [staffLinkToken, replaceCart])
 
   // 載入課程大類與雪場列表
   useEffect(() => {
@@ -979,17 +1055,27 @@ export default function BookingFlowPage() {
   // 載入時段（當課程模板選好；若已選日期，會帶 date 一起檢查容量）
   useEffect(() => {
     if (selectedCourseTemplate) {
-      fetchCourseSessions(selectedCourseTemplate, selectedDate || undefined)
+      const levels = Object.entries(abilityLevelCounts).filter(([, count]) => Number(count) > 0)
+      fetchCourseSessions(selectedCourseTemplate, selectedDate || undefined, {
+        campus_id: selectedCampusId, resort: selectedResort,
+        ability_level: levels.length === 1 ? levels[0][0] : null,
+        language: selectedLanguage || 'zh', people_count: peopleCount,
+      })
         .then((data: any) => setSessions(data))
         .catch((e) => { console.error(e); setSessions([]) })
     }
-  }, [selectedCourseTemplate, selectedDate])
+  }, [selectedCourseTemplate, selectedDate, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage, peopleCount])
 
   // 載入可預約日期資訊（當模板或日曆月份改變）
   useEffect(() => {
     let cancelled = false
     if (selectedCourseTemplate) {
-      fetchAvailableDates(selectedCourseTemplate, formatCalendarMonthKey(calendarMonth))
+      const levels = Object.entries(abilityLevelCounts).filter(([, count]) => Number(count) > 0)
+      fetchAvailableDates(selectedCourseTemplate, formatCalendarMonthKey(calendarMonth), {
+        campus_id: selectedCampusId, resort: selectedResort,
+        ability_level: levels.length === 1 ? levels[0][0] : null,
+        language: selectedLanguage || 'zh',
+      })
         .then((data: any) => {
           if (!cancelled) setDateInfo(data)
         })
@@ -1005,7 +1091,7 @@ export default function BookingFlowPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedCourseTemplate, calendarMonth])
+  }, [selectedCourseTemplate, calendarMonth, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage])
 
   useEffect(() => {
     if (currentStep !== 3 || submittedReservation || cart.length === 0) {
@@ -1410,11 +1496,14 @@ export default function BookingFlowPage() {
       }
     }
     if (currentStep === 3) {
+      if (createdReservationIds.length > 0 && !submittedReservation) return false
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
-        return cart.length > 0 && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
+        if (cart.some(group => group.totalPrice == null) && !discountPreview) return false
+        return cart.length > 0 && !!contactInfo.name.trim() && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
       }
       // 3b 付款階段：銀行可先稍後匯款；若要送出已匯款資訊才需要 5 碼後綴。
+      if (!submittedReservation.payment_methods.includes(paymentMethod === 'bank' ? 'bank_transfer' : 'newebpay')) return false
       if (paymentMethod === 'bank') return senderAccount.length === 5
       return true
     }
@@ -1426,9 +1515,9 @@ export default function BookingFlowPage() {
     selectedTemplateHasCoachRestriction,
     selectedCourseTemplate, selectedDate, selectedCourseDates, unavailableSelectedDates, selectedTimeSlot,
     equipmentOption, equipmentAssistanceTimeSlotId, equipmentTimeSlots,
-    cart.length,
-    contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, referralSourceValue, staffLinkInfo, acceptedPolicy,
-    submittedReservation, paymentMethod, senderAccount,
+    cart, discountPreview,
+    contactInfo.name, contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, referralSourceValue, staffLinkInfo, acceptedPolicy,
+    submittedReservation, createdReservationIds, paymentMethod, senderAccount,
   ])
 
   const handleNext = async () => {
@@ -1470,7 +1559,13 @@ export default function BookingFlowPage() {
       setCurrentStep(1)
     } else if (currentStep === 3) {
       // 已送出訂單後不能回上一步（避免重複下單）
-      if (submittedReservation) return
+      if (submittedReservation || createdReservationIds.length > 0) return
+      // A resumed cart has no in-progress course configuration to return to.
+      if (!serviceType) {
+        setCurrentStep(1)
+        setStep2Index(0)
+        return
+      }
       setCurrentStep(2)
       setStep2Index(activeStep2Fields.length - 1)
     }
@@ -1494,14 +1589,15 @@ export default function BookingFlowPage() {
     if (!group) return
 
     setAppendTargetGroupId(null)
-    removeFromCart(groupId)
+    setEditingGroupId(groupId)
     setServiceType(isPhotoCartGroup(group) ? 'photo' : 'ski')
     setCurrentStep(2)
     setStep2Index(0)
-    showToast('已移除原本那組，請重新設定內容', 'info')
+    showToast('原課程已保留，完成新設定後才會替換；未完成不會變更購物車。', 'info')
   }
 
   const resetDraftSelection = () => {
+    setEditingGroupId(null)
     setAppendTargetGroupId(null)
     setServiceType('')
     setStep2Index(0)
@@ -1542,6 +1638,7 @@ export default function BookingFlowPage() {
   }
 
   const handleAddCourseToGroup = (groupId: string) => {
+    setEditingGroupId(null)
     if (submittedReservation) return
     const group = cart.find((item) => item.id === groupId)
     const firstCourse = group?.courses?.[0]
@@ -1594,12 +1691,17 @@ export default function BookingFlowPage() {
 
   const addCurrentToCart = async () => {
     if (!selectedCourseTemplate || selectedCourseDates.length === 0 || !selectedTimeSlot) return false
+    if (editingGroupId && !cart.some(group => group.id === editingGroupId)) {
+      showToast('原課程已移除，請從購物車重新選擇要修改的課程。', 'warning')
+      return false
+    }
+    const otherCartGroups = cart.filter(group => group.id !== editingGroupId)
     const isSharedClass = templates.some((template: any) => template.id === selectedCourseTemplate && template.shared_class_enabled)
-    if (isSharedClass && (cart.length > 0 || appendTargetGroupId)) {
+    if (isSharedClass && (otherCartGroups.length > 0 || appendTargetGroupId)) {
       showToast('團體湊班需單獨結帳，請先完成或清空原有預約。', 'warning')
       return false
     }
-    if (cart.some((group) => group.courses?.some((course) => course.sharedClassEnabled))) {
+    if (otherCartGroups.some((group) => group.courses?.some((course) => course.sharedClassEnabled))) {
       showToast('團體湊班需單獨結帳，請先完成這筆報名。', 'warning')
       return false
     }
@@ -1769,18 +1871,19 @@ export default function BookingFlowPage() {
       })
     })
     setCurrentGroupFees({ courseFee, coachFee, languageFee, equipmentRentalFee })
-    finishCurrentGroupAndAddToCart()
+    finishCurrentGroupAndAddToCart(editingGroupId || undefined)
+    setEditingGroupId(null)
     return true
   }
 
   // 走相對路徑（同 origin），由 vite proxy / nginx 轉到後端
   const getBackendURL = () => ''
 
-  const fetchSubmittedReservationInfo = async (reservationGroupIds: number[]): Promise<SubmittedReservation> => {
+  const fetchSubmittedReservationInfo = async (reservationGroupIds: number[], accessTokens: Record<number, string>): Promise<SubmittedReservation> => {
     const paymentInfos = await Promise.all(
       reservationGroupIds.map(async (reservationGroupId) => {
         const piRes = await fetch(
-          `${getBackendURL()}/booking/snowland/api/payment-info/?reservation_group=${reservationGroupId}`,
+          `${getBackendURL()}/booking/snowland/api/payment-info/?${new URLSearchParams({ reservation_group: String(reservationGroupId), ...(accessTokens[reservationGroupId] ? { access_token: accessTokens[reservationGroupId] } : {}) })}`,
           { credentials: 'include' },
         )
         const pi = await piRes.json().catch(() => ({}))
@@ -1793,10 +1896,39 @@ export default function BookingFlowPage() {
 
     return {
       reservation_group_ids: reservationGroupIds,
+      payment_access_tokens: accessTokens,
       total_amount: paymentInfos.reduce((sum, pi) => sum + Number(pi.total_amount || 0), 0),
-      bank_info: paymentInfos.find((pi) => pi.bank_info)?.bank_info || { ...emptyBankInfo },
+      payment_infos: paymentInfos.map((pi, index) => ({
+        reservation_group_id: reservationGroupIds[index],
+        total_amount: Number(pi.total_amount || 0),
+        bank_info: pi.bank_info || { ...emptyBankInfo },
+      })),
+      payment_methods: (paymentInfos[0]?.payment_methods || []).filter((method: string) =>
+        paymentInfos.every((pi) => pi.payment_methods?.includes(method))
+        && (method !== 'newebpay' || reservationGroupIds.length === 1),
+      ),
       payment_expires_at: paymentInfos.map((pi) => pi.payment_expires_at).filter(Boolean).sort()[0] || null,
     }
+  }
+
+  const loadPaymentForCreatedOrder = async (reservationGroupIds: number[], accessTokens: Record<number, string>) => {
+    try {
+      const paymentInfo = await fetchSubmittedReservationInfo(reservationGroupIds, accessTokens)
+      setSubmittedReservation(paymentInfo)
+      setPaymentMethod(paymentInfo.payment_methods.includes('bank_transfer') ? 'bank' : 'card')
+      setPaymentInfoError('')
+      showToast('訂單已建立，請完成付款', 'success')
+    } catch {
+      setPaymentInfoError('付款資訊暫時無法取得。')
+      showToast('訂單已建立，但付款資訊暫時無法取得', 'warning')
+    }
+  }
+
+  const retryPaymentInfo = async () => {
+    if (createdReservationIds.length === 0 || isSubmitting) return
+    setIsSubmitting(true)
+    await loadPaymentForCreatedOrder(createdReservationIds, paymentAccessTokens)
+    setIsSubmitting(false)
   }
 
   // Step 3a：送出訂單；成功後抓付款資訊，停留在 Step 3 進入付款區塊
@@ -1816,6 +1948,7 @@ export default function BookingFlowPage() {
     try {
       const response = await createReservation({
         cart,
+        accepted_policy: acceptedPolicy,
         contact: { ...contactInfo, referralSource: referralSourceValue },
         discount_code: discountCode.trim() || undefined,
         staff_link: staffLinkToken || undefined,
@@ -1843,9 +1976,15 @@ export default function BookingFlowPage() {
         return
       }
 
+      setCreatedReservationIds(reservationGroupIds)
+      const accessTokens = getPaymentAccessTokensFromResponse(response)
+      setPaymentAccessTokens(accessTokens)
+      setSubmittedCart(cart)
+      clearCart()
+
       if (response.requires_payment === false || response.pending_coach_confirmation) {
-        clearCart()
         setSubmittedReservation(null)
+        setCompletionFlow(response.shared_class_status === 'collecting' ? 'collecting_class' : 'coach')
         setCompletionNotice(response.msg || '訂單已建立，目前等待教練確認接課，確認前不需要付款。')
         showToast(response.msg || '訂單已建立，等待教練確認', 'success')
         setCurrentStep(4)
@@ -1855,17 +1994,18 @@ export default function BookingFlowPage() {
       setLoadingStepIndex(4)
       setLoadingMessage('正在整理付款資訊')
       setLoadingDetail('預約已建立，正在準備付款資訊。')
-      setSubmittedReservation(await fetchSubmittedReservationInfo(reservationGroupIds))
-      clearCart()
-      showToast(
-        reservationGroupIds.length > 1 ? `已建立 ${reservationGroupIds.length} 筆預約，請完成付款` : '訂單已建立，請完成付款',
-        'success',
-      )
+      await loadPaymentForCreatedOrder(reservationGroupIds, accessTokens)
     } catch (e: any) {
-      if (isTimeoutError(e)) {
+      if (e?.response?.status === 401) {
+        const params = new URLSearchParams({ resume_checkout: '1' })
+        if (staffLinkToken) params.set('staff_link', staffLinkToken)
+        localStorage.setItem('pre_login_url', `${bookingUrl}?${params}`)
+        params.set('return_to', 'booking')
+        navigate(`${membershipUrl}?${params}`)
+      } else if (isTimeoutError(e)) {
         showToast('預約處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
       } else {
-        showToast(`預約失敗：${e.message || '未知錯誤'}`, 'error')
+        showToast(`預約失敗：${getPriceErrorMessage(e, '請重新確認課程或聯絡客服')}`, 'error')
       }
     } finally {
       setIsSubmitting(false)
@@ -1876,6 +2016,10 @@ export default function BookingFlowPage() {
   // Step 3b：處理付款
   const submitPayment = async () => {
     if (!submittedReservation) return
+    if (!submittedReservation.payment_methods.includes(paymentMethod === 'bank' ? 'bank_transfer' : 'newebpay')) {
+      showToast('此訂單目前沒有可用的付款方式，請聯絡客服', 'warning')
+      return
+    }
 
     if (paymentMethod === 'bank') {
       if (senderAccount.length !== 5) {
@@ -1894,6 +2038,7 @@ export default function BookingFlowPage() {
               reservation_group_id: reservationGroupId,
               payment_type: 'bank_transfer',
               sender_account: senderAccount,
+              access_token: submittedReservation.payment_access_tokens[reservationGroupId] || '',
             }),
           })
           const data = await res.json().catch(() => ({}))
@@ -1906,7 +2051,8 @@ export default function BookingFlowPage() {
           submittedReservation.reservation_group_ids.length > 1 ? '多筆匯款資訊已提交，等待確認' : '匯款資訊已提交，等待確認',
           'success',
         )
-        setCompletionNotice('')
+        setCompletionNotice('匯款資料已送出，等待客服核對；目前尚未確認付款成功。')
+        setCompletionFlow('bank_submitted')
         setCurrentStep(4)
       } catch (e: any) {
         showToast(`提交失敗：${e.message || '未知錯誤'}`, 'error')
@@ -1933,6 +2079,7 @@ export default function BookingFlowPage() {
         body: JSON.stringify({
           reservation_group_id: submittedReservation.reservation_group_ids[0],
           payment_type: 'newebpay',
+          access_token: submittedReservation.payment_access_tokens[submittedReservation.reservation_group_ids[0]] || '',
         }),
       })
       const data = await res.json()
@@ -1947,6 +2094,7 @@ export default function BookingFlowPage() {
           w.document.close()
           showToast('已開啟藍新付款視窗', 'success')
           setCompletionNotice('')
+          setCompletionFlow('payment')
           setCurrentStep(4)
         } else {
           showToast('請允許彈出視窗以完成付款', 'warning')
@@ -1961,26 +2109,35 @@ export default function BookingFlowPage() {
   }
 
   const handleBankTransferLater = () => {
-    if (!submittedReservation || paymentMethod !== 'bank') return
+    if (!submittedReservation || paymentMethod !== 'bank' || !submittedReservation.payment_methods.includes('bank_transfer')) return
     showToast('訂單已保留至付款資訊顯示的期限；匯款後再補後五碼給客服對帳。', 'success')
-    setCompletionNotice('')
+    setCompletionNotice('訂單已建立，尚未回報匯款。請於付款期限內完成匯款。')
+    setCompletionFlow('bank_later')
     setCurrentStep(4)
+  }
+
+  const cancelFailedOrderBeforeRetry = async (ids: number[]) => {
+    if (ids.length === 0) throw new Error('找不到原訂單編號，請聯絡客服處理，避免重複建立訂單。')
+    const result = await cancelFailedReservations(ids)
+    if (result.code !== 200 || result.deleted_count !== ids.length) {
+      throw new Error('原訂單尚未確認取消，請查看會員訂單或聯絡客服，暫勿重複送出。')
+    }
+  }
+
+  const finishAfterSchedulingFailure = () => {
+    setSchedulingFailed((p) => ({ ...p, isOpen: false }))
+    clearCart()
+    setCompletionFlow('staff')
+    setCompletionNotice('訂單已保留，暫不需要付款；課服將協助安排課程。')
+    setCurrentStep(4)
+    showToast('訂單已保留，課服將主動聯繫您', 'success')
   }
 
   const replaceCartAfterSchedulingFailure = async (suggested: { date: string; period?: string }) => {
     const ids = schedulingFailed.reservationGroupIds
-    setSchedulingFailed((p) => ({ ...p, isOpen: false }))
     setLoadingMessage('正在更新購物車日期...')
 
     try {
-      if (ids.length > 0) {
-        try {
-          await cancelFailedReservations(ids)
-        } catch (e) {
-          console.error('cancel failed reservations error', e)
-        }
-      }
-
       if (cart.length === 0) {
         showToast('購物車是空的，無法批次改日期', 'warning')
         return
@@ -2079,6 +2236,7 @@ export default function BookingFlowPage() {
         })
       }
 
+      await cancelFailedOrderBeforeRetry(ids)
       replaceCart(nextCart)
       failedCartSignatureRef.current = ''
       setSchedulingFailed({ isOpen: false, message: '', conflictDetails: null, reservationGroupIds: [] })
@@ -2097,15 +2255,22 @@ export default function BookingFlowPage() {
 
   const moveToDateSelectionAfterSchedulingFailure = async (suggested?: { date: string; period?: string }) => {
     const ids = schedulingFailed.reservationGroupIds
-    setSchedulingFailed((p) => ({ ...p, isOpen: false }))
-    if (ids.length > 0) {
-      try {
-        await cancelFailedReservations(ids)
-      } catch (e) {
-        console.error('cancel failed reservations error', e)
-      }
+    try {
+      await cancelFailedOrderBeforeRetry(ids)
+    } catch (e: any) {
+      showToast(getPriceErrorMessage(e, '原訂單取消失敗，請勿重複送出'), 'error')
+      return
     }
 
+    setSchedulingFailed({ isOpen: false, message: '', conflictDetails: null, reservationGroupIds: [] })
+    failedCartSignatureRef.current = ''
+    // 原失敗訂單已取消；舊購物車課程不可與改期課程一起再次送出。
+    clearCart()
+    setAppendTargetGroupId(null)
+    setSelectedCourseDateKeys([])
+    setSelectedDate(null)
+    setSelectedTimeSlot(null)
+    setEquipmentAssistanceTimeSlot(null)
     setCurrentStep(2)
     const dateStepIndex = activeStep2Fields.findIndex((f) => f === 'date')
     const timeStepIndex = activeStep2Fields.findIndex((f) => f === 'timeSlot')
@@ -2125,11 +2290,12 @@ export default function BookingFlowPage() {
     }
 
     if (dateStepIndex >= 0) setStep2Index(dateStepIndex)
+    showToast('原失敗訂單已取消，請重新選日期加入購物車；舊課程已清除，避免重複送出。', 'info')
   }
 
   // ===== Render =====
 
-  if (authLoading) {
+  if (authLoading || staffOperatorLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f7f8fa]">
         <div className="text-center">
@@ -2140,7 +2306,7 @@ export default function BookingFlowPage() {
     )
   }
 
-  if (!user) {
+  if (!user && !staffPrepareMode) {
     return (
       <div className="w-full font-sans">
         <SiteHeader forceTransparent={false} forceDarkText={true} forceLogoColor={true} forceCompact />
@@ -2152,14 +2318,30 @@ export default function BookingFlowPage() {
     )
   }
 
+  if (staffLinkToken && staffLinkStatus !== 'valid') {
+    return (
+      <div className="min-h-screen bg-[#f7f8fa] font-sans text-[#1f2937]">
+        <SiteHeader forceTransparent={false} forceDarkText={true} forceLogoColor={true} memberAuthenticated forceCompact />
+        <main className="mx-auto flex min-h-[60vh] max-w-xl items-center px-6 pt-24 pb-16">
+          <div role={staffLinkStatus === 'invalid' ? 'alert' : 'status'} className="w-full rounded-sm border border-[#dbe3ec] bg-white p-8 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+            <h1 className="text-xl font-semibold">{staffLinkStatus === 'invalid' ? '代客訂課連結已失效' : '正在確認代客訂課連結'}</h1>
+            <p className="mt-3 text-sm text-[#64748b]">{staffLinkStatus === 'invalid' ? '請向工作人員索取新連結，或改用一般訂課。' : '請稍候，確認校區後即可開始預約。'}</p>
+            {staffLinkStatus === 'invalid' && <a href={window.location.pathname} className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">改用一般訂課</a>}
+          </div>
+        </main>
+        <SiteFooter />
+      </div>
+    )
+  }
+
   return (
     <div className="w-full font-sans min-h-screen bg-[#f7f8fa]">
       <SiteHeader
         forceTransparent={false}
         forceDarkText={true}
         forceLogoColor={true}
-        memberAuthenticated={true}
-        memberAvatarSrc={user.picture || ''}
+        memberAuthenticated={Boolean(user)}
+        memberAvatarSrc={user?.picture || ''}
         forceCompact
       />
 
@@ -2177,7 +2359,7 @@ export default function BookingFlowPage() {
                   課程預約
                 </h1>
               </div>
-              <button
+              {!staffSelectedCart && <button
                 onClick={() => setIsCartOpen(true)}
                 className="relative inline-flex items-center justify-center rounded-full bg-white border border-[#e5e9f2] px-4 py-2.5 text-sm font-semibold text-[#1f2937] hover:border-[#2b5f8f] transition-colors"
               >
@@ -2188,8 +2370,10 @@ export default function BookingFlowPage() {
                     {cart.length}
                   </span>
                 )}
-              </button>
+              </button>}
             </div>
+
+          {staffPrepareMode && <div className="mb-5 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] px-4 py-3 text-sm text-[#1e4e73]" role="status"><b>代客選課模式</b> · 只準備課程，不會送出訂單或收款。選好後請回後台建立連結。</div>}
 
             {/* Steps progress */}
             <div className="flex items-center justify-between">
@@ -2228,14 +2412,23 @@ export default function BookingFlowPage() {
           </div>
 
           {/* Step Content */}
-          {staffLinkInfo && <div className="mb-4 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>工作人員協助訂課</b> · {staffLinkInfo.created_by} · 訂單固定歸屬「{staffLinkInfo.campus.name}」</div>}
+          {staffLinkInfo && <div className="mb-4 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>工作人員協助訂課</b> · {staffLinkInfo.created_by} · 訂單固定歸屬「{staffLinkInfo.campus.name}」{staffSelectedCart && ' · 課程已由工作人員選定，請確認資料後送出'}</div>}
+          {editingGroupId && currentStep === 2 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><p>正在修改這組課程。原課程已保留，完成新設定後才會替換。</p><button type="button" onClick={() => { resetDraftSelection(); setCurrentStep(3); }} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 font-semibold">取消修改，保留原課程</button></div>}
           <AnimatePresence mode="wait">
             <motion.div
-              key={`step-${currentStep}-${step2Index}`}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              key={`step-${currentStep}-${step2Index}-${submittedReservation ? 'payment' : 'details'}`}
+              variants={{ initial: { opacity: 0, x: 20 }, enter: { opacity: 1, x: 0 }, exit: { opacity: 0, x: -20 } }}
+              initial="initial"
+              animate="enter"
+              exit="exit"
               transition={{ duration: 0.3 }}
+              onAnimationComplete={(phase) => {
+                const stepKey = `${currentStep}-${step2Index}-${submittedReservation ? 'payment' : 'details'}`
+                if (phase === 'enter' && lastPositionedStep.current !== stepKey) {
+                  lastPositionedStep.current = stepKey
+                  window.scrollTo(0, 0)
+                }
+              }}
               className="bg-white border border-[#e5e9f2] rounded-sm p-6 md:p-10 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
             >
               {currentStep === 1 && (
@@ -2287,9 +2480,26 @@ export default function BookingFlowPage() {
                 />
               )}
 
-              {currentStep === 3 && (
+              {currentStep === 3 && createdReservationIds.length > 0 && !submittedReservation ? (
+                <div role="alert" className="mx-auto max-w-2xl rounded-sm border border-amber-300 bg-amber-50 p-6 text-[#1f2937]">
+                  <h2 className="text-xl font-semibold">訂單已建立</h2>
+                  <p className="mt-2 text-sm leading-6">{paymentInfoError || '正在取得付款資訊…'}請勿再次送出訂單。</p>
+                  <p className="mt-2 text-sm">預約編號：{createdReservationIds.join('、')}</p>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <button type="button" onClick={retryPaymentInfo} disabled={isSubmitting} className="rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{isSubmitting ? '載入中…' : '重新取得付款資訊'}</button>
+                    <a href={membershipUrl} className="rounded-full border border-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">查看會員訂單</a>
+                  </div>
+                </div>
+              ) : currentStep === 3 && staffPrepareMode ? (
+                <section className="mx-auto max-w-2xl space-y-4 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm">
+                  <h2 className="text-xl font-semibold text-[#1f2937]">確認替客人選的課程</h2>
+                  <p className="text-sm text-[#64748b]">這裡只準備課程，不會替客人送單或扣款。確認後回後台建立連結，客人登入後再填資料及付款。</p>
+                  {cart.map(group => <div key={group.id} className="rounded-sm border border-[#e2e8f0] p-4 text-sm text-[#1f2937]"><b>{group.resortName} · {group.peopleCount} 人</b>{group.courses.map(course => <p key={`${course.courseTemplateId}-${course.date}-${course.timeSlotStart}`} className="mt-1 text-[#64748b]">{course.courseTemplateName} · {course.date} {course.timeSlotStart}–{course.timeSlotEnd}</p>)}<p className="mt-2 font-semibold">小計 {formatCurrency(group.totalPrice)}</p><button type="button" onClick={() => handleEditCartGroup(group.id)} className="mt-2 text-sm font-semibold text-[#2b5f8f]">修改這組課程</button></div>)}
+                  <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">增加新組別課程</button><a href={staffConsoleUrl} className="rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">回後台建立連結</a></div>
+                </section>
+              ) : currentStep === 3 && (
                 <Step3Confirmation
-                  cart={cart}
+                  cart={submittedReservation ? submittedCart : cart}
                   contactInfo={contactInfo}
                   setContactInfo={setContactInfo}
                   discountCode={discountCode}
@@ -2307,6 +2517,7 @@ export default function BookingFlowPage() {
                   acceptedPolicy={acceptedPolicy}
                   setAcceptedPolicy={setAcceptedPolicy}
                   submittedReservation={submittedReservation}
+                  staffSelectedCart={staffSelectedCart}
                   senderAccount={senderAccount}
                   setSenderAccount={setSenderAccount}
                   onRemoveGroup={handleRemoveCartGroup}
@@ -2317,14 +2528,14 @@ export default function BookingFlowPage() {
                 />
               )}
 
-              {currentStep === 4 && <Step4Complete notice={completionNotice} />}
+              {currentStep === 4 && <Step4Complete notice={completionNotice} flow={completionFlow} />}
             </motion.div>
           </AnimatePresence>
 
           {/* Navigation buttons */}
-          {currentStep < 4 && (
+          {currentStep < 4 && !(staffPrepareMode && currentStep === 3) && (
             <div className="flex justify-between mt-8">
-              {(currentStep > 1 || (currentStep === 2 && step2Index > 0)) && !(currentStep === 3 && submittedReservation) ? (
+              {(currentStep > 1 || (currentStep === 2 && step2Index > 0)) && !(currentStep === 3 && (submittedReservation || createdReservationIds.length > 0 || staffSelectedCart)) ? (
                 <button
                   onClick={handleBack}
                   className="inline-flex items-center justify-center rounded-full border border-[#d4dbe4] bg-white px-6 py-3 text-sm font-semibold text-[#1f2937] hover:border-[#2b5f8f] transition-colors"
@@ -2336,7 +2547,9 @@ export default function BookingFlowPage() {
                 <div />
               )}
 
-              {currentStep === 3 && submittedReservation && paymentMethod === 'bank' ? (
+              {currentStep === 3 && createdReservationIds.length > 0 && !submittedReservation ? (
+                <div />
+              ) : currentStep === 3 && submittedReservation && paymentMethod === 'bank' && submittedReservation.payment_methods.includes('bank_transfer') ? (
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={handleBankTransferLater}
@@ -2370,7 +2583,9 @@ export default function BookingFlowPage() {
                   {currentStep === 3
                     ? (!submittedReservation
                       ? '送出訂單'
-                      : (paymentMethod === 'bank' ? '確認已匯款' : '前往藍新付款'))
+                      : !submittedReservation.payment_methods.length
+                        ? '暫無可用付款方式'
+                        : (paymentMethod === 'bank' ? '確認已匯款' : '前往藍新付款'))
                     : '下一步'}
                   {currentStep < 3 && <ChevronRight size={16} className="ml-1" />}
                 </button>
@@ -2383,10 +2598,17 @@ export default function BookingFlowPage() {
 
       <SiteFooter />
 
-      <CartModal
+      {!staffSelectedCart && <CartModal
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
+        onEditGroup={(groupId) => { setIsCartOpen(false); handleEditCartGroup(groupId) }}
         onConfirm={() => {
+          if (cart.some(group => group.totalPrice == null || !Number.isFinite(group.totalPrice)
+            || group.courses.some(course => course.price == null || !Number.isFinite(course.price)))) {
+            showToast('請先修改課程，確認新日期、時段及價格。', 'warning')
+            return
+          }
+          setEditingGroupId(null)
           // 確定預約 → 關閉購物車，跳到 Step 3 填聯絡資料 + 付款
           setIsCartOpen(false)
           if (cart.length === 0) {
@@ -2395,23 +2617,18 @@ export default function BookingFlowPage() {
           }
           setCurrentStep(3)
         }}
-      />
+      />}
 
       <SchedulingFailedModal
         isOpen={schedulingFailed.isOpen}
         message={schedulingFailed.message}
         conflictDetails={schedulingFailed.conflictDetails}
-        onClose={() => setSchedulingFailed((p) => ({ ...p, isOpen: false }))}
-        onWaitForStaff={() => {
-          // 訂單已保留 → 直接進完成頁，提示使用者等課服聯繫
-          setSchedulingFailed((p) => ({ ...p, isOpen: false }))
-          clearCart()
-          setCurrentStep(4)
-          showToast('訂單已保留，課服將主動聯繫您', 'success')
-        }}
-        onChangeDate={() => moveToDateSelectionAfterSchedulingFailure()}
-        onSelectSuggestion={(date, period) => replaceCartAfterSchedulingFailure({ date, period })}
-        onTrySuperSchedule={() => {
+        isSuggestionBookable={(date) => isBookableDateKey(date, dateInfo)}
+        onClose={finishAfterSchedulingFailure}
+        onWaitForStaff={finishAfterSchedulingFailure}
+        onChangeDate={staffSelectedCart ? undefined : () => moveToDateSelectionAfterSchedulingFailure()}
+        onSelectSuggestion={staffSelectedCart ? undefined : (date, period) => replaceCartAfterSchedulingFailure({ date, period })}
+        onTrySuperSchedule={staffSelectedCart ? undefined : () => {
           // 先彈確認 modal，避免使用者誤按
           setSchedulingFailed((p) => ({ ...p, isOpen: false }))
           setSuperConfirmOpen(true)
@@ -2446,6 +2663,7 @@ export default function BookingFlowPage() {
           setSuperConfirmOpen(false)
           setIsSubmitting(true)
           setCompletionNotice('')
+          let oldOrderCancelled = false
           const totalCartCourses = cart.reduce((sum, group) => sum + (group.courses?.length || 0), 0)
           startLoading(
             '正在嘗試進階排課',
@@ -2453,8 +2671,13 @@ export default function BookingFlowPage() {
             ['拆分每日課程', '查詢可接課教練', '確認每日時段', '建立進階預約', '整理付款資訊'],
           )
           try {
+            await cancelFailedOrderBeforeRetry(schedulingFailed.reservationGroupIds)
+            oldOrderCancelled = true
+            setSchedulingFailed({ isOpen: false, message: '', conflictDetails: null, reservationGroupIds: [] })
+            failedCartSignatureRef.current = ''
             const response = await superSchedule({
               cart,
+              accepted_policy: acceptedPolicy,
               contact: { ...contactInfo, referralSource: referralSourceValue },
               discount_code: discountCode.trim() || undefined,
             })
@@ -2477,9 +2700,14 @@ export default function BookingFlowPage() {
               showToast('進階排課完成，但無法取得付款編號', 'error')
               return
             }
+            setCreatedReservationIds(reservationGroupIds)
+            const accessTokens = getPaymentAccessTokensFromResponse(response)
+            setPaymentAccessTokens(accessTokens)
+            setSubmittedCart(cart)
+            clearCart()
             if (response.requires_payment === false || response.pending_coach_confirmation) {
-              clearCart()
               setSubmittedReservation(null)
+              setCompletionFlow('coach')
               setCompletionNotice(response.msg || '訂單已建立，目前等待教練確認接課，確認前不需要付款。')
               showToast(response.msg || '訂單已建立，等待教練確認', 'success')
               setCurrentStep(4)
@@ -2488,17 +2716,13 @@ export default function BookingFlowPage() {
             setLoadingStepIndex(4)
             setLoadingMessage('正在整理付款資訊')
             setLoadingDetail('進階排課已完成，正在準備付款資訊。')
-            setSubmittedReservation(await fetchSubmittedReservationInfo(reservationGroupIds))
-            clearCart()
-            showToast(
-              reservationGroupIds.length > 1 ? `進階排課成功，共 ${reservationGroupIds.length} 筆預約，請完成付款` : '進階排課成功，請完成付款',
-              'success',
-            )
+            await loadPaymentForCreatedOrder(reservationGroupIds, accessTokens)
           } catch (e: any) {
+            if (!oldOrderCancelled) setSchedulingFailed((p) => ({ ...p, isOpen: true }))
             if (isTimeoutError(e)) {
               showToast('進階排課處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
             } else {
-              showToast(`進階排課失敗：${e.message || '未知錯誤'}`, 'error')
+              showToast(`進階排課失敗：${getPriceErrorMessage(e, '請重新確認課程或聯絡客服')}`, 'error')
             }
           } finally {
             setIsSubmitting(false)
@@ -3184,6 +3408,13 @@ function Step2SkiConfiguration({
                 const disabled = !isBookableDateKey(dateKey, dateInfo)
                 const today = dateKey === toDateKey(new Date())
                 const dayNumber = Number(dateKey.split('-')[2])
+                const sharedSlots = selectedTemplateInfo?.shared_class_enabled
+                  ? (dateInfo?.shared_class_dates?.[dateKey] || []) : []
+                const visibleSlot = sharedSlots.find((slot: { remaining_capacity: number }) => slot.remaining_capacity > 0)
+                  || sharedSlots[0]
+                const sharedLabel = visibleSlot
+                  ? (visibleSlot.status === 'ready' ? '已成班' : `${visibleSlot.registered_students}/${visibleSlot.minimum_students} 湊班`)
+                  : ''
 
                 return (
                   <button
@@ -3191,7 +3422,8 @@ function Step2SkiConfiguration({
                     type="button"
                     disabled={disabled}
                     onClick={() => actions.toggleCourseDate(dateKey)}
-                    className={`flex h-11 items-center justify-center rounded-sm border text-sm font-semibold transition-colors ${
+                    aria-label={`${dateKey}${sharedLabel ? `，${sharedLabel}` : ''}${disabled ? '，不可預約' : ''}`}
+                    className={`flex ${selectedTemplateInfo?.shared_class_enabled ? 'min-h-14 flex-col' : 'h-11'} items-center justify-center rounded-sm border text-sm font-semibold transition-colors ${
                       selected
                         ? 'border-[#2b5f8f] bg-[#2b5f8f] text-white'
                         : disabled
@@ -3202,10 +3434,12 @@ function Step2SkiConfiguration({
                     }`}
                   >
                     {dayNumber}
+                    {sharedLabel && <span className={`mt-0.5 text-[9px] leading-tight ${selected ? 'text-white' : 'text-[#2b5f8f]'}`}>{sharedLabel}</span>}
                   </button>
                 )
               })}
             </div>
+            {selectedTemplateInfo?.shared_class_enabled && <p className="mt-3 text-xs text-[#64748b]">標示人數的日期已有同程度團體班；沒有標示的日期也可選，報名後開始湊班。選好日期後可查看各時段剩餘名額。</p>}
           </div>
 
           {state.selectedCourseDates?.length > 0 && (
@@ -3280,6 +3514,13 @@ function Step2SkiConfiguration({
               <p className="font-semibold text-sm">
                 {s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)}
               </p>
+              {selectedTemplateInfo?.shared_class_enabled && !s.is_full && <p className="mt-1 text-xs">
+                {s.shared_class
+                  ? s.shared_class.status === 'ready'
+                    ? `已成班・剩 ${s.shared_class.remaining_capacity} 位`
+                    : `湊班 ${s.shared_class.registered_students}/${s.shared_class.minimum_students} 人・剩 ${s.shared_class.remaining_capacity} 位`
+                  : '新班・報名後開始湊班'}
+              </p>}
               {s.is_full && (
                 <span className="absolute top-1 right-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
                   已滿
@@ -3371,17 +3612,19 @@ function Step3Confirmation({
   paymentMethod, setPaymentMethod,
   acceptedPolicy, setAcceptedPolicy,
   submittedReservation, senderAccount, setSenderAccount,
+  staffSelectedCart,
   onRemoveGroup, onRemoveCourse, onEditGroup, onAddGroup, onAddCourseToGroup,
 }: any) {
   const cancellationPolicyUrl = useSiteLink('/cancellation-policy')
-  const cartSubtotal = cart.reduce((sum: number, g: any) => sum + (g.totalPrice || 0), 0)
+  const cartSubtotal = submittedReservation?.total_amount ?? discountPreview?.subtotal ?? cart.reduce((sum: number, g: any) => sum + (g.totalPrice || 0), 0)
+  const pricePending = !submittedReservation && !discountPreview && cart.some((group: CartItem) => group.totalPrice == null)
   const totalCourses = cart.reduce((sum: number, g: any) => sum + (g.courses?.length || 0), 0)
   const discountTotal = submittedReservation ? 0 : (discountPreview?.discount_total || 0)
   const total = submittedReservation
     ? submittedReservation.total_amount
     : (discountPreview?.total ?? Math.max(cartSubtotal - discountTotal, 0))
   const isPaid = !!submittedReservation
-  const canEditCart = !isPaid
+  const canEditCart = !isPaid && !staffSelectedCart
   const isSharedClassCart = cart.some((group: CartItem) =>
     group.courses?.some((course) => course.sharedClassEnabled),
   )
@@ -3410,22 +3653,16 @@ function Step3Confirmation({
           <p className="text-sm text-[#6b7280] py-8 text-center">購物車是空的</p>
         ) : (
           <div className="space-y-4 mb-8">
-            <div className={`flex flex-col gap-3 rounded-sm border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${isSharedClassCart ? 'border-[#b6d6ec] bg-[#eaf4fb] text-sm font-semibold text-[#1e4e73]' : 'border-[#dbe3ec] bg-[#f8fafc] text-xs text-[#64748b]'}`}>
+            <div className={`rounded-sm border px-4 py-3 ${isSharedClassCart ? 'border-[#b6d6ec] bg-[#eaf4fb] text-sm font-semibold text-[#1e4e73]' : 'border-[#dbe3ec] bg-[#f8fafc] text-xs text-[#64748b]'}`}>
               <span>
                 {isSharedClassCart
-                  ? '團體湊班為單獨報名；滿成班人數並安排教練後，系統才會請您付款。'
-                  : `共 ${cart.length} 組預約、${totalCourses} 堂課。同一組請按「新增同組其他課程」，會以同一位教練排課；「增加新組別課程」會獨立排課。`}
+                  ? '團體湊班為單獨報名；滿成班人數後，系統才會請您付款。若排課尚待確認，會先暫停付款。'
+                  : isPaid
+                    ? `已建立 ${cart.length} 組預約、${totalCourses} 堂課。以下是送出時的課程內容。`
+                    : staffSelectedCart
+                      ? `工作人員已選好 ${cart.length} 組預約、${totalCourses} 堂課。請核對內容，若需修改請聯絡工作人員。`
+                      : `共 ${cart.length} 組預約、${totalCourses} 堂課。同一組請按「新增同組其他課程」，會以同一位教練排課；「增加新組別課程」會獨立排課。`}
               </span>
-              {canEditCart && !isSharedClassCart && (
-                <button
-                  type="button"
-                  onClick={() => onAddGroup?.()}
-                  className="inline-flex shrink-0 items-center justify-center gap-1 rounded-full bg-[#2b5f8f] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#8ec8f0]"
-                >
-                  <Plus size={13} />
-                  增加新組別課程
-                </button>
-              )}
             </div>
             {cart.map((group: any, groupIndex: number) => {
               const courseSegments = groupCartCoursesBySegment(group.courses || [])
@@ -3437,7 +3674,7 @@ function Step3Confirmation({
                       預約組 {groupIndex + 1}
                       {courseSegments.length > 1 && (
                         <span className="ml-2 rounded-full bg-[#eff6ff] px-2 py-0.5 text-[#2b5f8f]">
-                          {courseSegments.length} 個小單
+                          {courseSegments.length} 項課程
                         </span>
                       )}
                     </p>
@@ -3453,7 +3690,7 @@ function Step3Confirmation({
                         <Calendar size={13} />
                         {getCartDateSummary(group.courses || [])}
                       </span>
-                      <span>{courseSegments.length} 個小單</span>
+                      <span>{courseSegments.length} 項課程</span>
                     </div>
                   </div>
                   {canEditCart && (
@@ -3488,6 +3725,8 @@ function Step3Confirmation({
                   )}
                 </div>
 
+                {canEditCart && group.rebookSource && <p className="mx-4 mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm leading-6 text-[#1e4e73]">將沿用上次可管理的 {group.rebookSource.learnerCount} 位學員姓名、年齡區間與滑雪程度；其他成人需重新邀請。保險資料與聲明簽名須重新確認。</p>}
+                {canEditCart && group.rebookLearnersReset && <p role="status" className="mx-4 mt-4 rounded-sm bg-amber-50 p-3 text-sm leading-6 text-amber-900">人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。</p>}
                 <div className="grid grid-cols-2 gap-2 px-4 py-4 sm:grid-cols-3 lg:grid-cols-5">
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
@@ -3497,7 +3736,7 @@ function Step3Confirmation({
                   </div>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="text-[11px] font-semibold text-[#94a3b8]">程度</p>
-                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.abilityLevelName || group.abilityLevel || '未指定'}</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.abilityLevelName || getCoachAbilityLabel(group.abilityLevel) || '未指定'}</p>
                   </div>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
@@ -3509,7 +3748,7 @@ function Step3Confirmation({
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
                       <User size={13} /> 教練
                     </p>
-                    <p className="mt-1 truncate text-sm font-semibold text-[#1f2937]">
+                    <p className="mt-1 break-words text-sm font-semibold leading-relaxed text-[#1f2937]">
                       {group.courses?.[0]?.sharedClassEnabled ? '由學校安排' : (group.coachName || '不指定')}
                     </p>
                   </div>
@@ -3544,7 +3783,7 @@ function Step3Confirmation({
                       <div key={segment.key} className="grid gap-3 rounded-sm border border-[#edf1f6] bg-[#fbfdff] px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
                         <div>
                           <p className="mb-1 text-xs font-semibold text-[#2b5f8f]">
-                            {groupIndex + 1}-{segmentIndex + 1} 小單 {segmentIndex + 1}
+                            第 {segmentIndex + 1} 項課程
                           </p>
                           <p className="text-sm font-semibold text-[#1f2937]">
                             {firstCourse?.courseTemplateName || firstCourse?.courseTypeName}
@@ -3569,7 +3808,7 @@ function Step3Confirmation({
                             <button
                               type="button"
                               onClick={removeSegment}
-                              aria-label="刪除此小單"
+                              aria-label="刪除此課程項目"
                               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#94a3b8] hover:bg-[#fff1f1] hover:text-[#b42318]"
                             >
                               <Trash2 size={15} />
@@ -3612,12 +3851,16 @@ function Step3Confirmation({
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              姓名
+              姓名 <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={contactInfo.name}
+              aria-label="聯絡人姓名"
+              required
+              readOnly={isPaid}
               onChange={(e) => setContactInfo({ ...contactInfo, name: e.target.value })}
+              placeholder="請填寫實際聯絡人姓名"
               className="w-full px-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
             />
           </div>
@@ -3628,6 +3871,7 @@ function Step3Confirmation({
             <input
               type="email"
               value={contactInfo.email}
+              readOnly={isPaid}
               onChange={(e) => setContactInfo({ ...contactInfo, email: e.target.value })}
               className="w-full px-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
             />
@@ -3639,6 +3883,7 @@ function Step3Confirmation({
             <input
               type="tel"
               value={contactInfo.phone}
+              readOnly={isPaid}
               onChange={(e) => setContactInfo({ ...contactInfo, phone: e.target.value })}
               className="w-full px-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
               placeholder="0912345678"
@@ -3650,6 +3895,7 @@ function Step3Confirmation({
             </label>
             <select
               value={contactInfo.messengerType}
+              disabled={isPaid}
               onChange={(e) => {
                 const messengerType = e.target.value
                 setContactInfo({
@@ -3673,6 +3919,7 @@ function Step3Confirmation({
             <input
               type="text"
               value={contactInfo.messengerId}
+              readOnly={isPaid}
               onChange={(e) => setContactInfo({ ...contactInfo, messengerId: e.target.value })}
               disabled={!contactInfo.messengerType}
               className="w-full px-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
@@ -3690,11 +3937,11 @@ function Step3Confirmation({
 
         <div className="space-y-3 mb-6">
           <div className="flex justify-between text-sm">
-            <span className="text-[#6b7280]">課程費用</span>
-            <span className="text-[#1f2937]">NT$ {cartSubtotal.toLocaleString()}</span>
+            <span className="text-[#6b7280]">{isPaid ? '本筆應付' : '課程費用'}</span>
+            <span className="text-[#1f2937]">{pricePending ? '價格待確認' : `NT$ ${cartSubtotal.toLocaleString()}`}</span>
           </div>
 
-          <div>
+          {!isPaid && <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
               折扣碼
             </label>
@@ -3711,7 +3958,7 @@ function Step3Confirmation({
             {!isPaid && discountPreview?.discount_code_error && discountCode.trim() && (
               <p className="mt-1 text-xs text-red-600">{discountPreview.discount_code_error}</p>
             )}
-          </div>
+          </div>}
 
           <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
@@ -3719,6 +3966,7 @@ function Step3Confirmation({
             </label>
             <select
               value={referrer}
+              disabled={isPaid}
               onChange={(e) => {
                 setReferrer(e.target.value)
                 setReferrerDetail('')
@@ -3734,6 +3982,7 @@ function Step3Confirmation({
               <input
                 type="text"
                 value={referrerDetail}
+                readOnly={isPaid}
                 onChange={(e) => setReferrerDetail(e.target.value)}
                 placeholder={referrer === '其他' ? '請填寫來源' : '補充說明（例如：推薦人姓名、活動名稱）'}
                 className="mt-2 w-full px-3 py-2 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
@@ -3759,43 +4008,41 @@ function Step3Confirmation({
           <div className="flex justify-between items-baseline">
             <span className="text-sm font-semibold text-[#1f2937]">{isSharedClassCart && !isPaid ? '成班後應付' : '總金額'}</span>
             <span className="text-2xl font-bold text-[#2b5f8f]">
-              NT$ {total.toLocaleString()}
+              {pricePending ? '價格待確認' : `NT$ ${total.toLocaleString()}`}
             </span>
           </div>
         </div>
 
+        {pricePending && <p role="status" className="mb-4 text-sm text-amber-800">{isDiscountPreviewLoading ? '正在確認最新價格…' : '尚未取得最新價格，請按課程「修改」重新確認日期、時段與價格後再送出。'}</p>}
+
         <h4 className="text-sm font-semibold text-[#1f2937] mb-3">付款方式</h4>
         {isSharedClassCart && !isPaid && (
-          <p className="mb-3 text-xs leading-5 text-[#64748b]">目前只需報名，不必先付款；滿成班人數並安排教練後才會提供付款資訊。</p>
+          <p className="mb-3 text-xs leading-5 text-[#64748b]">目前只需報名，不必先付款；滿成班人數後才會提供付款資訊。若排課尚待確認，會先暫停付款。</p>
         )}
-        <div className="space-y-2 mb-6">
+        {!isPaid && !isSharedClassCart && (
+          <p className="mb-6 text-xs leading-5 text-[#64748b]">送出訂單後，系統會依訂單所在地與已開通的付款服務，顯示可用付款方式及收款帳戶。</p>
+        )}
+        {isPaid && submittedReservation.payment_methods.length === 0 && (
+          <p className="mb-6 rounded-sm border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">此訂單目前沒有可用的付款方式，請聯絡客服確認收款資訊；請勿自行匯款。</p>
+        )}
+        {isPaid && submittedReservation.payment_methods.length > 0 && <div className="space-y-2 mb-6">
           {[
-            { id: 'bank', label: '台灣地區 - 銀行轉帳' },
-            { id: 'card', label: '其他地區 - 藍新信用卡支付' },
-          ].map((p) => (
-            <label key={p.id} className={`flex items-center gap-3 p-3 border rounded-sm transition-colors ${
-              isPaid ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-[#2b5f8f]'
-            } ${paymentMethod === p.id ? 'border-[#2b5f8f]' : 'border-[#e5e9f2]'}`}>
+            { id: 'bank', method: 'bank_transfer', label: '銀行轉帳' },
+            { id: 'card', method: 'newebpay', label: '藍新信用卡支付' },
+          ].filter((p) => submittedReservation.payment_methods.includes(p.method)).map((p) => (
+            <label key={p.id} className={`flex cursor-pointer items-center gap-3 rounded-sm border p-3 transition-colors hover:border-[#2b5f8f] ${paymentMethod === p.id ? 'border-[#2b5f8f]' : 'border-[#e5e9f2]'}`}>
               <input
                 type="radio"
                 name="payment"
                 value={p.id}
                 checked={paymentMethod === p.id}
                 onChange={(e) => setPaymentMethod(e.target.value as any)}
-                disabled={isPaid}
                 className="text-[#2b5f8f] focus:ring-[#2b5f8f]"
               />
               <span className="text-sm text-[#1f2937]">{p.label}</span>
             </label>
           ))}
-        </div>
-        {!isPaid && paymentMethod === 'bank' && (
-          <div className="mb-6 rounded-sm border border-[#f5c16c] bg-[#fff7e6] p-3 text-xs leading-5 text-[#92400e]">
-            {isSharedClassCart
-              ? '團體班成班並安排教練後，才會顯示匯款資訊與付款期限；收到請款後再匯款。'
-              : '選擇銀行轉帳後，送出訂單會顯示匯款資訊及付款期限；可先稍後匯款，完成後再填寫帳戶後五碼供客服對帳。'}
-          </div>
-        )}
+        </div>}
 
         {/* 階段 3a：尚未送出訂單 → 顯示同意條款 */}
         {!isPaid && (
@@ -3814,7 +4061,7 @@ function Step3Confirmation({
         )}
 
         {/* 階段 3b：已送出訂單 → 顯示付款資訊 */}
-        {isPaid && paymentMethod === 'bank' && (
+        {isPaid && paymentMethod === 'bank' && submittedReservation.payment_methods.includes('bank_transfer') && (
           <div className="mt-2 p-4 bg-white border border-[#2b5f8f]/30 rounded-sm">
             <h4 className="text-sm font-semibold text-[#2b5f8f] mb-3">匯款資訊</h4>
             <div className="mb-4 rounded-sm border border-[#f5c16c] bg-[#fff7e6] p-3 text-xs leading-5 text-[#92400e]">
@@ -3822,18 +4069,18 @@ function Step3Confirmation({
                 ? `請於 ${new Date(submittedReservation.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })} 前完成匯款。`
                 : '請於訂單付款期限內完成匯款。'}若尚未匯款，可按「稍後匯款」；若已匯款，請填寫匯款帳戶後五碼並按「確認已匯款」。
             </div>
-            <div className="space-y-2 text-sm">
-              {submittedReservation.reservation_group_ids.length > 1 && (
-                <div className="flex justify-between">
-                  <span className="text-[#6b7280]">預約筆數</span>
-                  <span className="text-[#1f2937] font-medium">{submittedReservation.reservation_group_ids.length} 筆</span>
+            {submittedReservation.payment_infos.length > 1 && <p className="mb-3 text-sm font-semibold text-[#92400e]">每筆預約請分別匯至下方對應帳戶，不要將總金額匯入單一帳戶。</p>}
+            <div className="space-y-4 text-sm">
+              {submittedReservation.payment_infos.map((info: SubmittedReservation['payment_infos'][number]) => (
+                <div key={info.reservation_group_id} className="space-y-2 border-t border-[#e5e9f2] pt-3">
+                  {submittedReservation.payment_infos.length > 1 && <p className="font-semibold text-[#1f2937]">預約 #{info.reservation_group_id}</p>}
+                  <div className="flex justify-between"><span className="text-[#6b7280]">銀行</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_name || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#6b7280]">分行</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_branch || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#6b7280]">帳號</span><span className="text-[#1f2937] font-mono font-semibold">{info.bank_info.bank_account_number || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#6b7280]">戶名</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_account_holder || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#1f2937] font-semibold">匯款金額</span><span className="text-[#2b5f8f] text-base font-bold">NT$ {info.total_amount.toLocaleString()}</span></div>
                 </div>
-              )}
-              <div className="flex justify-between"><span className="text-[#6b7280]">銀行</span><span className="text-[#1f2937] font-medium">{submittedReservation.bank_info.bank_name || '—'}</span></div>
-              <div className="flex justify-between"><span className="text-[#6b7280]">分行</span><span className="text-[#1f2937] font-medium">{submittedReservation.bank_info.bank_branch || '—'}</span></div>
-              <div className="flex justify-between"><span className="text-[#6b7280]">帳號</span><span className="text-[#1f2937] font-mono font-semibold">{submittedReservation.bank_info.bank_account_number || '—'}</span></div>
-              <div className="flex justify-between"><span className="text-[#6b7280]">戶名</span><span className="text-[#1f2937] font-medium">{submittedReservation.bank_info.bank_account_holder || '—'}</span></div>
-              <div className="flex justify-between pt-2 border-t border-[#e5e9f2]"><span className="text-[#1f2937] font-semibold">匯款金額</span><span className="text-[#2b5f8f] text-base font-bold">NT$ {total.toLocaleString()}</span></div>
+              ))}
             </div>
 
             <div className="mt-4">
@@ -3853,7 +4100,7 @@ function Step3Confirmation({
           </div>
         )}
 
-        {isPaid && paymentMethod === 'card' && (
+        {isPaid && paymentMethod === 'card' && submittedReservation.payment_methods.includes('newebpay') && (
           <div className="mt-2 p-4 bg-white border border-[#2b5f8f]/30 rounded-sm text-center">
             <p className="text-sm text-[#1f2937] mb-1">
               {submittedReservation.reservation_group_ids.length > 1
@@ -3869,15 +4116,16 @@ function Step3Confirmation({
 }
 
 // ============== Step 4: 完成 ==============
-function Step4Complete({ notice = '' }: { notice?: string }) {
+function Step4Complete({ notice = '', flow = 'payment' }: { notice?: string; flow?: CompletionFlow }) {
   const navigate = useNavigate()
+  const ordersUrl = useSiteLink('/membership/orders')
   return (
     <div className="text-center py-10 md:py-16">
       <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-[#e9eef3] text-[#2b5f8f] mb-6">
         <Check size={40} />
       </div>
       <h2 className="text-2xl md:text-3xl font-semibold text-[#1f2937] font-display mb-4">
-        預約送出成功
+        {flow === 'collecting_class' ? '報名已保留，等待成班' : flow === 'staff' ? '訂單已保留，待課服安排' : flow === 'coach' ? '訂單已建立，待教練確認' : '預約送出成功'}
       </h2>
       <div className="max-w-md mx-auto mb-8 space-y-3 text-left text-sm text-[#6b7280] leading-relaxed">
         <p className="text-center">
@@ -3886,16 +4134,37 @@ function Step4Complete({ notice = '' }: { notice?: string }) {
         <div className="rounded-sm border border-[#e2e8f0] bg-[#f8fafc] p-4">
           <p className="font-semibold text-[#1f2937] mb-2">接下來請留意：</p>
           <ul className="space-y-1.5 list-disc pl-5">
-            {notice ? (
+            {flow === 'collecting_class' ? (
+              <>
+                <li>目前正在湊班，尚未達到成班人數。</li>
+                <li>成班且課程安排確認後，會通知您付款；現在不需要匯款。</li>
+                <li>可在會員訂單查看最新報名狀態。</li>
+              </>
+            ) : flow === 'staff' ? (
+              <>
+                <li>課服會協助確認可用教練或與您討論其他日期。</li>
+                <li>課程安排確認前不需要付款，請留意課服通知。</li>
+              </>
+            ) : flow === 'coach' ? (
               <>
                 <li>此訂單目前需等待教練確認接課。</li>
                 <li>確認完成前不需要付款，客服會再通知後續付款與安排。</li>
               </>
+            ) : flow === 'bank_submitted' ? (
+              <>
+                <li>客服核對匯款後，會更新訂單的付款狀態。</li>
+                <li>請在會員訂單查看最新狀態；無須再次填寫匯款後五碼。</li>
+              </>
+            ) : flow === 'bank_later' ? (
+              <>
+                <li>匯款後，請提供匯款帳戶後五碼給客服對帳。</li>
+                <li>客服確認付款後，會再與您確認課程安排。</li>
+              </>
             ) : (
               <>
                 <li>請確認 Email 是否收到預約確認信。</li>
-                <li>若選擇銀行轉帳，請依畫面或信件說明完成匯款資訊填寫。</li>
-                <li>客服確認訂單與付款後，會再與您確認後續安排。</li>
+                <li>請在付款視窗完成信用卡付款，並於會員訂單確認付款狀態。</li>
+                <li>客服確認訂單後，會再與您確認後續安排。</li>
               </>
             )}
           </ul>
@@ -3905,6 +4174,12 @@ function Step4Complete({ notice = '' }: { notice?: string }) {
         </p>
       </div>
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+        <a
+          href={ordersUrl}
+          className="inline-flex items-center justify-center rounded-full border border-[#2b5f8f] bg-white px-8 py-3 text-sm font-semibold text-[#2b5f8f] hover:bg-[#f0f6fb] transition-colors"
+        >
+          查看我的訂單
+        </a>
         <a
           href="https://line.me/R/ti/p/@snowlandcz?from=page&searchId=snowlandcz"
           target="_blank"
