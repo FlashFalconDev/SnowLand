@@ -23,6 +23,7 @@ import AboutPageEditor from '../../components/AboutPageEditor'
 import ArticlePageEditor from '../../components/ArticlePageEditor'
 import GuideArticleFields from '../../components/GuideArticleFields'
 import CourseAreaFields from '../../components/CourseAreaFields'
+import HomepagePresentationFields from '../../components/HomepagePresentationFields'
 import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
 import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
@@ -88,6 +89,7 @@ const DEFAULT_GROUPS: GroupInfo[] = [
     description: '首頁會看到的主視覺、評價、教練區塊與優惠卡',
     locations: [
       { key: 'homepage.hero', label: '首頁主視覺', hint: '首頁第一屏標題、圖片與主要文案', type: 'setting' },
+      { key: 'homepage.intro', label: '首頁學校介紹', hint: '首頁照片、學校介紹、粗體文字、展開段落與了解更多按鈕', type: 'setting' },
       { key: 'homepage.courses', label: '熱門課程', hint: '首頁課程卡片：名稱、短文字、圖片、按鈕、排序與上下架', type: 'page' },
       { key: 'homepage.reviews', label: '學生評價', hint: '首頁下方的評論卡片', type: 'review' },
       { key: 'homepage.coaches', label: '教練團隊區塊', hint: '首頁教練區塊文字或設定', type: 'setting' },
@@ -250,6 +252,12 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
     const group = groups.find(group => group.id === 'courses')
     if (group) group.locations.push(location)
     else groups.push({...courses, locations:[location]})
+  }
+  for (const key of ['homepage.hero','homepage.intro']) {
+    if (!groups.some(group=>group.locations.some(location=>location.key===key))) {
+      const home=groups.find(group=>group.id==='homepage')!
+      home.locations.push(DEFAULT_GROUPS[0].locations.find(location=>location.key===key)!)
+    }
   }
   return groups
 }
@@ -415,6 +423,7 @@ type SitePreviewRoute = {
 
 const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'homepage.hero': { path: '/' },
+  'homepage.intro': { path: '/', hash: 'about-snowland' },
   'homepage.courses': { path: '/', hash: 'homepage-courses' },
   'homepage.reviews': { path: '/', hash: 'homepage-reviews' },
   'homepage.coaches': { path: '/', hash: 'homepage-coaches' },
@@ -1311,8 +1320,9 @@ function ContentDrawer({
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
   const isAboutPage = ['about.snowland', 'about.join-us'].includes(form.location_key)
+  const isHomepagePresentation = ['homepage.hero','homepage.intro'].includes(form.location_key)
   const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
-  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || form.location_key === 'course.areas'
+  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || form.location_key === 'course.areas'
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
@@ -1473,7 +1483,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
+            {isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1496,7 +1506,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {isHomepagePresentation ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (

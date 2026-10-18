@@ -32,7 +32,7 @@ const home=fs.readFileSync(path.join(root,'src/pages/site/HomePage.jsx'),'utf8')
 assert.ok(!home.includes('staticReviews'));assert.ok(!home.includes('5.0 ⭐⭐⭐⭐⭐ 176'))
 assert.ok(home.includes('重試學員評價'));assert.ok(home.includes('目前尚無公開評價'))
 function homepage(status,rows=[]){
-  const states=[false,false,null,rows,status,0],effects=[];let cursor=0
+  const states=[false,null,rows,status,0],effects=[];let cursor=0
   const hooks={...React,useMemo:fn=>fn(),useEffect:(fn,deps)=>effects.push({fn,deps}),useRef:()=>({current:null}),useState:initial=>{const i=cursor++;if(!(i in states))states[i]=typeof initial==='function'?initial():initial;return[states[i],value=>states[i]=typeof value==='function'?value(states[i]):value]}}
   const ctx=vm.createContext({exports:{},require:name=>{
     if(name==='react')return hooks
@@ -58,10 +58,10 @@ function homepage(status,rows=[]){
   assert.ok(withPhoto.includes('src="/qa-review.jpg"'));assert.ok(withPhoto.includes('has-media'))
   const broken=homepage('error'),tree=broken.render()
   const retry=findAll(tree,node=>node.type==='button'&&node.props.children==='重試學員評價')[0]
-  assert.ok(retry);retry.props.onClick();assert.equal(broken.states[5],1)
+  assert.ok(retry);retry.props.onClick();assert.equal(broken.states[4],1)
   broken.render()
   const fetchEffect=broken.effects.find(effect=>effect.fn.toString().includes('fetchSiteContent'))
   assert.equal(fetchEffect.deps[0],1);fetchEffect.fn();await new Promise(setImmediate)
-  assert.equal(broken.states[4],'ready');assert.equal(broken.states[3].length,0)
+  assert.equal(broken.states[3],'ready');assert.equal(broken.states[2].length,0)
   console.log('PASS actual review placement controls and homepage: independent switch/multi-coach, stale/disabled labels, retained metadata, real loading/error/empty/render/retry effect, no static fallback')
 })().catch(error=>{console.error(error);process.exit(1)})
