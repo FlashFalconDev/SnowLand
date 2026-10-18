@@ -24,6 +24,7 @@ export function useSiteContent(locationKey, options = {}) {
       ...(options.contentType ? { content_type: options.contentType } : {}),
       ...(options.includeEnded ? { include_ended: true } : {}),
       ...(options.contentId ? { content_id: options.contentId } : {}),
+      ...(locationKey === 'guides.articles' && !options.contentId ? {view:'cards'} : {}),
     })
       .then((result) => {
         if (active) setItems(Array.isArray(result) ? result : []);

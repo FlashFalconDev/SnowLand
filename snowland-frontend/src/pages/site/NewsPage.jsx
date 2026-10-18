@@ -23,7 +23,7 @@ function NewsPage() {
     let mounted = true;
     Promise.all([
       fetchSiteContent({ content_type: 'social', location_key: 'news.social', limit: 8 }),
-      fetchSiteContent({ content_type: 'article', location_key: 'guides.articles', limit: 6 }),
+      fetchSiteContent({ content_type: 'article', location_key: 'guides.articles', limit: 6, view:'cards' }),
     ])
       .then(([socialItems, articleItems]) => {
         if (!mounted) return;

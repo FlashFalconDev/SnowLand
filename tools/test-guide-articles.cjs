@@ -3,6 +3,8 @@ const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequi
 const compile=file=>ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText
 const ctx=vm.createContext({exports:{},URL,require:name=>name==='react'?React:{}})
 vm.runInContext(compile('src/hooks/useSiteContent.js'),ctx)
+const articleHtmlCtx=vm.createContext({exports:{}})
+vm.runInContext(compile('src/utils/guideArticleHtml.js'),articleHtmlCtx)
 const map=ctx.exports.siteContentToArticle
 const row={id:501,location_key:'guides.articles',title:'QA新文章',summary:'QA摘要',image_url:'/vite.svg',link_url:'',metadata:{category:'親子滑雪',date:'2026-10-18',article_mode:'internal',blocks:[{type:'paragraph',text:'QA完整內文'}]}}
 assert.equal(map(row).url,'/guides/articles/501','新增文章必須能點進完整內頁，不是空白連結')
@@ -21,6 +23,7 @@ function render(file,{items=[row],loading=false,error=null,articleId='501',categ
   if(name.includes('SiteLink'))return{__esModule:true,SiteBasePathContext:React.createContext('/snowland'),default:({to,children,...props})=>React.createElement('a',{...props,href:to},children)}
   if(name.includes('useSiteContent'))return{...ctx.exports,useSiteContent:key=>({items:key==='guides.articles'?items:[],isLoading:loading,error,refetch(){}})}
   if(name.includes('/api/booking'))return{fetchSiteContent:()=>Promise.resolve([])}
+  if(name.includes('guideArticleHtml'))return articleHtmlCtx.exports
   throw Error(name)
  }})
  vm.runInContext(compile(file),context)

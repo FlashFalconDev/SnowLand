@@ -103,6 +103,13 @@ body {
 .imported-guide table { display: block; overflow-x: auto; }
 .imported-guide table td, .imported-guide table th { min-width: 10rem; }
 .imported-guide iframe { display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 16 / 9; margin: 1.5rem 0; border: 0; }
+.imported-guide :is(h2,h3,h4) { scroll-margin-top: 6rem; }
+/* Keep clipping horizontal overflow without creating a false scroll container
+   above the article's sticky table of contents. Other screens are unchanged. */
+html:has(.imported-guide), body:has(.imported-guide), #root:has(.imported-guide) {
+  overflow-x: clip;
+  overflow-y: visible;
+}
 
 .legacy-tab-content h3,
 .legacy-tab-content h4,

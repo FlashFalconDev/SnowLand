@@ -847,6 +847,9 @@ class SiteContentListAPI(APIView):
         content_type = (request.GET.get('content_type') or '').strip()
         location_key = (request.GET.get('location_key') or '').strip()
         tag = (request.GET.get('tag') or '').strip()
+        view = (request.GET.get('view') or '').strip()
+        if view not in ('','cards') or view == 'cards' and location_key != 'guides.articles':
+            return Response({'error':'文章顯示方式不正確'},status=status.HTTP_400_BAD_REQUEST)
 
         if content_type:
             qs = qs.filter(content_type=content_type)
@@ -918,6 +921,27 @@ class SiteContentListAPI(APIView):
             }
             for item in qs
         ]
+
+        if location_key in ('guides.articles','guides.article-pages'):
+            if view == 'cards':
+                for row in data:
+                    metadata = row['metadata']
+                    mode = metadata.get('article_mode') or ('external' if row['link_url'] and not row['body'] else 'internal')
+                    row['metadata'] = {key:value for key,value in metadata.items() if key not in ('article','blocks','page')}
+                    row['metadata']['article_mode'] = mode
+                    row['body'] = ''
+            elif any(isinstance(row['metadata'].get('article'),dict) for row in data):
+                from Client.guide_links import guide_link_index, rewrite_guide_links, resolve_guide_link
+                index = guide_link_index(client)
+                for row in data:
+                    article = row['metadata'].get('article')
+                    if isinstance(article,dict) and isinstance(article.get('html'),str):
+                        updated_article = {**article,'html':rewrite_guide_links(article['html'],index)}
+                        if isinstance(article.get('relatedLinks'),list):
+                            updated_article['relatedLinks'] = [
+                                {**link,'url':resolve_guide_link(link['url'],index,link.get('title',''))} if isinstance(link,dict) and isinstance(link.get('url'),str) else link
+                                for link in article['relatedLinks']]
+                        row['metadata'] = {**row['metadata'],'article':updated_article}
 
         return Response(data, status=status.HTTP_200_OK)
 
