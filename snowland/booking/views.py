@@ -2,16 +2,13 @@ from django.shortcuts import render, get_object_or_404
 from django.http import Http404, JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
-from django.conf import settings
 from django.http import JsonResponse
 from .models import *
 from booking.scheduler import assign_coachs, check_availability_and_get_suggestions
 from datetime import datetime, timedelta
-from .funcNewebpay import neweb_pay_request
 from snowland.settings import RUN_HOST, PAYMENT_HOST
 import json
 from django.db import transaction
-from booking.tasks import auto_cancel_unpaid_reservations
 import requests
 from Coach.models import CoachCourseLevel, CoachResort, Coach, CoachLeaveRequest
 from Resorts.models import Resorts # 1. 匯入 Resorts model
@@ -56,9 +53,7 @@ def home(request, client_code):
     參數：
     - client_code: 由 URL 傳入，例如 /booking/snowland/ -> client_code='snowland'
     """
-    # TODO: 將 auto_cancel_unpaid_reservations() 移到 Celery 定時任務
-    # 暫時保留以確保向後相容，但應該盡快移除
-    auto_cancel_unpaid_reservations()
+    # Expiry is handled by the background task; page reads must not cancel orders.
 
     # 🔥 租戶資訊由 middleware 和裝飾器自動注入
     tenant = request.tenant  # 由 middleware 注入，裝飾器已確保存在
@@ -131,7 +126,6 @@ def payment(request, client_code):
     - client_code: 由 URL 傳入，例如 /booking/snowland/payment/ -> client_code='snowland'
     """
     print("payment")
-    # auto_cancel_unpaid_reservations()
     order_details = []
     total_amount = 0
     reservation_group_pk = request.GET.get('reservation_group', '')
@@ -802,67 +796,8 @@ def API(request, tunnel, Client_Info=None):
                 "price_list": price_list
             }, status=200)
     elif tunnel == 'process_payment':
-        if request.method == 'POST':
-            body = request.data
-            img = body.get('img', False)
-            reservation_group_pk = body.get("reservation_group_pk")
-            paymentType = body.get("paymentType")
-            resv = get_object_or_404(ReservationGroup, pk=reservation_group_pk)
-            if not request.user.is_authenticated:
-                return JsonResponse({'error': '請先登入'}, status=401)
-            if not can_access_payment(resv, request.user, body.get('access_token', '')):
-                return JsonResponse({'error': '找不到預約群組'}, status=404)
-            user_id = request.user.id
-            payment = Payment.objects.filter(reservation_group=resv).order_by('-created_at').first()
-            if not payment:
-                return JsonResponse({'error': '找不到付款資料'}, status=404)
-            if payment.status in {'paid', 'expired'}:
-                return JsonResponse({'error': '此訂單已付款或付款期限已結束'}, status=400)
-            if paymentType == "newebpay":
-                if not all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
-                    return JsonResponse({'error': '信用卡付款尚未開放，請改用銀行匯款'}, status=503)
-                # 使用 Newebpay 付款
-                bookings = Booking.objects.filter(reservation__in=resv.reservations.all())
-                # 使用集合来跟踪已经写过的日期和课程名称组合
-                written_courses = set()
-                product_name_parts = ["滑雪預約"]
-
-                for booking in bookings:
-                    # 假设 booking.date 是一个 datetime 对象
-                    # 使用 strftime 格式化日期
-                    formatted_date = booking.date.strftime("%Y-%m-%d")
-                    course_key = (formatted_date, booking.course_name)
-                    if course_key not in written_courses:
-                        product_name_parts.append(f"{formatted_date} {booking.course_name}")
-                        written_courses.add(course_key)
-
-                product_name = " / ".join(product_name_parts)
-
-                data = {
-                    "store": {
-                        "MerchantID": settings.NEWEBPAY_MERCHANT_ID,
-                        "HashKey": settings.NEWEBPAY_HASH_KEY,
-                        "HashIV": settings.NEWEBPAY_HASH_IV,
-                    },
-                    "body": {
-                        "img": img,  # 商品照片
-                        "OrderNo": reservation_group_pk,  # 訂單編號
-                        "price": str(sum(item.payment_amount for item in resv.reservations.exclude(status__in=['deleted', 'cancelled']))),
-                        "product": product_name,  # 商品名
-                        "NotifyURL": f"{RUN_HOST}/call_back/NewebPay/?user_id={user_id}",  # 返回網址
-                    },
-                }
-                response = neweb_pay_request(data)
-                return JsonResponse({"message": "Payment confirmed", 'html': response}, status=200)
-            elif paymentType == "TT":
-                senderAccount = body.get("senderAccount")
-                user = request.user
-                # 使用匯款付款
-                payment.status = 'pending'
-                payment.bank_account = senderAccount
-                payment.user = user
-                payment.save()
-                return JsonResponse({"message": "Payment confirmed"}, status=200)
+        from .legacy_payment import process_legacy_payment
+        return process_legacy_payment(request)
     elif tunnel == 'history_reservations':
         if request.method == 'GET':
             reservations = Reservation.objects.filter(user=request.user)

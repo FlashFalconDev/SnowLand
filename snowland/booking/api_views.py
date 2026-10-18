@@ -90,6 +90,8 @@ def get_group_payment_hold(group):
     if group.reservations.filter(status='auto_assignment_failed').exists():
         return SCHEDULING_FAILED_PAYMENT_MESSAGE, 'scheduling_failed'
     payment = group.payments.order_by('-created_at', '-pk').first()
+    if payment and payment.status == 'unpaid' and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
+        return '此訂單有既有收款或退款紀錄，請先聯絡客服核對；請勿再次付款', 'payment_records_review'
     if payment and payment.status == 'expired':
         return '付款期限已結束，請聯絡客服改期或取消', 'expired'
     if payment and payment.status == 'unpaid' and payment.expires_at and payment.expires_at <= timezone.now():
@@ -2914,7 +2916,7 @@ class MemberCenterAPI(APIView):
                     } for index, member in enumerate(sorted(reservation.members.all(), key=lambda item: item.pk), 1)],
                     'bookings': bookings,
                 })
-            payment = group.payments.order_by('-created_at').first()
+            payment = group.payments.order_by('-created_at','-pk').first()
             for reservation in reservations:
                 for participant in reservation['participants']:
                     participant['can_invite'] = bool(
@@ -2937,6 +2939,8 @@ class MemberCenterAPI(APIView):
                     payment_hold_status = 'pending_coach_approval'
                 elif group.reservations.filter(status='auto_assignment_failed').exists():
                     payment_hold_status = 'scheduling_failed'
+                elif payment and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
+                    payment_hold_status = 'payment_records_review'
             orders.append({
                 'id': group.id,
                 'line_group_url': class_group_url,
@@ -4018,6 +4022,8 @@ class PaymentInfoAPI(APIView):
     permission_classes = []  # 公開 API（但建議加上權限檢查）
 
     def get(self, request, client_code=None):
+        from django.middleware.csrf import get_token
+        get_token(request._request)
         try:
             reservation_group_id = request.GET.get('reservation_group')
 
@@ -4043,11 +4049,8 @@ class PaymentInfoAPI(APIView):
                 return Response({'error': '找不到預約群組'}, status=status.HTTP_404_NOT_FOUND)
 
             # 獲取付款記錄
-            try:
-                payment = Payment.objects.get(reservation_group=group)
-                payment_status = payment.status
-            except Payment.DoesNotExist:
-                payment_status = 'unpaid'
+            payment = group.payments.order_by('-created_at','-pk').first()
+            payment_status = payment.status if payment else 'unpaid'
 
             # 獲取有效的預約（排除已刪除的）
             active_reservations = group.reservations.exclude(status='deleted')
@@ -4317,6 +4320,9 @@ class ProcessPaymentAPI(APIView):
 
     @transaction.atomic
     def post(self, request, client_code=None):
+        if request.user.is_authenticated:
+            from rest_framework.authentication import SessionAuthentication
+            SessionAuthentication().enforce_csrf(request)
         try:
             reservation_group_id = request.data.get('reservation_group_id')
             payment_type = request.data.get('payment_type')
@@ -4356,8 +4362,8 @@ class ProcessPaymentAPI(APIView):
                 return Response({'error': '此訂單已沒有可付款的課程'}, status=status.HTTP_400_BAD_REQUEST)
 
             current_payment = group.payments.order_by('-created_at', '-pk').first()
-            if current_payment and current_payment.status in {'paid', 'expired'}:
-                message = '此訂單已付款，請勿重複提交' if current_payment.status == 'paid' else '付款期限已結束，請聯絡客服'
+            if current_payment and current_payment.status not in {'unpaid','pending'}:
+                message = {'paid':'此訂單已付款，請勿重複提交','expired':'付款期限已結束，請聯絡客服','refunded':'此訂單已退款，不能重新回報付款'}.get(current_payment.status,'付款狀態不允許回報，請聯繫客服')
                 return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
 
             if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
@@ -4445,7 +4451,7 @@ class ProcessPaymentAPI(APIView):
         """處理銀行匯款"""
         sender_account = request.data.get('sender_account')
 
-        if not sender_account or len(sender_account) != 5:
+        if not isinstance(sender_account,str) or len(sender_account) != 5 or any(char not in '0123456789' for char in sender_account):
             return Response({
                 'error': '請輸入正確的匯款帳戶後五碼'
             }, status=status.HTTP_400_BAD_REQUEST)

@@ -90,6 +90,13 @@ for (const [name, check] of [
     assert.ok(html.includes('已取消'))
     assert.equal((html.match(/填寫學員與課前資料/g) || []).length, 1)
   }],
+  ['inconsistent payment records request review instead of another payment', () => {
+    const review={...order,payment_status:'unpaid',payment_hold_status:'payment_records_review'}
+    const card=renderCard(review)
+    assert.ok(card.includes('付款紀錄待核對'));assert.ok(!card.includes('前往付款'))
+    const detail=renderToStaticMarkup(React.createElement(context.Orders,{data:{orders:[review]}}))
+    assert.ok(detail.includes('請勿再次付款'));assert.ok(!detail.includes('前往付款'))
+  }],
 ]) {
   try { check(); console.log('PASS', name) }
   catch (error) { failed++; console.error('FAIL', name, error.message) }

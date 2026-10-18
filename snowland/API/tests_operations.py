@@ -367,6 +367,8 @@ class OperationsTests(TestCase):
         self.assertEqual(self.client.post(old_url, old_body, content_type='application/json').status_code, 200)
 
     def test_legacy_payment_api_uses_authenticated_order_owner_not_body_user(self):
+        PaymentAccount.objects.create(client=self.client_tenant, name='QA合法收款設定', is_default=True,
+            bank_name='QA銀行', bank_branch='QA分行', account_number='QA-ONLY', account_holder='QA戶名')
         payment = Payment.objects.create(reservation_group=self.group, user=self.user, status='unpaid')
         stranger = User.objects.create_user('payment-api-stranger', email='stranger@example.test')
         url = '/booking/api/process_payment/'
