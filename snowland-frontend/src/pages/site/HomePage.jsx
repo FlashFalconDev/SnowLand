@@ -87,7 +87,7 @@ function HomePage() {
     return cmsReviews.map((item) => ({
       name: item.title || 'SnowLand 學員',
       initials: item.metadata?.initials || (item.title || 'SL').slice(0, 2).toUpperCase(),
-      media: item.image_url ? 'image' : 'placeholder',
+      media: item.image_url ? 'image' : '',
       image: item.image_url || '',
       textPrimary: item.summary || item.body || item.subtitle || '',
       textSecondary: item.summary && item.body ? item.body : '',
@@ -449,11 +449,6 @@ function HomePage() {
                     setExpandedReviewIndex((prev) => (prev === index ? null : index))
                   }
                 >
-                  {review.media === "placeholder" && (
-                    <div className="review-image mb-5 w-full rounded-lg bg-gradient-to-br from-[#d9e6f2] via-[#eef3f8] to-[#f9fbfd] flex items-center justify-center text-xs tracking-[0.2em] uppercase text-[#8aa0b5]">
-                      Image Holder
-                    </div>
-                  )}
                   {review.media === "image" && review.image && (
                     <img
                       loading="lazy"

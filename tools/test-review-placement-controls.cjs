@@ -52,6 +52,10 @@ function homepage(status,rows=[]){
   assert.ok(renderToStaticMarkup(homepage('ready').render()).includes('目前尚無公開評價'))
   const selected=renderToStaticMarkup(homepage('ready',[{title:'QA唯一評價',summary:'QA摘要',metadata:{}}]).render())
   assert.ok(selected.includes('QA唯一評價'));assert.ok(!selected.includes('Chingyee Lee'))
+  assert.ok(!selected.includes('Image Holder'),'沒有照片的真實評論不可顯示設計佔位圖')
+  assert.ok(!selected.includes('has-media'),'純文字評論不可留下空的媒體區')
+  const withPhoto=renderToStaticMarkup(homepage('ready',[{title:'QA照片評價',summary:'QA摘要',image_url:'/qa-review.jpg',metadata:{}}]).render())
+  assert.ok(withPhoto.includes('src="/qa-review.jpg"'));assert.ok(withPhoto.includes('has-media'))
   const broken=homepage('error'),tree=broken.render()
   const retry=findAll(tree,node=>node.type==='button'&&node.props.children==='重試學員評價')[0]
   assert.ok(retry);retry.props.onClick();assert.equal(broken.states[6],1)

@@ -1671,7 +1671,7 @@ function CoachPage() {
               >
                 <button
                   type="button"
-                  className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
+                  className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
                   onClick={() => setSelectedCashReview(null)}
                 >
                   關閉
@@ -1751,7 +1751,7 @@ function CoachPage() {
               >
                 <button
                   type="button"
-                  className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
+                  className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
                   onClick={() => setSelectedCashReviewPhoto(null)}
                 >
                   關閉
