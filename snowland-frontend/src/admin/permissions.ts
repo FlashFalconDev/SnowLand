@@ -8,6 +8,7 @@ export interface AdminPermissionDefinition {
 }
 
 export const ADMIN_PERMISSION_DEFINITIONS: AdminPermissionDefinition[] = [
+  { key: 'contact_inbox', label: '聯絡收件', group: '營運管理', description: '總部人員查看網站留言及標記處理；設定限總部管理員' },
   { key: 'analytics', label: '營運分析', group: '營運管理', description: '查看儀表板、營收與訂單統計' },
   { key: 'orders', label: '訂單管理', group: '營運管理', description: '查看與處理訂單、寄送訂單信件' },
   { key: 'scheduling', label: '排課管理', group: '營運管理', description: '查看排課月曆與課程安排' },
@@ -35,6 +36,7 @@ export function hasAdminPermission(user: AdminUser | null | undefined, permissio
   if (!permission) return !!user?.is_manager || !!user?.is_superuser
   if (user?.is_superuser) return true
   if (!user?.is_manager) return false
+  if (permission === 'contact_inbox' && (user.can_view_all_campuses === false || ['campus_manager', 'campus_principal', 'coach', 'photographer'].includes(user.role || ''))) return false
   return (user.permissions || []).includes(permission)
 }
 

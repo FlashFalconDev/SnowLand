@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 from .payment_email import PaymentEmailAPI
 from .class_group_qr import ClassGroupQRAPI
+from API.contact_inbox import PublicContactAPI
 from .api_views import (
     SiteContentListAPI,
     CoachListAPI,
@@ -37,6 +38,7 @@ app_name = 'booking'
 
 
 urlpatterns = [
+    path('<str:client_code>/api/contact/', PublicContactAPI.as_view(), name='api_contact_client'),
     # ========== 指定 client_code 的路由 ==========
     path('<str:client_code>/', views.home, name='home'),
     path('<str:client_code>/payment/', views.payment, name='payment'),

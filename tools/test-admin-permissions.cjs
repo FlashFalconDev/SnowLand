@@ -16,4 +16,6 @@ assert.equal(allowed({ is_manager: true, permissions: ['orders'] }, 'notificatio
 assert.equal(allowed({ is_manager: true, permissions: ['orders'] }, 'orders'), true)
 assert.equal(allowed({ is_manager: true, permissions: ['notifications'] }, 'notifications'), true)
 assert.equal(allowed({ is_superuser: true }, 'notifications'), true)
+assert.equal(allowed({is_manager:true,role:'assistant',permissions:['contact_inbox'],can_view_all_campuses:true},'contact_inbox'),true)
+assert.equal(allowed({is_manager:true,role:'campus_manager',permissions:['contact_inbox'],can_view_all_campuses:false},'contact_inbox'),false)
 console.log('PASS 7 admin permission cases: anonymous/member/coach/limited manager/allowed manager/superuser')

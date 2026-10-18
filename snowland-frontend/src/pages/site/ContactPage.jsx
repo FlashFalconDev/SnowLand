@@ -1,4 +1,5 @@
 import React from 'react';
+import ContactForm from '../../components/site/ContactForm';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
@@ -116,62 +117,7 @@ function ContactPage() {
                   })}
               </div>
             </section>
-            <fieldset disabled aria-describedby="contact-form-unavailable" className="min-w-0 space-y-8">
-              <p id="contact-form-unavailable" role="status" className="rounded-sm border border-[#cbd5e1] bg-[#f1f5f9] px-4 py-3 text-sm leading-6 text-[#475569]">
-                聯絡表單尚未啟用，這裡不會送出或儲存訊息。請使用本頁列出的 Email 或官方 LINE 聯絡我們。
-              </p>
-              <div className="grid gap-6 md:grid-cols-2">
-                <label className="block text-xs font-semibold tracking-[0.2em] uppercase text-[#475569]">
-                  姓名*
-                  <input
-                    type="text"
-                    className="mt-3 w-full border-b border-[#1f2937]/40 bg-transparent pb-2 text-sm text-[#1f2937] placeholder:text-[#94a3b8] focus:border-[#1f2937] focus:outline-none"
-                    placeholder="請輸入姓名"
-                  />
-                </label>
-                <label className="block text-xs font-semibold tracking-[0.2em] uppercase text-[#475569]">
-                  電話
-                  <input
-                    type="tel"
-                    className="mt-3 w-full border-b border-[#1f2937]/40 bg-transparent pb-2 text-sm text-[#1f2937] placeholder:text-[#94a3b8] focus:border-[#1f2937] focus:outline-none"
-                    placeholder="請輸入電話"
-                  />
-                </label>
-                <label className="block text-xs font-semibold tracking-[0.2em] uppercase text-[#475569]">
-                  {emailLabel}
-                  <input
-                    type="email"
-                    className="mt-3 w-full border-b border-[#1f2937]/40 bg-transparent pb-2 text-sm text-[#1f2937] placeholder:text-[#94a3b8] focus:border-[#1f2937] focus:outline-none"
-                    placeholder="you@example.com"
-                  />
-                </label>
-                <label className="block text-xs font-semibold tracking-[0.2em] uppercase text-[#475569]">
-                  {subjectLabel}
-                  <input
-                    type="text"
-                    className="mt-3 w-full border-b border-[#1f2937]/40 bg-transparent pb-2 text-sm text-[#1f2937] placeholder:text-[#94a3b8] focus:border-[#1f2937] focus:outline-none"
-                    placeholder="請輸入主旨"
-                  />
-                </label>
-              </div>
-              <label className="block text-xs font-semibold tracking-[0.2em] uppercase text-[#475569]">
-                {messageLabel}
-                <textarea
-                  rows={4}
-                  className="mt-3 w-full resize-none border-b border-[#1f2937]/40 bg-transparent pb-2 text-sm text-[#1f2937] placeholder:text-[#94a3b8] focus:border-[#1f2937] focus:outline-none"
-                  placeholder="請輸入訊息"
-                />
-              </label>
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  disabled
-                  className="inline-flex w-full cursor-not-allowed items-center justify-center rounded-full border border-[#1f2937]/30 bg-[#f1f5f9] px-6 py-3 text-sm font-semibold tracking-wide font-display text-[#64748b]"
-                >
-                  表單尚未啟用
-                </button>
-              </div>
-            </fieldset>
+            <ContactForm emailLabel={emailLabel} subjectLabel={subjectLabel} messageLabel={messageLabel} />
           </div>
         </div>
       </main>

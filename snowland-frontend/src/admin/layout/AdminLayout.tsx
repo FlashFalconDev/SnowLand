@@ -509,6 +509,7 @@ function AdminLayoutContent() {
       icon: BarChart3,
       children: [
         { id: 'orders', label: '訂單管理', path: `${basePath}/console/orders` },
+        { id: 'contact-inbox', label: '聯絡收件', path: `${basePath}/console/contact-inbox`, permission: 'contact_inbox' },
         { id: 'scheduling', label: '排課管理', path: `${basePath}/console/scheduling` },
         { id: 'chat-support', label: 'AI 客服', path: `${basePath}/console/chat-support` },
         { id: 'notifications', label: '自動通知', path: `${basePath}/console/notifications` },

@@ -52,10 +52,12 @@ from chatbooking.admin_views import ChatSupportViewSet
 from .staff_incentives import StaffIncentiveStatementAdminViewSet
 from .member_loyalty import customer_loyalty
 from .website_coach_editor import WebsiteCoachEditorViewSet
+from .contact_inbox import ContactInboxViewSet
 
 
 # 後台 ViewSet router
 admin_router = DefaultRouter()
+admin_router.register(r'contact-inbox', ContactInboxViewSet, basename='admin-contact-inbox')
 admin_router.register(r'site-content', SiteContentAdminViewSet, basename='admin-site-content')
 admin_router.register(r'coaches', CoachAdminViewSet, basename='admin-coaches')
 admin_router.register(r'website-coach-editor', WebsiteCoachEditorViewSet, basename='admin-website-coach-editor')

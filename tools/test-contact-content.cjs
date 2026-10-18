@@ -5,6 +5,7 @@ const source = fs.readFileSync(path.join(root, 'src/pages/site/ContactPage.jsx')
 function render(item, extra = {}) {
   const ctx = vm.createContext({exports: {}, require(name) {
     if (name === 'react') return React
+    if (name.includes('ContactForm')) return () => React.createElement('div', {'data-testid':'contact-form'})
     if (name === 'framer-motion') return {motion: {img: 'img'}, useReducedMotion: () => true, useScroll: () => ({}), useTransform() {}}
     if (name.includes('SiteHeader') || name.includes('SiteFooter')) return () => null
     if (name.includes('assetPaths')) return {homepageAssetBase: '/homepage'}
@@ -28,7 +29,7 @@ assert.equal((html.match(/mailto:qa-contact@example.test/g) || []).length, 1, '�
 assert.ok(html.includes('href="https://page.line.me/qa-contact"'), 'LINE使用CMS連結')
 assert.ok(!html.includes('@snowlandcz'), '不得保留寫死的聯絡帳號')
 assert.ok(html.includes('href="https://example.test/contact"'))
-assert.ok(html.includes('聯絡表單尚未啟用')); assert.ok(html.includes('<fieldset disabled=""'))
+assert.ok(html.includes('data-testid="contact-form"'), 'CMS聯絡頁保留真正收件表單入口')
 assert.ok(!html.includes('已送出'), '未實作收件不得顯示假成功')
 assert.ok(render({...page, blocks: [paragraph('e-MAIL: second@example.test')]}).includes('href="mailto:second@example.test"'))
 const unsafe = render({...page, blocks: [paragraph('Email：bad@example.test\nBcc: leak@example.test'), paragraph('javascript:alert(1)')]})
@@ -37,4 +38,4 @@ assert.ok(!render({...page, blocks: [null, {}, paragraph(null), paragraph(123)]}
 assert.ok(render(null, {isLoading: true}).includes('聯絡資訊載入中'))
 assert.ok(render(null, {error: new Error('QA')}).includes('聯絡資訊暫時無法載入'))
 assert.ok(render(null).includes('目前沒有已發布'))
-console.log('PASS contact CMS text, dynamic links, email safety, deduplication, unavailable form and loading/error/empty states')
+console.log('PASS contact CMS text, dynamic links, email safety, deduplication, wired real form and page loading/error/empty states')

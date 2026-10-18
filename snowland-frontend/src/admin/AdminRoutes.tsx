@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import AdminLayout from './layout/AdminLayout'
 import RoleGuard from './components/RoleGuard'
 import DashboardPage from './pages/DashboardPage'
+import ContactInboxPage from './pages/ContactInboxPage'
 import CoachesPage from './pages/CoachesPage'
 import ResortsPage from './pages/ResortsPage'
 import CampusesPage from './pages/CampusesPage'
@@ -64,6 +65,9 @@ export default function AdminRoutes() {
             <Route path="booking-links" element={<OperationsHubPage initialTab="links" fixed />} />
           </Route>
 
+          <Route element={<RoleGuard permission="contact_inbox" />}>
+            <Route path="contact-inbox" element={<ContactInboxPage />} />
+          </Route>
           {/* 基本設定 */}
           <Route element={<RoleGuard permission="coaches" />}>
             <Route path="coaches" element={<CoachesPage />} />

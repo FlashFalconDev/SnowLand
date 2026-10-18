@@ -62,6 +62,9 @@ EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', '0') == '1'
 EMAIL_TIMEOUT = 15
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'webmaster@localhost')
 SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '0') == '1'
+SNOWLAND_CONTACT_RATE = os.getenv('SNOWLAND_CONTACT_RATE', '5/min')
+# Trust forwarded visitor IPs only from explicitly configured reverse proxies.
+SNOWLAND_CONTACT_TRUSTED_PROXY_IPS = [value.strip() for value in os.getenv('SNOWLAND_CONTACT_TRUSTED_PROXY_IPS', '').split(',') if value.strip()]
 GOOGLE_OAUTH_CLIENT_ID = (
     os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
     or (dotenv_values(BASE_DIR.parent / '.env').get('VITE_GOOGLE_CLIENT_ID') or '').strip()
