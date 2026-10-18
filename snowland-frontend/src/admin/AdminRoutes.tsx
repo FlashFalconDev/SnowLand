@@ -103,6 +103,7 @@ export default function AdminRoutes() {
             <Route path="cms/guides" element={<SiteContentPage initialGroup="guides" />} />
             <Route path="cms/news" element={<SiteContentPage initialGroup="news" />} />
             <Route path="cms/about" element={<SiteContentPage initialGroup="about" />} />
+            <Route path="cms/membership" element={<SiteContentPage initialGroup="membership" />} />
             <Route path="cms/coaches" element={<CoachEditorPage />} />
             <Route path="cms/resorts" element={<SiteContentPage initialGroup="courses" />} />
             <Route path="cms/offers" element={<SiteContentPage initialGroup="news" />} />

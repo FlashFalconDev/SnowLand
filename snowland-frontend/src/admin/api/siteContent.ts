@@ -66,6 +66,11 @@ export type SiteContentWriteData = Omit<SiteContentItem, 'id' | 'computed_status
 interface ListResp<T> { code: number; msg: string; data: { list: T[]; total: number } }
 interface DetailResp<T> { code: number; msg: string; data: T }
 
+export async function fetchCurrentWaiver(): Promise<{title:string;body:string;version:string;source_url:string;is_draft:boolean}> {
+  const response = await adminApi.get('/site-content/waiver-current/') as unknown as DetailResp<{title:string;body:string;version:string;source_url:string;is_draft:boolean}>
+  return response.data
+}
+
 export async function fetchReviewContentGroups(): Promise<unknown[]> {
   const res = (await adminApi.get('/site-content/review-locations/')) as unknown as {data: {groups: unknown[]}}
   return res.data?.groups || []

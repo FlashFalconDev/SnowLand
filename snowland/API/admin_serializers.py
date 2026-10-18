@@ -260,6 +260,13 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location == 'membership.waiver':
+            if content_type != 'page':
+                raise serializers.ValidationError({'content_type':'聲明書請使用頁面內容類型'})
+            if not attrs.get('body', getattr(self.instance, 'body', '')).strip():
+                raise serializers.ValidationError({'body':'請填寫聲明書正文，不能以空白內容取代'})
+            if 'is_draft' in metadata and not isinstance(metadata['is_draft'], bool):
+                raise serializers.ValidationError({'metadata':'法務確認中必須是勾選或取消勾選'})
         if location == 'site.footer':
             from Client.site_footer import validate_site_footer
             try:
@@ -350,7 +357,23 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context.get('request')
         client = getattr(request, 'tenant', None) if request else None
+        if validated_data.get('location_key') == 'membership.waiver':
+            from booking.legal_documents import versioned_waiver_metadata
+            validated_data['metadata'] = versioned_waiver_metadata(validated_data)
         return SiteContent.objects.create(client=client, **validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get('location_key', instance.location_key) != 'membership.waiver':
+            return super().update(instance, validated_data)
+        from django.db import transaction
+        from Client.models import Client
+        from booking.legal_documents import versioned_waiver_metadata
+        with transaction.atomic():
+            # Match reminder publishing: client first, then the document row.
+            Client.objects.select_for_update().get(pk=instance.client_id)
+            current = SiteContent.objects.select_for_update().get(pk=instance.pk)
+            validated_data['metadata'] = versioned_waiver_metadata(validated_data, current)
+            return super().update(current, validated_data)
 
 
 # ==================== Coach ====================

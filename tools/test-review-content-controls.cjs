@@ -32,6 +32,7 @@ function harness({rulesError=false}={}){
     if(name==='../../components/CourseAreaFields')return{default:function CourseAreaFields(){return null}}
     if(name==='../../components/HomepagePresentationFields')return{default:function HomepagePresentationFields(){return null}}
     if(name==='../../components/SiteFooterFields')return{default:function SiteFooterFields(){return null}}
+    if(name==='../../components/WaiverDocumentFields')return{default:function WaiverDocumentFields(){return null}}
     if(name==='../../../hooks/useSiteContent')return{GUIDE_CATEGORIES:['裝備與技巧'],guideArticleMode:item=>item.metadata?.article_mode||(item.link_url&&!item.body?'external':'internal')}
     if(name==='../../utils/articleContent')return articleContext.exports
     throw new Error('Unexpected dependency '+name)
@@ -41,6 +42,7 @@ function harness({rulesError=false}={}){
   const normalized=ctx.exports.normalize(custom)
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='homepage.courses')),'custom CMS structure must still offer homepage course management')
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='course.areas')),'custom CMS structure must retain course area management')
+  assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='membership.waiver')),'custom CMS structure must retain waiver management')
   assert.equal(normalized[0].locations[0].key,'custom.page');assert.equal(custom.groups.length,1)
   return{block:ctx.exports.DraftBlock,preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},drawerAgain:props=>{cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
 }
@@ -60,6 +62,15 @@ for(const kind of ['review','media']){
   assert.equal(!!find(tree,node=>typeof node.type==='function'&&node.type.name==='GalleryFields'),kind==='media')
 }
 assert.ok(renderToStaticMarkup(harness().render({})).includes('管理頁面'),'CMS editor retains original workspace')
+let waiverSaved
+const waiverApp=harness(),waiverProps={groups:[{id:'membership',label:'會員文件',locations:[{key:'membership.waiver',label:'聲明書',type:'page'}]}],group:'membership',item:{id:1,location_key:'membership.waiver',content_type:'page',title:'QA聲明',body:'QA原完整正文',tags:[],metadata:{version:'QA-V1',blocks:[{id:'old',type:'paragraph',text:'不可蓋回的舊區塊'}]}},galleryItems:[],resortOptions:[],onClose(){},onSubmit:data=>waiverSaved=data,isSaving:false}
+let waiverTree=waiverApp.drawer(waiverProps)
+assert.ok(!find(waiverTree,n=>typeof n.type==='function'&&n.type.name==='ContentBlocksEditor'))
+find(waiverTree,n=>typeof n.type==='function'&&n.type.name==='WaiverDocumentFields').props.onChange({body:'QA新全文\n維持換行'})
+waiverTree=waiverApp.drawerAgain(waiverProps)
+find(waiverTree,n=>n.type==='form').props.onSubmit({preventDefault(){}})
+assert.equal(waiverSaved.body,'QA新全文\n維持換行','Legal body must not be overwritten from stale generic blocks')
+assert.equal(harness().preview({...waiverProps.item,body:'新正文',metadata:{blocks:[{id:'old',type:'paragraph',text:'舊區塊'}]}}),'新正文')
 assert.equal(harness().preview({location_key:'site.footer',metadata:{company_name:'QA公司',email:'qa@example.test',social_links:{line:'https://line.me/qa',instagram:''}}}),'QA公司 · qa@example.test · 1個社群連結')
 assert.equal(harness().preview({location_key:'photography.gallery',metadata:{location:'富良野',section:'森林',shoot_types:['情侶']},tags:['不使用的舊標籤']}),'照片 · 富良野 · 森林 · 情侶')
 const photo=harness(),photoDrawer=photo.drawer({groups:[{id:'photography',label:'攝影',locations:[{key:'photography.winter',label:'冬季',type:'page'}]}],group:'photography',initialLocation:'photography.winter',item:null,galleryItems:[],resortOptions:[],onClose(){},onSubmit(){},isSaving:false,saveError:'QA儲存失敗必須持續顯示'})

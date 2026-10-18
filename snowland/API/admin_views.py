@@ -557,6 +557,14 @@ class SiteContentAdminViewSet(ModelViewSet):
     permission_classes = [IsTenantManager]
     permission_key = 'cms'
 
+    @action(detail=False, methods=['get'], url_path='waiver-current')
+    def waiver_current(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'cms')
+        if denied is not None:
+            return denied
+        from booking.legal_documents import get_current_waiver
+        return Response({'code':200,'data':get_current_waiver(request.tenant)})
+
     @action(detail=False, methods=['get'], url_path='join-schema')
     def join_schema(self, request, *args, **kwargs):
         denied = _require_admin_permission(request, 'cms')

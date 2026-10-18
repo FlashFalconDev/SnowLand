@@ -25,12 +25,14 @@ import GuideArticleFields from '../../components/GuideArticleFields'
 import CourseAreaFields from '../../components/CourseAreaFields'
 import HomepagePresentationFields from '../../components/HomepagePresentationFields'
 import SiteFooterFields from '../../components/SiteFooterFields'
+import WaiverDocumentFields from '../../components/WaiverDocumentFields'
 import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
 import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
   createSiteContent,
   deleteSiteContent,
   fetchSiteContents,
+  fetchCurrentWaiver,
   fetchReviewContentGroups,
   updateSiteContent,
   type SiteContentItem,
@@ -168,6 +170,9 @@ const DEFAULT_GROUPS: GroupInfo[] = [
       { key: 'about.contact', label: '聯絡我們', hint: '聯絡頁文字、信箱與提示', type: 'page' },
     ],
   },
+  {id:'membership',label:'會員文件',description:'課前聲明書內容與版本',locations:[
+    {key:'membership.waiver',label:'課前聲明書',hint:'修改標題或正文會自動建立新版本；既有簽名快照會保留',type:'page'},
+  ]},
 ]
 
 const buildLocationMap = (groups: GroupInfo[]) => groups.flatMap((group) => group.locations).reduce<Record<string, LocationInfo>>((map, location) => {
@@ -262,6 +267,12 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
       home.locations.push(DEFAULT_GROUPS[0].locations.find(location=>location.key===key)!)
     }
   }
+  if (!groups.some(group=>group.locations.some(location=>location.key==='membership.waiver'))) {
+    const fallback = DEFAULT_GROUPS.find(group=>group.id==='membership')!
+    const membership = groups.find(group=>group.id==='membership')
+    if (membership) membership.locations.push(fallback.locations[0])
+    else groups.push(fallback)
+  }
   return groups
 }
 
@@ -279,7 +290,7 @@ const makeEmptyForm = (locationKey?: string, location?: LocationInfo): SiteConte
     source: '',
     external_id: '',
     tags: [],
-    metadata: {},
+    metadata: key === 'membership.waiver' ? {is_draft:true} : {},
     status: 'draft',
     start_at: null,
     end_at: null,
@@ -388,6 +399,7 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (item.location_key === 'membership.waiver') return item.body || '尚未填寫聲明書正文'
   if (item.location_key === 'site.footer') {
     const metadata = item.metadata || {}
     const links = isRecord(metadata.social_links) ? Object.values(metadata.social_links).filter(value=>typeof value==='string' && value.trim()).length : 0
@@ -472,6 +484,7 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'about.coaches': { path: '/coach' },
   'about.join-us': { path: '/join-us' },
   'about.contact': { path: '/contact' },
+  'membership.waiver': {path:'/membership/pre-course-forms'},
 }
 
 const getTenantBasePath = () => {
@@ -1309,6 +1322,14 @@ function ContentDrawer({
   saveError?: string
 }) {
   const groupInfo = groups.find((candidate) => candidate.id === group) || groups[0]
+  const editorDialog = useRef<HTMLDivElement>(null)
+  useEffect(()=>{
+    const previousFocus = document.activeElement as HTMLElement|null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    editorDialog.current?.focus()
+    return ()=>{document.body.style.overflow=previousOverflow;previousFocus?.focus()}
+  },[])
   const drawerLocationMap = useMemo(() => buildLocationMap(groups), [groups])
   const [form, setForm] = useState<SiteContentWriteData>(() => item ? {
     content_type: item.content_type,
@@ -1335,7 +1356,14 @@ function ContentDrawer({
   const isHomepagePresentation = ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact'].includes(form.location_key)
   const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
   const isSiteFooter = form.location_key === 'site.footer'
-  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || isSiteFooter || form.location_key === 'course.areas'
+  const isWaiver = form.location_key === 'membership.waiver'
+  const currentWaiver = useQuery({queryKey:['admin','current-waiver'],queryFn:fetchCurrentWaiver,enabled:isWaiver&&!item})
+  useEffect(()=>{
+    if (!isWaiver || item || !currentWaiver.data) return
+    const document = currentWaiver.data
+    setForm(previous=>previous.body ? previous : {...previous,title:previous.title||document.title,body:document.body,link_url:document.source_url})
+  },[isWaiver,item,currentWaiver.data])
+  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || isSiteFooter || isWaiver || form.location_key === 'course.areas'
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
@@ -1377,7 +1405,7 @@ function ContentDrawer({
       ...form,
       ...(isArticlePage ? { title: String((form.metadata?.article as Record<string, unknown>)?.title || ''), summary: String((form.metadata?.article as Record<string, unknown>)?.lead || ''), image_url: String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') } : {}),
       external_id: form.location_key === 'course.resort-pages' ? resortPageSlug : form.external_id,
-      body: blocksToPlainText(normalizedBlocks),
+      body: isWaiver ? form.body : blocksToPlainText(normalizedBlocks),
       image_url: isArticlePage ? String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') : form.image_url || getFirstBlockImage(normalizedBlocks),
       start_at: fromDateTimeInput(toDateTimeInput(form.start_at)),
       end_at: fromDateTimeInput(toDateTimeInput(form.end_at)),
@@ -1392,11 +1420,18 @@ function ContentDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/50">
+    <div ref={editorDialog} role="dialog" aria-modal="true" aria-labelledby="site-content-editor-title" tabIndex={-1} className="fixed inset-0 z-50 flex justify-end bg-black/50 outline-none" onKeyDown={event=>{
+      if(event.key==='Escape'&&!isSaving){event.preventDefault();onClose();return}
+      if(event.key!=='Tab')return
+      const focusable=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex]')).filter(element=>!element.hasAttribute('disabled')&&element.tabIndex>=0&&element.getClientRects().length>0)
+      const first=focusable[0],last=focusable[focusable.length-1]
+      if(event.shiftKey&&(document.activeElement===first||document.activeElement===editorDialog.current)){event.preventDefault();last?.focus()}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+    }}>
       <form onSubmit={handleSubmit} className="flex h-full w-full max-w-[1440px] flex-col bg-white shadow-xl dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
+            <h2 id="site-content-editor-title" className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{isStructuredPage ? '依原版型修改欄位；儲存後官網才會更新。' : '填寫資料後，下方預覽會同步更新。'}</p>
           </div>
           <button type="button" aria-label="關閉內容編輯" onClick={onClose} className="min-h-11 min-w-11 rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
@@ -1496,7 +1531,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {isSiteFooter ? <SiteFooterFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
+            {isWaiver ? <><p role="status" className="text-xs text-gray-600 dark:text-gray-300">{currentWaiver.isError ? '現行文件尚未載入。' : currentWaiver.isLoading ? '正在讀取現行聲明書…' : !item ? '已帶入現行聲明書；儲存為草稿不會更改會員使用中的文件。' : '修改後儲存會更新這份文件；請先確認公開狀態。'}</p>{currentWaiver.isError&&<p role="alert" className="text-sm text-red-700 dark:text-red-200">現行文件無法載入。<button type="button" onClick={()=>currentWaiver.refetch()} className="min-h-11 px-2 underline">重試</button></p>}<WaiverDocumentFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))}/></> : isSiteFooter ? <SiteFooterFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1519,7 +1554,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {isHomepagePresentation || isSiteFooter ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {isHomepagePresentation || isSiteFooter || isWaiver ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (
@@ -1561,7 +1596,7 @@ function ContentDrawer({
               </div>
             </FormSection>
 
-            <FormSection title="5. 活動期間">
+            {!isWaiver && <FormSection title="5. 活動期間">
               <div className="grid gap-4 md:grid-cols-2">
                 <TextInput
                   type="datetime-local"
@@ -1580,7 +1615,7 @@ function ContentDrawer({
                 <CalendarDays size={14} />
                 不設定期間就會一直依狀態顯示；設定結束時間後，到期會自動變成已結束。
               </p>
-            </FormSection>
+            </FormSection>}
 
             <details className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/60">
               <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-200">進階欄位</summary>
@@ -1625,7 +1660,7 @@ function ContentDrawer({
             {isStructuredPage ? <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
               <p>{isHomepagePresentation || isSiteFooter ? '直接修改左側有名稱的欄位，再按「儲存變更」。' : '請在左側展開區塊，或搜尋要修改的文字與方案。'}</p>
               <p>儲存後，可從外層「正式官網預覽」查看完整排版。</p>
-              <p>{isSiteFooter ? '留空的社群不會顯示；IG自動同步仍須另外完成官方授權。' : '照片與說明各有對應欄位；實際收費不會在這裡變更。'}</p>
+              <p>{isWaiver ? '會員課前表單使用目前公開的文件；草稿不會替換現行文件。' : isSiteFooter ? '留空的社群不會顯示；IG自動同步仍須另外完成官方授權。' : '照片與說明各有對應欄位；實際收費不會在這裡變更。'}</p>
             </div> : <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />}
           </div>
         </div>
