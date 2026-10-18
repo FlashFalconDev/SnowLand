@@ -300,6 +300,7 @@ function SidebarItem({
           />
         </button>
         <div
+          hidden={!isExpanded}
           className={`ml-8 mt-1 space-y-1 overflow-hidden transition-all duration-200 ${
             isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
           }`}
@@ -401,11 +402,25 @@ function AdminLayoutContent() {
       setAdminCheck(null)
       return
     }
-    const refreshAdminScope = () => { void fetchAdminMe().then(setAdminCheck) }
+    let active = true
+    let revision = 0
+    setAdminCheck(null)
+    const refreshAdminScope = () => {
+      const current = ++revision
+      void fetchAdminMe().then(result => { if (active && current === revision) setAdminCheck(result) })
+    }
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshAdminScope() }
     refreshAdminScope()
     window.addEventListener('snowland:campuses-updated', refreshAdminScope)
-    return () => window.removeEventListener('snowland:campuses-updated', refreshAdminScope)
-  }, [user])
+    window.addEventListener('focus', refreshAdminScope)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener('snowland:campuses-updated', refreshAdminScope)
+      window.removeEventListener('focus', refreshAdminScope)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [user, location.pathname])
 
   useEffect(() => {
     const adminUser = adminCheck?.user
@@ -770,7 +785,8 @@ function AdminLayoutContent() {
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
+              aria-label="開啟導覽選單"
+              className="min-h-11 min-w-11 p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
             >
               <Menu size={20} />
             </button>
