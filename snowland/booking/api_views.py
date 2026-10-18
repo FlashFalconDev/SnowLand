@@ -89,12 +89,12 @@ def get_group_payment_hold(group):
         return PENDING_COACH_CONFIRMATION_MESSAGE, 'pending_coach_approval'
     if group.reservations.filter(status='auto_assignment_failed').exists():
         return SCHEDULING_FAILED_PAYMENT_MESSAGE, 'scheduling_failed'
-    payment = group.payments.order_by('-created_at').first()
+    payment = group.payments.order_by('-created_at', '-pk').first()
     if payment and payment.status == 'expired':
         return '付款期限已結束，請聯絡客服改期或取消', 'expired'
     if payment and payment.status == 'unpaid' and payment.expires_at and payment.expires_at <= timezone.now():
-        payment.status = 'expired'
-        payment.save(update_fields=['status'])
+        # A read must not expire only the payment: the job must still see the
+        # unpaid candidate and atomically release its reservations as well.
         return '付款保留期已結束，請聯絡客服改期或取消', 'expired'
     return None, None
 
@@ -4300,6 +4300,7 @@ class ProcessPaymentAPI(APIView):
     }
     """
 
+    @transaction.atomic
     def post(self, request, client_code=None):
         try:
             reservation_group_id = request.data.get('reservation_group_id')
@@ -4315,9 +4316,11 @@ class ProcessPaymentAPI(APIView):
             except TenantResolutionError as exc:
                 return Response({'error': str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
+            # Match expiry/admin lock order so a transfer cannot race cancellation.
+            type(tenant).objects.select_for_update().get(pk=tenant.pk)
             # 獲取預約群組
             try:
-                group = ReservationGroup.objects.get(pk=reservation_group_id, client=tenant)
+                group = ReservationGroup.objects.select_for_update().get(pk=reservation_group_id, client=tenant)
             except (ReservationGroup.DoesNotExist, ValueError, TypeError):
                 return Response({
                     'error': '找不到預約群組'
@@ -4337,7 +4340,7 @@ class ProcessPaymentAPI(APIView):
             if not group.reservations.exclude(status__in=['deleted', 'cancelled']).exists():
                 return Response({'error': '此訂單已沒有可付款的課程'}, status=status.HTTP_400_BAD_REQUEST)
 
-            current_payment = group.payments.order_by('-created_at').first()
+            current_payment = group.payments.order_by('-created_at', '-pk').first()
             if current_payment and current_payment.status in {'paid', 'expired'}:
                 message = '此訂單已付款，請勿重複提交' if current_payment.status == 'paid' else '付款期限已結束，請聯絡客服'
                 return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
@@ -4435,10 +4438,11 @@ class ProcessPaymentAPI(APIView):
         # 更新付款記錄
         user = request.user if request.user.is_authenticated else group.user
 
-        payment, created = Payment.objects.get_or_create(
-            reservation_group=group,
-            defaults={'status': 'pending', 'payment_method': 'TT'}
-        )
+        payment = group.payments.select_for_update().order_by('-created_at', '-pk').first()
+        if payment and payment.status not in {'unpaid', 'pending'}:
+            return Response({'error': '付款狀態已更新，請重新載入訂單後確認'}, status=status.HTTP_400_BAD_REQUEST)
+        if payment is None:
+            payment = Payment.objects.create(reservation_group=group, status='pending', payment_method='TT')
 
         payment.status = 'pending'
         payment.bank_account = sender_account
