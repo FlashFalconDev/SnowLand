@@ -260,6 +260,12 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location == 'guides.articles':
+            from Client.article_pages import validate_guide_article
+            try:
+                attrs['metadata'] = validate_guide_article(attrs, self.instance)
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
         if location == 'guides.packing' or (location == 'guides.article-pages' and (external_id == 'packing-checklist' or isinstance(metadata, dict) and 'article' in metadata)):
             from Client.article_pages import validate_article_metadata
             try:

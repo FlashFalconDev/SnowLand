@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
+import SiteLink from '../../components/site/SiteLink';
+import { guideArticleTarget } from '../../hooks/useSiteContent';
 import { fetchSiteContent } from '../../api/booking';
 
 function NewsPage() {
@@ -47,7 +49,7 @@ function NewsPage() {
     }));
 
   const latestArticles = cmsArticles.map((item) => ({
-      url: item.link_url || '#',
+      url: guideArticleTarget(item),
       title: item.title || '最新消息',
       date: item.metadata?.date || (item.start_at || '').slice(0, 10).replace(/-/g, '.'),
       category: item.metadata?.category || item.tags?.[0] || item.subtitle || '最新消息',
@@ -78,10 +80,10 @@ function NewsPage() {
         <section className="mt-10">
           <div className="mt-6 space-y-12 md:space-y-8">
             {latestArticles.map((article) => (
-              <a
+              <SiteLink
                 key={article.url}
-                href={article.url}
-                target="_blank"
+                to={article.url || '/guides'}
+                target={article.url.startsWith('/') ? undefined : '_blank'}
                 rel="noopener noreferrer"
                 className="group grid gap-6 md:grid-cols-[minmax(0,1fr)_180px] md:items-start"
               >
@@ -105,7 +107,7 @@ function NewsPage() {
                     className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                   />
                 </div>
-              </a>
+              </SiteLink>
             ))}
           </div>
         </section>

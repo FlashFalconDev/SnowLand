@@ -223,7 +223,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
     ? guidesArticles.find((article) => article.url === preparationArticleUrl)
     : null;
   const dateToNumber = (value = "") => {
-    const parts = value.split(".").map((part) => part.trim());
+    const parts = value.split(/[.-]/).map((part) => part.trim());
     if (parts.length < 3) return 0;
     const [year, month, day] = parts.map((part) => Number.parseInt(part, 10) || 0);
     return year * 10000 + month * 100 + day;
@@ -1473,10 +1473,10 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
           {isDealsPromoPage && promoArticles.length > 0 && (
             <section className="mt-12 grid w-full max-w-4xl mx-auto gap-6 md:grid-cols-2 lg:grid-cols-3">
               {promoArticles.map((item) => (
-                <a
+                <SiteLink
                   key={item.url}
-                  href={item.url}
-                  target="_blank"
+                  to={item.url}
+                  target={item.url.startsWith('/') ? undefined : '_blank'}
                   rel="noopener noreferrer"
                   className="group bg-white rounded-sm overflow-hidden shadow-[0_16px_32px_rgba(15,23,42,0.08)] transition-transform duration-300 hover:-translate-y-1"
                 >
@@ -1509,7 +1509,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                       </p>
                     )}
                   </div>
-                </a>
+                </SiteLink>
               ))}
             </section>
           )}

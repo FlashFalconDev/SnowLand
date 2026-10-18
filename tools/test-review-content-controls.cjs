@@ -27,6 +27,8 @@ function harness({rulesError=false}={}){
     if(name==='../../components/GalleryFields')return{default:function GalleryFields(){return null}}
     if(name==='../../components/PhotographyPageEditor')return{default:function PhotographyPageEditor(){return null}}
     if(name==='../../components/ArticlePageEditor')return{default:function ArticlePageEditor(){return null}}
+    if(name==='../../components/GuideArticleFields')return{default:function GuideArticleFields(){return null}}
+    if(name==='../../../hooks/useSiteContent')return{GUIDE_CATEGORIES:['裝備與技巧'],guideArticleMode:item=>item.metadata?.article_mode||(item.link_url&&!item.body?'external':'internal')}
     if(name==='../../utils/articleContent')return articleContext.exports
     throw new Error('Unexpected dependency '+name)
   }})

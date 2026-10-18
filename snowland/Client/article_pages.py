@@ -1,5 +1,6 @@
 """Validate editable imported articles without rewriting their original HTML."""
 from html.parser import HTMLParser
+from datetime import datetime
 import re
 from urllib.parse import urlsplit
 
@@ -69,4 +70,61 @@ def validate_article_metadata(metadata, published):
     for link in links:
         if not isinstance(link, dict) or not isinstance(link.get('title',''), str) or not safe_article_url(link.get('url',''), link=True):
             raise ValueError('延伸閱讀請填寫有效的名稱與網址')
+    return metadata
+
+
+def validate_guide_article(data, instance=None):
+    """One CMS record owns a new article's card, category and complete body."""
+    value = lambda key, default='': data.get(key, getattr(instance, key, default))
+    metadata = dict(value('metadata', {}))
+    category = metadata.get('category', (value('tags', []) or [''])[0])
+    if not isinstance(category, str) or len(category) > 60 or category.strip() == 'All':
+        raise ValueError('文章分類請填寫60字內的名稱')
+    metadata['category'] = category.strip()
+    date = metadata.get('date', '')
+    if not isinstance(date, str):
+        raise ValueError('文章日期格式不正確')
+    if date:
+        try:
+            datetime.strptime(date.replace('.', '-'), '%Y-%m-%d')
+        except ValueError:
+            raise ValueError('文章日期請填寫有效的年月日')
+    mode = metadata.get('article_mode') or ('external' if value('link_url') and not value('body') else 'internal')
+    if mode not in ('internal', 'external'):
+        raise ValueError('請選擇本站文章或連結既有文章')
+    metadata['article_mode'] = mode
+    has_text = bool(value('body').strip())
+    if 'blocks' in metadata:
+        blocks = metadata['blocks']
+        if not isinstance(blocks, list) or len(blocks) > 500:
+            raise ValueError('文章正文區塊格式不正確')
+        has_text = False
+        for block in blocks:
+            if not isinstance(block, dict) or block.get('type') not in ('heading','paragraph','image','list'):
+                raise ValueError('請使用標題、文字、圖片或條列區塊')
+            if block['type'] in ('heading','paragraph'):
+                if not isinstance(block.get('text',''),str):
+                    raise ValueError('正文必須是文字')
+                has_text = has_text or bool(block.get('text','').strip())
+            elif block['type'] == 'list':
+                items = block.get('items', [])
+                if not isinstance(items,list) or not all(isinstance(item,str) for item in items):
+                    raise ValueError('條列清單格式不正確')
+                has_text = has_text or any(item.strip() for item in items)
+            else:
+                if not isinstance(block.get('alt',''),str):
+                    raise ValueError('圖片說明必須是文字')
+                if not safe_article_url(block.get('src','')):
+                    raise ValueError('文章圖片請使用完整http/https網址或站內路徑')
+    if not safe_article_url(value('image_url')) or not safe_article_url(value('link_url')):
+        raise ValueError('封面與文章連結請使用完整http/https網址或站內路徑')
+    if value('status', 'draft') == 'active':
+        if not value('title').strip() or not metadata['category']:
+            raise ValueError('公開前請填寫文章標題並選擇分類')
+        if mode == 'internal' and not has_text:
+            raise ValueError('公開前請至少填寫一段文章內文')
+        if mode == 'external' and not value('link_url').strip():
+            raise ValueError('請填寫既有文章的連結網址')
+        if mode == 'internal' and any(block.get('type') == 'image' and not block.get('src','').strip() for block in metadata.get('blocks', [])):
+            raise ValueError('公開前請填寫每張圖片的網址，或移除空白圖片')
     return metadata

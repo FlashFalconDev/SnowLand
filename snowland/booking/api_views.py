@@ -860,6 +860,16 @@ class SiteContentListAPI(APIView):
         if tag:
             qs = qs.filter(tags__contains=[tag])
 
+        content_id = request.GET.get('content_id')
+        if content_id:
+            try:
+                content_id = int(content_id)
+                if content_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response({'error': '文章代號格式不正確'}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(pk=content_id)
+
         now = timezone.now()
         include_ended = str(request.GET.get('include_ended') or '').lower() in ('1', 'true', 'yes')
         if include_ended:
@@ -878,7 +888,8 @@ class SiteContentListAPI(APIView):
         limit = request.GET.get('limit')
         if limit:
             try:
-                qs = qs[:max(1, min(int(limit), 100))]
+                maximum = 500 if location_key == 'guides.articles' else 100
+                qs = qs[:max(1, min(int(limit), maximum))]
             except (TypeError, ValueError):
                 pass
 

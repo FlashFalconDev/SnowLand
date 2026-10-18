@@ -21,6 +21,7 @@ const OffPisteGuidePage = lazy(() => import('./OffPisteGuidePage'))
 const CourseHowToBookPage = lazy(() => import('./CourseHowToBookPage'))
 const SkiResortsPage = lazy(() => import('./SkiResortsPage'))
 const GuidesCollectionPage = lazy(() => import('./GuidesCollectionPage'))
+const GuideArticlePage = lazy(() => import('./GuideArticlePage'))
 const BestHokkaidoTreeRunsPage = lazy(() => import('./BestHokkaidoTreeRunsPage'))
 const PackingChecklistPage = lazy(() => import('./PackingChecklistPage'))
 const LegacyContentPage = lazy(() => import('./LegacyContentPage'))
@@ -113,6 +114,7 @@ export default function SiteRoutes() {
           <Route path="/guides/preparation" element={<LegacyContentPage key="guides-preparation" pageKey="guides-preparation" />} />
           <Route path="/guides/faq" element={<LegacyContentPage key="guides-faq" pageKey="guides-faq" />} />
           <Route path="/guides" element={<GuidesCollectionPage />} />
+          <Route path="/guides/articles/:articleId" element={<GuideArticlePage />} />
           <Route path="/guides/:category" element={<GuidesCollectionPage />} />
           <Route path="/guides/best-hokkaido-tree-runs" element={<BestHokkaidoTreeRunsPage />} />
           <Route path="/guides/packing-checklist" element={<PackingChecklistPage />} />

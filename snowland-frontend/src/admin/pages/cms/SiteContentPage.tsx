@@ -20,6 +20,8 @@ import ReviewPlacementFields from '../../components/ReviewPlacementFields'
 import GalleryFields from '../../components/GalleryFields'
 import PhotographyPageEditor from '../../components/PhotographyPageEditor'
 import ArticlePageEditor from '../../components/ArticlePageEditor'
+import GuideArticleFields from '../../components/GuideArticleFields'
+import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
 import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
   createSiteContent,
@@ -841,6 +843,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           initialLocation={createLocation}
           item={editing}
           galleryItems={contentItems.filter(content => content.location_key === 'photography.gallery')}
+          articleCategories={[...new Set([...GUIDE_CATEGORIES, ...contentItems.filter(content=>content.location_key==='guides.articles').map(content=>String(content.metadata?.category || content.tags?.[0] || '')).filter(Boolean)])]}
           resortOptions={contentItems
             .filter((content) => content.location_key === 'course.resorts')
             .map((content) => ({
@@ -887,7 +890,9 @@ function PreviewSidePanel({
   onEdit?: () => void
 }) {
   const previewSlug = location.key === 'course.resort-pages' ? String(item?.metadata?.slug || item?.external_id || '') : item?.external_id
-  const previewUrl = buildOfficialPreviewUrl(location.key, previewSlug)
+  const articlePreview = location.key === 'guides.articles' && item && guideArticleMode(item) === 'internal'
+    ? `${getTenantBasePath()}/guides/articles/${item.id}?cmsPreview=guides.articles` : undefined
+  const previewUrl = articlePreview || buildOfficialPreviewUrl(location.key, previewSlug)
 
   return (
     <aside className="self-start rounded-2xl bg-white p-4 shadow-sm dark:border dark:border-slate-700/70 dark:bg-[#172131] dark:shadow-none xl:sticky xl:top-4">
@@ -920,7 +925,7 @@ function PreviewSidePanel({
       </div>
 
       <div className="mt-4">
-        <OfficialSiteFrame location={location} externalId={previewSlug} heightClassName="h-[620px]" />
+        <OfficialSiteFrame location={location} externalId={previewSlug} explicitUrl={articlePreview} heightClassName="h-[620px]" />
       </div>
 
       <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600 dark:bg-[#111827] dark:text-slate-300">
@@ -940,8 +945,8 @@ function PreviewSidePanel({
   )
 }
 
-function OfficialSiteFrame({ location, externalId = '', heightClassName = 'h-[520px]' }: { location: LocationInfo; externalId?: string; heightClassName?: string }) {
-  const previewUrl = buildOfficialPreviewUrl(location.key, externalId)
+function OfficialSiteFrame({ location, externalId = '', explicitUrl, heightClassName = 'h-[520px]' }: { location: LocationInfo; externalId?: string; explicitUrl?: string; heightClassName?: string }) {
+  const previewUrl = explicitUrl || buildOfficialPreviewUrl(location.key, externalId)
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-[#0f1724] dark:shadow-none">
@@ -1240,6 +1245,7 @@ function ContentDrawer({
   initialLocation,
   item,
   galleryItems,
+  articleCategories = GUIDE_CATEGORIES,
   resortOptions,
   onClose,
   onSubmit,
@@ -1252,6 +1258,7 @@ function ContentDrawer({
   initialLocation: string | null
   item: SiteContentItem | null
   galleryItems: SiteContentItem[]
+  articleCategories?: string[]
   resortOptions: { value: string; label: string }[]
   onClose: () => void
   onSubmit: (data: SiteContentWriteData) => void
@@ -1283,6 +1290,8 @@ function ContentDrawer({
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
   const isArticlePage = form.location_key === 'guides.packing' || (form.location_key === 'guides.article-pages' && isRecord(form.metadata?.article))
   const isStructuredPage = isPhotographyPage || isArticlePage
+  const isGuideListing = form.location_key === 'guides.articles'
+  const guideMode = guideArticleMode(form)
   const pricingResortOptions = resortOptions.length && form.external_id && !resortOptions.some((option) => option.value === form.external_id)
     ? [{ value: form.external_id, label: form.external_id }, ...resortOptions]
     : resortOptions
@@ -1464,17 +1473,18 @@ function ContentDrawer({
               <CoursePricingEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
             ) : form.location_key === 'course.resort-pages' ? (
               <ResortTabsEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
-            ) : (
+            ) : isGuideListing && guideMode === 'external' ? <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">此文章使用既有網址，不需要重複填寫內文。文章連結請在下方設定。</p> : (
               <FormSection title="3. 正文區塊（可圖字交錯）">
                 <ContentBlocksEditor blocks={draftBlocks} onChange={setDraftBlocks} />
               </FormSection>
             )}
 
             {form.content_type === 'review' && <ReviewPlacementFields metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />}
+            {isGuideListing && <GuideArticleFields metadata={{...form.metadata,category:form.metadata?.category ?? form.tags[0] ?? ''}} mode={guideMode} categories={articleCategories} onChange={metadata=>setForm(prev=>({...prev,metadata}))} />}
             <FormSection title={isStructuredPage ? '4. 顯示順序' : '4. 連結與顯示順序'}>
               {!isStructuredPage && <div className="grid gap-4 md:grid-cols-2">
                 {form.location_key !== 'photography.gallery' && <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />}
-                <TextInput label="點擊後連結" value={form.link_url} placeholder="/specialoffers/earlybird" onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />
+                {(!isGuideListing || guideMode === 'external') && <TextInput label={isGuideListing ? '既有文章網址' : '點擊後連結'} value={form.link_url} placeholder={isGuideListing ? 'https://example.com/article' : '/specialoffers/earlybird'} onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />}
               </div>}
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <TextInput
@@ -2013,16 +2023,16 @@ function ContentBlocksEditor({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => addBlock('heading')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('heading')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 小標題
         </button>
-        <button type="button" onClick={() => addBlock('paragraph')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('paragraph')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 文字
         </button>
-        <button type="button" onClick={() => addBlock('image')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('image')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 圖片
         </button>
-        <button type="button" onClick={() => addBlock('list')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('list')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 條列
         </button>
       </div>
@@ -2048,13 +2058,13 @@ function ContentBlocksEditor({
                   {index + 1}. {block.type === 'heading' ? '小標題' : block.type === 'paragraph' ? '文字段落' : block.type === 'image' ? '圖片' : '條列清單'}
                 </div>
                 <div className="flex gap-1">
-                  <button type="button" onClick={() => moveBlock(index, -1)} disabled={index === 0} className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
+                  <button type="button" onClick={() => moveBlock(index, -1)} disabled={index === 0} className="min-h-11 min-w-11 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
                     上移
                   </button>
-                  <button type="button" onClick={() => moveBlock(index, 1)} disabled={index === blocks.length - 1} className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
+                  <button type="button" onClick={() => moveBlock(index, 1)} disabled={index === blocks.length - 1} className="min-h-11 min-w-11 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
                     下移
                   </button>
-                  <button type="button" onClick={() => removeBlock(block.id)} className="rounded-md border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/70 dark:hover:bg-red-950/40">
+                  <button type="button" onClick={() => removeBlock(block.id)} className="min-h-11 min-w-11 rounded-md border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/70 dark:hover:bg-red-950/40">
                     刪除
                   </button>
                 </div>

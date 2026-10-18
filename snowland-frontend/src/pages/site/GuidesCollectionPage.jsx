@@ -1,19 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
-import SiteLink from '../../components/site/SiteLink';
+import React, { useContext } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import SiteLink, { SiteBasePathContext } from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import { siteContentToArticle, siteContentToPage, useSiteContent } from '../../hooks/useSiteContent';
+import { GUIDE_CATEGORIES, guideArticleTarget, siteContentToArticle, siteContentToPage, useSiteContent } from '../../hooks/useSiteContent';
 
 function GuidesCollectionPage() {
   const { category } = useParams();
   const navigate = useNavigate();
-  const categoryLabels = ["All", "滑雪初心者", "北海道滑雪場", "行程規劃與實戰攻略", "裝備與技巧", "北海道生活", "限時活動"];
-  const [activeCategory, setActiveCategory] = useState(categoryLabels[0]);
+  const basePath = useContext(SiteBasePathContext);
+  const [searchParams] = useSearchParams();
   const { items: pageItems } = useSiteContent('guides.index', { limit: 1 });
-  const { items: articleItems, isLoading, error } = useSiteContent('guides.articles');
+  const { items: articleItems, isLoading, error, refetch } = useSiteContent('guides.articles');
   const page = siteContentToPage(pageItems[0]);
-  const guidesArticles = articleItems.map(siteContentToArticle);
+  const guidesArticles = articleItems.map(item => ({...siteContentToArticle(item),url:guideArticleTarget(item)}));
+  const categoryLabels = ['All', ...new Set([...GUIDE_CATEGORIES, ...guidesArticles.map(card=>card.category).filter(Boolean)])];
   const categoryBadgeStyles = {
     "滑雪初心者": "bg-[var(--tag-beginner-bg)] text-[var(--tag-beginner-text)]",
     "北海道滑雪場": "bg-[var(--tag-resort-bg)] text-[var(--tag-resort-text)]",
@@ -40,32 +41,17 @@ function GuidesCollectionPage() {
     promo: "限時活動"
   };
   const dateToNumber = (value = "") => {
-    const parts = value.split(".").map((part) => part.trim());
+    const parts = value.split(/[.-]/).map((part) => part.trim());
     if (parts.length < 3) return 0;
     const [year, month, day] = parts.map((part) => Number.parseInt(part, 10) || 0);
     return year * 10000 + month * 100 + day;
   };
+  const activeCategory = searchParams.get('category') || slugCategoryMap[category] || 'All';
   const cards = (activeCategory === "All"
     ? guidesArticles
     : guidesArticles.filter((card) => card.category === activeCategory)
   ).slice().sort((a, b) => dateToNumber(b.date) - dateToNumber(a.date));
-  const localArticleRoutes = {
-    "https://land110602.com/%e6%9e%97%e9%96%93%e9%9b%aa%e9%81%93/": "/guides/best-hokkaido-tree-runs",
-    "https://land110602.com/packing-checklist/": "/guides/packing-checklist",
-    "https://land110602.com/%e7%ac%ac%e4%b8%80%e6%ac%a1%e6%bb%91%e9%9b%aa%ef%bc%8c%e6%96%b0%e6%89%8b%e6%87%b6%e4%ba%ba%e5%8c%85/": "/guides/preparation",
-  };
 
-  useEffect(() => {
-    if (!category) return;
-    const matchedCategory = slugCategoryMap[category];
-    if (matchedCategory && matchedCategory !== activeCategory) {
-      setActiveCategory(matchedCategory);
-      return;
-    }
-    if (!matchedCategory) {
-      navigate("/guides", { replace: true });
-    }
-  }, [category, activeCategory, navigate]);
 
   return (
     <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
@@ -89,15 +75,14 @@ function GuidesCollectionPage() {
                   key={label}
                   type="button"
                   onClick={() => {
-                    setActiveCategory(label);
                     const slug = categorySlugMap[label];
                     if (slug) {
-                      navigate(`/guides/${slug}`);
+                      navigate(`${basePath}/guides/${slug}`);
                     } else {
-                      navigate("/guides");
+                      navigate(`${basePath}/guides${label === 'All' ? '' : `?category=${encodeURIComponent(label)}`}`);
                     }
                   }}
-                  className={`relative pb-4 transition-colors duration-200 group ${
+                  className={`relative min-h-11 pb-4 transition-colors duration-200 group ${
                     isActive ? "text-[#111827]" : "hover:text-[#2b5f8f]"
                   }`}
                   aria-current={isActive ? "page" : undefined}
@@ -120,9 +105,9 @@ function GuidesCollectionPage() {
             </p>
           )}
           {!isLoading && error && (
-            <p className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-red-600">
-              文章暫時無法載入，請稍後再試。
-            </p>
+            <div role="alert" className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-red-600">
+              <p>文章暫時無法載入，請稍後再試。</p><button type="button" onClick={refetch} className="mt-3 min-h-11 rounded-full border border-current px-6">重新載入</button>
+            </div>
           )}
           {!isLoading && !error && cards.length === 0 && (
             <p className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-[#64748b]">
@@ -130,24 +115,22 @@ function GuidesCollectionPage() {
             </p>
           )}
           {cards.map((card) => {
-            const localRoute = localArticleRoutes[card.url];
-            const CardWrapper = localRoute ? SiteLink : "div";
-            const wrapperProps = localRoute
-              ? { to: localRoute }
-              : { "aria-label": card.title };
+            const isInternal = card.url.startsWith('/');
+            const CardWrapper = card.url ? isInternal ? SiteLink : 'a' : 'div';
+            const wrapperProps = card.url ? isInternal ? {to:card.url} : {href:card.url,target:'_blank',rel:'noopener noreferrer'} : {'aria-label':card.title};
 
             return (
               <CardWrapper
-                key={card.url}
+                key={card.id || card.url || card.title}
                 {...wrapperProps}
                 className="group bg-white rounded-sm overflow-hidden shadow-[0_16px_32px_rgba(15,23,42,0.08)] transition-transform duration-300 hover:-translate-y-1"
               >
               <div className="aspect-square bg-[#e2e8f0] overflow-hidden">
-                <img loading="lazy" decoding="async"
+                {card.image && <img loading="lazy" decoding="async"
                   src={card.image}
                   alt={card.title}
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                />
+                />}
               </div>
               <div className="p-5 space-y-3">
                 {card.category && (
