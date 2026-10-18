@@ -40,6 +40,12 @@ body {
   min-height: 100vh;
 }
 
+/* Keep the Console header sticky to the page, not an unscrollable ancestor. */
+html:has(.admin-shell), body:has(.admin-shell), #root:has(.admin-shell) {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
 /* Native form popups do not always inherit Tailwind dark-mode colors on Windows. */
 .dark .admin-shell select,
 .dark .admin-shell input,

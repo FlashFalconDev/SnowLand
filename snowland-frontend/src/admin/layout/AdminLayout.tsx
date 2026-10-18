@@ -462,6 +462,7 @@ function AdminLayoutContent() {
   // 根據使用者角色組 NAV
   const isManager = !!(adminCheck?.user?.is_superuser || adminCheck?.user?.is_manager)
   const isCoach = !!(adminCheck?.user?.is_coach)
+  const isPersonalCoachPage = location.pathname.startsWith(`${basePath}/console/my/`)
   const displayUser = adminCheck?.user
     ? { ...user, ...adminCheck.user, picture: user?.picture }
     : user
@@ -796,7 +797,7 @@ function AdminLayoutContent() {
           </div>
 
           <div className="flex items-center gap-2">
-            {!!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+            {!isPersonalCoachPage && !!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
               <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title={adminCheck.user.can_view_all_campuses ? '切換日常資料的校區範圍；總部設定頁仍可管理全部校區' : '目前可查看的校區範圍'}>
                 <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">目前範圍</span>
                 <select
@@ -829,7 +830,7 @@ function AdminLayoutContent() {
           </div>
         </header>
 
-        {!!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+        {!isPersonalCoachPage && !!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
           <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 sm:hidden">
             <label className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
               <span className="shrink-0">目前範圍</span>
@@ -846,6 +847,9 @@ function AdminLayoutContent() {
           </div>
         )}
 
+        {isPersonalCoachPage && <div role="note" aria-label="個人教練視角" className="border-b border-violet-100 bg-violet-50 px-4 py-2 text-xs leading-5 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
+          <strong>個人教練視角</strong>：僅顯示您本人的課程、評量、請假與薪資，不套用管理校區篩選。
+        </div>}
         <main className="p-4 md:p-6">
           <Outlet />
         </main>
