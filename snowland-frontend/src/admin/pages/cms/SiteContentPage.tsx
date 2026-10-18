@@ -24,6 +24,7 @@ import ArticlePageEditor from '../../components/ArticlePageEditor'
 import GuideArticleFields from '../../components/GuideArticleFields'
 import CourseAreaFields from '../../components/CourseAreaFields'
 import HomepagePresentationFields from '../../components/HomepagePresentationFields'
+import SiteFooterFields from '../../components/SiteFooterFields'
 import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
 import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
@@ -95,6 +96,7 @@ const DEFAULT_GROUPS: GroupInfo[] = [
       { key: 'homepage.coaches', label: '教練團隊區塊', hint: '首頁教練區標題、說明、連結及上下架；教練卡片由教練管理維護', type: 'setting' },
       { key: 'homepage.offers', label: '首頁限定優惠', hint: '首頁的優惠圖片卡', type: 'offer' },
       { key: 'homepage.contact', label: '首頁諮詢區塊', hint: '首頁底部諮詢標題、說明、背景圖、按鈕與上下架', type: 'setting' },
+      { key: 'site.footer', label: '頁尾與社群', hint: '全站公司名稱、聯絡Email、版權文字、社群及浮動客服連結', type: 'setting' },
     ],
   },
   {
@@ -254,7 +256,7 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
     if (group) group.locations.push(location)
     else groups.push({...courses, locations:[location]})
   }
-  for (const key of ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact']) {
+  for (const key of ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact','site.footer']) {
     if (!groups.some(group=>group.locations.some(location=>location.key===key))) {
       const home=groups.find(group=>group.id==='homepage')!
       home.locations.push(DEFAULT_GROUPS[0].locations.find(location=>location.key===key)!)
@@ -386,6 +388,11 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (item.location_key === 'site.footer') {
+    const metadata = item.metadata || {}
+    const links = isRecord(metadata.social_links) ? Object.values(metadata.social_links).filter(value=>typeof value==='string' && value.trim()).length : 0
+    return [metadata.company_name, metadata.email, `${links}個社群連結`].filter(value=>typeof value==='string' && value.trim()).join(' · ')
+  }
   if (['about.snowland', 'about.join-us'].includes(item.location_key) && isRecord(item.metadata?.layout)) return `${item.location_key === 'about.snowland' ? '學校介紹' : '教練招募'}原版型 · ${Object.keys(isRecord(item.metadata.layout.values) ? item.metadata.layout.values : {}).length}個欄位`
   if (isRecord(item.metadata?.article)) return String(item.metadata.article.lead || item.metadata.article.title || '原文章內容')
   if (['photography.winter', 'photography.summer'].includes(item.location_key)) {
@@ -429,6 +436,7 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'homepage.reviews': { path: '/', hash: 'homepage-reviews' },
   'homepage.coaches': { path: '/', hash: 'homepage-coaches' },
   'homepage.contact': { path: '/', hash: 'homepage-contact' },
+  'site.footer': { path: '/', hash: 'site-footer' },
   'homepage.offers': { path: '/', hash: 'homepage-offers' },
   'course.tomamu': { path: '/course/tomamu' },
   'course.off-piste-guide': { path: '/course/off-piste-guide' },
@@ -510,10 +518,12 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
 
   const refresh = () => qc.invalidateQueries({ queryKey: QUERY_KEY })
   const structureItem = contents.find((item) => item.content_type === 'setting' && item.location_key === CMS_STRUCTURE_LOCATION_KEY) || null
+  // A content save returns new row objects; it must not reset the selected section.
+  const structureKey = JSON.stringify(contentTypes ? { groups: reviewGroups.data || [] } : structureItem?.metadata || {})
   const groups = useMemo(() => {
-    const source = normalizeCmsStructureGroups(contentTypes ? { groups: reviewGroups.data || [] } : structureItem?.metadata)
+    const source = normalizeCmsStructureGroups(JSON.parse(structureKey))
     return contentTypes ? source.map((group) => ({ ...group, locations: group.locations.filter((location) => contentTypes.includes(location.type)) })).filter((group) => group.locations.length) : source
-  }, [structureItem, contentTypes, reviewGroups.data])
+  }, [structureKey, contentTypes])
   const locationMap = useMemo(() => buildLocationMap(groups), [groups])
   const defaultLocationByGroup = useMemo(() => getDefaultLocationByGroup(groups), [groups])
   const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY && (!contentTypes || contentTypes.includes(item.content_type))).map(toEditorSiteContent), [contents, contentTypes])
@@ -958,7 +968,7 @@ function PreviewSidePanel({
       </div>
 
       <div className="mt-4">
-        <OfficialSiteFrame location={location} externalId={previewSlug} explicitUrl={articlePreview} heightClassName="h-[620px]" />
+        <OfficialSiteFrame key={`${item?.id || 'empty'}-${item?.updated_at || ''}`} location={location} externalId={previewSlug} explicitUrl={articlePreview} heightClassName="h-[620px]" />
       </div>
 
       <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600 dark:bg-[#111827] dark:text-slate-300">
@@ -1324,7 +1334,8 @@ function ContentDrawer({
   const isAboutPage = ['about.snowland', 'about.join-us'].includes(form.location_key)
   const isHomepagePresentation = ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact'].includes(form.location_key)
   const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
-  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || form.location_key === 'course.areas'
+  const isSiteFooter = form.location_key === 'site.footer'
+  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || isSiteFooter || form.location_key === 'course.areas'
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
@@ -1485,7 +1496,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
+            {isSiteFooter ? <SiteFooterFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1508,7 +1519,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {isHomepagePresentation ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {isHomepagePresentation || isSiteFooter ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (
@@ -1612,9 +1623,9 @@ function ContentDrawer({
               </p>
             </div>
             {isStructuredPage ? <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-              <p>{isHomepagePresentation ? '直接修改左側有名稱的欄位，再按「儲存變更」。' : '請在左側展開區塊，或搜尋要修改的文字與方案。'}</p>
+              <p>{isHomepagePresentation || isSiteFooter ? '直接修改左側有名稱的欄位，再按「儲存變更」。' : '請在左側展開區塊，或搜尋要修改的文字與方案。'}</p>
               <p>儲存後，可從外層「正式官網預覽」查看完整排版。</p>
-              <p>照片與說明各有對應欄位；實際收費不會在這裡變更。</p>
+              <p>{isSiteFooter ? '留空的社群不會顯示；IG自動同步仍須另外完成官方授權。' : '照片與說明各有對應欄位；實際收費不會在這裡變更。'}</p>
             </div> : <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />}
           </div>
         </div>

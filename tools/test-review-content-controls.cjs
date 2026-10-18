@@ -31,6 +31,7 @@ function harness({rulesError=false}={}){
     if(name==='../../components/GuideArticleFields')return{default:function GuideArticleFields(){return null}}
     if(name==='../../components/CourseAreaFields')return{default:function CourseAreaFields(){return null}}
     if(name==='../../components/HomepagePresentationFields')return{default:function HomepagePresentationFields(){return null}}
+    if(name==='../../components/SiteFooterFields')return{default:function SiteFooterFields(){return null}}
     if(name==='../../../hooks/useSiteContent')return{GUIDE_CATEGORIES:['裝備與技巧'],guideArticleMode:item=>item.metadata?.article_mode||(item.link_url&&!item.body?'external':'internal')}
     if(name==='../../utils/articleContent')return articleContext.exports
     throw new Error('Unexpected dependency '+name)
@@ -59,6 +60,7 @@ for(const kind of ['review','media']){
   assert.equal(!!find(tree,node=>typeof node.type==='function'&&node.type.name==='GalleryFields'),kind==='media')
 }
 assert.ok(renderToStaticMarkup(harness().render({})).includes('管理頁面'),'CMS editor retains original workspace')
+assert.equal(harness().preview({location_key:'site.footer',metadata:{company_name:'QA公司',email:'qa@example.test',social_links:{line:'https://line.me/qa',instagram:''}}}),'QA公司 · qa@example.test · 1個社群連結')
 assert.equal(harness().preview({location_key:'photography.gallery',metadata:{location:'富良野',section:'森林',shoot_types:['情侶']},tags:['不使用的舊標籤']}),'照片 · 富良野 · 森林 · 情侶')
 const photo=harness(),photoDrawer=photo.drawer({groups:[{id:'photography',label:'攝影',locations:[{key:'photography.winter',label:'冬季',type:'page'}]}],group:'photography',initialLocation:'photography.winter',item:null,galleryItems:[],resortOptions:[],onClose(){},onSubmit(){},isSaving:false,saveError:'QA儲存失敗必須持續顯示'})
 const photoHtml=renderToStaticMarkup(photoDrawer)

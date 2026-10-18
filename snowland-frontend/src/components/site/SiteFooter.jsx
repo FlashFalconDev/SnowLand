@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from './SiteLink';
 import logo from '../../assets/site/logo-white.png';
 import { homepageAssetBase } from '../../data/site/assetPaths';
 import { faqLink } from '../../data/site/navigationLinks';
+import { useSiteContent } from '../../hooks/useSiteContent';
+import { footerSettings } from '../../data/site/footerSettings';
 
 function SiteFooter() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const {items, isLoading, error, refetch} = useSiteContent('site.footer', {limit:1});
+  const settings = footerSettings(items[0]);
+  const chatLinks = settings.links.filter(link => ['line','whatsapp'].includes(link.key));
 
   useEffect(() => {
     const onScroll = () => {
@@ -20,8 +24,10 @@ function SiteFooter() {
   }, []);
 
   return (
-    <footer className="bg-gradient-to-br from-[#2b5f8f] via-[#3c78b6] to-[#5aa6c9] border-t border-[#275680] text-white">
+    <footer id="site-footer" className="scroll-mt-24 bg-gradient-to-br from-[#2b5f8f] via-[#3c78b6] to-[#5aa6c9] border-t border-[#275680] text-white">
       <div className="max-w-6xl mx-auto px-6 md:px-10 py-14 md:py-20">
+        {isLoading && <p role="status" className="mb-4 text-sm">載入聯絡資訊…</p>}
+        {error && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm"><span>聯絡資訊暫時無法載入</span><button type="button" onClick={refetch} className="min-h-11 rounded border border-white/60 px-3">重新載入聯絡資訊</button></div>}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-16 text-sm text-white/85 text-left">
           <div className="space-y-6 flex flex-col items-start">
             <div className="w-36">
@@ -32,9 +38,9 @@ function SiteFooter() {
               />
             </div>
             <div className="text-sm leading-relaxed text-white/85 space-y-2">
-              <p>SNOWLAND合同会社</p>
-              <p>雪域創遊國際有限公司</p>
-              <p>land110602@gmail.com</p>
+              {settings.companyName && <p className="break-words">{settings.companyName}</p>}
+              {settings.secondaryName && <p className="break-words">{settings.secondaryName}</p>}
+              {settings.email && <a className="inline-flex min-h-11 items-center break-all" href={`mailto:${settings.email}`}>{settings.email}</a>}
             </div>
           </div>
 
@@ -83,107 +89,14 @@ function SiteFooter() {
         </div>
 
         <div className="mt-12 border-t border-white/20 pt-10 grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
-          <div className="flex flex-nowrap items-center gap-4 overflow-x-auto">
-            <a
-              href="https://www.facebook.com/snowlandcz/"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Facebook"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/footer_icon_fb.png`}
-                alt="Facebook"
-                className="h-7 w-7"
-              />
-            </a>
-            <a
-              href="https://www.instagram.com/snowlandcz/"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Instagram"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/instagram-logo.png`}
-                alt="Instagram"
-                className="h-7 w-7"
-              />
-            </a>
-            <a
-              href="https://www.threads.com/@snowlandcz"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Threads"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/footer_icon_threads.png`}
-                alt="Threads"
-                className="h-7 w-7"
-              />
-            </a>
-            <a
-              href="https://youtube.com/@snowlandcz?themeRefresh=1"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="YouTube"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/footer_icon_yt.png`}
-                alt="YouTube"
-                className="h-7 w-7"
-              />
-            </a>
-            <a
-              href="https://line.me/R/ti/p/@snowlandcz?from=page&accountId=snowlandcz"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Line"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/footer_icon_line.png`}
-                alt="Line"
-                className="h-7 w-7"
-              />
-            </a>
-            <a
-              href="https://api.whatsapp.com/message/FOWLAO5BHSNBE1?autoload=1&app_absent=0"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="WhatsApp"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/footer_icon_wa.png`}
-                alt="WhatsApp"
-                className="h-7 w-7"
-              />
-            </a>
-            <a
-              href="https://www.tiktok.com/@snowlandcz"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="TikTok"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/footer_icon_tikotok.png`}
-                alt="TikTok"
-                className="h-7 w-7"
-              />
-            </a>
-            <a
-              href="https://xhslink.com/m/A3otE4dwmAl"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="小紅書"
-            >
-              <img loading="lazy" decoding="async"
-                src={`${homepageAssetBase}/footer_icon_red note.png`}
-                alt="小紅書"
-                className="h-7 w-7"
-              />
-            </a>
+          <div aria-label="官方社群" className="flex flex-wrap items-center gap-2">
+            {settings.links.map(({key,label,icon,href}) => <a key={key} href={href} target="_blank" rel="noopener noreferrer" aria-label={label} className="inline-flex h-11 w-11 items-center justify-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+              <img loading="lazy" decoding="async" src={`${homepageAssetBase}/${icon}`} alt="" className="h-7 w-7" />
+            </a>)}
           </div>
           <div className="flex justify-start md:justify-end md:items-end text-left md:text-right">
             <p className="text-xs text-white/70">
-              © Copyright - 雪域創遊 SnowLand
+              {settings.copyright}
             </p>
           </div>
         </div>
@@ -192,7 +105,7 @@ function SiteFooter() {
       <AnimatePresence>
         {showScrollTop && (
           <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-            <div className="relative">
+            {chatLinks.length > 0 && <div className="relative">
               <motion.button
                 type="button"
                 onClick={() => setIsChatOpen((prev) => !prev)}
@@ -201,7 +114,7 @@ function SiteFooter() {
                 exit={{ opacity: 0, y: 16 }}
                 transition={{ duration: 0.2 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-white/60 text-[#1f2937] shadow-lg transition hover:-translate-y-0.5 hover:bg-white"
-                aria-label="Open chat options"
+                aria-label="開啟客服連結"
                 aria-expanded={isChatOpen}
               >
                 <svg
@@ -225,34 +138,13 @@ function SiteFooter() {
                     transition={{ duration: 0.2 }}
                     className="absolute bottom-14 right-0 flex flex-col gap-2 bg-[#2b5f8f] p-3 shadow-lg"
                   >
-                    <a
-                      href="https://line.me/R/ti/p/@snowlandcz?from=page&accountId=snowlandcz"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center text-xs font-semibold text-white"
-                    >
-                      <img loading="lazy" decoding="async"
-                        src={`${homepageAssetBase}/footer_icon_line.png`}
-                        alt="Line"
-                        className="h-5 w-5"
-                      />
-                    </a>
-                    <a
-                      href="https://api.whatsapp.com/message/FOWLAO5BHSNBE1?autoload=1&app_absent=0"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center text-xs font-semibold text-white"
-                    >
-                      <img loading="lazy" decoding="async"
-                        src={`${homepageAssetBase}/footer_icon_wa.png`}
-                        alt="WhatsApp"
-                        className="h-5 w-5"
-                      />
-                    </a>
+                    {chatLinks.map(({key,label,icon,href}) => <a key={key} href={href} target="_blank" rel="noopener noreferrer" aria-label={`客服 ${label}`} className="inline-flex h-11 w-11 items-center justify-center rounded text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+                      <img loading="lazy" decoding="async" src={`${homepageAssetBase}/${icon}`} alt="" className="h-5 w-5" />
+                    </a>)}
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </div>}
             <motion.button
               type="button"
               onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
@@ -261,7 +153,7 @@ function SiteFooter() {
               exit={{ opacity: 0, y: 16 }}
               transition={{ duration: 0.2 }}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/60 text-[#1f2937] shadow-lg transition hover:-translate-y-0.5 hover:bg-white"
-              aria-label="Scroll to top"
+              aria-label="回到頂部"
             >
               <svg
                 className="h-5 w-5"

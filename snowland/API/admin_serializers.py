@@ -260,6 +260,12 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location == 'site.footer':
+            from Client.site_footer import validate_site_footer
+            try:
+                attrs['metadata'] = validate_site_footer(attrs, self.instance, getattr(self.context.get('request'), 'tenant', None))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
         if location in ('homepage.hero','homepage.intro','homepage.coaches','homepage.contact'):
             from Client.homepage_presentation import validate_homepage_presentation
             try:
