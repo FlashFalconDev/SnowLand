@@ -45,9 +45,31 @@ for (const [name, check] of [
   ['fully cancelled order still shows historical course', () => {
     assert.ok(renderCard({ ...order, reservations: [cancelled] }).includes('歷史雪場'))
   }],
+  ['list hides order number; detail retains it', () => {
+    assert.ok(!renderCard(order).includes('QA-only'))
+    const detail = renderToStaticMarkup(React.createElement(context.Orders, { data: { orders: [order] } }))
+    assert.ok(detail.includes('QA-only'))
+  }],
+  ['school-assigned coach is not presented as customer-designated', () => {
+    const ordinary = renderCard({...order,reservations:[{...active,is_preferred_coach:false}]})
+    assert.ok(ordinary.includes('不指定'));assert.ok(!ordinary.includes('QA教練'))
+    const designated = renderCard({...order,reservations:[{...active,is_preferred_coach:true}]})
+    assert.ok(designated.includes('QA教練'))
+    const shared = renderCard({...order,reservations:[{...active,is_shared_class:true,is_preferred_coach:true}]})
+    assert.ok(shared.includes('由學校安排'));assert.ok(!shared.includes('QA教練'))
+  }],
+  ['card days count unique active dates, not sessions or cancelled history', () => {
+    const html=renderCard({...order,reservations:[cancelled,{...active,bookings:[
+      {id:1,date:'2026-11-06'},{id:2,date:'2026-11-06'},{id:3,date:'2026-11-08'}]},
+      {...active,id:7,resort:'第二雪場',bookings:[{id:4,date:'2026-11-08'},{id:5,date:'2026-11-09'}]}]})
+    assert.ok(html.includes('天數'));assert.ok(html.includes('3 天'))
+    assert.ok(html.includes('2026/11/06'));assert.ok(html.includes('2026/11/09'))
+    assert.ok(html.includes('另有 1 項課程'));assert.ok(!html.includes('歷史雪場'))
+  }],
   ['photo summary uses service setting, not the category name', () => {
     const html = renderCard({...order,reservations:[{...active,service_type:'photo',course_type:'影像方案'}]})
     assert.ok(html.includes('攝影方案') && html.includes('攝影師') && html.includes('預約數量'))
+    assert.ok(html.includes('QA教練'),'Photography keeps its actually assigned photographer name')
     assert.ok(!html.includes('>教練</span>') && !html.includes('>人數</span>'))
   }],
   ['detail marks cancelled course instead of presenting it as active', () => {

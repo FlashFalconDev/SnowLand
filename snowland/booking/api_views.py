@@ -2902,6 +2902,7 @@ class MemberCenterAPI(APIView):
                     'course_template': reservation.course_template.name if reservation.course_template else '',
                     'coach': reservation.preferred_coach.name if reservation.preferred_coach else '安排中',
                     'is_shared_class': reservation.shared_course_class_id is not None,
+                    'is_preferred_coach': reservation.is_preferred_coach and reservation.shared_course_class_id is None,
                     'shared_class_summary': shared_summary,
                     'status': reservation.status,
                     'people': reservation.number_of_people,
