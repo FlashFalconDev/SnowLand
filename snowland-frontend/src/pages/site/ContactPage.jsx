@@ -2,7 +2,6 @@ import React from 'react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import { homepageAssetBase } from '../../data/site/assetPaths';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
 import { siteContentToPage, useSiteContent } from '../../hooks/useSiteContent';
 
@@ -31,22 +30,17 @@ const renderTextWithLinks = (text) => {
 function ContactPage() {
   const { items, isLoading, error } = useSiteContent('about.contact', { limit: 1 });
   const page = siteContentToPage(items[0]);
-  const blocks = page?.blocks ?? [];
+  const blocks = Array.isArray(page?.blocks) ? page.blocks.filter(Boolean) : [];
   const infoLines = Array.from(
     new Set(
       blocks
-        .filter((block) => block.type === "paragraph")
-        .map((block) => block.text)
-        .filter(
-          (text) =>
-            text.includes("Email") ||
-            (text.includes("https://") && !text.includes("land110602.com")) ||
-            text.includes("Line")
-        )
+        .filter((block) => block.type === "paragraph" && typeof block.text === 'string')
+        .map((block) => block.text.trim())
+        // Imported pages include the old form labels amongst their contact paragraphs.
+        .filter((text) => text && !/^(e-?mail\*?|主旨|訊息)$/i.test(text))
     )
   );
-  const headingText = blocks.find((block) => block.type === "heading")?.text ?? "聯絡我們";
-  const emailLabel = blocks.find((block) => block.text?.includes("E-mail"))?.text ?? "E-mail*";
+  const emailLabel = blocks.find((block) => typeof block.text === 'string' && /^e-?mail\*?$/i.test(block.text.trim()))?.text ?? "E-mail*";
   const subjectLabel = blocks.find((block) => block.text === "主旨")?.text ?? "主旨";
   const messageLabel = blocks.find((block) => block.text === "訊息")?.text ?? "訊息";
   const prefersReducedMotion = useReducedMotion();
@@ -91,10 +85,9 @@ function ContactPage() {
               </h1>
               <div className="space-y-3 text-sm md:text-base text-[#475569] leading-relaxed">
                 {infoLines
-                  .filter((line) => !line.includes("Line"))
                   .map((line, index) => {
-                    if (line.includes("Email")) {
-                      const emailText = line.replace(/Email[:：]\s*/i, "").trim();
+                    const emailText = line.replace(/^e-?mail\s*[:：]\s*/i, '').trim();
+                    if (/^e-?mail\s*[:：]/i.test(line) && /^[^\s@<>?&#]+@[^\s@<>?&#]+\.[^\s@<>?&#]+$/.test(emailText)) {
                       return (
                         <div
                           key={`contact-line-${index}`}
@@ -113,35 +106,14 @@ function ContactPage() {
                             <path d="M4 6h16v12H4z" />
                             <path d="m4 7 8 6 8-6" />
                           </svg>
-                          <span>{emailText}</span>
+                          <a href={`mailto:${emailText}`} className="break-all text-[#2b5f8f] underline underline-offset-2">{emailText}</a>
                         </div>
                       );
                     }
                     return (
-                      <p key={`contact-line-${index}`}>{renderTextWithLinks(line)}</p>
+                      <p className="whitespace-pre-line break-words" key={`contact-line-${index}`}>{renderTextWithLinks(line)}</p>
                     );
                   })}
-                <div className="flex items-center justify-center gap-2 text-[#475569] md:justify-start">
-                  <a
-                    href="https://line.me/R/ti/p/@snowlandcz?from=page&searchId=snowlandcz"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group relative inline-flex h-8 w-8"
-                  >
-                    <img loading="lazy" decoding="async"
-                      src={`${homepageAssetBase}/footer_icon_line.png`}
-                      alt="Line"
-                      className="h-8 w-8 transition-opacity duration-200 group-hover:opacity-0"
-                      style={{ filter: "grayscale(1) brightness(0.35)" }}
-                    />
-                    <img loading="lazy" decoding="async"
-                      src={`${homepageAssetBase}/Social media_line logo-green.png`}
-                      alt="Line"
-                      className="absolute inset-0 h-8 w-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                    />
-                  </a>
-                  <span>@snowlandcz</span>
-                </div>
               </div>
             </section>
             <fieldset disabled aria-describedby="contact-form-unavailable" className="min-w-0 space-y-8">
