@@ -14,9 +14,9 @@ for(const status of ['invalid','loading','valid']){
 }
 const panelSource=fs.readFileSync(path.join(root,'src/admin/pages/OperationsHubPage.tsx'),'utf8'),panelAst=ts.createSourceFile('OperationsHubPage.tsx',panelSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX)
 const panel=panelAst.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='BookingLinksPanel')
-for(const status of ['loading','error']){
+for(const status of ['loading','error','retrying']){
  let retries=0
- const ctx=vm.createContext({React,exports:{},useQueryClient:()=>({}),useNotification:()=>({}),useBookingStore:fn=>fn({cart:[],clearCart(){}}),useScopedCampuses:()=>({campuses:[],selectedCampus:''}),useQuery:()=>({data:[],isLoading:status==='loading',error:status==='error'?Error('QA'):null,refetch(){retries++}}),useState:initial=>[initial,()=>{}],useEffect(){},useMutation:()=>({isPending:false}),fetchStaffBookingLinks(){},cardClass:'qa-card'})
+ const ctx=vm.createContext({React,exports:{},useQueryClient:()=>({}),useNotification:()=>({}),useBookingStore:fn=>fn({cart:[],clearCart(){}}),useScopedCampuses:()=>({campuses:[],selectedCampus:''}),useQuery:()=>({data:[],isLoading:status==='loading',isFetching:status==='retrying',error:status!=='loading'?Error('QA'):null,refetch(){retries++}}),useState:initial=>[initial,()=>{}],useEffect(){},useMutation:()=>({isPending:false}),fetchStaffBookingLinks(){},cardClass:'qa-card'})
  vm.runInContext(ts.transpileModule(panel.getText(panelAst),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS}}).outputText,ctx)
  const tree=ctx.BookingLinksPanel(),html=renderToStaticMarkup(tree)
  assert.ok(!html.includes('尚未建立連結'),'Loading or errors must not masquerade as an empty link list')
@@ -25,6 +25,12 @@ for(const status of ['loading','error']){
  if(status==='error'){
    assert.ok(html.includes('role="alert"'));assert.ok(html.includes('不代表沒有建立過連結'))
    const retry=React.Children.toArray(tree.props.children).find(node=>node.type==='button');retry.props.onClick();assert.equal(retries,1)
+ }
+ if(status==='retrying'){
+   const retry=React.Children.toArray(tree.props.children).find(node=>node.type==='button')
+   assert.equal(retry.props.disabled,true,'Prevent repeated retry clicks while fetching')
+   assert.equal(retry.props['aria-busy'],true)
+   assert.ok(html.includes('正在重新載入…'),'Show feedback while retry is in progress')
  }
 }
 console.log('PASS actual staff-link invalid/loading guard: blocks form, clear explanation, token-free general booking link and 44px action; valid link proceeds normally')
