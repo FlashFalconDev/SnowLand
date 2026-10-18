@@ -2958,6 +2958,11 @@ class MemberCenterAPI(APIView):
                     reservation.payment_amount
                     for reservation in group.reservations.exclude(status__in=['deleted', 'cancelled'])
                 ),
+                # Historical display is separate from current payable/refund calculations.
+                'historical_amount': sum(
+                    reservation.payment_amount
+                    for reservation in group.reservations.exclude(status='deleted')
+                ),
                 'reservations': reservations,
             })
 
