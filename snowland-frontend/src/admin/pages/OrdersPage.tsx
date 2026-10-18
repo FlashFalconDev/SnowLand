@@ -661,7 +661,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const firstR = order.reservations[0]
   const sharedPaymentHeld = order.reservations.some((r) => r.shared_course_class_id && r.shared_class_status === 'collecting')
   const statusPill = firstR ? getStatusPill(firstR.status) : { label: '無', cls: '' }
-  const paymentPill = getPaymentPill(paymentStatus)
+  const paymentPill = getPaymentPill(order.payment_status)
   const courseBookings = order.reservations.flatMap((r) => r.bookings)
   const invalidBooking = courseBookings.find((booking) => {
     const edit = bookingEdits[booking.id]
@@ -770,7 +770,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             const reservationStatusPill = getStatusPill(r.status)
             const isSchedulingFailed = r.status === 'auto_assignment_failed' || r.status === 'manual_assignment_needed'
             const isStudentSpecifiedCoach = Boolean(r.is_preferred_coach && r.preferred_coach_id)
-            const canEditCourse = editing && r.status !== 'completed' && !r.shared_course_class_id
+            const canEditCourse = editing && !['completed', 'cancelled', 'deleted'].includes(r.status) && !r.shared_course_class_id
             const canComplete = !readOnly && !editing && order.payment_status === 'paid' &&
               ['auto_assigned', 'manually_assigned', 'form_filled'].includes(r.status) &&
               Boolean(r.preferred_coach_id) && r.bookings.length > 0 &&
@@ -804,17 +804,18 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                     </div>
                   ) : canEditCourse ? (
                     <select
+                      aria-label={`第 ${idx + 1} 組課程教練`}
                       value={coachAssignments[r.id] ?? ''}
                       onChange={(e) => setCoachAssignments((p) => ({
                         ...p,
                         [r.id]: e.target.value ? Number(e.target.value) : null,
                       }))}
-                      className="px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
+                      className="min-h-11 max-w-[70%] px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                     >
                       <option value="">{availableCoaches.length === 0 ? '目前沒有可排教練' : '不指定（系統自動排）'}</option>
                       {selectedCoachMissing && (
                         <option value={selectedCoachId} disabled>
-                          {r.preferred_coach || '目前指派教練'}（目前不在可排清單）
+                          {selectedCoachId === r.preferred_coach_id ? `${r.preferred_coach || '原指派教練'}（目前不在可排清單）` : '所選教練已不可排，請重新選擇'}
                         </option>
                       )}
                       {availableCoaches.map((coach) => (
@@ -932,20 +933,21 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
         <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
           {editing && !readOnly ? (
             <>
+              {saveMutation.isError && <p role="alert" className="w-full break-words rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">尚未儲存：{(saveMutation.error as any)?.response?.data?.msg || '更新失敗，請重新核對後再試。'}</p>}
               <p role={invalidBooking ? 'alert' : undefined} className={`w-full text-sm ${invalidBooking ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
                 {invalidBooking ? '課程結束時間須晚於開始時間，請檢查日期與時段。' : !hasOrderChanges ? '尚未修改任何資料。' : '請確認課程、教練與付款狀態後再儲存。'}
               </p>
               <button
                 onClick={() => { resetOrderEdits(); setEditing(false) }}
                 disabled={saveMutation.isPending}
-                className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
               >
                 取消
               </button>
               <button
                 onClick={() => saveMutation.mutate('save')}
                 disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking)}
-                className="px-4 py-2 bg-white dark:bg-gray-700 border border-[#8b5cf6] text-sm font-medium rounded-lg hover:bg-[#8b5cf6]/5 disabled:opacity-50 flex items-center gap-2"
+                className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-[#8b5cf6] text-sm font-medium rounded-lg hover:bg-[#8b5cf6]/5 disabled:opacity-50 flex items-center gap-2"
                 style={{ color: PRIMARY }}
               >
                 {saveMutation.isPending && <Loader2 size={14} className="animate-spin" />}
@@ -954,7 +956,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               <button
                 onClick={() => saveMutation.mutate('schedule')}
                 disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking)}
-                className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+                className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 style={{ backgroundColor: PRIMARY }}
               >
                 {saveMutation.isPending && <Loader2 size={14} className="animate-spin" />}
