@@ -8,6 +8,13 @@ import { fetchWebsiteCoachEditor, updateWebsiteCoach, type WebsiteCoach, type We
 const KEY = ['admin', 'website-coach-editor']
 const PROFILE_SECTIONS = ['個人經歷', '教學理念', '自我介紹', '滑雪經驗']
 
+export function websiteCoachError(error: any): string {
+  const data = error?.response?.data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '儲存失敗，請重試'
+  const message = [...new Set([data.msg, data.detail, ...Object.values(data).flat()].filter(value => typeof value === 'string' && value.trim()))].join('；')
+  return message && message.length <= 2000 && !/<(?:!doctype|html|script|body)\b/i.test(message) ? message : '儲存失敗，請重試'
+}
+
 export function profileSectionText(profile: Record<string, unknown> | undefined, title: string): string {
   const section = (Array.isArray(profile?.sections) ? profile.sections : []).find(item => item && item.title === title)
   return Array.isArray(section?.lines) ? section.lines.filter((line: unknown) => typeof line === 'string').join('\n') : ''
@@ -67,7 +74,7 @@ export default function CoachEditorPage() {
       notify.success('官網教練資料已更新')
       setEditing(null)
     },
-    onError: (e: any) => notify.error(e.response?.data?.msg || e.response?.data?.detail || Object.values(e.response?.data || {}).flat().join('；') || '儲存失敗，請重試'),
+    onError: (e: any) => notify.error(websiteCoachError(e)),
   })
   const keyword = search.trim().toLowerCase()
   const filtered = coaches.filter(coach => (!keyword || (coach.name + ' ' + coach.website_slug).toLowerCase().includes(keyword))
@@ -76,7 +83,7 @@ export default function CoachEditorPage() {
   return <div className="space-y-6 text-gray-900 dark:text-white">
     <div>
       <h1 className="text-2xl font-bold">教練介紹</h1>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">與「教練管理」使用同一份資料；此處只調整官網照片、卡片簡介、排序與上架狀態。</p>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">與「教練管理」使用同一份資料；此處調整官網照片、卡片簡介、個人經歷、教學理念、自我介紹、滑雪經驗、排序與上架狀態。</p>
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">新增教練、姓名、教學語言、證照及排課設定，請由管理員在「基本設定 → 教練管理」修改。</p>
     </div>
     <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 sm:flex-row">
@@ -107,6 +114,6 @@ export default function CoachEditorPage() {
           defaultValue: profileSectionText(editing?.website_profile, title),
           helper: '每行一個段落；儲存文字不會移除原有圖片或影片。' })),
       ]} submitLabel="儲存變更" validate={validateWebsiteCoach} onCancel={() => setEditing(null)}
-      onSubmit={async values => { if (!editing) return; try { await mutation.mutateAsync({ id: editing.id, data: websiteCoachValues(values, editing) }) } catch { /* Keep the form open; onError shows the server response. */ } }} />
+      onSubmit={async values => { if (!editing) return; try { await mutation.mutateAsync({ id: editing.id, data: websiteCoachValues(values, editing) }) } catch (error) { throw new Error(websiteCoachError(error)) } }} />
   </div>
 }
