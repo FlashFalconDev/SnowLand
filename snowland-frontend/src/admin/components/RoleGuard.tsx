@@ -100,7 +100,7 @@ export default function RoleGuard({ requireManager, requireCoach, permission }: 
     return (
       <NoAccess
         title="沒有功能權限"
-        message="這個帳號尚未開啟此後台模組，請由 Superuser 到員工權限調整。"
+        message="這個帳號沒有此功能權限。如需使用，請聯絡總部管理員。"
         onAction={() => navigate(`${basePath}/console`)}
         actionLabel="回到後台首頁"
       />

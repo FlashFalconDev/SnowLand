@@ -1,11 +1,13 @@
 from datetime import date, time, timedelta
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from API.admin_serializers import CoursePricingAdminSerializer
 from Client.models import Client
-from Coach.models import Coach, CoachCourseLevel, CoachResort
+from Coach.models import Coach, CoachCourseLevel, CoachPayRule, CoachResort
 from Coursekit.models import (
     CourseCategory,
     CoursePricing,
@@ -15,13 +17,17 @@ from Coursekit.models import (
     CourseType,
     SeasonSetting,
 )
-from Resorts.models import Resorts
-from booking.models import Booking, Payment, Reservation, ReservationGroup
+from Resorts.models import Campus, Resorts
+from booking.models import Booking, Payment, Reservation, ReservationGroup, StaffBookingLink
 
 
 class PricingModeApiTests(TestCase):
     def setUp(self):
-        self.client_record = Client.objects.create(name='SnowLand', internal_code='snowland')
+        self.client_record = Client.objects.create(
+            name='SnowLand', internal_code='snowland',
+            bank_name='測試銀行', bank_branch='測試分行',
+            bank_account_number='QA-0001', bank_account_holder='測試戶名',
+        )
         self.resort = Resorts.objects.create(
             client=self.client_record,
             name='TestResort',
@@ -54,6 +60,7 @@ class PricingModeApiTests(TestCase):
         )
         pricing.templates.set([self.private_template, self.per_person_template])
         self.api = APIClient()
+        self.api.force_authenticate(get_user_model().objects.create_user('pricing-member', 'pricing@example.test'))
 
     def get_price(self, template, people_count):
         return self.api.get(
@@ -65,6 +72,75 @@ class PricingModeApiTests(TestCase):
                 'resort': self.resort.name,
             },
         )
+
+    def test_staff_selected_course_cannot_be_changed_before_booking(self):
+        member = get_user_model().objects.create_user(
+            username='staff-link-member@example.test', email='staff-link-member@example.test',
+            password='local-test-only',
+        )
+        self.api.force_authenticate(member)
+        campus = Campus.objects.create(client=self.client_record, name='北海道校區', code='hokkaido')
+        campus.resorts.add(self.resort)
+        self.resort.auto_scheduling_enabled = False
+        self.resort.save(update_fields=['auto_scheduling_enabled'])
+        booking_date = (date.today() + timedelta(days=35)).isoformat()
+        price = self.api.get('/booking/snowland/api/calculate-price/', {
+            'template_id': self.private_template.id, 'people_count': 2,
+            'date': booking_date, 'resort': self.resort.name,
+        })
+        self.assertEqual(price.status_code, 200, price.data)
+        course_fee = price.data['course_fee']
+        course = {
+            'date': booking_date, 'courseTypeId': self.private_template.course_type_id,
+            'courseTypeName': self.private_template.course_type.name,
+            'courseTemplateId': self.private_template.id,
+            'courseTemplateName': self.private_template.name,
+            'durationHours': 4, 'timeSlotStart': '09:00',
+            'timeSlotEnd': '13:00', 'price': course_fee,
+        }
+        selected_cart = [{
+            'coach': 'any', 'peopleCount': 2, 'abilityLevel': 'no_exp',
+            'equipment': False, 'equipmentOption': 'own_equipment',
+            'language': 'zh', 'resort': self.resort.name,
+            'resortName': self.resort.display_name,
+            'courseCategory': self.private_template.course_type.category.name,
+            'courses': [course], 'totalPrice': course_fee,
+        }]
+        link = StaffBookingLink.objects.create(
+            client=self.client_record, campus=campus, created_by=member,
+            title='櫃台預選課程', cart_snapshot=selected_cart,
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        request_body = {
+            'staff_link': str(link.token), 'cart': selected_cart,
+            'accepted_policy': True,
+            'contact': {
+                'name': 'QA 測試會員', 'email': member.email,
+                'phone': '0900000000', 'messengerType': 'line',
+                'messengerId': 'qa-test',
+            },
+        }
+        guest = APIClient().post('/booking/snowland/api/create-reservation/', request_body, format='json')
+        self.assertEqual(guest.status_code, 401, guest.data)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+        changed_cart = [{**selected_cart[0], 'courses': [{**course, 'courseTemplateName': '擅自改課程'}]}]
+        changed = self.api.post('/booking/snowland/api/create-reservation/', {
+            **request_body, 'cart': changed_cart,
+        }, format='json')
+        self.assertEqual(changed.status_code, 400, changed.data)
+        self.assertIn('代客訂課連結', changed.data['msg'])
+        self.assertFalse(ReservationGroup.objects.exists())
+
+        link.cart_snapshot = [{**selected_cart[0], 'internal_note': '舊連結內部欄位'}]
+        link.save(update_fields=['cart_snapshot'])
+        shared = APIClient().get(f'/booking/snowland/api/staff-booking-link/{link.token}/')
+        self.assertEqual(shared.status_code, 200, shared.data)
+        self.assertEqual(shared.data['cart_snapshot'], selected_cart)
+
+        accepted = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
+        self.assertEqual(accepted.status_code, 200, accepted.data)
+        self.assertEqual(ReservationGroup.objects.count(), 1)
 
     def test_other_template_bookings_do_not_fill_session(self):
         course_date = date.today() + timedelta(days=10)
@@ -94,7 +170,7 @@ class PricingModeApiTests(TestCase):
             'id': own_session.id,
             'template_id': self.private_template.id,
             'start_time': '09:00', 'end_time': '13:00',
-            'is_active': True, 'is_full': False,
+            'is_active': True, 'is_full': False, 'shared_class': None,
         }])
 
     def test_private_and_per_person_templates_produce_different_totals(self):
@@ -135,6 +211,7 @@ class PricingModeApiTests(TestCase):
                 'timeSlotStart': '09:00', 'timeSlotEnd': '13:00',
             })
         payload = {
+            'accepted_policy': True,
             'contact': {
                 'name': 'QA 測試會員', 'email': 'qa@example.test',
                 'phone': '0900000000', 'messengerType': 'line',
@@ -225,7 +302,200 @@ class PricingModeApiTests(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn('不能共用同一組價格', str(serializer.errors['templates']))
 
+    def test_new_member_order_is_visible_to_owner_and_admin_with_registered_name(self):
+        self.api.force_authenticate(None)
+        self.resort.auto_scheduling_enabled = False
+        self.resort.save(update_fields=['auto_scheduling_enabled'])
+        registered = self.api.post('/booking/snowland/api/member-auth/', {
+            'action': 'register', 'name': '王小雪',
+            'email': 'new-member@example.test', 'password': 'local-test-only',
+        }, format='json')
+        self.assertEqual(registered.status_code, 201, registered.data)
+        self.assertEqual(registered.data['member']['name'], '王小雪')
+        member = get_user_model().objects.get(email='new-member@example.test')
+        booking_date = (date.today() + timedelta(days=40)).isoformat()
+        price = self.api.get('/booking/snowland/api/calculate-price/', {
+            'template_id': self.private_template.id,
+            'people_count': 1,
+            'date': booking_date,
+            'resort': self.resort.name,
+        })
+        self.assertEqual(price.status_code, 200, price.data)
+        course_fee = price.data['course_fee']
+        request_body = {
+            'accepted_policy': True,
+            'contact': {
+                'name': '王小雪', 'email': member.email, 'phone': '0900000000',
+                'messengerType': 'line', 'messengerId': 'qa-test', 'referralSource': '其他',
+            },
+            'cart': [{
+                'coach': 'any', 'peopleCount': 1,
+                'abilityLevel': 'no_exp', 'equipment': False,
+                'equipmentOption': 'own_equipment', 'language': 'zh',
+                'resort': self.resort.name, 'resortName': self.resort.display_name,
+                'courseCategory': self.private_template.course_type.category.name,
+                'courses': [{
+                    'date': booking_date,
+                    'courseTypeId': self.private_template.course_type_id,
+                    'courseTypeName': self.private_template.course_type.name,
+                    'courseTemplateId': self.private_template.id,
+                    'courseTemplateName': self.private_template.name,
+                    'durationHours': 4, 'timeSlotStart': '09:00', 'timeSlotEnd': '13:00',
+                    'price': course_fee,
+                }],
+                'totalPrice': course_fee,
+            }],
+        }
+        request_body['cart'][0]['totalPrice'] = 0
+        rejected_price = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
+        self.assertEqual(rejected_price.status_code, 400, rejected_price.data)
+        self.assertFalse(ReservationGroup.objects.exists())
+        request_body['cart'][0]['totalPrice'] = course_fee
+        booking = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
+        self.assertEqual(booking.status_code, 200, booking.data)
+        self.assertTrue(booking.data['requires_payment'])
+        group = ReservationGroup.objects.get(pk=booking.data['reservation_group_ids'][0])
+        self.assertEqual(group.user, member)
+        self.assertEqual(group.booking_contact['name'], '王小雪')
+        self.assertEqual(group.reservations.get().total_fee, course_fee)
+
+        member_center = self.api.get('/booking/snowland/api/member-center/')
+        self.assertEqual(member_center.status_code, 200, member_center.data)
+        own_order = next(order for order in member_center.data['orders'] if order['id'] == group.id)
+        self.assertEqual(own_order['total_amount'], course_fee)
+        self.assertEqual(own_order['payment_status'], 'unpaid')
+        other_member = get_user_model().objects.create_user('other-member@example.test', password='local-test-only')
+        other_api = APIClient()
+        other_api.force_authenticate(user=other_member)
+        other_orders = other_api.get('/booking/snowland/api/member-center/')
+        self.assertEqual(other_orders.status_code, 200, other_orders.data)
+        self.assertNotIn(group.id, [order['id'] for order in other_orders.data['orders']])
+
+        admin = get_user_model().objects.create_superuser('booking-admin', 'booking-admin@example.test', 'local-test-only')
+        admin_api = APIClient()
+        admin_api.force_authenticate(user=admin)
+        admin_orders = admin_api.get('/api/admin/snowland/orders/?search=王小雪')
+        self.assertEqual(admin_orders.status_code, 200, admin_orders.data)
+        matching_order = next(order for order in admin_orders.data['data']['list'] if order['id'] == group.id)
+        self.assertEqual(matching_order['user_name'], '王小雪')
+
+        transfer = self.api.post('/booking/snowland/api/process-payment/', {
+            'reservation_group_id': group.id,
+            'payment_type': 'bank_transfer',
+            'sender_account': '12345',
+        }, format='json')
+        self.assertEqual(transfer.status_code, 200, transfer.data)
+        pending_order = next(
+            order for order in self.api.get('/booking/snowland/api/member-center/').data['orders']
+            if order['id'] == group.id
+        )
+        self.assertEqual(pending_order['payment_status'], 'pending')
+        confirmed = admin_api.patch(
+            f'/api/admin/snowland/orders/{group.id}/',
+            {'payment_status': 'paid'}, format='json',
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.data)
+        admin_orders_after_payment = admin_api.get('/api/admin/snowland/orders/?search=王小雪')
+        confirmed_admin_order = next(
+            order for order in admin_orders_after_payment.data['data']['list'] if order['id'] == group.id
+        )
+        self.assertEqual(confirmed_admin_order['payment_status'], 'paid')
+        own_orders_after_payment = self.api.get('/booking/snowland/api/member-center/')
+        self.assertEqual(own_orders_after_payment.status_code, 200, own_orders_after_payment.data)
+        paid_order = next(order for order in own_orders_after_payment.data['orders'] if order['id'] == group.id)
+        self.assertEqual(paid_order['payment_status'], 'paid')
+        other_orders_after_payment = other_api.get('/booking/snowland/api/member-center/')
+        self.assertNotIn(group.id, [order['id'] for order in other_orders_after_payment.data['orders']])
+
+    def test_member_order_reaches_coach_calendar_and_payroll_after_admin_completion(self):
+        campus = Campus.objects.create(client=self.client_record, name='測試校區', code='test-campus')
+        campus.resorts.add(self.resort)
+        coach_user = get_user_model().objects.create_user('lifecycle-coach@example.test', password='local-test-only')
+        coach_user.userprofile.is_coach = True
+        coach_user.userprofile.save(update_fields=['is_coach'])
+        coach = Coach.objects.create(client=self.client_record, user=coach_user, name='QA 教練')
+        coach.campuses.add(campus)
+        CoachResort.objects.create(coach=coach, resort=self.resort)
+        member = get_user_model().objects.create_user('lifecycle-member@example.test', password='local-test-only')
+        self.api.force_authenticate(user=member)
+        booking_date = date.today() + timedelta(days=1)
+        price = self.api.get('/booking/snowland/api/calculate-price/', {
+            'template_id': self.private_template.id, 'people_count': 1,
+            'date': booking_date.isoformat(), 'resort': self.resort.name,
+        })
+        self.assertEqual(price.status_code, 200, price.data)
+        course_fee = price.data['course_fee']
+        self.resort.auto_scheduling_enabled = False
+        self.resort.save(update_fields=['auto_scheduling_enabled'])
+        created = self.api.post('/booking/snowland/api/create-reservation/', {
+            'accepted_policy': True,
+            'contact': {
+                'name': 'QA 會員', 'email': member.username, 'phone': '0900000000',
+                'messengerType': 'line', 'messengerId': 'qa-test', 'referralSource': '其他',
+            },
+            'cart': [{
+                'coach': 'any', 'peopleCount': 1, 'abilityLevel': 'no_exp',
+                'equipment': False, 'equipmentOption': 'own_equipment', 'language': 'zh',
+                'resort': self.resort.name, 'resortName': self.resort.display_name,
+                'courseCategory': self.private_template.course_type.category.name,
+                'courses': [{
+                    'date': booking_date.isoformat(), 'courseTypeId': self.private_template.course_type_id,
+                    'courseTypeName': self.private_template.course_type.name,
+                    'courseTemplateId': self.private_template.id, 'courseTemplateName': self.private_template.name,
+                    'durationHours': 4, 'timeSlotStart': '09:00', 'timeSlotEnd': '13:00',
+                    'price': course_fee,
+                }],
+                'totalPrice': course_fee,
+            }],
+        }, format='json')
+        self.assertEqual(created.status_code, 200, created.data)
+        group = ReservationGroup.objects.get(pk=created.data['reservation_group_ids'][0])
+        reservation = group.reservations.get()
+        self.assertEqual(group.campus_id, campus.id)
+        self.assertEqual(group.payments.get().status, 'unpaid')
+
+        admin = APIClient()
+        admin.force_authenticate(user=get_user_model().objects.create_superuser(
+            'lifecycle-admin', 'lifecycle-admin@example.test', 'local-test-only',
+        ))
+        paid = admin.patch(f'/api/admin/snowland/orders/{group.id}/', {'payment_status': 'paid'}, format='json')
+        self.assertEqual(paid.status_code, 200, paid.data)
+        assigned = admin.put(f'/api/admin/snowland/orders/{group.id}/', {
+            'action': 'save',
+            'reservation_updates': [{'reservation_id': reservation.id, 'coach_id': coach.id}],
+        }, format='json')
+        self.assertEqual(assigned.status_code, 200, assigned.data)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, 'manually_assigned')
+
+        coach_api = APIClient()
+        coach_api.force_authenticate(user=coach_user)
+        calendar = coach_api.get('/api/admin/snowland/coach/my-calendar/')
+        self.assertEqual(calendar.status_code, 200, calendar.data)
+        self.assertTrue(any(row['date'] == booking_date.isoformat() for row in calendar.data['data']['list']))
+
+        # Move the isolated test lesson into the past to represent time passing.
+        completed_date = date.today() - timedelta(days=1)
+        reservation.bookings.update(date=completed_date)
+        completed = admin.post(f'/api/admin/snowland/orders/{group.id}/complete-course/', {
+            'reservation_id': reservation.id,
+        }, format='json')
+        self.assertEqual(completed.status_code, 200, completed.data)
+        CoachPayRule.objects.create(coach=coach, discipline='ski', hourly_rate=1000, referral_percent=0)
+        payroll = admin.post('/api/admin/snowland/payroll-statements/calculate/', {
+            'coach': coach.id, 'campus': campus.id,
+            'period_start': completed_date.isoformat(), 'period_end': completed_date.isoformat(),
+        }, format='json')
+        self.assertEqual(payroll.status_code, 200, payroll.data)
+        self.assertEqual(payroll.data['data']['course_pay'], 4000)
+
     def test_booking_creates_order_and_payment_with_authoritative_price(self):
+        member = get_user_model().objects.create_user(
+            username='booking-member@example.test',
+            email='booking-member@example.test',
+            password='local-test-only',
+        )
+        self.api.force_authenticate(user=member)
         self.resort.auto_scheduling_enabled = False
         self.resort.save(update_fields=['auto_scheduling_enabled'])
         course_type = self.private_template.course_type
@@ -261,17 +531,37 @@ class PricingModeApiTests(TestCase):
                 'totalPrice': course_fee,
             }],
         }
+        without_consent = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
+        self.assertEqual(without_consent.status_code, 400, without_consent.data)
+        self.assertIn('取消及更改政策', without_consent.data['msg'])
+        self.assertFalse(ReservationGroup.objects.exists())
+        request_body['accepted_policy'] = False
+        declined_consent = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
+        self.assertEqual(declined_consent.status_code, 400, declined_consent.data)
+        self.assertFalse(ReservationGroup.objects.exists())
+        request_body['accepted_policy'] = True
         response = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
         self.assertEqual(response.status_code, 200, response.data)
         self.assertTrue(response.data.get('requires_payment'), response.data)
         group = ReservationGroup.objects.get(pk=response.data['reservation_group_ids'][0])
         self.assertEqual(group.client, self.client_record)
+        self.assertEqual(group.user, member)
+        self.assertTrue(group.booking_contact['policy_accepted_at'])
         self.assertEqual(group.reservations.count(), 1)
         self.assertEqual(group.reservations.get().ability_level_counts, {'no_exp': 2})
         self.assertEqual(Booking.objects.filter(reservation__group=group).count(), 1)
         payment = Payment.objects.get(reservation_group=group)
         self.assertEqual(payment.status, 'unpaid')
         self.assertIsNotNone(payment.expires_at)
+        member_center = self.api.get('/booking/snowland/api/member-center/')
+        self.assertEqual(member_center.status_code, 200, member_center.data)
+        member_order = next(
+            (order for order in member_center.data['orders'] if order['id'] == group.id), None
+        )
+        self.assertIsNotNone(member_order)
+        self.assertEqual(member_order['order_number'], group.order_number)
+        self.assertEqual(member_order['payment_status'], 'unpaid')
+        self.assertEqual(member_order['total_amount'], course_fee)
         payment_info = self.api.get('/booking/snowland/api/payment-info/', {'reservation_group': group.id})
         self.assertEqual(payment_info.status_code, 200, payment_info.data)
         self.assertEqual(payment_info.data['total_amount'], course_fee)
@@ -307,6 +597,9 @@ class PricingModeApiTests(TestCase):
         payment.refresh_from_db()
         self.assertEqual(payment.status, 'pending')
         self.assertEqual(payment.bank_account, '12345')
+        member_center = self.api.get('/booking/snowland/api/member-center/')
+        member_order = next(order for order in member_center.data['orders'] if order['id'] == group.id)
+        self.assertEqual(member_order['payment_status'], 'pending')
         payment.status = 'paid'
         payment.save(update_fields=['status'])
         repeated_payment = self.api.post('/booking/snowland/api/process-payment/', {
@@ -339,11 +632,23 @@ class PricingModeApiTests(TestCase):
         pending_group = ReservationGroup.objects.get(pk=unscheduled.data['reservation_group_ids'][0])
         self.assertFalse(Payment.objects.filter(reservation_group=pending_group).exists())
         self.assertEqual(pending_group.reservations.get().status, 'auto_assignment_failed')
+        cancel_failed = self.api.post('/booking/snowland/api/cancel-failed-reservations/', {
+            'reservation_group_ids': [pending_group.id],
+        }, format='json')
+        self.assertEqual(cancel_failed.status_code, 200, cancel_failed.data)
+        self.assertEqual(cancel_failed.data['deleted_count'], 1)
+        self.assertFalse(ReservationGroup.objects.filter(pk=pending_group.id).exists())
+        repeated_cancel = self.api.post('/booking/snowland/api/cancel-failed-reservations/', {
+            'reservation_group_ids': [pending_group.id],
+        }, format='json')
+        self.assertEqual(repeated_cancel.status_code, 200, repeated_cancel.data)
+        self.assertEqual(repeated_cancel.data['deleted_count'], 0)
 
         coach = Coach.objects.create(
             client=self.client_record, name='QA 教練',
             languages=['zh'], availability_status='active',
         )
+        coach.campuses.add(*Campus.objects.filter(client=self.client_record))
         CoachResort.objects.create(coach=coach, resort=self.resort)
         CoachCourseLevel.objects.create(
             coach=coach, course_type=course_type,
@@ -359,6 +664,44 @@ class PricingModeApiTests(TestCase):
         self.assertEqual(reservation.status, 'auto_assigned')
         self.assertTrue(reservation.bookings.get().is_scheduled)
         self.assertTrue(Payment.objects.filter(reservation_group=scheduled_group, status='unpaid').exists())
+        cancel_scheduled = self.api.post('/booking/snowland/api/cancel-failed-reservations/', {
+            'reservation_group_ids': [scheduled_group.id],
+        }, format='json')
+        self.assertEqual(cancel_scheduled.status_code, 200, cancel_scheduled.data)
+        self.assertEqual(cancel_scheduled.data['deleted_count'], 0)
+        self.assertTrue(ReservationGroup.objects.filter(pk=scheduled_group.id).exists())
+
+    def test_member_payment_details_and_submission_are_owner_only(self):
+        owner = get_user_model().objects.create_user('payment-owner@example.test', password='local-test-only')
+        other = get_user_model().objects.create_user('payment-other@example.test', password='local-test-only')
+        group = ReservationGroup.objects.create(client=self.client_record, user=owner)
+        Reservation.objects.create(
+            group=group, resort=self.resort, course_template=self.private_template,
+            number_of_people=1, course_fee=10000, total_fee=10000,
+        )
+        payment = Payment.objects.create(reservation_group=group, user=owner, status='unpaid')
+        info_url = '/booking/snowland/api/payment-info/'
+        submit_url = '/booking/snowland/api/process-payment/'
+        submission = {
+            'reservation_group_id': group.id,
+            'payment_type': 'bank_transfer',
+            'sender_account': '12345',
+        }
+
+        for user in (None, other):
+            self.api.force_authenticate(user=user)
+            self.assertEqual(self.api.get(info_url, {'reservation_group': group.id}).status_code, 404)
+            self.assertEqual(self.api.post(submit_url, submission, format='json').status_code, 404)
+            payment.refresh_from_db()
+            self.assertEqual(payment.status, 'unpaid')
+            self.assertFalse(payment.bank_account)
+
+        self.api.force_authenticate(user=owner)
+        self.assertEqual(self.api.get(info_url, {'reservation_group': group.id}).status_code, 200)
+        self.assertEqual(self.api.post(submit_url, submission, format='json').status_code, 200)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, 'pending')
+        self.assertEqual(payment.bank_account, '12345')
 
     def test_advanced_schedule_preserves_each_student_level_on_split_days(self):
         self.resort.auto_scheduling_enabled = False
@@ -373,6 +716,7 @@ class PricingModeApiTests(TestCase):
             'timeSlotEnd': '13:00',
         } for date in ('2026-11-20', '2026-11-21')]
         payload = {
+            'accepted_policy': True,
             'contact': {
                 'name': 'QA 測試會員', 'email': 'qa@example.test',
                 'phone': '0900000000', 'messengerType': 'line',
@@ -440,6 +784,7 @@ class PricingModeApiTests(TestCase):
             'totalPrice': price,
         }
         payload = {
+            'accepted_policy': True,
             'contact': {
                 'name': 'QA 測試會員', 'email': 'qa@example.test',
                 'phone': '0900000000', 'messengerType': 'line',
@@ -453,6 +798,7 @@ class PricingModeApiTests(TestCase):
         self.assertTrue(automatic.data['scheduling_failed'])
         self.assertFalse(automatic.data['requires_payment'])
 
+        coach.campuses.add(*Campus.objects.filter(client=self.client_record))
         item['coach'] = coach.id
         preview = self.api.post('/booking/snowland/api/discount-preview/', payload, format='json')
         self.assertEqual(preview.status_code, 200, preview.data)
@@ -463,3 +809,73 @@ class PricingModeApiTests(TestCase):
         self.assertTrue(requested.data['requires_payment'])
         selected_group = ReservationGroup.objects.get(pk=requested.data['reservation_group_ids'][0])
         self.assertEqual(selected_group.reservations.get().preferred_coach_id, coach.id)
+
+    def selectable_coach_fixture(self):
+        self.resort.auto_scheduling_enabled = True
+        self.resort.save(update_fields=['auto_scheduling_enabled'])
+        campus = Campus.objects.create(client=self.client_record, name='QA 校區', code='qa')
+        campus.resorts.add(self.resort)
+        coach = Coach.objects.create(client=self.client_record, name='QA 教練', languages=['zh'])
+        coach.campuses.add(campus)
+        CoachResort.objects.create(coach=coach, resort=self.resort)
+        CoachCourseLevel.objects.create(coach=coach, course_type=self.private_template.course_type,
+                                       ability_levels=['no_exp'], price_level='Lv1')
+        self.private_template.resorts.add(self.resort)
+        CourseSession.objects.create(template=self.private_template, start_time='09:00', end_time='13:00')
+        payload = {'accepted_policy': True, 'contact': {
+            'name': 'QA 會員', 'email': 'qa@example.test', 'phone': 'QA-PHONE',
+            'messengerType': 'line', 'messengerId': 'qa', 'referralSource': '其他',
+        }, 'cart': [{'coach': coach.id, 'peopleCount': 1, 'abilityLevel': 'no_exp',
+                    'language': 'zh', 'equipmentOption': 'own_equipment', 'equipment': False,
+                    'resort': self.resort.name, 'campusId': campus.id,
+                    'courseCategory': self.private_template.course_type.category.name,
+                    'courses': [{'date': '2026-11-20', 'courseTypeId': self.private_template.course_type_id,
+                                 'courseTemplateId': self.private_template.id, 'durationHours': 4,
+                                 'timeSlotStart': '09:00', 'timeSlotEnd': '13:00'}]}]}
+        return coach, payload
+
+    def test_customer_coach_visibility_is_independent_from_auto_assignment(self):
+        coach, payload = self.selectable_coach_fixture()
+        admin = APIClient()
+        admin.force_authenticate(get_user_model().objects.create_superuser('visibility-admin', password='pw'))
+        url = f'/api/admin/snowland/coaches/{coach.id}/'
+        initial = admin.get(url)
+        self.assertTrue(initial.data['customer_selectable'])
+        response = admin.patch(url, {'customer_selectable': False}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        coach.refresh_from_db()
+        self.assertFalse(coach.customer_selectable)
+        self.assertTrue(coach.auto_assignment_enabled)
+        listed = APIClient().get('/booking/snowland/api/coaches/', {
+            'resort': self.resort.name, 'courseType': self.private_template.course_type_id,
+        })
+        self.assertEqual(listed.status_code, 200, listed.data)
+        self.assertEqual(listed.data['coach_list'], [])
+        payload['cart'][0]['coach'] = 'any'
+        automatic = self.api.post('/booking/snowland/api/create-reservation/', payload, format='json')
+        self.assertEqual(automatic.status_code, 200, automatic.data)
+        group = ReservationGroup.objects.get(pk=automatic.data['reservation_group_ids'][0])
+        self.assertEqual(group.reservations.get().preferred_coach_id, coach.id)
+        self.assertFalse(group.reservations.get().is_preferred_coach)
+        self.assertEqual(admin.patch(url, {'customer_selectable': True}, format='json').status_code, 200)
+        visible = APIClient().get('/booking/snowland/api/coaches/', {
+            'resort': self.resort.name, 'courseType': self.private_template.course_type_id,
+        })
+        self.assertEqual([row['pk'] for row in visible.data['coach_list']], [coach.id])
+
+    def test_hidden_coach_cannot_be_requested_by_stale_cart_or_direct_price_request(self):
+        coach, payload = self.selectable_coach_fixture()
+        coach.customer_selectable = False
+        coach.save(update_fields=['customer_selectable'])
+        price = self.api.get('/booking/snowland/api/calculate-price/', {
+            'template_id': self.private_template.id, 'people_count': 1,
+            'date': '2026-11-20', 'resort': self.resort.name, 'coach': coach.id,
+        })
+        self.assertEqual(price.status_code, 400, price.data)
+        for url in ['/booking/snowland/api/discount-preview/', '/booking/snowland/api/create-reservation/']:
+            response = self.api.post(url, payload, format='json')
+            self.assertEqual(response.status_code, 400, response.data)
+            self.assertIn('不開放指定', str(response.data))
+        self.assertFalse(ReservationGroup.objects.exists())
+        self.assertFalse(Reservation.objects.exists())
+        self.assertFalse(Payment.objects.exists())

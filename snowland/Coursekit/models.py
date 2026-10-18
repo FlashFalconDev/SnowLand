@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 # Create your models here.
 
@@ -81,6 +82,9 @@ class CourseTemplate(models.Model):
     course_type = models.ForeignKey(CourseType, on_delete=models.CASCADE, related_name='templates', verbose_name="所屬課程類型")
     name = models.CharField(max_length=100, verbose_name="課程模板名稱", help_text="例如：4小時初學者課程")
     duration_hours = models.PositiveIntegerField(verbose_name="課程時長(小時)", help_text="例如：4")
+    payroll_hours = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, default=None,
+        validators=[MinValueValidator(0), MaxValueValidator(24)], verbose_name='每堂計薪時數',
+        help_text='留空依上課時段計算；填0不計課程時薪，不影響排課或客人價格')
     max_capacity = models.PositiveIntegerField(default=6, verbose_name="預設最大容量", help_text="此課程模板的預設人數限制")
     display_order = models.IntegerField(default=0, verbose_name="顯示順序", help_text="數字越小，前台排序越前面")
     is_active = models.BooleanField(default=True, verbose_name="是否啟用此課程模板")

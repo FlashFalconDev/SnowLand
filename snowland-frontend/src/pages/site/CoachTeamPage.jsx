@@ -3,27 +3,11 @@ import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import legacyPages from '../../data/site/legacyPages.json';
-import coachesData from '../../data/site/coaches';
+import CoachLoadNotice from '../../components/site/CoachLoadNotice';
 import { useWebsiteCoachCards } from '../../api/websiteCoaches';
 
 function CoachTeamPage() {
-  const legacyImageByName = React.useMemo(() => {
-    const imageByName = new Map();
-    const blocks = legacyPages["coach-team"]?.blocks ?? [];
-
-    for (let index = 0; index < blocks.length; index += 1) {
-      const block = blocks[index];
-      const nextBlock = blocks[index + 1];
-      if (block?.type === "image" && nextBlock?.type === "heading") {
-        imageByName.set(nextBlock.text, block.src);
-        index += 1;
-      }
-    }
-
-    return imageByName;
-  }, []);
-  const coaches = useWebsiteCoachCards(coachesData, legacyImageByName);
+  const { coaches: coaches, isLoading: coachesLoading, error: coachesError, retry: retryCoaches } = useWebsiteCoachCards();
 
   return (
     <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
@@ -40,6 +24,7 @@ function CoachTeamPage() {
               </h2>
             </div>
 
+            <CoachLoadNotice isLoading={coachesLoading} error={coachesError} count={coaches.length} retry={retryCoaches} />
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 md:gap-10">
               {coaches.map((coach, index) => {
                 const specialtyText = coach.certificationText || coach.coachType;

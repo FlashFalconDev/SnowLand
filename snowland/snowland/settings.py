@@ -48,6 +48,19 @@ SECRET_KEY = "django-insecure-6m9s&&mrr%$5oie!_2wc-byua$@8c*oggvsef(94lkoil0j4i*
 # if platform.system() == 'Windows':
 DEBUG = True
 LOCAL_AUTH_BYPASS = os.getenv('SNOWLAND_LOCAL_AUTH_BYPASS', '0') == '1'
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND') or (
+    'django.core.mail.backends.console.EmailBackend'
+    if os.getenv('Mysql_HOST') in {'127.0.0.1', 'localhost'} and os.getenv('Mysql_NAME') == 'test_snowland'
+    else 'django.core.mail.backends.smtp.EmailBackend'
+)
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', '0') == '1'
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', '0') == '1'
+EMAIL_TIMEOUT = 15
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'webmaster@localhost')
 SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '0') == '1'
 GOOGLE_OAUTH_CLIENT_ID = (
     os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
@@ -59,6 +72,14 @@ NEWEBPAY_HASH_KEY = os.getenv('NEWEBPAY_HASH_KEY', '').strip()
 NEWEBPAY_HASH_IV = os.getenv('NEWEBPAY_HASH_IV', '').strip()
 RUN_HOST = 'https://dev.flashfalcon.info'
 PAYMENT_HOST = 'https://dev.flashfalcon.info/booking/payment/'
+SNOWLAND_PUBLIC_PAYMENT_URL = os.getenv('SNOWLAND_PUBLIC_PAYMENT_URL', '').strip() or (
+    'http://127.0.0.1:3000/snowland/payment'
+    if os.getenv('Mysql_HOST') in {'127.0.0.1', 'localhost'} and os.getenv('Mysql_NAME') == 'test_snowland'
+    else ''
+)
+PRIVATE_COURSE_MEDIA_ROOT = Path(os.getenv('SNOWLAND_PRIVATE_COURSE_MEDIA_ROOT', '').strip() or BASE_DIR / 'private_course_media')
+COURSE_MEDIA_MAX_PHOTO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_PHOTO_BYTES') or 20 * 1024 * 1024)
+COURSE_MEDIA_MAX_VIDEO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_VIDEO_BYTES') or 100 * 1024 * 1024)
 # else:
 #     DEBUG = False
 #     RUN_HOST = 'https://www.flashfalcon.info'
@@ -141,6 +162,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8999',
     'http://127.0.0.1:8999',
     'http://localhost:3000',  # 前端開發服務器
+    'http://127.0.0.1:3000',  # 同一套前端的 loopback IP 網址
 ]
 
 # CORS 設定：允許前端跨域請求

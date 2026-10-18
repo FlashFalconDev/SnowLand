@@ -41,6 +41,17 @@ export type SiteContentWriteData = Omit<SiteContentItem, 'id' | 'computed_status
 interface ListResp<T> { code: number; msg: string; data: { list: T[]; total: number } }
 interface DetailResp<T> { code: number; msg: string; data: T }
 
+export async function fetchReviewContentGroups(): Promise<unknown[]> {
+  const res = (await adminApi.get('/site-content/review-locations/')) as unknown as {data: {groups: unknown[]}}
+  return res.data?.groups || []
+}
+
+export interface ReviewCoachChoice { id: number; name: string; website_enabled: boolean }
+export async function fetchReviewCoachChoices(): Promise<ReviewCoachChoice[]> {
+  const res = (await adminApi.get('/site-content/review-coaches/')) as unknown as {data: {list: ReviewCoachChoice[]}}
+  return res.data?.list || []
+}
+
 export async function fetchSiteContents(params?: {
   content_type?: SiteContentType
   location_key?: string

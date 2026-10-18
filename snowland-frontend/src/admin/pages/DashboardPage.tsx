@@ -2,9 +2,9 @@
  * SnowLand 後台儀表板（接 API）
  */
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { ShoppingBag, ShoppingCart, DollarSign, TrendingUp, Users, Calendar, CalendarCheck, Loader2, AlertCircle } from 'lucide-react'
-import { fetchDashboard, type Period } from '../api/dashboard'
+import { exportDashboard, fetchDashboard, type DateBasis, type Period } from '../api/dashboard'
 
 const PRIMARY = '#8b5cf6'
 
@@ -13,6 +13,8 @@ const periodOptions: { value: Period; label: string }[] = [
   { value: 'yesterday', label: '昨天' },
   { value: 'week', label: '本週' },
   { value: 'month', label: '本月' },
+  { value: 'quarter', label: '本季' },
+  { value: 'custom', label: '自訂日期' },
 ]
 
 const STATUS_CLS: Record<string, string> = {
@@ -28,9 +30,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
   return (
-    <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1 shadow-sm">
+    <div className="inline-flex flex-wrap rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1 shadow-sm">
       {periodOptions.map((option) => (
-        <button key={option.value} onClick={() => onChange(option.value)} className="px-4 py-2 text-sm font-medium rounded-md transition-all"
+        <button key={option.value} onClick={() => onChange(option.value)} className="min-h-11 px-4 py-2 text-sm font-medium rounded-md transition-all"
           style={value === option.value ? { backgroundColor: PRIMARY, color: 'white' } : undefined}>
           <span className={value === option.value ? '' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}>{option.label}</span>
         </button>
@@ -41,35 +43,86 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('month')
+  const [dateBasis, setDateBasis] = useState<DateBasis>('created')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [resortId, setResortId] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [exportMessage, setExportMessage] = useState('')
+  const invalidDates = period === 'custom' && (!startDate || !endDate || startDate > endDate)
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['admin', 'dashboard', period],
-    queryFn: () => fetchDashboard(period),
+  const { data, isFetching, error } = useQuery({
+    queryKey: ['admin', 'dashboard', period, dateBasis, startDate, endDate, resortId],
+    queryFn: () => fetchDashboard(period, { date_basis: dateBasis, start_date: startDate, end_date: endDate, resort_id: resortId }),
+    enabled: !invalidDates,
+    placeholderData: keepPreviousData,
   })
 
   const stats = data?.stats || { orders: 0, revenue: 0, members: 0, avg_order_value: 0 }
   const topItems = data?.top_items || []
   const recentOrders = data?.recent_orders || []
+  const restrictedOrderDetails = data?.restricted_order_details ?? false
   const marketingSources = data?.marketing_sources || []
   const campusSummary = data?.campus_summary || []
   const maxQuantity = topItems.length > 0 ? Math.max(...topItems.map((i) => i.quantity)) : 1
+  async function downloadReport(format: 'csv' | 'xlsx') {
+    if (exporting || invalidDates || isFetching || !data || error) return
+    setExporting(true)
+    setExportMessage('正在產生報表…')
+    try {
+      const blob = await exportDashboard(period, { date_basis: dateBasis, start_date: startDate, end_date: endDate, resort_id: resortId }, format)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `SnowLand-${dateBasis}-${period}.${format}`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setExportMessage('報表已產生並開始下載；內容依本次期間、校區與雪場篩選，不含會員個資。')
+    } catch {
+      setExportMessage('匯出失敗，請重新載入統計後再試。')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={isFetching}>
       {/* 統計區塊 */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
           <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Calendar size={18} style={{ color: PRIMARY }} />統計數據
           </h3>
-          <PeriodSelector value={period} onChange={setPeriod} />
+          <PeriodSelector value={period} onChange={(value) => { setPeriod(value); setExportMessage('') }} />
         </div>
+        <div className="mb-4 flex flex-wrap items-end gap-3 text-sm text-gray-700 dark:text-gray-200">
+          <label className="grid gap-1">日期依據
+            <select aria-label="統計日期依據" value={dateBasis} onChange={(e) => { setDateBasis(e.target.value as DateBasis); setExportMessage('') }} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-800">
+              <option value="created">訂單建立日期</option><option value="completed">訂單完成日期</option>
+            </select>
+          </label>
+          <label className="grid gap-1">雪場
+            <select aria-label="統計雪場" value={resortId} onChange={(e) => { setResortId(e.target.value); setExportMessage('') }} className="min-h-11 max-w-full rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-800">
+              <option value="">全部可查看雪場</option>
+              {(data?.resort_options || []).map(resort => <option key={resort.id} value={resort.id}>{resort.display_name}</option>)}
+            </select>
+          </label>
+          {period === 'custom' && <>
+            <label className="grid gap-1">開始日期<input aria-label="統計開始日期" type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setExportMessage('') }} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-800" /></label>
+            <label className="grid gap-1">結束日期<input aria-label="統計結束日期" type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setExportMessage('') }} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-800" /></label>
+          </>}
+          <button disabled={exporting || invalidDates || isFetching || !data || !!error} onClick={() => downloadReport('xlsx')} className="min-h-11 rounded-lg bg-violet-600 px-4 text-white disabled:opacity-40">匯出 Excel</button>
+          <button disabled={exporting || invalidDates || isFetching || !data || !!error} onClick={() => downloadReport('csv')} className="min-h-11 rounded-lg border border-gray-300 px-4 dark:border-gray-600 disabled:opacity-40">匯出 CSV</button>
+        </div>
+        {exportMessage && <p role="status" className="mb-3 text-sm text-gray-600 dark:text-gray-300">{exportMessage}</p>}
+        {isFetching && <p role="status" className="mb-3 text-sm text-violet-700 dark:text-violet-300">正在更新統計，請稍候；更新完成前無法匯出。</p>}
+        <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">依{dateBasis === 'created' ? '訂單建立日期' : '最後一堂有效課程日期'}篩選。營業額僅計已付款、且所有有效課程均已完成的訂單；未付款、未完成、取消及已退款不計入。平均金額以符合條件的已完成訂單計算。</p>
 
-        {error ? (
+        {invalidDates ? <p role="status" className="py-8 text-center text-sm text-amber-700 dark:text-amber-300">請選擇開始與結束日期，結束日期不得早於開始日期。</p> : error ? (
           <div className="py-12 text-center"><AlertCircle size={32} className="mx-auto mb-3 text-red-500" /><p className="text-sm text-red-600">載入失敗</p></div>
         ) : (
           <div className="relative">
-            {isLoading && (
+            {isFetching && (
               <div className="absolute inset-0 bg-white/70 dark:bg-gray-800/70 flex items-center justify-center z-10 rounded-xl">
                 <Loader2 size={32} className="animate-spin" style={{ color: PRIMARY }} />
               </div>
@@ -80,32 +133,43 @@ export default function DashboardPage() {
                   <ShoppingCart size={20} className="text-blue-600 dark:text-blue-400" />
                 </div>
                 <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.orders}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">訂單數</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">{dateBasis === 'created' ? '新增訂單數（全部狀態）' : '已完成訂單數'}</div>
               </div>
               <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4">
                 <div className="w-10 h-10 bg-green-100 dark:bg-green-900/50 rounded-lg flex items-center justify-center mb-2">
                   <DollarSign size={20} className="text-green-600 dark:text-green-400" />
                 </div>
                 <div className="text-2xl font-bold text-gray-900 dark:text-white whitespace-nowrap">NT$ {stats.revenue.toLocaleString()}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">營收</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">已完成訂單營業額</div>
               </div>
               <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4">
                 <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/50 rounded-lg flex items-center justify-center mb-2">
                   <Users size={20} className="text-purple-600 dark:text-purple-400" />
                 </div>
                 <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.members}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">活躍學員</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">下單會員</div>
               </div>
               <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4">
                 <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/50 rounded-lg flex items-center justify-center mb-2">
                   <TrendingUp size={20} className="text-orange-600 dark:text-orange-400" />
                 </div>
                 <div className="text-2xl font-bold text-gray-900 dark:text-white whitespace-nowrap">NT$ {stats.avg_order_value.toLocaleString()}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">平均客單價</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">已完成訂單平均金額</div>
               </div>
             </div>
           </div>
         )}
+      </div>
+
+      {!invalidDates && !error && <>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Metric label="已完成訂單數" value={data?.stats.completed_orders || 0} />
+        <Metric label="已完成學員人次（每堂）" value={data?.stats.student_visits || 0} />
+        <Metric label="已完成授課時數" value={data?.stats.teaching_hours || 0} note="依上課時段；同一團體班不重複計時，非計薪時數。" />
+      </div>
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+        <h3 className="mb-3 font-semibold text-gray-900 dark:text-white">付款狀態分布</h3>
+        <div className="flex flex-wrap gap-3">{(data?.payment_statuses || []).map(row => <span key={row.status} className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:bg-gray-700 dark:text-gray-200">{row.name}：{row.orders} 筆</span>)}</div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -116,7 +180,7 @@ export default function DashboardPage() {
       {/* 熱門課程 TOP 5 */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
         <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-5">
-          <ShoppingBag size={18} style={{ color: PRIMARY }} />熱門課程 TOP 5
+          <ShoppingBag size={18} style={{ color: PRIMARY }} />已完成熱門課程 TOP 5
         </h3>
         {topItems.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
@@ -161,39 +225,67 @@ export default function DashboardPage() {
             <CalendarCheck size={48} className="mx-auto mb-3 opacity-30" /><p className="text-sm font-medium">暫無訂單資料</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="divide-y divide-gray-100 dark:divide-gray-700 lg:hidden">
+            {recentOrders.map((o) => (
+              <div key={o.sn} className="space-y-2 px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono font-semibold" style={{ color: PRIMARY }}>{o.sn}</span>
+                  {!restrictedOrderDetails && (
+                    o.status ? <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CLS[o.status] || STATUS_CLS.unpaid}`}>{STATUS_LABEL[o.status] || o.status}</span> : <span className="text-gray-400">—</span>
+                  )}
+                </div>
+                <div className="min-w-0 break-all font-medium text-gray-900 dark:text-white">{o.member}</div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span>{o.created_at}</span>
+                  {!restrictedOrderDetails && <span className="font-semibold text-gray-900 dark:text-white">{o.amount === undefined ? '—' : `NT$ ${o.amount.toLocaleString()}`}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
                   <th className="text-left px-5 py-3 font-medium text-gray-600 dark:text-gray-300">訂單編號</th>
                   <th className="text-left px-5 py-3 font-medium text-gray-600 dark:text-gray-300">學員</th>
-                  <th className="text-left px-5 py-3 font-medium text-gray-600 dark:text-gray-300">金額</th>
-                  <th className="text-left px-5 py-3 font-medium text-gray-600 dark:text-gray-300">狀態</th>
+                  {!restrictedOrderDetails && <th className="text-left px-5 py-3 font-medium text-gray-600 dark:text-gray-300">金額</th>}
+                  {!restrictedOrderDetails && <th className="text-left px-5 py-3 font-medium text-gray-600 dark:text-gray-300">狀態</th>}
                   <th className="text-left px-5 py-3 font-medium text-gray-600 dark:text-gray-300">時間</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {recentOrders.map((o) => (
-                  <tr key={o.sn} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer">
+                  <tr key={o.sn} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     <td className="px-5 py-3 font-mono text-sm font-medium whitespace-nowrap" style={{ color: PRIMARY }}>{o.sn}</td>
                     <td className="px-5 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">{o.member}</td>
-                    <td className="px-5 py-3 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">NT$ {o.amount.toLocaleString()}</td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${STATUS_CLS[o.status] || STATUS_CLS.unpaid}`}>{STATUS_LABEL[o.status] || o.status}</span>
-                    </td>
+                    {!restrictedOrderDetails && <td className="px-5 py-3 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">{o.amount === undefined ? '—' : `NT$ ${o.amount.toLocaleString()}`}</td>}
+                    {!restrictedOrderDetails && <td className="px-5 py-3 whitespace-nowrap">
+                      {o.status ? <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${STATUS_CLS[o.status] || STATUS_CLS.unpaid}`}>{STATUS_LABEL[o.status] || o.status}</span> : '—'}
+                    </td>}
                     <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{o.created_at}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
+      </>}
     </div>
   )
 }
 
-function SummaryTable({ title, empty, rows }: { title: string; empty: string; rows: { name: string; orders: number; revenue: number }[] }) {
+function Metric({ label, value, note }: { label: string; value: number; note?: string }) {
+  return <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+    <p className="text-sm text-gray-600 dark:text-gray-300">{label}</p>
+    <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">{value.toLocaleString()}</p>
+    {note && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{note}</p>}
+  </div>
+}
+
+function SummaryTable({ title, empty, rows }: { title: string; empty: string; rows: { name: string; orders: number; revenue: number; is_active?: boolean | null }[] }) {
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
       <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-700"><h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3></div>
@@ -201,7 +293,12 @@ function SummaryTable({ title, empty, rows }: { title: string; empty: string; ro
         <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {rows.map((row) => (
             <div key={row.name} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-3 text-sm">
-              <span className="truncate font-medium text-gray-900 dark:text-white">{row.name}</span>
+              <span className="min-w-0 font-medium text-gray-900 dark:text-white">
+                <span className="break-words">{row.name}</span>
+                {row.is_active === false && (
+                  <span className="ml-2 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">已停用</span>
+                )}
+              </span>
               <span className="text-gray-500 dark:text-gray-400">{row.orders} 筆</span>
               <span className="min-w-24 text-right font-semibold" style={{ color: PRIMARY }}>NT$ {row.revenue.toLocaleString()}</span>
             </div>

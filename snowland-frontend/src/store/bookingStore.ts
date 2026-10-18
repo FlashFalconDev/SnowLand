@@ -40,7 +40,7 @@ interface BookingStore extends BookingState {
   // 預約組操作
   startNewReservationGroup: () => void
   addCourseToCurrentGroup: (course: Course) => void
-  finishCurrentGroupAndAddToCart: () => void
+  finishCurrentGroupAndAddToCart: (replaceGroupId?: string) => void
 
   // 購物車操作
   replaceCart: (cart: CartItem[]) => void
@@ -196,14 +196,24 @@ export const useBookingStore = create<BookingStore>()(
     })
   },
 
-  finishCurrentGroupAndAddToCart: () => {
+  finishCurrentGroupAndAddToCart: (replaceGroupId) => {
     set((state) => {
       if (!state.currentReservationGroup || state.currentReservationGroup.courses.length === 0) {
         return state
       }
+      if (replaceGroupId && !state.cart.some(group => group.id === replaceGroupId)) return state
 
       return {
-        cart: [...state.cart, state.currentReservationGroup],
+        cart: replaceGroupId
+          ? state.cart.map(group => group.id === replaceGroupId
+            ? { ...state.currentReservationGroup!, id: replaceGroupId,
+                ...(group.rebookSource
+                  ? group.rebookSource.peopleCount === state.currentReservationGroup!.peopleCount
+                    ? { rebookSource: group.rebookSource }
+                    : { rebookLearnersReset: true }
+                  : group.rebookLearnersReset ? { rebookLearnersReset: true } : {}),
+              } : group)
+          : [...state.cart, state.currentReservationGroup],
         currentReservationGroup: null,
       }
     })

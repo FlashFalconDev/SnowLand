@@ -2,18 +2,28 @@ import GoogleLoginButton from '@/components/auth/GoogleLoginButton'
 import { Mountain, Award, CalendarCheck, Bot } from 'lucide-react'
 import { useClientInfo } from '@/hooks/useClient'
 import { useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 
 export default function LoginPage({ returnTo = 'booking' }: { returnTo?: 'booking' | 'console' }) {
   // 🔥 使用 hook 獲取客戶資訊
   const { clientName } = useClientInfo()
-  const membershipLoginUrl = useSiteLink(`/membership?return_to=${returnTo}`)
+  const location = useLocation()
+  const staffLink = new URLSearchParams(location.search).get('staff_link')
+  const membershipParams = new URLSearchParams({ return_to: returnTo })
+  if (staffLink) membershipParams.set('staff_link', staffLink)
+  const membershipLoginUrl = useSiteLink(`/membership?${membershipParams}`)
 
   // 🔥 更新頁面標題
   useEffect(() => {
     document.title = `${clientName} - 登入`
   }, [clientName])
+
+  useEffect(() => {
+    if (returnTo === 'booking') {
+      localStorage.setItem('pre_login_url', `${location.pathname}${location.search}`)
+    }
+  }, [location.pathname, location.search, returnTo, staffLink])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center px-4">

@@ -70,7 +70,16 @@ export async function fetchOperatingPolicies(): Promise<OperatingPolicy[]> {
   return res.data?.list || []
 }
 
+export async function createOperatingPolicy(data: Partial<OperatingPolicy>): Promise<OperatingPolicy> {
+  const res = await adminApi.post('/operating-policies/', data) as unknown as OperatingPolicy | DetailResp<OperatingPolicy>
+  return unwrap(res)
+}
+
 export async function updateOperatingPolicy(id: number, data: Partial<OperatingPolicy>): Promise<OperatingPolicy> {
   const res = await adminApi.patch(`/operating-policies/${id}/`, data) as unknown as OperatingPolicy | DetailResp<OperatingPolicy>
   return unwrap(res)
+}
+
+export async function deleteOperatingPolicy(id: number): Promise<void> {
+  await adminApi.delete(`/operating-policies/${id}/`)
 }

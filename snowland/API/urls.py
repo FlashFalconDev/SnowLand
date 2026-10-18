@@ -23,8 +23,11 @@ from .admin_views import (
     NotificationTemplateAdminViewSet,
     NotificationDeliveryAdminViewSet,
     CourseEvaluationAdminViewSet,
+    CoachCourseEvaluationViewSet,
     CoachPayRuleAdminViewSet,
+    StaffIncentiveRuleAdminViewSet,
     PayrollStatementAdminViewSet,
+    CoachPayrollViewSet,
     StaffBookingLinkAdminViewSet,
     InsuranceRecordAdminViewSet,
     BookingScheduleAdminViewSet,
@@ -46,12 +49,16 @@ from .admin_views import (
     payment_settings_view,
 )
 from chatbooking.admin_views import ChatSupportViewSet
+from .staff_incentives import StaffIncentiveStatementAdminViewSet
+from .member_loyalty import customer_loyalty
+from .website_coach_editor import WebsiteCoachEditorViewSet
 
 
 # 後台 ViewSet router
 admin_router = DefaultRouter()
 admin_router.register(r'site-content', SiteContentAdminViewSet, basename='admin-site-content')
 admin_router.register(r'coaches', CoachAdminViewSet, basename='admin-coaches')
+admin_router.register(r'website-coach-editor', WebsiteCoachEditorViewSet, basename='admin-website-coach-editor')
 admin_router.register(r'coach-leaves', CoachLeaveAdminViewSet, basename='admin-coach-leaves')
 admin_router.register(r'resorts', ResortAdminViewSet, basename='admin-resorts')
 admin_router.register(r'campuses', CampusAdminViewSet, basename='admin-campuses')
@@ -69,8 +76,12 @@ admin_router.register(r'cancellations', CancellationAdminViewSet, basename='admi
 admin_router.register(r'notification-templates', NotificationTemplateAdminViewSet, basename='admin-notification-templates')
 admin_router.register(r'notification-deliveries', NotificationDeliveryAdminViewSet, basename='admin-notification-deliveries')
 admin_router.register(r'evaluations', CourseEvaluationAdminViewSet, basename='admin-evaluations')
+admin_router.register(r'coach/evaluations', CoachCourseEvaluationViewSet, basename='coach-evaluations')
 admin_router.register(r'coach-pay-rules', CoachPayRuleAdminViewSet, basename='admin-coach-pay-rules')
+admin_router.register(r'staff-incentive-rules', StaffIncentiveRuleAdminViewSet, basename='admin-staff-incentive-rules')
+admin_router.register(r'staff-incentive-statements', StaffIncentiveStatementAdminViewSet, basename='admin-staff-incentive-statements')
 admin_router.register(r'payroll-statements', PayrollStatementAdminViewSet, basename='admin-payroll-statements')
+admin_router.register(r'coach/payroll', CoachPayrollViewSet, basename='coach-payroll')
 admin_router.register(r'staff-booking-links', StaffBookingLinkAdminViewSet, basename='admin-staff-booking-links')
 admin_router.register(r'insurance-records', InsuranceRecordAdminViewSet, basename='admin-insurance-records')
 admin_router.register(r'bookings', BookingScheduleAdminViewSet, basename='admin-bookings')
@@ -88,6 +99,7 @@ urlpatterns = [
     # 後台跟預約系統共用同一套 OAuth session，所以不另開 login endpoint
     path('admin/<str:client_code>/me/', admin_me, name='admin-me'),
     path('admin/<str:client_code>/customers/', customers_list, name='admin-customers'),
+    path('admin/<str:client_code>/customers/<int:user_id>/loyalty/', customer_loyalty, name='admin-customer-loyalty'),
     path('admin/<str:client_code>/customers/<int:user_id>/permission/', update_customer_permission, name='admin-customer-permission'),
     path('admin/<str:client_code>/staff/', staff_list, name='admin-staff-list'),
     path('admin/<str:client_code>/dashboard/', dashboard_stats, name='admin-dashboard'),

@@ -163,19 +163,19 @@
                     <div class="bank-details">
                         <div class="detail-item">
                             <span class="detail-label">銀行名稱</span>
-                            <span class="detail-value">{{ bank_info.bank_name|default:"台灣銀行" }}</span>
+                            <span class="detail-value">{{ bank_info.bank_name|default:"尚未設定" }}</span>
                         </div>
                         <div class="detail-item">
                             <span class="detail-label">分行名稱</span>
-                            <span class="detail-value">{{ bank_info.branch_name|default:"信義分行" }}</span>
+                            <span class="detail-value">{{ bank_info.branch_name|default:"尚未設定" }}</span>
                         </div>
                         <div class="detail-item">
                             <span class="detail-label">帳戶號碼</span>
-                            <span class="detail-value">{{ bank_info.account_number|default:"123-456-789012" }}</span>
+                            <span class="detail-value">{{ bank_info.account_number|default:"尚未設定" }}</span>
                         </div>
                         <div class="detail-item">
                             <span class="detail-label">戶名</span>
-                            <span class="detail-value">{{ bank_info.account_name|default:"滑雪預約股份有限公司" }}</span>
+                            <span class="detail-value">{{ bank_info.account_name|default:"尚未設定" }}</span>
                         </div>
                         <div class="detail-item">
                             <span class="detail-label">匯款金額</span>
@@ -192,9 +192,11 @@
                     </div>
                 </div>
 
-                <button class="cart-button" onclick="confirmBankTransfer()">
-                    確認已匯款
-                </button>
+                {% if bank_transfer_ready %}
+                <button class="cart-button" onclick="confirmBankTransfer()">確認已匯款</button>
+                {% else %}
+                <p role="alert">匯款資料尚未設定完整，請聯繫客服確認後再付款。</p>
+                {% endif %}
             </div>
             {% endif %}
         </div>
@@ -237,6 +239,7 @@
         const paymentData = {
             paymentType: '{{ payment_type }}', // 'newebpay' 或 'bank_transfer'
             reservation_group_pk: '{{ reservation_group_pk }}',
+            access_token: '{{ payment_access_token|default:""|escapejs }}',
             amount: {{ total_amount|default:0 }},
             orderDetails: {{ order_details|default:"[]"|safe }},
             ordererUser: '{{ orderer_user|default:"" }}'
@@ -285,6 +288,7 @@
                     body: JSON.stringify({
                         user: currentUser,
                         reservation_group_pk: paymentData.reservation_group_pk,
+                        access_token: paymentData.access_token,
                         paymentType: paymentType,
                         ...additionalData
                     })

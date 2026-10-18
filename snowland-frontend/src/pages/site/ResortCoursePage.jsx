@@ -53,6 +53,7 @@ function ResortCoursePage() {
   const liftScrollTrackWidth = 160;
   const liftScrollThumbMinWidth = 24;
   const bookingUrl = useSiteLink('/booking');
+  const resortTabUrl = useSiteLink(`/course/${resort}`);
   const pricePlan = pricing?.plans?.[priceTab] ?? null;
   const showHalfDay = pricing?.columns?.includes('half') ?? false;
   const formatPrice = (value) => {
@@ -194,7 +195,8 @@ function ResortCoursePage() {
 
   const heroImage = resortInfo.heroImage || resortMeta?.imagePlaceholder;
   const regionLabel = resortMeta?.region ? `北海道 | ${resortMeta.region}` : "北海道";
-  const tags = resortInfo.tags.length > 0 ? resortInfo.tags : resortMeta?.tags ?? [];
+  const tags = Array.isArray(resortInfo.tags) && resortInfo.tags.length > 0 ? resortInfo.tags : resortMeta?.tags ?? [];
+  const slopes = Array.isArray(resortInfo.slopes) ? resortInfo.slopes : [];
   const activeTabContent = tabsBySlug[activeTabSlug];
   const tabHeaderMeta = {
     "ski-slope": { eyebrow: "SLOPE MAP", title: "雪道介紹" },
@@ -247,13 +249,22 @@ function ResortCoursePage() {
     ) : null;
   const renderTabBody = () => {
     const legacyHtml = activeTabContent?.html ?? "";
-    if (activeTabContent?.presentation === 'cms') {
+    if (activeTabContent?.presentation === 'cms' || ['rental', 'lift', 'access'].includes(activeTabSlug)) {
       return (
         <div className="mx-auto max-w-4xl rounded-sm border border-[#e2e8f0] bg-white p-5 shadow-sm md:p-8">
-          <div
-            className="legacy-tab-content text-sm leading-7 text-[#475569] md:text-base"
-            dangerouslySetInnerHTML={{ __html: legacyHtml }}
-          />
+          {legacyHtml ? (
+            <>
+              {/<table[\s>]/i.test(legacyHtml) && (
+                <p className="mb-3 text-xs text-[#64748b] md:hidden">表格可左右滑動查看完整內容。</p>
+              )}
+              <div
+                className="legacy-tab-content overflow-x-auto text-sm leading-7 text-[#475569] [&_table]:min-w-[600px] md:text-base"
+                dangerouslySetInnerHTML={{ __html: legacyHtml }}
+              />
+            </>
+          ) : (
+            <p className="text-sm text-[#64748b]">相關資訊尚未公布，請與 SnowLand 聯繫確認。</p>
+          )}
         </div>
       );
     }
@@ -528,15 +539,11 @@ function ResortCoursePage() {
       };
       return (
         <div className="space-y-8">
-          <div className="rounded-sm overflow-hidden border border-[#e2e8f0] bg-white shadow-sm">
-            {firstImage ? (
+          {firstImage && (
+            <div className="rounded-sm overflow-hidden border border-[#e2e8f0] bg-white shadow-sm">
               <img loading="lazy" decoding="async" src={firstImage} alt="雪道地圖" className="w-full h-auto object-contain" />
-            ) : (
-              <div className="aspect-[5/2] w-full bg-[#e2e8f0] flex items-center justify-center text-xs tracking-[0.4em] uppercase text-[#94a3b8]">
-                Image Holder
-              </div>
-            )}
-          </div>
+            </div>
+          )}
           <div className="mt-6 bg-white">
             <div className="mx-auto w-full max-w-5xl border-b border-[#e2e8f0] text-sm text-[#475569]">
               {stats.map((row) => (
@@ -1188,7 +1195,7 @@ function ResortCoursePage() {
       <SiteHeader forceTransparent />
       <main className="flex-1 w-full">
         {!isPriceLanding && (
-          <section ref={heroSectionRef} className="relative overflow-hidden bg-[#f3f0ea] text-[#1f2937]">
+          <section ref={heroSectionRef} className={`relative overflow-hidden text-[#1f2937] ${heroImage ? "bg-[#f3f0ea]" : "bg-gradient-to-br from-[#17384f] via-[#285a72] to-[#102838]"}`}>
           <div className="absolute inset-0">
             {heroImage && (
               <div
@@ -1308,7 +1315,7 @@ function ResortCoursePage() {
                       <div>
                         <p className="uppercase tracking-[0.3em] text-white/60">雪道分級</p>
                         <div className="mt-3 space-y-3 text-xs text-white/85">
-                          {resortInfo.slopes.map((item) => (
+                          {slopes.map((item) => (
                             <div key={item.label}>
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold">{item.label}</span>
@@ -1370,7 +1377,7 @@ function ResortCoursePage() {
                       type="button"
                       onClick={() => {
                         setActiveTabSlug(item.slug);
-                        navigate(`/course/${resort}/${item.slug}`, { state: { viaTabNav: true } });
+                        navigate(`${resortTabUrl}/${item.slug}`, { state: { viaTabNav: true } });
                         if (tabSectionRef.current) {
                           setTimeout(() => {
                             tabSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });

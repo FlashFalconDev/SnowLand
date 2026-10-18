@@ -1,11 +1,10 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
-from django.db.models import Q
 
 from booking.models import Booking
 
-from .models import CoachPayRule, PayrollLine, PayrollStatement
+from .models import Coach, CoachPayRule, PayrollLine, PayrollStatement
 
 
 def _discipline_for(booking):
@@ -29,17 +28,32 @@ def _money(value):
     return int(Decimal(value).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
 
-def _rule_for(booking, discipline):
-    coach = booking.reservation.preferred_coach
-    return CoachPayRule.objects.filter(
+def _payroll_hours(booking):
+    template = booking.reservation.course_template
+    if template is not None and template.payroll_hours is not None:
+        return template.payroll_hours
+    return _hours(booking)
+
+
+def _rule_for(booking, discipline, *, coach=None):
+    coach = coach or booking.reservation.preferred_coach
+    rules = CoachPayRule.objects.filter(
         coach=coach,
         discipline=discipline,
         is_active=True,
-    ).filter(Q(course_type=booking.reservation.course_type) | Q(course_type__isnull=True)).order_by('-course_type_id').first()
+    )
+    specific = rules.filter(course_type_id=booking.reservation.course_type_id)
+    applicable = specific if booking.reservation.course_type_id and specific.exists() else rules.filter(course_type__isnull=True)
+    matches = list(applicable.order_by('pk')[:2])
+    if len(matches) > 1:
+        raise ValueError(f'{coach.name} 的同一工作類型及適用課程有多筆啟用薪資規則，請先停用不適用的規則再結算')
+    return matches[0] if matches else None
 
 
 @transaction.atomic
 def calculate_payroll_statement(*, coach, campus, period_start, period_end):
+    # Serialize creation/recalculation for this coach, including overlapping periods.
+    coach = Coach.objects.select_for_update().get(pk=coach.pk)
     overlap = PayrollStatement.objects.filter(
         coach=coach, campus=campus,
         period_start__lte=period_end, period_end__gte=period_start,
@@ -55,31 +69,54 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
         period_start=period_start,
         period_end=period_end,
     )
-    if statement.status == 'paid':
-        raise ValueError('已發放的薪資單不能重新計算')
+    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    if statement.status != 'draft':
+        raise ValueError('已送交確認、已確認或已發放的薪資單不能重新計算')
     bookings = list(Booking.objects.filter(
         reservation__preferred_coach=coach,
         reservation__group__campus=campus,
         reservation__status='completed',
         date__range=(period_start, period_end),
-    ).select_related('reservation__course_type__category', 'reservation__group').order_by('date', 'start_time'))
+    ).select_related('reservation__course_type__category', 'reservation__course_template', 'reservation__group').order_by('date', 'start_time'))
     for booking in bookings:
         discipline = _discipline_for(booking)
-        if not _rule_for(booking, discipline):
+        rule = _rule_for(booking, discipline)
+        if not rule:
             raise ValueError(f'{coach.name} 的 {discipline} 課程尚未設定薪資規則（{booking.date}），請先設定時薪再結算')
+        if not 0 <= rule.referral_percent <= 100 or rule.assistance_hour_factor < 0:
+            raise ValueError(f'{coach.name} 的薪資規則有不合法的介紹費百分比或裝備協助時數，請先編輯原規則再結算')
+    # Referral ownership is independent of the teacher assigned to a lesson.
+    # Resolve the referrer's rules before replacing any existing draft lines.
+    referral_bookings = Booking.objects.filter(
+        reservation__group__client=coach.client,
+        reservation__group__campus=campus,
+        reservation__group__referral_user_id=coach.user_id,
+        reservation__status='completed',
+        date__range=(period_start, period_end),
+    ).select_related('reservation__course_type__category').order_by('date', 'start_time', 'pk') if coach.user_id else []
+    referrals = []
+    referred_reservations = set()
+    for booking in referral_bookings:
+        if booking.reservation_id in referred_reservations:
+            continue
+        referred_reservations.add(booking.reservation_id)
+        rule = _rule_for(booking, _discipline_for(booking), coach=coach)
+        if not rule or not 0 <= rule.referral_percent <= 100:
+            raise ValueError(f'{coach.name} 的介紹費比例尚未正確設定（{booking.date}），請先設定介紹教練的薪資規則再結算')
+        if rule.referral_percent > 0:
+            referrals.append((booking, rule))
     statement.lines.exclude(line_type='adjustment').delete()
 
     totals = {'course': 0, 'specified': 0, 'referral': 0, 'assistance': 0, 'allowance': 0}
 
     used_allowance_rules = set()
     used_specified_reservations = set()
-    used_referral_reservations = set()
     used_assistance_reservations = set()
     used_shared_classes = set()
     for booking in bookings:
         discipline = _discipline_for(booking)
         rule = _rule_for(booking, discipline)
-        hours = _hours(booking)
+        hours = _payroll_hours(booking)
         course_total = _money(hours * rule.hourly_rate)
         reservation = booking.reservation
         shared_class_id = reservation.shared_course_class_id
@@ -88,7 +125,9 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
                 statement=statement, booking=booking, line_type='course',
                 description=f'{booking.date} {booking.course_name} {discipline}',
                 quantity=hours, unit_amount=rule.hourly_rate, total_amount=course_total,
-                metadata={'discipline': discipline, 'certification_level': rule.certification_level},
+                metadata={'discipline': discipline, 'certification_level': rule.certification_level,
+                          'scheduled_hours': str(_hours(booking)),
+                          'payroll_hours_source': 'template' if reservation.course_template and reservation.course_template.payroll_hours is not None else 'schedule'},
             )
             totals['course'] += course_total
             if shared_class_id:
@@ -101,16 +140,6 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
             )
             totals['specified'] += rule.specified_fee
             used_specified_reservations.add(reservation.id)
-
-        if reservation.id not in used_referral_reservations and reservation.group.referral_user_id == coach.user_id and rule.referral_percent > 0:
-            referral_base = max(reservation.course_fee - reservation.discount_amount, 0)
-            commission = _money(Decimal(referral_base) * rule.referral_percent / Decimal(100))
-            PayrollLine.objects.create(
-                statement=statement, booking=booking, line_type='referral', description='介紹訂單抽成',
-                quantity=rule.referral_percent, unit_amount=referral_base, total_amount=commission,
-            )
-            totals['referral'] += commission
-            used_referral_reservations.add(reservation.id)
 
         if reservation.id not in used_assistance_reservations and reservation.equipment_assistance_time_slot_id and rule.assistance_hour_factor > 0:
             assistance_pay = _money(rule.hourly_rate * rule.assistance_hour_factor)
@@ -128,6 +157,17 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
             )
             totals['allowance'] += rule.supervisor_allowance
             used_allowance_rules.add(rule.id)
+
+    for booking, rule in referrals:
+        reservation = booking.reservation
+        referral_base = max(reservation.course_fee - reservation.discount_amount, 0)
+        commission = _money(Decimal(referral_base) * rule.referral_percent / Decimal(100))
+        PayrollLine.objects.create(
+            statement=statement, booking=booking, line_type='referral', description='介紹訂單抽成',
+            quantity=rule.referral_percent, unit_amount=referral_base, total_amount=commission,
+            metadata={'referral_user_id': coach.user_id, 'discipline': _discipline_for(booking)},
+        )
+        totals['referral'] += commission
 
     statement.course_pay = totals['course']
     statement.specified_fees = totals['specified']
@@ -147,6 +187,20 @@ def add_payroll_adjustment(*, statement, description, amount):
     statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('僅草稿薪資單可新增手動項目')
+    description, amount = _adjustment_values(description, amount)
+    if statement.total_amount + amount < 0:
+        raise ValueError('調整後應付薪資不可小於 0')
+    line = PayrollLine.objects.create(
+        statement=statement, line_type='adjustment', description=description,
+        quantity=1, unit_amount=amount, total_amount=amount,
+    )
+    statement.adjustment += amount
+    statement.total_amount += amount
+    statement.save(update_fields=['adjustment', 'total_amount', 'updated_at'])
+    return line
+
+
+def _adjustment_values(description, amount):
     description = str(description).strip()
     if not description or len(description) > 200:
         raise ValueError('請填寫 200 字以內的項目說明')
@@ -159,13 +213,31 @@ def add_payroll_adjustment(*, statement, description, amount):
         raise ValueError('金額須為整數')
     if amount == 0 or abs(amount) > 10000000:
         raise ValueError('金額須介於 -1000 萬至 1000 萬，且不可為 0')
-    if statement.total_amount + amount < 0:
+    return description, amount
+
+
+@transaction.atomic
+def change_payroll_adjustment(*, statement, line_id, description='', amount=None, delete=False):
+    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    if statement.status != 'draft':
+        raise ValueError('僅草稿薪資單可修改或刪除手動項目')
+    line = statement.lines.filter(pk=line_id, line_type='adjustment').first()
+    if not line:
+        raise ValueError('此薪資單找不到可修改的手動項目')
+    if delete:
+        new_amount = 0
+    else:
+        description, new_amount = _adjustment_values(description, amount)
+    difference = new_amount - line.total_amount
+    if statement.total_amount + difference < 0:
         raise ValueError('調整後應付薪資不可小於 0')
-    line = PayrollLine.objects.create(
-        statement=statement, line_type='adjustment', description=description,
-        quantity=1, unit_amount=amount, total_amount=amount,
-    )
-    statement.adjustment += amount
-    statement.total_amount += amount
+    if delete:
+        line.delete()
+    else:
+        line.description = description
+        line.unit_amount = line.total_amount = new_amount
+        line.save(update_fields=['description', 'unit_amount', 'total_amount'])
+    statement.adjustment += difference
+    statement.total_amount += difference
     statement.save(update_fields=['adjustment', 'total_amount', 'updated_at'])
-    return line
+    return statement

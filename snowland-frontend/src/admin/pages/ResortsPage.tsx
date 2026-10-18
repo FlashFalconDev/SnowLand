@@ -3,14 +3,14 @@
  */
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Search, Plus, Edit, Trash2, X, MapPin, DollarSign, Clock, Loader2, AlertCircle } from 'lucide-react'
 import { useNotification } from '../context'
 import {
-  fetchResorts, createResort, updateResort, deleteResort,
+  fetchResorts, fetchResortCourseTemplateOptions, createResort, updateResort, deleteResort,
   type Resort, type ResortWriteData, type FeeType, type ResortFee, type EquipmentPricingTier, type EquipmentRentalItem, type EquipmentAssistanceTimeSlot,
-  type EquipmentOption, type LessonDuration, type SessionPeriod, type DayType,
+  type EquipmentOption, type LessonDuration, type SessionPeriod, type DayType, type ResortCourseTemplateOption,
 } from '../api/resorts'
-import { fetchCourseTemplates, type CourseTemplate } from '../api/courses'
 
 const PRIMARY = '#8b5cf6'
 const QUERY_KEY = ['admin', 'resorts']
@@ -174,7 +174,7 @@ function normalizeResortForEditing(resort: Resort): Resort {
 function sanitizeEquipmentTimeSlotTemplateIds(
   slots: EquipmentAssistanceTimeSlot[] | undefined,
   resortId: number,
-  courseTemplates: CourseTemplate[]
+  courseTemplates: ResortCourseTemplateOption[]
 ) {
   const validTemplateIds = new Set(
     courseTemplates
@@ -195,14 +195,19 @@ function prepareEquipmentTiers(tiers: EquipmentPricingTier[] | undefined): { tie
     .map((tier) => ({
       min_people: Number(tier.min_people) || 0,
       max_people: Number(tier.max_people) || 0,
-      price: Number(tier.price) || 0,
+      price: Number(tier.price),
       is_active: tier.is_active ?? true,
       description: tier.description || '',
     }))
-    .filter((tier) => tier.min_people > 0 || tier.max_people > 0 || tier.price > 0)
 
   const activeRanges: { start: number; end: number }[] = []
   for (const tier of prepared) {
+    if (Number.isNaN(tier.price)) {
+      return { tiers: [], error: '請填協助費；免費請填 0' }
+    }
+    if (![tier.min_people, tier.max_people, tier.price].every(Number.isInteger)) {
+      return { tiers: [], error: '裝備租借人數與價格請填整數' }
+    }
     if (tier.min_people < 1 || tier.max_people < tier.min_people) {
       return { tiers: [], error: '請確認裝備租借人數級距' }
     }
@@ -238,22 +243,26 @@ function prepareEquipmentRentalItems(items: EquipmentRentalItem[] | undefined): 
       return {
         code: (item.code || '').trim() || makeRentalItemCode(name, index),
         name,
-        daily_price: Number(item.daily_price) || 0,
+        daily_price: Number(item.daily_price),
         additional_day_price: Number(item.additional_day_price) || 0,
         is_active: item.is_active ?? true,
         description: item.description || '',
       }
     })
-    .filter((item) => item.code || item.name || item.daily_price > 0 || item.additional_day_price > 0 || item.description)
 
-  const activeCodes = new Set<string>()
+  const codes = new Set<string>()
   for (const item of prepared) {
     if (!item.name) return { items: [], error: '請填野雪裝備品項名稱' }
+    if (Number.isNaN(item.daily_price)) {
+      return { items: [], error: '請填第一天價格；免費請填 0' }
+    }
+    if (![item.daily_price, item.additional_day_price].every(Number.isInteger)) {
+      return { items: [], error: '野雪裝備價格請填整數' }
+    }
     if (item.daily_price < 0 || item.additional_day_price < 0) return { items: [], error: '野雪裝備價格不能小於 0' }
-    if (!item.is_active) continue
     const key = item.code.toLowerCase()
-    if (activeCodes.has(key)) return { items: [], error: '野雪裝備品項不能重複' }
-    activeCodes.add(key)
+    if (codes.has(key)) return { items: [], error: '野雪裝備品項不能重複（停用項目也不可重複）' }
+    codes.add(key)
   }
 
   return {
@@ -282,7 +291,6 @@ function prepareEquipmentTimeSlots(slots: EquipmentAssistanceTimeSlot[] | undefi
         description: slot.description || '',
       }
     })
-    .filter((slot) => slot.label || slot.start_time || slot.end_time || slot.description || slot.course_template_ids.length > 0)
 
   const prepared: EquipmentAssistanceTimeSlot[] = []
   for (const rule of preparedRules) {
@@ -311,7 +319,6 @@ function prepareEquipmentTimeSlots(slots: EquipmentAssistanceTimeSlot[] | undefi
   const labels = new Set<string>()
   for (const slot of prepared) {
     if (!slot.label) return { slots: [], error: '請填可選協助時間的名稱或時間' }
-    if (!slot.is_active) continue
     const key = [
       slot.equipment_option,
       slot.lesson_duration,
@@ -319,7 +326,7 @@ function prepareEquipmentTimeSlots(slots: EquipmentAssistanceTimeSlot[] | undefi
       slot.day_type,
       slot.label.toLowerCase(),
     ].join('|')
-    if (labels.has(key)) return { slots: [], error: '啟用中的可選協助時間不能重複' }
+    if (labels.has(key)) return { slots: [], error: '可選協助時間不能重複（停用項目也不可重複）' }
     labels.add(key)
   }
 
@@ -337,31 +344,40 @@ export default function ResortsPage() {
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState<Resort | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [createdResortName, setCreatedResortName] = useState<string | null>(null)
 
   const { data: resorts = [], isLoading, error } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchResorts,
   })
-  const { data: courseTemplates = [] } = useQuery({
-    queryKey: ['admin', 'course-templates'],
-    queryFn: fetchCourseTemplates,
+  const { data: courseTemplates = [], isLoading: templatesLoading, error: templatesError } = useQuery({
+    queryKey: ['admin', 'resort-course-template-options'],
+    queryFn: fetchResortCourseTemplateOptions,
   })
 
   const createMutation = useMutation({
     mutationFn: (data: ResortWriteData) => createResort(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEY }); notify.success('雪場建立成功'); setCreating(false) },
-    onError: (e: unknown) => notify.error(getApiErrorMessage(e, '建立失敗')),
+    onSuccess: (resort) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEY })
+      notify.success('雪場建立成功')
+      setCreatedResortName((resort.campus_assignments || []).length ? null : resort.display_name)
+      setSaveError(null)
+      setCreating(false)
+    },
+    onError: (e: unknown) => setSaveError(getApiErrorMessage(e, '建立失敗')),
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: ResortWriteData }) => updateResort(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEY }); notify.success('雪場已更新'); setEditingId(null) },
-    onError: (e: unknown) => notify.error(getApiErrorMessage(e, '更新失敗')),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEY }); notify.success('雪場已更新'); setSaveError(null); setEditingId(null) },
+    onError: (e: unknown) => setSaveError(getApiErrorMessage(e, '更新失敗')),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteResort(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEY }); notify.success('雪場已刪除') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEY }); notify.success('雪場已刪除'); if (deleting?.display_name === createdResortName) setCreatedResortName(null); setDeleting(null) },
     onError: (e: unknown) => notify.error(getApiErrorMessage(e, '刪除失敗')),
   })
 
@@ -372,19 +388,33 @@ export default function ResortsPage() {
     : editingId ? resorts.find((r) => r.id === editingId) || null : null
 
   const handleSave = (data: Resort) => {
+    setSaveError(null)
+    if (templatesLoading || templatesError) {
+      setSaveError('課程選項尚未載入，請稍後重試，避免遺失已設定的課程')
+      return
+    }
+    if (data.fees.some((fee) => !Number.isInteger(fee.price) || fee.price < 0)) {
+      setSaveError('雪場費用請填寫 0 以上的整數金額')
+      return
+    }
+    if ((data.trail_names || []).length > 100 || (data.trail_names || []).some(name => name.length > 120)) {
+      setSaveError('雪道名單最多100條，每條名稱最多120字，請縮短後再儲存')
+      return
+    }
     const tierResult = prepareEquipmentTiers(data.equipment_tiers)
-    if (tierResult.error) { notify.error(tierResult.error); return }
+    if (tierResult.error) { setSaveError(tierResult.error); return }
     const rentalItemResult = prepareEquipmentRentalItems(data.equipment_rental_items)
-    if (rentalItemResult.error) { notify.error(rentalItemResult.error); return }
+    if (rentalItemResult.error) { setSaveError(rentalItemResult.error); return }
     const slotResult = prepareEquipmentTimeSlots(
       sanitizeEquipmentTimeSlotTemplateIds(data.equipment_time_slots, data.id, courseTemplates)
     )
-    if (slotResult.error) { notify.error(slotResult.error); return }
+    if (slotResult.error) { setSaveError(slotResult.error); return }
 
     const writeData: ResortWriteData = {
       name: data.name,
       display_name: data.display_name,
       auto_scheduling_enabled: data.auto_scheduling_enabled,
+      trail_names: data.trail_names || [],
       fees_input: data.fees,
       equipment_tiers_input: tierResult.tiers,
       equipment_rental_items_input: rentalItemResult.items,
@@ -394,11 +424,6 @@ export default function ResortsPage() {
     else if (editingId) updateMutation.mutate({ id: editingId, data: writeData })
   }
 
-  const handleDelete = (id: number) => {
-    if (!confirm('確定要刪除此雪場？')) return
-    deleteMutation.mutate(id)
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -406,13 +431,21 @@ export default function ResortsPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">雪場管理</h1>
         </div>
         <button
-          onClick={() => setCreating(true)}
+          onClick={() => { setSaveError(null); setCreating(true) }}
           className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2"
           style={{ backgroundColor: PRIMARY }}
         >
           <Plus size={16} />新增雪場
         </button>
       </div>
+
+      {createdResortName && (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
+          <span>「{createdResortName}」已建立，但尚未指派校區，因此不會出現在單一校區清單，也不能供客人新訂課。</span>
+          <Link to="/snowland/console/campuses" className="font-semibold underline underline-offset-2">前往指派校區</Link>
+          <button type="button" onClick={() => setCreatedResortName(null)} className="ml-auto rounded px-2 py-1 hover:bg-blue-100 dark:hover:bg-blue-900/50" aria-label="關閉新雪場提示">關閉</button>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="relative">
@@ -458,6 +491,22 @@ export default function ResortsPage() {
                   </span>
                 </div>
 
+                <div className="mb-4 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40">
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-300">所屬校區</p>
+                  {resort.campus_assignments?.length ? (
+                    <>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {resort.campus_assignments.map((campus) => <span key={campus.id} className={`rounded-md px-2 py-1 text-xs ${campus.is_active ? 'bg-white text-gray-700 dark:bg-gray-700 dark:text-gray-200' : 'border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300'}`}>{campus.name}{!campus.is_active && ' · 已停用'}</span>)}
+                      </div>
+                      {!resort.campus_assignments.some((campus) => campus.is_active) && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">目前沒有使用中的校區，無法供新訂課。<Link to="/snowland/console/campuses" className="font-medium underline">前往設定</Link></p>}
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                      尚未指派校區，<Link to="/snowland/console/campuses" className="font-medium underline">前往指派</Link>
+                    </p>
+                  )}
+                </div>
+
                 <div className="space-y-2 mb-4">
                   {resort.fees.length === 0 && (resort.equipment_tiers || []).length === 0 && (resort.equipment_rental_items || []).length === 0 ? (
                     <p className="text-xs text-gray-400">尚未設定費用</p>
@@ -498,19 +547,30 @@ export default function ResortsPage() {
                 </div>
 
                 <div className="flex items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
-                  <button onClick={() => setEditingId(resort.id)} className="flex-1 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-center gap-1">
-                    <Edit size={14} />編輯
-                  </button>
-                  <button onClick={() => handleDelete(resort.id)} className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg">
-                    <Trash2 size={14} />
-                  </button>
+                  {resort.can_manage === false ? (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">此雪場目前僅供查看；如需修改，請聯絡總部管理員</p>
+                  ) : (
+                    <>
+                      <button onClick={() => { setSaveError(null); setEditingId(resort.id) }} className="flex min-h-11 flex-1 items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">
+                        <Edit size={14} />編輯
+                      </button>
+                      <button onClick={() => { deleteMutation.reset(); setDeleting(resort) }} aria-label={`刪除 ${resort.display_name}`} className="flex min-h-11 items-center justify-center gap-1 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20">
+                        <Trash2 size={14} />刪除
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
           ))}
           {filtered.length === 0 && !isLoading && (
             <div className="col-span-full text-center py-16 text-gray-500 dark:text-gray-400">
-              {resorts.length === 0 ? '尚未建立任何雪場' : '沒有符合條件的雪場'}
+              {resorts.length === 0 ? (
+                <>
+                  <p className="font-medium">目前管理範圍內沒有可使用的雪場</p>
+                  <p className="mt-2 text-sm">可按「新增雪場」建立，或請總部到「校區與營運規則」指派既有雪場。</p>
+                </>
+              ) : '沒有符合條件的雪場'}
             </div>
           )}
         </div>
@@ -521,35 +581,60 @@ export default function ResortsPage() {
           resort={editing} isCreating={creating}
           courseTemplates={courseTemplates}
           isSaving={createMutation.isPending || updateMutation.isPending}
-          onClose={() => { setEditingId(null); setCreating(false) }}
+          saveError={saveError}
+          templatesUnavailable={templatesLoading || Boolean(templatesError)}
+          onClose={() => { setSaveError(null); setEditingId(null); setCreating(false) }}
           onSave={handleSave}
         />
+      )}
+      {deleting && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="resort-delete-title" className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800">
+            <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' }}>
+              <h2 id="resort-delete-title" className="text-lg font-semibold">刪除雪場</h2>
+              <button type="button" onClick={() => setDeleting(null)} disabled={deleteMutation.isPending} aria-label="關閉" className="rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-50"><X size={18} /></button>
+            </div>
+            <div className="p-6 text-sm text-gray-700 dark:text-gray-300">
+              <p>確定刪除「<strong className="text-gray-900 dark:text-white">{deleting.display_name}</strong>」？</p>
+              <p className="mt-2 text-gray-500 dark:text-gray-400">已有訂單或課程紀錄的雪場無法刪除，避免影響歷史資料。</p>
+              {deleteMutation.isError && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">{getApiErrorMessage(deleteMutation.error, '刪除失敗，請稍後重試')}</p>}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+              <button type="button" onClick={() => setDeleting(null)} disabled={deleteMutation.isPending} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">取消</button>
+              <button type="button" onClick={() => deleteMutation.mutate(deleting.id)} disabled={deleteMutation.isPending} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{deleteMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認刪除</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
-function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClose, onSave }: {
+function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, saveError, templatesUnavailable, onClose, onSave }: {
   resort: Resort; isCreating: boolean; isSaving: boolean
-  courseTemplates: CourseTemplate[]
+  saveError: string | null
+  templatesUnavailable: boolean
+  courseTemplates: ResortCourseTemplateOption[]
   onClose: () => void; onSave: (data: Resort) => void
 }) {
   const [form, setForm] = useState<Resort>(() => normalizeResortForEditing(resort))
+  const [trailText, setTrailText] = useState((resort.trail_names || []).join('\n'))
   useEffect(() => {
     setForm(normalizeResortForEditing(resort))
+    setTrailText((resort.trail_names || []).join('\n'))
   }, [resort.id])
   const availableCourseTemplates = courseTemplates.filter((template) => (template.resorts || []).includes(form.id))
 
-  const updateFee = (type: FeeType, price: number) => {
+  const updateFee = (type: FeeType, price: number | null) => {
     setForm((f) => {
       const exists = f.fees.find((x) => x.fee_type === type)
-      if (price === 0 || !price) return { ...f, fees: f.fees.filter((x) => x.fee_type !== type) }
+      if (price === null) return { ...f, fees: f.fees.filter((x) => x.fee_type !== type) }
       if (exists) return { ...f, fees: f.fees.map((x) => (x.fee_type === type ? { ...x, price } : x)) }
       return { ...f, fees: [...f.fees, { fee_type: type, price, is_active: true } as ResortFee] }
     })
   }
 
-  const getFeePrice = (type: FeeType) => form.fees.find((x) => x.fee_type === type)?.price || 0
+  const getFeePrice = (type: FeeType) => form.fees.find((x) => x.fee_type === type)?.price
 
   const addBackcountryRentalPresets = () => {
     const presets: EquipmentRentalItem[] = [
@@ -596,7 +681,7 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
         {
           code: '',
           name: '',
-          daily_price: 0,
+          daily_price: Number.NaN,
           additional_day_price: 0,
           is_active: true,
           display_order: cur.length,
@@ -630,7 +715,7 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
         {
           min_people: nextMin,
           max_people: nextMin,
-          price: 0,
+          price: Number.NaN,
           is_active: true,
           display_order: cur.length,
           description: '',
@@ -728,6 +813,7 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {isCreating && <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">建立後，請到「校區與營運規則」將雪場指派給校區；未指派前不會供客人新訂課。</p>}
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">基本資料</h3>
             <div className="grid grid-cols-2 gap-4">
@@ -750,21 +836,28 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
           </section>
 
           <section>
+            <label className="block text-sm font-semibold text-gray-900 dark:text-white" htmlFor="resort-trail-catalog">課程評量可勾選雪道</label>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300" id="resort-trail-help">每行一條雪道，教練填寫這個雪場的評量時可直接勾選。可隨時修改，不會改動已儲存的學習紀錄；不影響官網雪道介紹。</p>
+            <textarea id="resort-trail-catalog" aria-describedby="resort-trail-help" rows={5} value={trailText} onChange={event => setTrailText(event.target.value)} placeholder={'例如：\nFamily Run\nBeginner Course'} className="mt-3 min-h-32 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+          </section>
+
+          <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
               <DollarSign size={16} style={{ color: PRIMARY }} />費用設定（單位：NT$）
             </h3>
+            <p className="mb-3 text-sm leading-relaxed text-gray-600 dark:text-gray-300">留空使用預設：教練費 NT$1,000、語言加成 NT$0；填 0 代表不收費。</p>
             {FEE_TYPE_GROUPS.map((group) => (
               <div key={group.group} className="mb-5">
                 <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{group.group}</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {group.types.map((t) => (
                     <div key={t.value} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                      <label className="text-sm text-gray-700 dark:text-gray-300 flex-1">{t.label}</label>
+                      <label htmlFor={`resort-fee-${t.value}`} className="text-sm text-gray-700 dark:text-gray-300 flex-1">{t.label}</label>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-gray-500">NT$</span>
-                        <input type="number" value={getFeePrice(t.value) || ''} onChange={(e) => updateFee(t.value, Number(e.target.value))}
-                          placeholder="0"
-                          className="w-24 px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-right dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30" />
+                        <input id={`resort-fee-${t.value}`} type="number" min="0" step="1" value={getFeePrice(t.value) ?? ''} onChange={(e) => updateFee(t.value, e.target.value === '' ? null : Number(e.target.value))}
+                          placeholder={t.value.startsWith('coach_') ? '預設 1000' : '預設 0'}
+                          className="w-28 px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-right dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30" />
                       </div>
                     </div>
                   ))}
@@ -808,8 +901,9 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
                 {(form.equipment_rental_items || []).map((item, index) => (
                   <div key={index} className="grid grid-cols-1 sm:grid-cols-[1.6fr_1fr_1fr_auto_auto] gap-2 items-end p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">品項名稱</label>
+                      <label htmlFor={`resort-rental-name-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">品項名稱</label>
                       <input
+                        id={`resort-rental-name-${index}`}
                         type="text"
                         value={item.name || ''}
                         onChange={(e) => updateEquipmentRentalItem(index, { name: e.target.value })}
@@ -818,26 +912,30 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">第一天價格</label>
+                      <label htmlFor={`resort-rental-daily-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">第一天價格</label>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-gray-500">NT$</span>
                         <input
+                          id={`resort-rental-daily-${index}`}
                           type="number"
                           min={0}
-                          value={item.daily_price || ''}
-                          onChange={(e) => updateEquipmentRentalItem(index, { daily_price: Number(e.target.value) || 0 })}
+                          step={1}
+                          value={Number.isNaN(item.daily_price) ? '' : item.daily_price}
+                          onChange={(e) => updateEquipmentRentalItem(index, { daily_price: e.target.value === '' ? Number.NaN : Number(e.target.value) })}
                           className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-right dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">第二天起/天</label>
+                      <label htmlFor={`resort-rental-extra-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">第二天起/天</label>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-gray-500">NT$</span>
                         <input
+                          id={`resort-rental-extra-${index}`}
                           type="number"
                           min={0}
-                          value={item.additional_day_price || ''}
+                          step={1}
+                          value={item.additional_day_price ?? ''}
                           onChange={(e) => updateEquipmentRentalItem(index, { additional_day_price: Number(e.target.value) || 0 })}
                           className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-right dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                         />
@@ -861,8 +959,9 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
                       <Trash2 size={16} />
                     </button>
                     <div className="sm:col-span-5">
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">備註（可不填）</label>
+                      <label htmlFor={`resort-rental-description-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">備註（可不填）</label>
                       <input
+                        id={`resort-rental-description-${index}`}
                         type="text"
                         value={item.description || ''}
                         onChange={(e) => updateEquipmentRentalItem(index, { description: e.target.value })}
@@ -902,34 +1001,40 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
                 {(form.equipment_tiers || []).map((tier, index) => (
                   <div key={index} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.3fr_auto_auto] gap-2 items-end p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">最少人數</label>
+                      <label htmlFor={`resort-tier-min-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">最少人數</label>
                       <input
+                        id={`resort-tier-min-${index}`}
                         type="number"
                         min={1}
-                        value={tier.min_people || ''}
+                        step={1}
+                        value={tier.min_people ?? ''}
                         onChange={(e) => updateEquipmentTier(index, { min_people: Number(e.target.value) || 0 })}
                         className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-right dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">最多人數</label>
+                      <label htmlFor={`resort-tier-max-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">最多人數</label>
                       <input
+                        id={`resort-tier-max-${index}`}
                         type="number"
                         min={1}
-                        value={tier.max_people || ''}
+                        step={1}
+                        value={tier.max_people ?? ''}
                         onChange={(e) => updateEquipmentTier(index, { max_people: Number(e.target.value) || 0 })}
                         className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-right dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">協助費</label>
+                      <label htmlFor={`resort-tier-price-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">協助費</label>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-gray-500">NT$</span>
                         <input
+                          id={`resort-tier-price-${index}`}
                           type="number"
                           min={0}
-                          value={tier.price || ''}
-                          onChange={(e) => updateEquipmentTier(index, { price: Number(e.target.value) || 0 })}
+                          step={1}
+                          value={Number.isNaN(tier.price) ? '' : tier.price}
+                          onChange={(e) => updateEquipmentTier(index, { price: e.target.value === '' ? Number.NaN : Number(e.target.value) })}
                           className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-right dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                         />
                       </div>
@@ -952,8 +1057,9 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
                       <Trash2 size={16} />
                     </button>
                     <div className="sm:col-span-5">
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">備註（可不填）</label>
+                      <label htmlFor={`resort-tier-description-${index}`} className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">備註（可不填）</label>
                       <input
+                        id={`resort-tier-description-${index}`}
                         type="text"
                         value={tier.description || ''}
                         onChange={(e) => updateEquipmentTier(index, { description: e.target.value })}
@@ -1150,7 +1256,9 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
                           <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
                             只給特定課程使用（不勾代表全部課程都可用）
                           </label>
-                          {availableCourseTemplates.length === 0 ? (
+                          {templatesUnavailable ? (
+                            <p className="text-xs text-red-600 dark:text-red-400">課程選項載入失敗，請稍後重試</p>
+                          ) : availableCourseTemplates.length === 0 ? (
                             <p className="text-xs text-gray-500 dark:text-gray-400">此雪場目前沒有可綁定的課程項目</p>
                           ) : (
                             <div className="max-h-28 overflow-y-auto rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 p-2">
@@ -1177,12 +1285,15 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, onClo
           </section>
         </div>
 
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-          <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">取消</button>
-          <button onClick={() => onSave(form)} disabled={isSaving} className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2 disabled:opacity-50" style={{ backgroundColor: PRIMARY }}>
-            {isSaving && <Loader2 size={14} className="animate-spin" />}
-            {isCreating ? '建立雪場' : '儲存變更'}
-          </button>
+        <div className="border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-gray-900">
+          {saveError && <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">{saveError}</p>}
+          <div className="flex items-center justify-end gap-3">
+            <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">取消</button>
+            <button onClick={() => onSave({ ...form, trail_names: Array.from(new Set(trailText.split(/\r?\n/).map(value => value.trim()).filter(Boolean))) })} disabled={isSaving || templatesUnavailable} className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2 disabled:opacity-50" style={{ backgroundColor: PRIMARY }}>
+              {isSaving && <Loader2 size={14} className="animate-spin" />}
+              {isCreating ? '建立雪場' : '儲存變更'}
+            </button>
+          </div>
         </div>
       </div>
     </>

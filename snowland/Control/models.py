@@ -23,6 +23,7 @@ class UserProfile(models.Model):
     admin_permissions = models.JSONField(default=None, blank=True, null=True)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, blank=True, default='')
     campuses = models.ManyToManyField('Resorts.Campus', blank=True, related_name='staff_profiles')
+    manager_client = models.ForeignKey('Client.Client', blank=True, null=True, on_delete=models.PROTECT)
 
     def __str__(self):
         return self.user.username

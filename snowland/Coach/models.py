@@ -5,6 +5,7 @@ from multiselectfield import MultiSelectField
 from Resorts.models import Resorts
 from Coursekit.models import CourseType
 from django.db.utils import ProgrammingError
+from booking.media_files import PrivateCourseMediaStorage
 
 
 
@@ -87,6 +88,10 @@ class Coach(models.Model):
         verbose_name='接課狀態'
     )
     auto_assignment_enabled = models.BooleanField(default=True, verbose_name='參與自動排課')
+    customer_selectable = models.BooleanField(
+        default=True, verbose_name='顯示在客人指定教練名單',
+        help_text='關閉不影響自動排課與後台人工指派。',
+    )
 
     SCHEDULE_VISIBILITY_CHOICES = [
         ('ten_days', '過往及未來 10 天'),
@@ -284,8 +289,16 @@ class CoachPayRule(models.Model):
         unique_together = ('coach', 'course_type', 'discipline', 'certification_level')
 
 
+class PayrollDocumentSettings(models.Model):
+    client = models.OneToOneField('Client.Client', on_delete=models.CASCADE, related_name='payroll_document_settings')
+    title = models.CharField(max_length=100, default='勞務報酬單')
+    body = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class PayrollStatement(models.Model):
-    STATUS_CHOICES = [('draft', '草稿'), ('confirmed', '已確認'), ('paid', '已發放')]
+    STATUS_CHOICES = [('draft', '草稿'), ('review', '待教練確認'), ('confirmed', '已確認'), ('paid', '已發放')]
     coach = models.ForeignKey(Coach, on_delete=models.PROTECT, related_name='payroll_statements')
     campus = models.ForeignKey('Resorts.Campus', on_delete=models.PROTECT, related_name='payroll_statements')
     period_start = models.DateField()
@@ -299,6 +312,17 @@ class PayrollStatement(models.Model):
     total_amount = models.IntegerField(default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     notes = models.TextField(blank=True, default='')
+    published_at = models.DateTimeField(null=True, blank=True)
+    confirmation_deadline = models.DateField(null=True, blank=True)
+    review_token = models.UUIDField(null=True, blank=True, editable=False)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmation_method = models.CharField(max_length=20, blank=True, default='')
+    confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='confirmed_coach_payrolls')
+    document_snapshot = models.JSONField(default=dict, blank=True)
+    signature_file = models.FileField(storage=PrivateCourseMediaStorage(), upload_to='payroll-signatures', max_length=240, blank=True)
+    signature_sha256 = models.CharField(max_length=64, blank=True, default='')
+    signer_name = models.CharField(max_length=100, blank=True, default='')
+    signed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -326,3 +350,43 @@ class StaffIncentiveRule(models.Model):
 
     class Meta:
         unique_together = ('user', 'campus')
+
+
+class StaffIncentiveStatement(models.Model):
+    STATUS_CHOICES = [('draft', '草稿'), ('confirmed', '已確認'), ('paid', '已記錄發放')]
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='staff_incentive_statements')
+    campus = models.ForeignKey('Resorts.Campus', on_delete=models.PROTECT, related_name='staff_incentive_statements')
+    month = models.DateField()
+    user_name = models.CharField(max_length=301)
+    campus_name = models.CharField(max_length=100)
+    percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    revenue = models.PositiveBigIntegerField(default=0)
+    earned_amount = models.PositiveBigIntegerField(default=0)
+    refund_deduction = models.PositiveBigIntegerField(default=0)
+    adjustment = models.IntegerField(default=0)
+    adjustment_note = models.CharField(max_length=300, blank=True, default='')
+    total_amount = models.BigIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='confirmed_staff_incentives')
+    paid_at = models.DateTimeField(null=True, blank=True)
+    paid_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='recorded_staff_incentive_payments')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'campus', 'month')
+
+
+class StaffIncentiveLine(models.Model):
+    statement = models.ForeignKey(StaffIncentiveStatement, on_delete=models.CASCADE, related_name='lines')
+    group = models.ForeignKey('booking.ReservationGroup', on_delete=models.PROTECT, related_name='staff_incentive_lines')
+    cancellation = models.ForeignKey('booking.CancellationRequest', on_delete=models.PROTECT, null=True, blank=True, related_name='staff_incentive_lines')
+    source_line = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True, related_name='refund_lines')
+    entry_key = models.CharField(max_length=150, unique=True)
+    line_type = models.CharField(max_length=10, choices=[('earning', '完成訂單獎金'), ('refund', '已發獎金退款扣回')])
+    order_number = models.CharField(max_length=40)
+    event_date = models.DateField()
+    base_amount = models.PositiveBigIntegerField()
+    percent = models.DecimalField(max_digits=5, decimal_places=2)
+    amount = models.BigIntegerField()

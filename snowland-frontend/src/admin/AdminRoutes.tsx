@@ -22,6 +22,7 @@ import MyCoursesPage from './pages/my/MyCoursesPage'
 import MyCalendarPage from './pages/my/MyCalendarPage'
 import MyLeavesPage from './pages/my/MyLeavesPage'
 import ApplyLeavePage from './pages/my/ApplyLeavePage'
+import MyPayrollPage from './pages/my/MyPayrollPage'
 import OperationsHubPage from './pages/OperationsHubPage'
 
 export default function AdminRoutes() {
@@ -107,9 +108,9 @@ export default function AdminRoutes() {
 
           {/* 評論與媒體 */}
           <Route element={<RoleGuard permission="reviews" />}>
-            <Route path="reviews/google" element={<SiteContentPage initialGroup="homepage" />} />
-            <Route path="reviews/manual" element={<SiteContentPage initialGroup="homepage" />} />
-            <Route path="media" element={<SiteContentPage initialGroup="photography" />} />
+            <Route path="reviews/google" element={<SiteContentPage initialGroup="homepage" contentTypes={['review']} />} />
+            <Route path="reviews/manual" element={<SiteContentPage initialGroup="homepage" contentTypes={['review']} />} />
+            <Route path="media" element={<SiteContentPage initialGroup="photography" contentTypes={['media']} />} />
           </Route>
         </Route>
 
@@ -118,6 +119,8 @@ export default function AdminRoutes() {
           <Route path="my/pending" element={<PendingConfirmationsPage />} />
           <Route path="my/courses" element={<MyCoursesPage />} />
           <Route path="my/calendar" element={<MyCalendarPage />} />
+          <Route path="my/payroll" element={<MyPayrollPage />} />
+          <Route path="my/evaluations" element={<OperationsHubPage initialTab="evaluations" fixed coachView />} />
           <Route path="my/leaves" element={<MyLeavesPage />} />
           <Route path="my/leaves/apply" element={<ApplyLeavePage />} />
         </Route>

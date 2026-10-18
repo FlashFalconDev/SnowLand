@@ -2717,205 +2717,31 @@ def pending_confirmations(request, Client_Info=None):
         }
     })
 
-@login_required_control
 def send_email_form(request, Client_Info=None):
-    """郵件發送表單 - 參考coach_form的處理模式"""
-    
-    # 處理POST請求（發送郵件）
+    """舊表單沿用現行寄信權限、發送紀錄及會員同步。"""
+    from API.legacy_order_email import order_email_response
     if request.method == 'POST':
-        try:
-            # 獲取表單數據
-            group_id = request.POST.get('group_id')
-            recipient_email = request.POST.get('recipient_email')
-            subject = request.POST.get('subject')
-            message = request.POST.get('message')
-            
-            print(f"郵件表單數據: group_id={group_id}, email={recipient_email}, subject={subject[:30]}...")
-            
-            # 驗證必填欄位
-            if not all([group_id, recipient_email, subject, message]):
-                return JsonResponse({'code': 400, 'msg': '請填寫所有必填欄位'})
-            
-            # 驗證email格式
-            import re
-            if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', recipient_email):
-                return JsonResponse({'code': 400, 'msg': 'Email格式不正確'})
-            
-            # 驗證預約群組
-            try:
-                group = ReservationGroup.objects.get(pk=group_id)
-            except ReservationGroup.DoesNotExist:
-                return JsonResponse({'code': 404, 'msg': '預約群組不存在'})
-            
-            # 發送郵件
-            try:
-                from booking.scheduler import send_gmail
-                
-                # 組成完整郵件內容
-                full_message = f"""{message}
-
-──────────────────────────
-雪域創遊 SNOWLAND
-官網：{RUN_HOST}
-客服信箱：service@snowland.com.tw
-
-此郵件為系統自動發送，請勿直接回覆。
-如有問題請透過官方客服聯繫我們。
-"""
-                
-                result = send_gmail(subject, full_message, recipient_email)
-                
-                # 記錄發送
-                current_user = Client_Info.get('user')
-                print(f"郵件發送: {current_user.email} -> {recipient_email} 主旨:{subject}")
-                
-                return JsonResponse({'code': 100, 'msg': '郵件發送成功'})
-                
-            except Exception as e:
-                print(f'發送郵件錯誤: {e}')
-                return JsonResponse({'code': 500, 'msg': f'發送失敗: {str(e)}'})
-                
-        except Exception as e:
-            print(f'處理POST請求錯誤: {e}')
-            return JsonResponse({'code': 500, 'msg': f'系統錯誤: {str(e)}'})
+        return order_email_response(request, request.POST.get('group_id'))
+    if request.method != 'GET':
+        return JsonResponse({'code': 405, 'msg': '不支援此請求方式'}, status=405)
     
     # 處理GET請求（顯示表單）
     group_id = request.GET.get('id')
-    if not group_id:
-        return JsonResponse({'code': 400, 'msg': '缺少預約群組ID'})
+    access = order_email_response(request, group_id)
+    if access.status_code != 200:
+        return access
 
-    try:
-        # 導入付款主機設定
-        from snowland.settings import PAYMENT_HOST
-        
-        # 獲取預約群組資料
-        group = ReservationGroup.objects.select_related('user').prefetch_related(
-            'reservations', 'payments'
-        ).get(pk=group_id)
-        
-        # 生成付款連結
-        payment_url = PAYMENT_HOST + '?reservation_group=' + str(group.pk)
-        
-        # 準備客戶資訊
-        user = group.user
-        if user:
-            customer_info = {
-                'name': user.get_full_name() or user.username,
-                'email': user.email
-            }
-        elif group.name:
-            customer_info = {
-                'name': group.name,
-                'email': getattr(group, 'email', '')
-            }
-        else:
-            customer_info = {
-                'name': '未知用戶',
-                'email': ''
-            }
-        
-        # 付款資訊
-        latest_payment = group.payments.first()
-        payment_info = {
-            'status': latest_payment.status if latest_payment else 'unpaid',
-            'status_display': latest_payment.get_status_display() if latest_payment else '未付款'
-        }
-        
-        # 總費用
-        total_fee = sum(r.total_fee for r in group.reservations.all())
-        
-        context = {
-            'group': group,
-            'customer_info': customer_info,
-            'payment_info': payment_info,
-            'total_fee': total_fee,
-            'payment_url': payment_url,  # 添加付款連結
-            'RUN_HOST': RUN_HOST
-        }
-        
-        return render(request, 'Control/tmp/course/send_email_form.html', context)
-        
-    except ReservationGroup.DoesNotExist:
-        return JsonResponse({'code': 404, 'msg': '預約群組不存在'})
-    except Exception as e:
-        print(f'顯示表單錯誤: {e}')
-        return JsonResponse({'code': 500, 'msg': f'系統錯誤: {str(e)}'})
+    # 舊表單模板已不存在；通過同一權限檢查後導向目前的訂單與寄信視窗。
+    from urllib.parse import quote, urlencode
+    group = ReservationGroup.objects.select_related('client').get(pk=group_id)
+    return redirect(f'/{quote(group.client.internal_code, safe="")}/console/orders?{urlencode({"search": group.pk})}')
 
-@login_required_control
 def send_email(request, Client_Info=None):
-    """處理郵件發送"""
+    """保留舊呼叫格式，但使用現行身分與訂單權限。"""
     if request.method != 'POST':
-        return JsonResponse({'success': False, 'message': '請求方法錯誤'})
-    
-    try:
-        group_id = request.POST.get('group_id')
-        recipient_email = request.POST.get('recipient_email')
-        subject = request.POST.get('subject')
-        message = request.POST.get('message')
-        
-        # 驗證必填欄位
-        if not all([group_id, recipient_email, subject, message]):
-            return JsonResponse({'success': False, 'message': '請填寫所有必填欄位'})
-        
-        # 驗證 email 格式
-        import re
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, recipient_email):
-            return JsonResponse({'success': False, 'message': 'Email 格式不正確'})
-        
-        # 驗證預約群組存在
-        try:
-            group = ReservationGroup.objects.get(pk=group_id)
-        except ReservationGroup.DoesNotExist:
-            return JsonResponse({'success': False, 'message': '預約群組不存在'})
-        
-        # 發送郵件
-        try:
-            from booking.scheduler import send_gmail
-            
-            # 添加郵件簽名
-            full_message = f"""{message}
-
-──────────────────────────
-雪域創遊 SNOWLAND
-官網：{RUN_HOST}
-客服信箱：service@snowland.com.tw
-電話：(02) 1234-5678
-
-此郵件為系統自動發送，請勿直接回覆此信箱。
-如有任何問題，歡迎透過官方客服管道聯繫我們。
-"""
-            
-            result = send_gmail(subject, full_message, recipient_email)
-            
-            if result == 'ok':
-                # 記錄發送日誌（可選）
-                current_user = Client_Info.get('user')
-                print(f"郵件發送成功：{current_user.email} 向 {recipient_email} 發送了 '{subject}'")
-                
-                return JsonResponse({
-                    'success': True, 
-                    'message': '郵件發送成功'
-                })
-            else:
-                return JsonResponse({
-                    'success': False, 
-                    'message': f'郵件發送失敗：{result}'
-                })
-                
-        except Exception as e:
-            print(f'發送郵件時發生錯誤: {e}')
-            return JsonResponse({
-                'success': False, 
-                'message': f'郵件發送失敗：{str(e)}'
-            })
-        
-    except Exception as e:
-        print(f'send_email error: {e}')
-        return JsonResponse({
-            'success': False, 
-            'message': f'系統錯誤：{str(e)}'
-        })
+        return JsonResponse({'success': False, 'message': '請求方法錯誤'}, status=405)
+    from API.legacy_order_email import order_email_response
+    return order_email_response(request, request.POST.get('group_id'))
 
 
 # ============ 課程大類 CRUD API ============

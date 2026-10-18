@@ -7,10 +7,9 @@ import tomamuResort from '../../assets/site/Homepage-Tomamu ski resort.jpg';
 import offPisteCourse from '../../assets/site/Homepage-course-Off piste.jpg';
 import hokkaidoCourse from '../../assets/site/Homepage-course-Hokkaido.jpg';
 import SpecialOffers from '../../components/site/SpecialOffers';
-import staticCoaches from '../../data/site/coaches';
+import CoachLoadNotice from '../../components/site/CoachLoadNotice';
 import { useWebsiteCoachCards } from '../../api/websiteCoaches';
 import { fetchSiteContent } from '../../api/booking';
-import legacyPages from '../../data/site/legacyPages.json';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 
@@ -28,6 +27,8 @@ function HomePage() {
   const [isReviewsPaused, setIsReviewsPaused] = useState(false);
   const [expandedReviewIndex, setExpandedReviewIndex] = useState(null);
   const [cmsReviews, setCmsReviews] = useState([]);
+  const [reviewsStatus, setReviewsStatus] = useState('loading');
+  const [reviewRetry, setReviewRetry] = useState(0);
   const reviewTextRefs = useRef([]);
   const [clampedReviewIndices, setClampedReviewIndices] = useState([]);
   const aboutParagraphs = [
@@ -36,20 +37,7 @@ function HomePage() {
     "無論您是初次接觸滑雪的初心者，還是有一定滑雪經驗滑雪玩家，我們將根據您的需求和程度，量身定制最適合的教學計畫，以耐心與專業經驗陪你一起成長。我們注重教學的互動性和實踐性，通過系統化的教學流程，幫助您快速掌握滑雪技巧，並在過程中感受到樂趣和成就感。",
     "滑雪是一項能夠帶來無限樂趣和挑戰的運動，同時也是一種能夠拓展人生視野、增進人與大自然連結的方式。透過SnowLand滑雪學校的教學，啟發您對滑雪的熱情，我們希望陪你穩健的從零出發，也陪你愛上這片雪白的世界。",
   ];
-  const coachImageByName = useMemo(() => {
-    const imageByName = new Map();
-    const coachBlocks = legacyPages["coach-team"]?.blocks ?? [];
-    for (let index = 0; index < coachBlocks.length; index += 1) {
-      const block = coachBlocks[index];
-      const nextBlock = coachBlocks[index + 1];
-      if (block?.type === "image" && nextBlock?.type === "heading") {
-        imageByName.set(nextBlock.text, block.src);
-        index += 1;
-      }
-    }
-    return imageByName;
-  }, []);
-  const coachCards = useWebsiteCoachCards(staticCoaches, coachImageByName);
+  const { coaches: coachCards, isLoading: coachesLoading, error: coachesError, retry: retryCoaches } = useWebsiteCoachCards();
   const coachScrollerRef = useRef(null);
   const coachItemRefs = useRef([]);
   const [activeCoachIndex, setActiveCoachIndex] = useState(0);
@@ -82,62 +70,20 @@ function HomePage() {
   ];
   React.useEffect(() => {
     let mounted = true;
+    setReviewsStatus('loading');
     fetchSiteContent({ content_type: 'review', location_key: 'homepage.reviews', limit: 12 })
       .then((items) => {
-        if (mounted) setCmsReviews(Array.isArray(items) ? items : []);
+        if (mounted) { setCmsReviews(Array.isArray(items) ? items : []); setReviewsStatus('ready'); }
       })
       .catch(() => {
-        if (mounted) setCmsReviews([]);
+        if (mounted) { setCmsReviews([]); setReviewsStatus('error'); }
       });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [reviewRetry]);
 
-  const staticReviews = [
-    {
-      name: 'Chingyee Lee',
-      initials: 'CL',
-      media: 'placeholder',
-      textPrimary:
-        '5歲初次接觸滑雪的小男生給cash教練帶，因為性格內向又黏人所以媽媽本身很擔心他會很抵觸。',
-      textSecondary:
-        '但cash教練帶小朋友很耐心、又很會教，結果滑了一天超愛滑雪，從山上滑到山下，完全不找爸媽，又指定下一定要讓cash叔叔帶滑！只有唯一的缺點是現在鋼琴課也不想上了，說只想學滑雪！期待明年再見面！'
-    },
-    {
-      name: 'Eunice Liu',
-      initials: 'EL',
-      media: 'placeholder',
-      textPrimary:
-        '超感謝教練耐心指導即時糾正我滑雪時的盲點！不僅幽默還很會聊天🤣期待明年再來找教練滑雪⛷️',
-      textSecondary: ''
-    },
-    {
-      name: 'Wat Hans',
-      initials: 'WH',
-      media: 'placeholder',
-      textPrimary:
-        '初次滑雪找到七針教練\n參加了一天雙板課程\n講解十分容易明白\n感謝教練 令我們日本旅遊留下歡笑回憶',
-      textSecondary: ''
-    },
-    {
-      name: 'BESS LIN',
-      initials: 'BL',
-      media: 'placeholder',
-      textPrimary:
-        '對於一年只滑一次，每次只能滑個四五天的我們來說，只恨自己沒有早點找中文教練教學，非常謝謝Cash及七針教練細心的教學，不躁進讓我們挑戰更進階，而是一步一步紮實反覆確認我們的基本功並點出我們的問題！真的非常感謝~非常棒😍',
-      textSecondary: ''
-    },
-    {
-      name: 'OS',
-      initials: 'OS',
-      textPrimary:
-        '謝謝Lily教練的教學，原本一直卡在落葉飄，這次終於學會S Turn了!!真的很神奇',
-      textSecondary: ''
-    }
-  ];
   const reviews = useMemo(() => {
-    if (!cmsReviews.length) return staticReviews;
     return cmsReviews.map((item) => ({
       name: item.title || 'SnowLand 學員',
       initials: item.metadata?.initials || (item.title || 'SL').slice(0, 2).toUpperCase(),
@@ -468,17 +414,19 @@ function HomePage() {
               學員好評
             </h2>
             <p className="mt-4 text-sm text-[#6b7280]">
-              5.0 ⭐⭐⭐⭐⭐ 176{" "}
               <a
                 href="https://share.google/jDAaMDoQQX6g8LUs9"
                 className="relative group inline-flex items-center text-[#6b7280] hover:text-[#2b5f8f] transition-colors"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Google Reviews
+                查看 Google 商家評價
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#2b5f8f] transition-all duration-300 group-hover:w-full"></span>
               </a>
             </p>
+            {reviewsStatus === 'loading' && <p role="status" className="mt-6 text-sm text-[#475569]">正在載入學員評價…</p>}
+            {reviewsStatus === 'error' && <p role="alert" className="mt-6 text-sm text-red-700">學員評價載入失敗。<button type="button" className="ml-2 min-h-11 px-3 underline" onClick={() => setReviewRetry(value => value + 1)}>重試學員評價</button></p>}
+            {reviewsStatus === 'ready' && !reviews.length && <p className="mt-6 text-sm text-[#475569]">目前尚無公開評價。</p>}
           </div>
         </div>
 
@@ -570,6 +518,7 @@ function HomePage() {
             </h2>
           </div>
 
+          <CoachLoadNotice isLoading={coachesLoading} error={coachesError} count={coachCards.length} retry={retryCoaches} />
           <div className="md:hidden">
             <div
               ref={coachScrollerRef}

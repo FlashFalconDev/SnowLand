@@ -144,7 +144,10 @@ function ContactPage() {
                 </div>
               </div>
             </section>
-            <form className="space-y-8">
+            <fieldset disabled aria-describedby="contact-form-unavailable" className="min-w-0 space-y-8">
+              <p id="contact-form-unavailable" role="status" className="rounded-sm border border-[#cbd5e1] bg-[#f1f5f9] px-4 py-3 text-sm leading-6 text-[#475569]">
+                聯絡表單尚未啟用，這裡不會送出或儲存訊息。請使用本頁列出的 Email 或官方 LINE 聯絡我們。
+              </p>
               <div className="grid gap-6 md:grid-cols-2">
                 <label className="block text-xs font-semibold tracking-[0.2em] uppercase text-[#475569]">
                   姓名*
@@ -190,13 +193,13 @@ function ContactPage() {
               <div className="flex justify-center">
                 <button
                   type="button"
-                  className="inline-flex w-full items-center justify-center rounded-full border border-[#1f2937]/30 px-6 py-3 text-sm font-semibold tracking-wide font-display text-[#1f2937] transition-colors hover:bg-[#D5C6AF]"
-                  onClick={() => window.alert("已送出")}
+                  disabled
+                  className="inline-flex w-full cursor-not-allowed items-center justify-center rounded-full border border-[#1f2937]/30 bg-[#f1f5f9] px-6 py-3 text-sm font-semibold tracking-wide font-display text-[#64748b]"
                 >
-                  送出
+                  表單尚未啟用
                 </button>
               </div>
-            </form>
+            </fieldset>
           </div>
         </div>
       </main>

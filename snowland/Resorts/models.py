@@ -25,6 +25,7 @@ class Resorts(models.Model):
         verbose_name='啟用自動排課',
         help_text='若勾選，此雪場的預約將會進入自動排課流程。'
     )
+    trail_names = models.JSONField(default=list, blank=True, verbose_name='課程評量可勾選雪道')
 
     def __str__(self):
         return self.display_name

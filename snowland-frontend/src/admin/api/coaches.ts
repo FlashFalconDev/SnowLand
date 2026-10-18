@@ -41,6 +41,7 @@ export interface Coach {
   id: number
   name: string
   campus_ids: number[]
+  campus_assignments: { id: number; name: string; is_active: boolean }[]
   can_manage: boolean
   user_id?: number | null
   user_email?: string | null
@@ -49,6 +50,7 @@ export interface Coach {
   languages: Language[]
   availability_status: AvailabilityStatus
   auto_assignment_enabled: boolean
+  customer_selectable: boolean
   schedule_visibility: ScheduleVisibility
   assignment_score: number
   img: string
@@ -69,6 +71,7 @@ export interface CoachWriteData {
   languages: Language[]
   availability_status: AvailabilityStatus
   auto_assignment_enabled: boolean
+  customer_selectable: boolean
   schedule_visibility: ScheduleVisibility
   assignment_score: number
   img: string

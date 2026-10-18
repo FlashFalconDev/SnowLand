@@ -2,6 +2,9 @@ from functools import lru_cache
 from pathlib import Path
 
 from Client.models import SiteContent
+from django.utils import timezone
+
+from .participant_forms import GUARDIAN_AGE_LIMIT
 
 
 WAIVER_LOCATION_KEY = 'membership.waiver'
@@ -34,6 +37,8 @@ def get_current_waiver(client):
             'body': item.body,
             'source_url': item.link_url or WAIVER_SOURCE_URL,
             'is_draft': bool(metadata.get('is_draft', False)),
+            'guardian_age_limit': GUARDIAN_AGE_LIMIT,
+            'reference_date': timezone.localdate().isoformat(),
         }
     return {
         'title': 'SnowLand 滑雪運動安全聲明書',
@@ -41,4 +46,6 @@ def get_current_waiver(client):
         'body': _default_waiver_body(),
         'source_url': WAIVER_SOURCE_URL,
         'is_draft': True,
+        'guardian_age_limit': GUARDIAN_AGE_LIMIT,
+        'reference_date': timezone.localdate().isoformat(),
     }

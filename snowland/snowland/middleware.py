@@ -27,7 +27,7 @@ class LocalAuthBypassMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if self._is_enabled_for(request):
+        if self._is_enabled_for(request) and not request.user.is_authenticated:
             self._ensure_local_tenant()
             request.user = self._get_local_admin()
         return self.get_response(request)

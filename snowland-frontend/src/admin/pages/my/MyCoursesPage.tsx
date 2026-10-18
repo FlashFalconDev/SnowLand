@@ -8,6 +8,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Calendar, MapPin, User, Loader2, AlertCircle, BookOpen } from 'lucide-react'
 import { fetchMyCourses } from '../../api/extras'
 import { formatAbilityLevel } from '@/utils/learningProgress'
+import { calculateCoachCourseStats } from '@/utils/coachCourseStats'
 
 const PRIMARY = '#8b5cf6'
 
@@ -33,26 +34,6 @@ function getMonthRange(monthKey: string) {
     start: `${year}-${String(month).padStart(2, '0')}-01`,
     end: `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`,
   }
-}
-
-function parseTimeMinutes(value?: string) {
-  if (!value) return 0
-  const [hour, minute] = value.split(':').map(Number)
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0
-  return hour * 60 + minute
-}
-
-function getBookingHours(booking: { start_time: string; end_time: string }) {
-  const start = parseTimeMinutes(booking.start_time)
-  const end = parseTimeMinutes(booking.end_time)
-  return Math.max((end - start) / 60, 0)
-}
-
-function getCourseKind(courseType: string) {
-  const normalized = (courseType || '').toLowerCase()
-  if (normalized.includes('snowboard') || normalized.includes('單板')) return 'snowboard'
-  if (normalized.includes('ski') || normalized.includes('雙板')) return 'ski'
-  return 'other'
 }
 
 function formatHours(value: number) {
@@ -92,28 +73,7 @@ export default function MyCoursesPage() {
     })
   }, [selectedReservationId, isLoading, items.length])
 
-  const monthlyStats = useMemo(() => {
-    const stats = {
-      totalHours: 0,
-      snowboardHours: 0,
-      skiHours: 0,
-      specifiedHours: 0,
-      lessons: 0,
-    }
-    statsItems.forEach((item) => {
-      item.bookings.forEach((booking) => {
-        if (!booking.date?.startsWith(statsMonth)) return
-        const hours = getBookingHours(booking)
-        stats.totalHours += hours
-        stats.lessons += 1
-        if (item.is_preferred_coach) stats.specifiedHours += hours
-        const kind = getCourseKind(item.course_category || item.course_type)
-        if (kind === 'snowboard') stats.snowboardHours += hours
-        if (kind === 'ski') stats.skiHours += hours
-      })
-    })
-    return stats
-  }, [statsItems, statsMonth])
+  const monthlyStats = useMemo(() => calculateCoachCourseStats(statsItems, statsMonth), [statsItems, statsMonth])
 
   return (
     <div className="space-y-6">
@@ -127,7 +87,7 @@ export default function MyCoursesPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-semibold text-gray-900 dark:text-white">月份課程統計</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">依課程日期統計時數，指定為學生指定教練的課程。</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">依課程日期統計時數；同一團體班只計一次，不會按訂單數重複累計。指定時數為學生指定教練的課程。</p>
           </div>
           <input
             type="month"
@@ -159,7 +119,7 @@ export default function MyCoursesPage() {
 
       {/* 篩選 */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -170,21 +130,25 @@ export default function MyCoursesPage() {
               <option key={k} value={k}>{v.label}</option>
             ))}
           </select>
-          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-            <span>日期：</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
-            />
-            <span>至</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
-            />
+          <div className="grid w-full grid-cols-1 gap-2 text-sm text-gray-600 dark:text-gray-400 sm:flex sm:w-auto sm:items-center">
+            <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <span>開始日期</span>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-36"
+              />
+            </label>
+            <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <span>結束日期</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-36"
+              />
+            </label>
             {(dateFrom || dateTo || statusFilter) && (
               <button
                 onClick={() => { setStatusFilter(''); setDateFrom(''); setDateTo(''); setSearchParams({}) }}

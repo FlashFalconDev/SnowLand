@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import { useNotification } from '../context'
+import { fetchAdminMe } from '../api/auth'
 import {
   createCoursePricing,
   createSeason,
@@ -37,17 +38,26 @@ import {
   type SeasonSettingWriteData,
   type SeasonType,
 } from '../api/pricing'
-import { fetchCourseCategories, type CourseCategory, type CourseTemplate, type CourseType } from '../api/courses'
-import { fetchResorts, type Resort } from '../api/resorts'
+import {
+  fetchPricingCatalog,
+  type PricingCourseCategory as CourseCategory,
+  type PricingTemplate as CourseTemplate,
+  type PricingCourseType as CourseType,
+  type PricingResort as Resort,
+} from '../api/courses'
 
 const PRIMARY = '#8b5cf6'
 const PRICING_KEY = ['admin', 'course-pricing']
 const SEASONS_KEY = ['admin', 'seasons']
-const COURSE_CATEGORIES_KEY = ['admin', 'course-categories']
-const RESORTS_KEY = ['admin', 'resorts']
+const PRICING_CATALOG_KEY = ['admin', 'course-pricing', 'catalog']
 
 export default function PricingPage() {
   const notify = useNotification()
+  const { data: adminMe, isLoading: adminLoading } = useQuery({
+    queryKey: ['admin', 'me'],
+    queryFn: fetchAdminMe,
+  })
+  const canManageSeasons = !!(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin')
 
   const { data: pricings = [], isLoading: pricingLoading, error: pricingError } = useQuery({
     queryKey: PRICING_KEY,
@@ -57,17 +67,16 @@ export default function PricingPage() {
   const { data: seasons = [], isLoading: seasonsLoading } = useQuery({
     queryKey: SEASONS_KEY,
     queryFn: fetchSeasons,
+    enabled: canManageSeasons,
   })
 
-  const { data: courseCategories = [] } = useQuery({
-    queryKey: COURSE_CATEGORIES_KEY,
-    queryFn: fetchCourseCategories,
+  const { data: catalog, isLoading: catalogLoading, error: catalogError } = useQuery({
+    queryKey: PRICING_CATALOG_KEY,
+    queryFn: fetchPricingCatalog,
   })
 
-  const { data: resorts = [] } = useQuery({
-    queryKey: RESORTS_KEY,
-    queryFn: fetchResorts,
-  })
+  const courseCategories = useMemo(() => catalog?.list || [], [catalog])
+  const resorts = useMemo(() => catalog?.resorts || [], [catalog])
 
   const courseTypes: CourseType[] = useMemo(() => {
     return courseCategories.flatMap((category: CourseCategory) => category.types || [])
@@ -77,7 +86,7 @@ export default function PricingPage() {
     return courseTypes.flatMap((ct: CourseType) => ct.templates || [])
   }, [courseTypes])
 
-  if (pricingLoading || seasonsLoading) {
+  if (adminLoading || pricingLoading || seasonsLoading || catalogLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={32} className="animate-spin" style={{ color: PRIMARY }} />
@@ -85,24 +94,29 @@ export default function PricingPage() {
     )
   }
 
-  if (pricingError) {
+  if (adminMe?.errorCode != null || pricingError || catalogError) {
     return (
       <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
         <AlertCircle size={20} className="mt-0.5 shrink-0 text-red-600 dark:text-red-400" />
-        <p className="text-sm text-red-700 dark:text-red-300">無法載入課程定價資料</p>
+        <p className="text-sm text-red-700 dark:text-red-300">無法載入課程定價資料，請重新整理後再試</p>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      <SeasonsSection seasons={seasons} notify={notify} />
+      {canManageSeasons ? <SeasonsSection seasons={seasons} notify={notify} /> : (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+          季節區間由總部統一設定；這裡只顯示你可管理雪場的課程價格。
+        </p>
+      )}
       <PricingSection
         pricings={pricings}
         allTemplates={allTemplates}
         courseCategories={courseCategories}
         courseTypes={courseTypes}
         resorts={resorts}
+        isHeadquarters={canManageSeasons}
         notify={notify}
       />
     </div>
@@ -369,6 +383,7 @@ function PricingSection({
   courseCategories,
   courseTypes,
   resorts,
+  isHeadquarters,
   notify,
 }: {
   pricings: CoursePricing[]
@@ -376,10 +391,12 @@ function PricingSection({
   courseCategories: CourseCategory[]
   courseTypes: CourseType[]
   resorts: Resort[]
+  isHeadquarters: boolean
   notify: ReturnType<typeof useNotification>
 }) {
   const qc = useQueryClient()
   const [editing, setEditing] = useState<Partial<CoursePricing> | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<CoursePricing | null>(null)
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
   const [selectedTypeId, setSelectedTypeId] = useState<number | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null)
@@ -409,6 +426,7 @@ function PricingSection({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PRICING_KEY })
       notify.success('已刪除')
+      setPendingDelete(null)
     },
     onError: (e: any) => notify.error(e.response?.data?.msg || '刪除失敗'),
   })
@@ -449,11 +467,8 @@ function PricingSection({
   const missingCount = allTemplates.filter((template) => (byTemplate.get(template.id) || []).length === 0).length
 
   const getTargetResorts = (template: CourseTemplate) => {
-    if (template.resorts?.length) {
-      const allowedIds = new Set(template.resorts)
-      return resorts.filter((resort) => allowedIds.has(resort.id))
-    }
-    return resorts
+    const allowedIds = new Set(template.resorts || [])
+    return resorts.filter((resort) => allowedIds.has(resort.id))
   }
 
   const getTemplatePriceState = (template: CourseTemplate) => {
@@ -581,18 +596,20 @@ function PricingSection({
         icon={<DollarSign size={18} style={{ color: PRIMARY }} />}
         title="課程價格"
         subtitle={missingCount > 0 ? `先選課程，再看各雪場價格。還有 ${missingCount} 個課程沒有任何價格。` : '先選課程，再看各雪場價格。'}
-        action={
+        action={allTemplates.length > 0 ? (
           <PrimaryButton
             onClick={() => setEditing({ is_active: true, templates: [], peak_season_surcharge: 0, people_tiers: [] })}
           >
             <Plus size={16} />
-            新增共用價格
+            新增價格
           </PrimaryButton>
-        }
+        ) : undefined}
       />
 
       {allTemplates.length === 0 || courseCategories.length === 0 ? (
-        <EmptyState>尚未建立課程模板，請先到「課程類型」新增課程。</EmptyState>
+        <EmptyState>{isHeadquarters
+          ? '尚未建立課程模板，請先到「課程類型」新增課程。'
+          : '目前校區沒有可設定價格的課程，請聯絡總部指派雪場與課程。'}</EmptyState>
       ) : (
         <div className="grid gap-4 p-4 2xl:grid-cols-[260px_320px_minmax(0,1fr)]">
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/30">
@@ -815,9 +832,7 @@ function PricingSection({
                                   template={selectedTemplate}
                                   compact
                                   onEdit={() => setEditing(pricing)}
-                                  onDelete={() => {
-                                    if (confirm(`確定刪除「${pricing.resort_name}」的價格？`)) deleteM.mutate(pricing.id)
-                                  }}
+                                  onDelete={() => setPendingDelete(pricing)}
                                 />
                               ))}
                             </div>
@@ -845,9 +860,7 @@ function PricingSection({
                               compact
                               warningLabel="未綁定在模板雪場"
                               onEdit={() => setEditing(pricing)}
-                              onDelete={() => {
-                                if (confirm(`確定刪除「${pricing.resort_name}」的價格？`)) deleteM.mutate(pricing.id)
-                              }}
+                              onDelete={() => setPendingDelete(pricing)}
                             />
                           ))}
                         </div>
@@ -874,11 +887,25 @@ function PricingSection({
       {editing && (
         <PricingModal
           value={editing}
+          courseCategories={courseCategories}
           courseTypes={courseTypes}
           resorts={resorts}
           onClose={() => setEditing(null)}
           onSave={handleSave}
         />
+      )}
+      {pendingDelete && (
+        <ModalFrame title="確認刪除課程價格" onClose={() => setPendingDelete(null)} maxWidth="max-w-md">
+          <div className="p-4 text-sm text-gray-700 dark:text-gray-200">
+            <p>確定刪除「{pendingDelete.resort_name}」的這組價格？</p>
+            <p className="mt-2 font-medium">基本價 NT$ {pendingDelete.base_price_off_peak.toLocaleString()} · {pendingDelete.is_active ? '啟用中' : '已停用'}</p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">刪除後無法還原，其他價格不受影響。</p>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-gray-200 p-4 dark:border-gray-700">
+            <button type="button" onClick={() => setPendingDelete(null)} disabled={deleteM.isPending} className="min-h-10 rounded-lg px-4 py-2 text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">保留價格</button>
+            <button type="button" onClick={() => deleteM.mutate(pendingDelete.id)} disabled={deleteM.isPending} className="min-h-10 rounded-lg bg-red-600 px-4 py-2 font-medium text-white hover:bg-red-700 disabled:opacity-50">確認刪除</button>
+          </div>
+        </ModalFrame>
       )}
     </section>
   )
@@ -984,12 +1011,14 @@ function PriceMetric({ label, value }: { label: string; value: string }) {
 
 function PricingModal({
   value,
+  courseCategories,
   courseTypes,
   resorts,
   onClose,
   onSave,
 }: {
   value: Partial<CoursePricing>
+  courseCategories: CourseCategory[]
   courseTypes: CourseType[]
   resorts: Resort[]
   onClose: () => void
@@ -1007,6 +1036,21 @@ function PricingModal({
     is_active: value.is_active ?? true,
   })
   const [pricingMode, setPricingMode] = useState<'basic' | 'tiered'>((value.people_tiers || []).length > 0 ? 'tiered' : 'basic')
+  const handleResortChange = (resortId: number | undefined) => {
+    if (resortId === form.resort) return
+    const availableTemplateIds = new Set(courseTypes.flatMap((courseType) =>
+      (courseType.templates || [])
+        .filter((template) => resortId && template.resorts.includes(resortId))
+        .map((template) => template.id),
+    ))
+    setForm({
+      ...form,
+      resort: resortId,
+      templates: resortId
+        ? (form.templates || []).filter((templateId) => availableTemplateIds.has(templateId))
+        : form.templates,
+    })
+  }
   const selectedTemplateCount = form.templates?.length || 0
   const selectedTemplates = useMemo(
     () => courseTypes
@@ -1071,7 +1115,7 @@ function PricingModal({
           <Field label="雪場">
             <select
               value={form.resort ?? ''}
-              onChange={(e) => setForm({ ...form, resort: e.target.value ? Number(e.target.value) : undefined })}
+              onChange={(e) => handleResortChange(e.target.value ? Number(e.target.value) : undefined)}
               className={inputClass}
             >
               <option value="">請選擇雪場</option>
@@ -1102,39 +1146,58 @@ function PricingModal({
               <span className="text-gray-500 dark:text-gray-400">這些課程會共用同一組價格。</span>
             )}
           </div>
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+            {form.resort ? '只能選此雪場已開放的課程；未開放請先到「課程架構」設定。' : '請先選雪場，再選此雪場可開放的課程。'}
+          </p>
           <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-300 dark:border-gray-600">
             {courseTypes.length === 0 ? (
               <p className="p-3 text-sm text-gray-500 dark:text-gray-400">尚未建立課程類型</p>
             ) : (
-              courseTypes.map((courseType) => (
-                <div key={courseType.id} className="border-b border-gray-200 last:border-b-0 dark:border-gray-700">
-                  <div className="bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-600 dark:bg-gray-900/40 dark:text-gray-400">
-                    {courseType.name}
+              courseTypes.map((courseType) => {
+                const categoryName = courseCategories.find((category) =>
+                  category.types.some((type) => type.id === courseType.id),
+                )?.name || '未分類'
+                return (
+                  <div key={courseType.id} className="border-b border-gray-200 last:border-b-0 dark:border-gray-700">
+                    <div className="bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-600 dark:bg-gray-900/40 dark:text-gray-400">
+                      {categoryName} ／ {courseType.name}
+                    </div>
+                    {(courseType.templates || []).length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">這個類型還沒有課程</p>
+                    ) : (
+                      courseType.templates.map((template) => {
+                        const selected = form.templates?.includes(template.id) || false
+                        const available = !!form.resort && template.resorts.includes(form.resort)
+                        const legacySelected = !!value.id && form.resort === value.resort
+                          && (value.templates || []).includes(template.id) && selected
+                        const disabled = !available && !legacySelected
+                        return (
+                          <label
+                            key={template.id}
+                            className={`flex items-center gap-2 px-3 py-2 ${disabled
+                              ? 'cursor-not-allowed opacity-50'
+                              : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`${categoryName}／${courseType.name}／${template.name}，${template.duration_hours} 小時，${template.billing_mode === 'per_person' ? '每人計價' : '包班計價'}${legacySelected && !available ? '，此雪場未開放' : ''}`}
+                              checked={selected}
+                              disabled={disabled}
+                              onChange={() => toggleTemplate(template.id)}
+                              className="rounded"
+                            />
+                            <span className="text-sm text-gray-900 dark:text-white">{template.name}</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{template.duration_hours} 小時</span>
+                            <span className="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                              {legacySelected && !available ? '此雪場未開放' : template.billing_mode === 'per_person' ? '每人計價' : '包班計價'}
+                            </span>
+                          </label>
+                        )
+                      })
+                    )}
                   </div>
-                  {(courseType.templates || []).length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">這個類型還沒有課程</p>
-                  ) : (
-                    courseType.templates.map((template) => (
-                      <label
-                        key={template.id}
-                        className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/40"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={form.templates?.includes(template.id) || false}
-                          onChange={() => toggleTemplate(template.id)}
-                          className="rounded"
-                        />
-                        <span className="text-sm text-gray-900 dark:text-white">{template.name}</span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">{template.duration_hours} 小時</span>
-                        <span className="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                          {template.billing_mode === 'per_person' ? '每人計價' : '包班計價'}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-              ))
+                )
+              })
             )}
           </div>
           {billingMode && !hasMixedBillingModes && (
@@ -1296,7 +1359,8 @@ function PricingModal({
         onSave={() => {
           if (!hasMixedBillingModes) onSave(form)
         }}
-        saveLabel={hasMixedBillingModes ? '請先分開課程' : '儲存價格'}
+        saveLabel={!form.resort ? '請先選雪場' : !selectedTemplateCount ? '請先選課程' : hasMixedBillingModes ? '請先分開課程' : '儲存價格'}
+        saveDisabled={!form.resort || !selectedTemplateCount || hasMixedBillingModes}
       />
     </ModalFrame>
   )
@@ -1411,7 +1475,7 @@ function ModalFrame({
       <div className={`flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl dark:bg-gray-800 ${maxWidth}`}>
         <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
           <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
-          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+          <button onClick={onClose} aria-label="關閉視窗" className="flex min-h-11 min-w-11 items-center justify-center text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
             <X size={20} />
           </button>
         </div>
@@ -1425,24 +1489,27 @@ function ModalFooter({
   onClose,
   onSave,
   saveLabel,
+  saveDisabled = false,
 }: {
   onClose: () => void
   onSave: () => void
   saveLabel: string
+  saveDisabled?: boolean
 }) {
   return (
     <div className="flex justify-end gap-2 border-t border-gray-200 p-4 dark:border-gray-700">
       <button
         type="button"
         onClick={onClose}
-        className="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+        className="min-h-11 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
       >
         取消
       </button>
       <button
         type="button"
         onClick={onSave}
-        className="rounded-lg px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+        disabled={saveDisabled}
+        className="min-h-11 rounded-lg px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         style={{ backgroundColor: PRIMARY }}
       >
         {saveLabel}

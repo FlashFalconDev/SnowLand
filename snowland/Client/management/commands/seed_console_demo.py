@@ -1,4 +1,5 @@
 from datetime import timedelta
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -16,7 +17,7 @@ from Coach.models import (
     StaffIncentiveRule,
 )
 from Coursekit.models import CourseCategory, CourseTemplate, CourseType
-from Resorts.models import Campus, OperatingPolicy, PaymentAccount, Resorts
+from Resorts.models import Campus, OperatingPolicy, PaymentAccount, Resorts, default_cancellation_rules
 from booking.models import (
     Booking,
     CancellationRequest,
@@ -41,9 +42,10 @@ class Command(BaseCommand):
         db = connection.settings_dict
         if not settings.DEBUG:
             raise CommandError("此命令只能在 DEBUG 模式執行")
-        if db.get("HOST") not in {"127.0.0.1", "localhost", "::1"}:
+        is_sqlite = db.get("ENGINE") == "django.db.backends.sqlite3"
+        if not is_sqlite and db.get("HOST") not in {"127.0.0.1", "localhost", "::1"}:
             raise CommandError("此命令只能寫入本機資料庫")
-        if not str(db.get("NAME") or "").startswith("test_"):
+        if not Path(str(db.get("NAME") or "")).name.startswith("test_"):
             raise CommandError("資料庫名稱必須以 test_ 開頭")
 
     @transaction.atomic
@@ -55,8 +57,9 @@ class Command(BaseCommand):
         now = timezone.now()
         client = Client.objects.get(internal_code="snowland")
 
-        # 早期本機資料曾另外建立 hq，合併回既有 main，避免畫面出現兩個「總部」。
-        Campus.objects.filter(client=client, code="hq", name="北海道營運總部").delete()
+        legacy_demo_headquarters = list(Campus.objects.filter(
+            client=client, code="main", name="北海道營運總部"
+        ))
         # 最小種子建立的 hokkaido 是單校區示範；完整 DEMO 改由 east／west 接單。
         Campus.objects.filter(client=client, code="hokkaido").update(is_active=False)
 
@@ -73,7 +76,6 @@ class Command(BaseCommand):
             )
 
         campus_specs = [
-            ("main", "北海道營運總部", ["tomamu", "furano", "niseko"], "統一查看所有校區，不直接取代各校區管理。"),
             ("east", "道東校區", ["tomamu", "furano"], "負責星野與富良野雪場。"),
             ("west", "道央校區", ["furano", "niseko"], "負責富良野與二世谷雪場。"),
         ]
@@ -106,7 +108,7 @@ class Command(BaseCommand):
             )
 
         account_specs = [
-            ("DEMO｜全公司台幣帳戶", "main", None, True),
+            ("DEMO｜全公司台幣帳戶", None, None, True),
             ("DEMO｜道東雪場帳戶", "east", "tomamu", False),
             ("DEMO｜道央雪場帳戶", "west", "niseko", False),
         ]
@@ -125,14 +127,14 @@ class Command(BaseCommand):
                     "display_order": order,
                 },
             )
-            account.campuses.set([campuses[campus_code]])
+            account.campuses.set([campuses[campus_code]] if campus_code else [])
             account.resorts.set([resorts[resort_code]] if resort_code else [])
             accounts[campus_code] = account
 
         users = {}
         staff_specs = [
-            ("demo-hq-admin", "總部管理員", "hq_admin", ["main", "east", "west"], True, False),
-            ("demo-marketing", "行銷小編", "marketing", ["main"], True, False),
+            ("demo-hq-admin", "總部管理員", "hq_admin", ["east", "west"], True, False),
+            ("demo-marketing", "行銷小編", "marketing", ["east", "west"], True, False),
             ("demo-east-manager", "道東主管", "campus_manager", ["east"], True, False),
             ("demo-west-principal", "道央校長", "campus_principal", ["west"], True, False),
             ("demo-insurance", "保險專員", "insurance", ["east", "west"], True, False),
@@ -154,6 +156,7 @@ class Command(BaseCommand):
             profile = user.userprofile
             profile.role = role
             profile.is_manager = is_manager
+            profile.manager_client = client if is_manager else None
             profile.is_coach = is_coach
             profile.admin_permissions = None
             profile.save()
@@ -467,6 +470,41 @@ class Command(BaseCommand):
             statement.notes = "DEMO｜本機 UX 驗收薪資單"
             statement.save(update_fields=["notes"])
 
+        for legacy in legacy_demo_headquarters:
+            policy = OperatingPolicy.objects.filter(client=client, campus=legacy).first()
+            policy_is_untouched = policy is None or (
+                policy.unpaid_hold_days == 3
+                and policy.provisional_extra_groups == 3
+                and policy.cancellation_fee_percent == 5
+                and policy.cancellation_rules == default_cancellation_rules()
+                and policy.leave_advance_days == 3
+                and policy.leave_daily_coach_limit == 2
+                and policy.leave_max_consecutive_days == 2
+                and policy.course_reminder_days == [7, 3, 1]
+                and policy.settings == {}
+            )
+            has_usage = any(relation.exists() for relation in (
+                legacy.reservation_groups,
+                legacy.staff_profiles,
+                legacy.coaches,
+                legacy.payment_accounts,
+                legacy.payroll_statements,
+                legacy.staff_incentive_rules,
+                legacy.notification_templates,
+                legacy.shared_course_classes,
+                legacy.staff_booking_links,
+            ))
+            if (legacy.description != "統一查看所有校區，不直接取代各校區管理。"
+                    or not legacy.is_active
+                    or legacy.display_order != 0
+                    or set(legacy.resorts.values_list("name", flat=True)) != {"tomamu", "furano", "niseko"}
+                    or not policy_is_untouched or has_usage):
+                self.stdout.write(self.style.WARNING(
+                    f"保留已使用或調整過的舊 DEMO 總部校區 #{legacy.id}，請手動確認。"
+                ))
+                continue
+            legacy.delete()
+
         self.stdout.write(self.style.SUCCESS(
-            "Console DEMO 資料完成：3 校區、3 雪場、8 員工、3 教練、7 訂單、3 通知、3 薪資單。"
+            "Console DEMO 資料完成：2 校區、3 雪場、8 員工、3 教練、7 訂單、3 通知、3 薪資單。"
         ))

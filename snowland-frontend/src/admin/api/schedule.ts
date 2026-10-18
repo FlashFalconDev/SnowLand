@@ -16,6 +16,8 @@ export interface ScheduleBooking {
   coach_name: string
   user_name: string
   resort: string
+  campus_name: string
+  campus_is_active: boolean
   number_of_people: number
   is_scheduled: boolean
   status: 'scheduled' | 'pending' | string
@@ -49,10 +51,42 @@ export interface GroupCandidate {
   start_time: string
   end_time: string
   ability_level: string
+  shared_class_id: number | null
+  shared_class_status: 'collecting' | 'ready' | 'cancelled' | null
+  opening_mode?: 'school' | 'customer' | null
+  minimum_students: number | null
   registered_students: number
   assigned_students: number
   paid_students?: number
   orders: Array<{ group_id: number; order_number: string; students: number; already_assigned: boolean; payment_status?: string }>
+}
+
+export interface SharedClassCoachOptions {
+  shared_class_id: number
+  current_coach_id: number | null
+  current_coach_name: string | null
+  coaches: Array<{ id: number; name: string; availability_status: 'active' | 'passive' }>
+}
+
+export interface SharedClassScheduleOptions {
+  shared_class_id: number
+  date: string
+  start_time: string
+  end_time: string
+  affected_orders: number
+  sessions: Array<{ start_time: string; end_time: string }>
+}
+
+export interface SharedClassOpeningOptions {
+  enabled: boolean
+  campuses: Array<{ id: number; name: string; resorts: Array<{ id: number; name: string }> }>
+  templates: Array<{
+    id: number; name: string; resort_ids: number[]
+    minimum_students: number; max_capacity: number
+    sessions: Array<{ id: number; label: string }>
+  }>
+  levels: Array<[string, string]>
+  languages: Array<[string, string]>
 }
 
 interface ListResp {
@@ -83,4 +117,41 @@ export async function fetchGroupCandidates(params: { start: string; end: string 
     data: { list: GroupCandidate[] }
   }
   return res.data?.list || []
+}
+
+export async function fetchSharedClassOpeningOptions(): Promise<SharedClassOpeningOptions> {
+  const res = (await adminApi.get('/bookings/shared-classes/open/')) as unknown as { data: SharedClassOpeningOptions }
+  return res.data
+}
+
+export async function openSharedClass(input: {
+  campus_id: number; resort_id: number; template_id: number; session_id: number
+  date: string; ability_level: string; language: string
+}): Promise<void> {
+  await adminApi.post('/bookings/shared-classes/open/', input)
+}
+
+export async function fetchSharedClassCoaches(classId: number): Promise<SharedClassCoachOptions> {
+  const res = (await adminApi.get(`/bookings/shared-classes/${classId}/coach/`)) as unknown as {
+    data: SharedClassCoachOptions
+  }
+  return res.data
+}
+
+export async function assignSharedClassCoach(classId: number, coachId: number): Promise<void> {
+  await adminApi.post(`/bookings/shared-classes/${classId}/coach/`, { coach_id: coachId })
+}
+
+export async function fetchSharedClassSchedule(classId: number): Promise<SharedClassScheduleOptions> {
+  const res = (await adminApi.get(`/bookings/shared-classes/${classId}/schedule/`)) as unknown as {
+    data: SharedClassScheduleOptions
+  }
+  return res.data
+}
+
+export async function rescheduleSharedClass(classId: number, date: string, startTime: string, endTime: string): Promise<string> {
+  const res = (await adminApi.post(`/bookings/shared-classes/${classId}/schedule/`, {
+    date, start_time: startTime, end_time: endTime,
+  })) as unknown as { msg: string }
+  return res.msg
 }

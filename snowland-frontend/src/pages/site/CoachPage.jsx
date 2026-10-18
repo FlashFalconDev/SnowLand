@@ -1,11 +1,9 @@
 import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
-import coaches from '../../data/site/coaches';
-import cashReviews from '../../data/site/cashReviews';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import { fetchWebsiteCoaches } from '../../api/websiteCoaches';
+import { fetchWebsiteCoaches, websiteCoachDetail } from '../../api/websiteCoaches';
 
 const CashFadeIn = forwardRef(function CashFadeIn(
   { as: Tag = "div", className = "", delay = 0, style, children, ...props },
@@ -292,16 +290,16 @@ function CashPhotoCarousel({ images, mediaSurfaceClass, mediaShadowClass, label 
 
 function CoachPage() {
   const { slug } = useParams();
-  const coach = coaches.find((item) => item.slug === slug);
-  const [enabledCoachSlugs, setEnabledCoachSlugs] = useState(null);
-  const isCashCoach = coach?.slug === "cash";
+  const [coach, setCoach] = useState(null);
+  const [coachStatus, setCoachStatus] = useState('loading');
+  const [coachRetry, setCoachRetry] = useState(0);
   const isCashLikeCoach = true;
   const coachDetailImage = coach?.detailImage ?? coach?.image;
   const coachVideos = coach?.videos ?? [];
   const coachReviews = coach?.reviews ?? [];
   const coachAbilityTags = coach?.abilityTags ?? null;
   const coachHeroBadges = coach?.heroBadges ?? [];
-  const coachHideTeachingLead = coach?.hideTeachingLead ?? !["cash", "lily", "qizhen"].includes(coach?.slug);
+  const coachHideTeachingLead = Boolean(coach?.hideTeachingLead);
   const coachTypeTags = coach?.coachType
     ? coach.coachType.split("/").map((tag) => tag.trim()).filter(Boolean)
     : [];
@@ -342,62 +340,9 @@ function CoachPage() {
     : isCashLikeCoach
       ? [coachExperienceSection].filter(Boolean)
       : coach?.sections.slice(0, 2) ?? [];
-  const cashAbilityTags = {
-    snowboard: [
-      "零經驗",
-      "初階",
-      "中階",
-      "Powder 鬆雪",
-      "Tree Run 樹林",
-      "幼兒(4-6歲)",
-      "兒童(7-10歲)",
-      "親子",
-      "高齡",
-    ],
-    ski: ["零經驗", "初階", "中階", "親子", "幼兒(4-6歲)", "兒童(7-10歲)", "高齡"],
-  };
-  const heroAbilityTags = isCashCoach ? cashAbilityTags : coachAbilityTags;
-  const cashVideos = isCashCoach
-    ? [
-    {
-      title: "SnowLand滑雪學校 Cash校長",
-      src: "https://www.youtube.com/embed/g5DxnJtpKtE",
-    },
-    {
-      title: "【北海道星野度假村 ❄️ EP04】小朋友可以滑雪嗎？",
-      src: "https://www.youtube.com/embed/cnMoLz2uxZI",
-    },
-    {
-      title: "【SnowLand 學員ShowTime】20240119 Cash 星野 SB KeithChen",
-      src: "https://www.youtube.com/embed/MsCvncp8rbU",
-    },
-    {
-      title: "【SnowLand 學員ShowTime】20231221 Cash 星野 SB WU",
-      src: "https://www.youtube.com/embed/ZfuNOgIOfns",
-    },
-    {
-      title: "【SnowLand 學員ShowTime】20231221 Cash 星野 SB半天 廣州 Mandy",
-      src: "https://www.youtube.com/embed/jFJedgYH7IE",
-    },
-    {
-      title: "【SnowLand 學員ShowTime】20231219-20 Cash 星野半天 SB Zheng 2P",
-      src: "https://www.youtube.com/embed/G6Z8rkFGVFs",
-    },
-    {
-      title: "【SnowLand 學員ShowTime】20231220 Cash 星野半天 SB Zheng Yunrong",
-      src: "https://www.youtube.com/embed/WJ7eXDZzerE",
-    },
-    {
-      title: "【SnowLand 學員ShowTime】20231220 Cash 星野 SB Becky 2p粵",
-      src: "https://www.youtube.com/embed/OzOCHdr8EoA",
-    },
-    {
-      title: "【SnowLand 學員ShowTime】20231219 Cash 星野 Ski 香港 Joe black",
-      src: "https://www.youtube.com/embed/Imw4n6CK4DA",
-    },
-      ]
-    : coachVideos;
-  const cashStudentReviews = isCashCoach ? cashReviews : coachReviews;
+  const heroAbilityTags = coachAbilityTags;
+  const cashVideos = coachVideos;
+  const cashStudentReviews = coachReviews;
   const cashVideoCarouselRef = useRef(null);
   const cashVideoSlideRefs = useRef([]);
   const cashCoachStackSectionRef = useRef(null);
@@ -420,21 +365,24 @@ function CoachPage() {
 
   useEffect(() => {
     let active = true;
-
-    fetchWebsiteCoaches()
+    setCoach(null);
+    setCoachStatus('loading');
+    fetchWebsiteCoaches({ includeProfile: true, slug })
       .then((apiCoaches) => {
         if (!active) return;
-        setEnabledCoachSlugs(new Set(apiCoaches.map((item) => item.slug).filter(Boolean)));
+        const item = apiCoaches.find((entry) => entry.slug === slug);
+        setCoach(item ? websiteCoachDetail(item) : null);
+        setCoachStatus('ready');
       })
       .catch(() => {
         if (!active) return;
-        setEnabledCoachSlugs(null);
+        setCoachStatus('error');
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [slug, coachRetry]);
   const cashVideoSlides = cashVideos.map((video) => {
     const videoIdMatch = video.src.match(/(?:v=|\/embed\/|youtu\.be\/|shorts\/)([^?&#/]+)/);
     const videoId = videoIdMatch?.[1] ?? "";
@@ -522,11 +470,9 @@ function CoachPage() {
     id,
     title: coachTeachingSection.title,
     type: "teaching",
-    lead: isCashCoach
-      ? "安全第一，陪你穩健進步，讓每一步都更有信心。"
-      : coachHideTeachingLead
+    lead: coachTeachingSection.lead || (coachHideTeachingLead
         ? ""
-        : lines.find((line) => !line.startsWith("【")) ?? lines[0] ?? "",
+        : lines.find((line) => !line.startsWith("【")) ?? lines[0] ?? ""),
     bgClass: "bg-[#dbe2f0]",
     textClass: "text-[#2b5f8f]",
     bodyClass: "text-[#2b5f8f]",
@@ -551,9 +497,7 @@ function CoachPage() {
           id: "intro",
           title: coachIntroSection.title,
           type: "intro",
-          lead: isCashCoach
-            ? "多語教學、設計與運動生活，讓每段雪地故事更立體。"
-            : coachIntroSection.lines[0] ?? "",
+          lead: coachIntroSection.lead || coachIntroSection.lines[0] || "",
           bgClass: "bg-white",
           borderClass: "border-[#d7dde3]",
           textClass: "text-[#1f2937]",
@@ -562,22 +506,7 @@ function CoachPage() {
           mediaBorderClass: "border-[#d7dde3]",
           mediaSurfaceClass: "bg-inherit",
           mediaShadowClass: "shadow-[0_14px_32px_rgba(15,23,42,0.08)]",
-          media: isCashCoach
-            ? [
-                {
-                  src: "https://land110602.com/wp-content/uploads/2023/10/A20210420-04-CR-0440w-495x400.jpg",
-                  alt: "SnowLand 滑雪教練 Cash室內設計",
-                },
-                {
-                  src: "https://land110602.com/wp-content/uploads/2023/10/048AAA75-636C-4D29-B6E0-9ED960F7FA56-495x400.jpg",
-                  alt: "SnowLand 滑雪教練 Cash鐵馬",
-                },
-                {
-                  src: "https://land110602.com/wp-content/uploads/2023/10/cash-%E9%A6%AC%E6%8B%89%E6%9D%BE-495x400.jpg",
-                  alt: "SnowLand 滑雪教練 Cash馬拉松",
-                },
-              ]
-            : coachIntroSection?.media ?? [],
+          media: coachIntroSection?.media ?? [],
           lines: coachIntroSection.lines,
         }
       : null,
@@ -586,9 +515,7 @@ function CoachPage() {
           id: "ski-experience",
           title: coachSkiExperienceSection.title,
           type: "ski-experience",
-          lead: isCashCoach
-            ? "多國雪場的實戰經驗，持續轉化成穩定、清楚的教學節奏。"
-            : coachSkiExperienceSection.lines[0] ?? "",
+          lead: coachSkiExperienceSection.lead || coachSkiExperienceSection.lines[0] || "",
           bgClass: "bg-[#dbe2f0]",
           borderClass: "border-[#cfd8e8]",
           textClass: "text-[#1f2937]",
@@ -597,18 +524,7 @@ function CoachPage() {
           mediaBorderClass: "border-[#cfd8e8]",
           mediaSurfaceClass: "bg-inherit",
           mediaShadowClass: "shadow-[0_14px_32px_rgba(15,23,42,0.08)]",
-          media: isCashCoach
-            ? [
-                {
-                  src: "https://land110602.com/wp-content/uploads/2023/10/%E7%9B%B8%E7%89%87-2024-2-29-10-27-09-495x400.jpg",
-                  alt: "SnowLand 滑雪教練 Cash小朋友纜車",
-                },
-                {
-                  src: "https://land110602.com/wp-content/uploads/2023/10/LINE_ALBUM_20240229-%E7%95%99%E5%A3%BD%E9%83%BD_240319_9-495x400.jpg",
-                  alt: "SnowLand 滑雪教練 Cash小朋友教學",
-                },
-              ]
-            : coachSkiExperienceSection?.media ?? [],
+          media: coachSkiExperienceSection?.media ?? [],
           lines: coachSkiExperienceSection.lines,
         }
       : null,
@@ -955,9 +871,17 @@ function CoachPage() {
     );
   };
 
-  const isCoachEnabledForWebsite = enabledCoachSlugs === null || enabledCoachSlugs.has(slug);
+  if (coachStatus === 'loading' || coachStatus === 'error') {
+    return <div className="min-h-screen bg-[#f6f8fb] flex flex-col">
+      <SiteHeader forceTransparent forceDarkText forceLogoColor />
+      <main className="flex-1 px-6 pt-36 pb-16 text-center text-[#1f2937]" aria-live="polite">
+        <h1 className="text-2xl font-semibold">{coachStatus === 'loading' ? '正在載入教練介紹…' : '教練介紹載入失敗'}</h1>
+        {coachStatus === 'error' && <><p className="mt-4">請稍後重試，不會顯示過期的教練資料。</p><button type="button" onClick={() => setCoachRetry(value => value + 1)} className="mt-6 rounded-xl bg-brand-orange px-6 py-3 font-semibold text-white">重新載入</button></>}
+      </main><SiteFooter />
+    </div>;
+  }
 
-  if (!coach || !isCoachEnabledForWebsite) {
+  if (!coach) {
     return (
       <div className="min-h-screen bg-[#f6f8fb] flex flex-col">
         <SiteHeader forceTransparent forceDarkText forceLogoColor />
@@ -1013,11 +937,11 @@ function CoachPage() {
                     delay={40}
                     className="overflow-hidden rounded-sm bg-[#e2e8f0] lg:sticky lg:top-24 lg:h-[calc(100svh-12rem)] lg:w-fit lg:max-w-full lg:self-start"
                   >
-                    <img loading="lazy" decoding="async"
+                    {coachDetailImage ? <img loading="lazy" decoding="async"
                       src={coachDetailImage}
                       alt={coach.name}
                       className="block h-auto w-full object-cover object-top lg:h-full lg:w-auto lg:max-w-none lg:object-contain"
-                    />
+                    /> : <div role="img" aria-label="尚未提供教練照片" className="flex min-h-64 items-center justify-center px-8 text-[#475569]">教練照片準備中</div>}
                   </CashFadeIn>
 
                   <CashFadeIn as="div" delay={120} className="space-y-8 text-center lg:pt-10">
@@ -1025,6 +949,8 @@ function CoachPage() {
                       <CashFadeIn as="h1" delay={180} className={cashHeroTitleClass}>
                         {coach.name}
                       </CashFadeIn>
+                      {coach.cardBio && <p className={cashBodyClass}>{coach.cardBio}</p>}
+                      {!coach.sections.some(section => !['專業證照', '滑雪證照'].includes(section.title)) && <p className="text-sm text-[#6b7280]">詳細介紹整理中，課程資訊請以預約頁為準。</p>}
                       <CashFadeIn
                         as="p"
                         delay={240}

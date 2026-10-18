@@ -77,6 +77,30 @@ class OrderAssignmentScopeTests(TestCase):
         self.assertEqual(self.reservation.preferred_coach_id, coach.id)
         self.assertTrue(self.booking.is_scheduled)
 
+    def test_payment_only_save_confirms_payment_without_misleading_zero_changes(self):
+        response = self.api.put(self.url, {
+            'action': 'save', 'payment_status': 'paid',
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['msg'], '付款狀態已儲存')
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, 'paid')
+
+    def test_coach_hidden_from_customer_picker_can_still_be_manually_assigned(self):
+        coach = self.coach()
+        coach.customer_selectable = False
+        coach.save(update_fields=['customer_selectable'])
+        response = self.api.put(self.url, {
+            'action': 'save', 'reservation_updates': [{'reservation_id': self.reservation.id, 'coach_id': coach.id}],
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.reservation.refresh_from_db()
+        self.booking.refresh_from_db()
+        self.assertEqual(self.reservation.preferred_coach_id, coach.id)
+        self.assertTrue(self.booking.is_scheduled)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, 'pending')
+
     def test_failed_scheduling_restores_booking_and_does_not_confirm_payment(self):
         original_date = self.booking.date
         with patch('booking.scheduler.assign_coachs', return_value=(False, {})):

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
@@ -16,10 +16,12 @@ import {
   X,
 } from 'lucide-react'
 import { useNotification } from '../../context'
+import ReviewPlacementFields from '../../components/ReviewPlacementFields'
 import {
   createSiteContent,
   deleteSiteContent,
   fetchSiteContents,
+  fetchReviewContentGroups,
   updateSiteContent,
   type SiteContentItem,
   type SiteContentStatus,
@@ -29,6 +31,11 @@ import {
 
 const PRIMARY = '#8b5cf6'
 const QUERY_KEY = ['admin', 'site-content']
+
+function contentErrorMessage(error: any, fallback: string): string {
+  const data = error.response?.data
+  return data?.msg || data?.detail || (data && typeof data === 'object' ? Object.values(data).flat().filter(value => typeof value === 'string').join('；').slice(0, 500) : '') || fallback
+}
 const CMS_STRUCTURE_LOCATION_KEY = 'cms.structure'
 const inputClass = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15 dark:border-gray-700 dark:bg-gray-900 dark:text-white'
 
@@ -344,6 +351,20 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (item.location_key === 'course.resort-pages') {
+    const resort = isRecord(item.metadata?.resort) ? item.metadata.resort : {}
+    const tabs = Array.isArray(resort.tabs) ? resort.tabs.filter(isRecord) : []
+    return tabs.length ? `${tabs.length} 個分頁：${tabs.map((tab) => String(tab.title || tab.slug || '未命名')).join('、')}` : '尚未設定雪場分頁'
+  }
+  if (item.location_key === 'course.pricing') {
+    const pricing = isRecord(item.metadata?.pricing) ? item.metadata.pricing : {}
+    const plans = isRecord(pricing.plans) ? pricing.plans : {}
+    const rowCount = (['discount', 'regular'] as const).reduce((total, key) => {
+      const plan = isRecord(plans[key]) ? plans[key] : {}
+      return total + (Array.isArray(plan.rows) ? plan.rows.length : 0)
+    }, 0)
+    return `${item.external_id || '未選雪場'} · ${String(pricing.season_label || '未填雪季')} · ${rowCount} 筆人數價格`
+  }
   const blocks = normalizeContentBlocks(item.metadata, item.body, item.image_url)
   return item.summary || item.subtitle || blocksToPlainText(blocks) || item.body || '尚未填寫內容'
 }
@@ -399,8 +420,12 @@ const getTenantBasePath = () => {
   return firstPathSegment ? `/${firstPathSegment}` : '/snowland'
 }
 
-const buildOfficialPreviewUrl = (locationKey: string) => {
-  const route = SITE_PREVIEW_ROUTES[locationKey] || { path: '/' }
+const buildOfficialPreviewUrl = (locationKey: string, externalId = '') => {
+  const route = locationKey === 'course.pricing' && externalId
+    ? { path: `/course/${encodeURIComponent(externalId)}/price` }
+    : locationKey === 'course.resort-pages' && externalId
+      ? { path: `/course/${encodeURIComponent(externalId)}` }
+    : SITE_PREVIEW_ROUTES[locationKey] || { path: '/' }
   const basePath = getTenantBasePath()
   const path = route.path.startsWith('/') ? route.path : `/${route.path}`
   const url = `${basePath}${path === '/' ? '/' : path}`
@@ -408,7 +433,7 @@ const buildOfficialPreviewUrl = (locationKey: string) => {
   return `${url}${url.includes('?') ? '&' : '?'}${query}${route.hash ? `#${route.hash}` : ''}`
 }
 
-export default function SiteContentPage({ initialGroup = 'homepage' }: { initialGroup?: ContentGroup }) {
+export default function SiteContentPage({ initialGroup = 'homepage', contentTypes }: { initialGroup?: ContentGroup; contentTypes?: SiteContentType[] }) {
   const notify = useNotification()
   const qc = useQueryClient()
   const [activeGroup, setActiveGroup] = useState<ContentGroup>(initialGroup)
@@ -420,17 +445,25 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [activeLocationKey, setActiveLocationKey] = useState('homepage.reviews')
 
-  const { data: contents = [], isLoading, error } = useQuery({
+  const { data: contents = [], isLoading, error, refetch } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: () => fetchSiteContents(),
+  })
+  const reviewGroups = useQuery({
+    queryKey: [...QUERY_KEY, 'review-locations'],
+    queryFn: fetchReviewContentGroups,
+    enabled: !!contentTypes,
   })
 
   const refresh = () => qc.invalidateQueries({ queryKey: QUERY_KEY })
   const structureItem = contents.find((item) => item.content_type === 'setting' && item.location_key === CMS_STRUCTURE_LOCATION_KEY) || null
-  const groups = useMemo(() => normalizeCmsStructureGroups(structureItem?.metadata), [structureItem])
+  const groups = useMemo(() => {
+    const source = normalizeCmsStructureGroups(contentTypes ? { groups: reviewGroups.data || [] } : structureItem?.metadata)
+    return contentTypes ? source.map((group) => ({ ...group, locations: group.locations.filter((location) => contentTypes.includes(location.type)) })).filter((group) => group.locations.length) : source
+  }, [structureItem, contentTypes, reviewGroups.data])
   const locationMap = useMemo(() => buildLocationMap(groups), [groups])
   const defaultLocationByGroup = useMemo(() => getDefaultLocationByGroup(groups), [groups])
-  const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY), [contents])
+  const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY && (!contentTypes || contentTypes.includes(item.content_type))), [contents, contentTypes])
 
   useEffect(() => {
     const targetGroup = groups.find((group) => group.id === initialGroup) || groups[0]
@@ -465,7 +498,7 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
       setDrawerOpen(false)
       setCreateLocation(null)
     },
-    onError: (e: any) => notify.error(e.response?.data?.msg || e.response?.data?.detail || '新增失敗'),
+    onError: (e: any) => notify.error(contentErrorMessage(e, '新增失敗')),
   })
 
   const updateMutation = useMutation({
@@ -476,7 +509,7 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
       setDrawerOpen(false)
       setEditing(null)
     },
-    onError: (e: any) => notify.error(e.response?.data?.msg || e.response?.data?.detail || '更新失敗'),
+    onError: (e: any) => notify.error(contentErrorMessage(e, '更新失敗')),
   })
 
   const deleteMutation = useMutation({
@@ -567,7 +600,7 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
     setDrawerOpen(true)
   }
 
-  if (isLoading) {
+  if (isLoading || (contentTypes && reviewGroups.isLoading)) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={32} className="animate-spin" style={{ color: PRIMARY }} />
@@ -575,11 +608,12 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
     )
   }
 
-  if (error) {
+  if (error || (contentTypes && reviewGroups.error)) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
         <AlertCircle size={18} className="mr-2 inline" />
         無法載入官網內容
+        <button type="button" className="ml-3 underline" onClick={() => { refetch(); if (contentTypes) reviewGroups.refetch() }}>重新載入</button>
       </div>
     )
   }
@@ -588,10 +622,11 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
     <div className="rounded-2xl bg-[#f5f7fb] p-5 text-slate-900 shadow-sm dark:bg-[#0f1724] dark:text-slate-100 dark:shadow-none">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold tracking-[0.18em] text-[#8b5cf6]">官網內容</p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-950 dark:text-white">網站頁面編輯</h1>
+          <p className="text-xs font-semibold tracking-[0.18em] text-[#8b5cf6]">{contentTypes ? '評論與媒體' : '官網內容'}</p>
+          <h1 className="mt-1 text-2xl font-bold text-slate-950 dark:text-white">{contentTypes?.includes('review') ? '學生評價' : contentTypes ? '攝影作品' : '網站頁面編輯'}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
             左邊切換頁面並設定資料，右邊會載入實際官網頁面方便對照。
+            {contentTypes?.includes('review') && <span className="block">目前可手動維護評價；Google 評論自動同步尚未啟用。</span>}
           </p>
         </div>
         <button
@@ -603,11 +638,8 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
         </button>
       </div>
 
-      <div className="mt-5 overflow-x-auto">
-        <div
-          className="grid min-w-[1200px] gap-5"
-          style={{ gridTemplateColumns: 'minmax(640px, 1.08fr) minmax(520px, 0.92fr)' }}
-        >
+      <div className="mt-5">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
         <section className="min-w-0 space-y-4">
           <div className="rounded-2xl bg-white p-4 shadow-sm dark:border dark:border-slate-700/70 dark:bg-[#172131] dark:shadow-none">
             <div className="flex items-center justify-between gap-3">
@@ -655,13 +687,13 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
                   </button>
                 )
               })}
-              <button
+              {!contentTypes && <button
                 type="button"
                 onClick={() => setStructureOpen(true)}
                 className="min-w-[132px] rounded-xl border border-dashed border-slate-300 px-3 py-3 text-left text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-[#1f2937]"
               >
                 + 管理頁面
-              </button>
+              </button>}
             </div>
 
             <div className="mt-5">
@@ -774,9 +806,17 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
       {drawerOpen && (
         <ContentDrawer
           groups={groups}
+          contentTypes={contentTypes}
           group={activeGroup}
           initialLocation={createLocation}
           item={editing}
+          resortOptions={contentItems
+            .filter((content) => content.location_key === 'course.resorts')
+            .map((content) => ({
+              value: String(content.metadata?.slug || content.external_id || '').trim(),
+              label: content.title || content.external_id,
+            }))
+            .filter((option) => option.value)}
           onClose={() => {
             setDrawerOpen(false)
             setEditing(null)
@@ -789,7 +829,7 @@ export default function SiteContentPage({ initialGroup = 'homepage' }: { initial
           isSaving={createMutation.isPending || updateMutation.isPending}
         />
       )}
-      {structureOpen && (
+      {structureOpen && !contentTypes && (
         <StructureDrawer
           groups={groups}
           activeGroupId={activeGroup}
@@ -813,10 +853,11 @@ function PreviewSidePanel({
   location: LocationInfo
   onEdit?: () => void
 }) {
-  const previewUrl = buildOfficialPreviewUrl(location.key)
+  const previewSlug = location.key === 'course.resort-pages' ? String(item?.metadata?.slug || item?.external_id || '') : item?.external_id
+  const previewUrl = buildOfficialPreviewUrl(location.key, previewSlug)
 
   return (
-    <aside className="sticky top-4 self-start rounded-2xl bg-white p-4 shadow-sm dark:border dark:border-slate-700/70 dark:bg-[#172131] dark:shadow-none">
+    <aside className="self-start rounded-2xl bg-white p-4 shadow-sm dark:border dark:border-slate-700/70 dark:bg-[#172131] dark:shadow-none xl:sticky xl:top-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-bold text-slate-950 dark:text-white">正式官網預覽</div>
@@ -846,7 +887,7 @@ function PreviewSidePanel({
       </div>
 
       <div className="mt-4">
-        <OfficialSiteFrame location={location} heightClassName="h-[620px]" />
+        <OfficialSiteFrame location={location} externalId={previewSlug} heightClassName="h-[620px]" />
       </div>
 
       <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600 dark:bg-[#111827] dark:text-slate-300">
@@ -866,8 +907,8 @@ function PreviewSidePanel({
   )
 }
 
-function OfficialSiteFrame({ location, heightClassName = 'h-[520px]' }: { location: LocationInfo; heightClassName?: string }) {
-  const previewUrl = buildOfficialPreviewUrl(location.key)
+function OfficialSiteFrame({ location, externalId = '', heightClassName = 'h-[520px]' }: { location: LocationInfo; externalId?: string; heightClassName?: string }) {
+  const previewUrl = buildOfficialPreviewUrl(location.key, externalId)
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-[#0f1724] dark:shadow-none">
@@ -1050,10 +1091,21 @@ function CoursePricingEditor({
     rows[index] = { ...rows[index], [field]: field === 'label' ? value : value === '' ? '' : Number(value) || value }
     updatePlan(key, { rows })
   }
+  const addPlanRow = (key: 'discount' | 'regular') => {
+    const current = isRecord(plans[key]) ? plans[key] : {}
+    const rows = Array.isArray(current.rows) ? current.rows.filter(isRecord) : []
+    updatePlan(key, { rows: [...rows, { label: '', full: '', half: '' }] })
+  }
+  const removePlanRow = (key: 'discount' | 'regular', index: number) => {
+    const current = isRecord(plans[key]) ? plans[key] : {}
+    const rows = Array.isArray(current.rows) ? current.rows.filter(isRecord) : []
+    updatePlan(key, { rows: rows.filter((_, rowIndex) => rowIndex !== index) })
+  }
   const showHalfDay = columns.includes('half')
 
   return (
     <FormSection title="3. 官網價目設定">
+      <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">這裡只控制官網展示價格；客人訂課時的實際計價請到「基本設定 → 課程定價」設定。</p>
       <div className="grid gap-4 md:grid-cols-2">
         <TextInput label="雪季標題" value={String(pricing.season_label || '')} placeholder="25-26 SEASON" onChange={(value) => updatePricing({ season_label: value })} />
         <TextInput label="幣別" value={String(pricing.currency || 'NT$')} placeholder="NT$" onChange={(value) => updatePricing({ currency: value })} />
@@ -1077,17 +1129,22 @@ function CoursePricingEditor({
               <TextInput label={key === 'discount' ? '優惠時段名稱' : '一般時段名稱'} value={String(plan.label || '')} onChange={(value) => updatePlan(key, { label: value })} />
               <TextInput label="適用日期" value={String(plan.period || '')} onChange={(value) => updatePlan(key, { period: value })} />
             </div>
-            <div className={`mt-3 grid gap-2 ${showHalfDay ? 'grid-cols-[1fr_1fr_1fr]' : 'grid-cols-[1fr_1fr]'}`}>
-              <span className="text-xs font-semibold text-gray-500">人數</span>
-              <span className="text-xs font-semibold text-gray-500">全天價格</span>
-              {showHalfDay && <span className="text-xs font-semibold text-gray-500">半天價格</span>}
+            <div className="mt-3 space-y-3">
               {rows.map((row, index) => (
-                <div key={`${key}-${index}`} className="contents">
-                  <input aria-label={`${key} 第 ${index + 1} 列人數`} className={inputClass} value={String(row.label || '')} onChange={(event) => updatePlanRow(key, index, 'label', event.target.value)} />
-                  <input aria-label={`${key} 第 ${index + 1} 列全天價格`} type="number" min="0" className={inputClass} value={String(row.full ?? '')} onChange={(event) => updatePlanRow(key, index, 'full', event.target.value)} />
-                  {showHalfDay && <input aria-label={`${key} 第 ${index + 1} 列半天價格`} type="number" min="0" className={inputClass} value={String(row.half ?? '')} onChange={(event) => updatePlanRow(key, index, 'half', event.target.value)} />}
+                <div key={`${key}-${index}`} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <TextInput label="人數" value={String(row.label || '')} placeholder="例如 1 人" onChange={(value) => updatePlanRow(key, index, 'label', value)} />
+                    <TextInput label="全天價格" type="number" min={0} value={String(row.full ?? '')} onChange={(value) => updatePlanRow(key, index, 'full', value)} />
+                    {showHalfDay && <TextInput label="半天價格" type="number" min={0} value={String(row.half ?? '')} onChange={(value) => updatePlanRow(key, index, 'half', value)} />}
+                  </div>
+                  <button type="button" onClick={() => removePlanRow(key, index)} className="mt-2 inline-flex items-center gap-1 text-xs text-red-600 hover:underline dark:text-red-400">
+                    <Trash2 size={13} />移除第 {index + 1} 筆人數價格
+                  </button>
                 </div>
               ))}
+              <button type="button" onClick={() => addPlanRow(key)} className="inline-flex items-center gap-1 rounded-lg border border-[#8b5cf6] px-3 py-2 text-sm font-medium text-[#8b5cf6] hover:bg-[#8b5cf6]/10">
+                <Plus size={14} />新增人數價格
+              </button>
             </div>
           </div>
         )
@@ -1145,17 +1202,21 @@ function CoursePricingEditor({
 
 function ContentDrawer({
   groups,
+  contentTypes,
   group,
   initialLocation,
   item,
+  resortOptions,
   onClose,
   onSubmit,
   isSaving,
 }: {
   groups: GroupInfo[]
+  contentTypes?: SiteContentType[]
   group: ContentGroup
   initialLocation: string | null
   item: SiteContentItem | null
+  resortOptions: { value: string; label: string }[]
   onClose: () => void
   onSubmit: (data: SiteContentWriteData) => void
   isSaving: boolean
@@ -1182,6 +1243,19 @@ function ContentDrawer({
     is_pinned: !!item.is_pinned,
   } : makeEmptyForm(initialLocation || groupInfo?.locations[0]?.key, initialLocation ? drawerLocationMap[initialLocation] : groupInfo?.locations[0]))
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
+  const pricingResortOptions = resortOptions.length && form.external_id && !resortOptions.some((option) => option.value === form.external_id)
+    ? [{ value: form.external_id, label: form.external_id }, ...resortOptions]
+    : resortOptions
+  const resortPageSlug = String(form.metadata?.slug || form.external_id || '')
+  const pricingMetadata = isRecord(form.metadata?.pricing) ? form.metadata.pricing : {}
+  const pricingPlans = isRecord(pricingMetadata.plans) ? pricingMetadata.plans : {}
+  const pricingRows = (['discount', 'regular'] as const).flatMap((key) => {
+    const plan = isRecord(pricingPlans[key]) ? pricingPlans[key] : {}
+    return Array.isArray(plan.rows) ? plan.rows.filter(isRecord) : []
+  })
+  const pricingHasHalfDay = !Array.isArray(pricingMetadata.columns) || pricingMetadata.columns.includes('half')
+  const hasIncompletePricingRows = pricingRows.some((row) => [row.label, row.full, ...(pricingHasHalfDay ? [row.half] : [])].some((value) => value === null || value === undefined || String(value).trim() === ''))
+  const cannotPublishEmptyPricing = form.location_key === 'course.pricing' && form.status === 'active' && (!pricingRows.length || hasIncompletePricingRows)
   const draftBlocks = normalizeContentBlocks(form.metadata, form.body, form.image_url)
   const setDraftBlocks = (blocks: CmsContentBlock[]) => {
     setForm((prev) => ({
@@ -1197,9 +1271,14 @@ function ContentDrawer({
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
+    if (cannotPublishEmptyPricing) return
     const normalizedBlocks = normalizeContentBlocks(form.metadata, form.body, form.image_url)
+    const metadata = form.location_key === 'course.pricing'
+      ? { ...form.metadata, pricing: { columns: ['full', 'half'], ...pricingMetadata } }
+      : form.metadata
     onSubmit({
       ...form,
+      external_id: form.location_key === 'course.resort-pages' ? resortPageSlug : form.external_id,
       body: blocksToPlainText(normalizedBlocks),
       image_url: form.image_url || getFirstBlockImage(normalizedBlocks),
       start_at: fromDateTimeInput(toDateTimeInput(form.start_at)),
@@ -1207,7 +1286,7 @@ function ContentDrawer({
       display_order: Number(form.display_order) || 0,
       tags: form.tags.map((tag) => tag.trim()).filter(Boolean),
       metadata: {
-        ...(form.metadata || {}),
+        ...(metadata || {}),
         blocks: normalizedBlocks,
       },
     })
@@ -1219,15 +1298,15 @@ function ContentDrawer({
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">左邊填資料，右邊會同步預覽前台效果。</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">填寫資料後，下方預覽會同步更新。</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-0 overflow-hidden lg:grid-cols-12">
-          <div className="space-y-5 overflow-y-auto p-6 lg:col-span-7">
+        <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-12 lg:overflow-hidden">
+          <div className="space-y-5 p-6 lg:col-span-7 lg:overflow-y-auto">
             <FormSection title="1. 這段內容放在哪裡">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block">
@@ -1240,6 +1319,8 @@ function ContentDrawer({
                         ...prev,
                         location_key: locationKey,
                         content_type: drawerLocationMap[locationKey]?.type || prev.content_type,
+                        external_id: locationKey !== prev.location_key && ['course.pricing', 'course.resorts'].some((key) => key === locationKey || key === prev.location_key)
+                          ? '' : prev.external_id,
                       }))
                     }}
                     className={inputClass}
@@ -1266,33 +1347,83 @@ function ContentDrawer({
                   </select>
                 </label>
               </div>
-            </FormSection>
-
-            <FormSection title="2. 前台會看到的標題">
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextInput label="標題" value={form.title} onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
-                <TextInput label="副標題" value={form.subtitle} onChange={(value) => setForm((prev) => ({ ...prev, subtitle: value }))} />
-              </div>
-
-              <label className="mt-4 block">
-                <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">短文字</span>
-                <textarea
-                  value={form.summary}
-                  onChange={(event) => setForm((prev) => ({ ...prev, summary: event.target.value }))}
-                  className={`${inputClass} min-h-[76px]`}
-                  placeholder="卡片上先看到的摘要"
-                />
-              </label>
+              {form.location_key === 'course.pricing' && (
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">這份價目要顯示在哪個雪場？</span>
+                  {pricingResortOptions.length ? (
+                    <select required value={form.external_id} onChange={(event) => setForm((prev) => ({ ...prev, external_id: event.target.value }))} className={inputClass}>
+                      <option value="">請選擇雪場</option>
+                      {pricingResortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  ) : (
+                    <input required value={form.external_id} onChange={(event) => setForm((prev) => ({ ...prev, external_id: event.target.value.trim().toLowerCase() }))} placeholder="例如 tomamu" className={inputClass} />
+                  )}
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{pricingResortOptions.length ? '選擇官網雪場列表中的雪場。' : '目前沒有雪場列表，請填入官網網址 /course/ 後面的雪場代號。'}</p>
+                </label>
+              )}
+              {form.location_key === 'course.resorts' && (
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">官網雪場網址代號</span>
+                  <input required value={form.external_id} onChange={(event) => setForm((prev) => ({ ...prev, external_id: event.target.value.trim().toLowerCase() }))} placeholder="例如 tomamu" className={inputClass} />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">填入網址 /course/tomamu 中的 tomamu；後續價目會依此雪場連結顯示。</p>
+                </label>
+              )}
+              {form.location_key === 'course.resort-pages' && (
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">這份介紹屬於哪個雪場？</span>
+                  <select
+                    required
+                    value={resortPageSlug}
+                    disabled={Boolean(item)}
+                    onChange={(event) => setForm((prev) => ({
+                      ...prev,
+                      external_id: event.target.value,
+                      metadata: { ...(prev.metadata || {}), slug: event.target.value },
+                    }))}
+                    className={inputClass}
+                  >
+                    <option value="">請選擇雪場</option>
+                    {pricingResortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">雪場介紹會顯示在該雪場的官網頁面；已建立的雪場代號不可變更。</p>
+                </label>
+              )}
             </FormSection>
 
             {form.location_key === 'course.pricing' ? (
+              <FormSection title="2. 後台辨識名稱">
+                <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
+              </FormSection>
+            ) : (
+              <FormSection title="2. 前台會看到的標題">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextInput label={form.content_type === 'review' ? '學員稱呼' : '標題'} value={form.title} onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
+                  <TextInput label="副標題" value={form.subtitle} onChange={(value) => setForm((prev) => ({ ...prev, subtitle: value }))} />
+                </div>
+
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">短文字</span>
+                  <textarea
+                    value={form.summary}
+                    onChange={(event) => setForm((prev) => ({ ...prev, summary: event.target.value }))}
+                    className={`${inputClass} min-h-[76px]`}
+                    placeholder="卡片上先看到的摘要"
+                  />
+                </label>
+              </FormSection>
+            )}
+
+            {form.location_key === 'course.pricing' ? (
               <CoursePricingEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
+            ) : form.location_key === 'course.resort-pages' ? (
+              <ResortTabsEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
             ) : (
               <FormSection title="3. 正文區塊（可圖字交錯）">
                 <ContentBlocksEditor blocks={draftBlocks} onChange={setDraftBlocks} />
               </FormSection>
             )}
 
+            {form.content_type === 'review' && <ReviewPlacementFields metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />}
             <FormSection title="4. 連結與顯示順序">
               <div className="grid gap-4 md:grid-cols-2">
                 <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />
@@ -1348,13 +1479,13 @@ function ContentDrawer({
                     onChange={(event) => setForm((prev) => ({ ...prev, content_type: event.target.value as SiteContentType }))}
                     className={inputClass}
                   >
-                    {CONTENT_TYPES.map((type) => (
+                    {CONTENT_TYPES.filter((type) => !contentTypes || contentTypes.includes(type.value)).map((type) => (
                       <option key={type.value} value={type.value}>{type.label}</option>
                     ))}
                   </select>
                 </label>
                 <TextInput label="來源" value={form.source} placeholder="Google / Instagram / Facebook" onChange={(value) => setForm((prev) => ({ ...prev, source: value }))} />
-                <TextInput label="外部 ID" value={form.external_id} placeholder="貼文 ID / 評論 ID，可空白" onChange={(value) => setForm((prev) => ({ ...prev, external_id: value }))} />
+                {form.location_key !== 'course.pricing' && form.location_key !== 'course.resorts' && form.location_key !== 'course.resort-pages' && <TextInput label="外部 ID" value={form.external_id} placeholder="貼文 ID / 評論 ID，可空白" onChange={(value) => setForm((prev) => ({ ...prev, external_id: value }))} />}
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">標籤</span>
                   <input
@@ -1371,11 +1502,11 @@ function ContentDrawer({
             </details>
           </div>
 
-          <div className="border-l border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950 lg:col-span-5">
+          <div className="border-t border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950 lg:col-span-5 lg:overflow-y-auto lg:border-l lg:border-t-0">
             <div className="mb-3">
-              <div className="text-sm font-semibold text-gray-900 dark:text-white">草稿預覽</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white">{form.location_key === 'course.pricing' ? '價目草稿預覽' : '草稿預覽'}</div>
               <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。
+                {form.location_key === 'course.pricing' ? '此處預覽價目資料；官網版型請以正式頁為準，儲存後才會更新。' : '這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。'}
               </p>
             </div>
             <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />
@@ -1383,6 +1514,7 @@ function ContentDrawer({
         </div>
 
         <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
+          {cannotPublishEmptyPricing && <p role="alert" className="mr-auto self-center text-xs text-red-600 dark:text-red-400">公開前請至少新增一筆，並填完每筆人數與價格。</p>}
           <button
             type="button"
             onClick={onClose}
@@ -1393,7 +1525,7 @@ function ContentDrawer({
           </button>
           <button
             type="submit"
-            disabled={isSaving}
+            disabled={isSaving || cannotPublishEmptyPricing}
             className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             style={{ backgroundColor: PRIMARY }}
           >
@@ -1914,6 +2046,122 @@ function ContentBlocksEditor({
   )
 }
 
+function ResortTabsEditor({ metadata, onChange }: { metadata: Record<string, unknown>; onChange: (metadata: Record<string, unknown>) => void }) {
+  const resort = isRecord(metadata.resort) ? metadata.resort : {}
+  const tabs = Array.isArray(resort.tabs) ? resort.tabs.filter(isRecord) : []
+  const tabOptions = [
+    { slug: 'ski-slope', title: '雪道介紹' },
+    { slug: 'rental', title: '租借雪具' },
+    { slug: 'lift', title: '雪票' },
+    { slug: 'accommodation', title: '住宿' },
+    { slug: 'access', title: '交通' },
+    { slug: 'nursery', title: '雪場托兒' },
+  ]
+  const availableTabs = tabOptions.filter((option) => !tabs.some((tab) => tab.slug === option.slug))
+  const [newTabSlug, setNewTabSlug] = useState('ski-slope')
+  const [activeIndex, setActiveIndex] = useState(0)
+  const selectedIndex = Math.min(activeIndex, Math.max(tabs.length - 1, 0))
+  const selectedTab = tabs[selectedIndex]
+  const updateTab = (index: number, changes: Record<string, unknown>) => {
+    onChange({
+      ...metadata,
+      resort: {
+        ...resort,
+        tabs: tabs.map((tab, tabIndex) => tabIndex === index ? { ...tab, ...changes } : tab),
+      },
+    })
+  }
+  const addTab = () => {
+    const option = availableTabs.find((candidate) => candidate.slug === newTabSlug) || availableTabs[0]
+    if (!option) return
+    onChange({ ...metadata, resort: { ...resort, tabs: [...tabs, { ...option, html: '', presentation: 'cms' }] } })
+    setActiveIndex(tabs.length)
+  }
+
+  return (
+    <FormSection title="3. 雪場介紹分頁">
+      <p className="mb-4 text-sm leading-6 text-gray-600 dark:text-gray-300">
+        先選分頁，再直接點內容中的文字或表格格子修改。圖片與原有版面會保留；按「儲存變更」後，官網才會更新。
+      </p>
+      {tabs.length ? (
+        <>
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="雪場介紹分頁">
+            {tabs.map((tab, index) => (
+              <button
+                key={String(tab.slug || index)}
+                type="button"
+                role="tab"
+                aria-selected={index === selectedIndex}
+                onClick={() => setActiveIndex(index)}
+                className={`rounded-lg border px-3 py-2 text-sm font-medium ${index === selectedIndex ? 'border-[#8b5cf6] bg-[#8b5cf6]/10 text-[#6d28d9] dark:text-[#c4b5fd]' : 'border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300'}`}
+              >
+                {String(tab.title || tab.slug || `分頁 ${index + 1}`)}
+              </button>
+            ))}
+          </div>
+          {selectedTab && (
+            <div key={String(selectedTab.slug || selectedIndex)} className="mt-4 space-y-3" role="tabpanel">
+              <TextInput label="分頁名稱" value={String(selectedTab.title || '')} onChange={(value) => updateTab(selectedIndex, { title: value })} />
+              <div>
+                <div className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-200">官網顯示內容（可直接編輯）</div>
+                <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">手機看表格時，可在框內左右滑動。</p>
+                <ResortHtmlEditor
+                  key={String(selectedTab.slug || selectedIndex)}
+                  label={`${String(selectedTab.title || '雪場')}內容`}
+                  html={String(selectedTab.html || '')}
+                  onChange={(html) => updateTab(selectedIndex, { html })}
+                />
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">這裡適合更新日期、票價、營業資訊等文字；複雜圖片與表格排版請交由網站管理員處理。</p>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          此雪場尚無介紹分頁。請在下方選擇分頁並新增。
+        </div>
+      )}
+      {availableTabs.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-end gap-2">
+          <label className="min-w-44 flex-1 text-xs font-medium text-gray-700 dark:text-gray-200">
+            新增分頁
+            <select value={availableTabs.some((option) => option.slug === newTabSlug) ? newTabSlug : availableTabs[0].slug} onChange={(event) => setNewTabSlug(event.target.value)} className={`mt-1 ${inputClass}`}>
+              {availableTabs.map((option) => <option key={option.slug} value={option.slug}>{option.title}</option>)}
+            </select>
+          </label>
+          <button type="button" onClick={addTab} className="inline-flex items-center gap-1 rounded-lg border border-[#8b5cf6] px-3 py-2 text-sm font-semibold text-[#7c3aed] dark:text-[#c4b5fd]">
+            <Plus size={14} />新增分頁
+          </button>
+        </div>
+      )}
+    </FormSection>
+  )
+}
+
+function ResortHtmlEditor({ label, html, onChange }: { label: string; html: string; onChange: (html: string) => void }) {
+  const editorRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (editorRef.current) editorRef.current.innerHTML = html
+  }, [])
+
+  return (
+    <div
+      ref={editorRef}
+      role="textbox"
+      aria-label={label}
+      aria-multiline="true"
+      contentEditable
+      suppressContentEditableWarning
+      onInput={(event) => onChange(event.currentTarget.innerHTML)}
+      onPaste={(event) => {
+        event.preventDefault()
+        document.execCommand('insertText', false, event.clipboardData.getData('text/plain'))
+      }}
+      className="min-h-44 max-h-[520px] overflow-auto rounded-lg border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-800 outline-none focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 [&_img]:max-w-full [&_table]:min-w-[520px] [&_table]:border-collapse [&_td]:border [&_td]:border-gray-300 [&_td]:p-2 [&_th]:border [&_th]:border-gray-300 [&_th]:p-2"
+    />
+  )
+}
+
 function DraftContentPreview({
   form,
   location,
@@ -1923,7 +2171,12 @@ function DraftContentPreview({
   location: LocationInfo
   blocks: CmsContentBlock[]
 }) {
-  const previewUrl = buildOfficialPreviewUrl(location.key)
+  const previewUrl = buildOfficialPreviewUrl(location.key, location.key === 'course.resort-pages' ? String(form.metadata?.slug || form.external_id || '') : form.external_id)
+  const pricing = isRecord(form.metadata?.pricing) ? form.metadata.pricing : {}
+  const plans = isRecord(pricing.plans) ? pricing.plans : {}
+  const resort = isRecord(form.metadata?.resort) ? form.metadata.resort : {}
+  const resortTabs = Array.isArray(resort.tabs) ? resort.tabs.filter(isRecord) : []
+  const showHalfDay = Array.isArray(pricing.columns) ? pricing.columns.includes('half') : true
   const visibleBlocks = blocks.filter((block) => {
     if (block.type === 'heading' || block.type === 'paragraph') return block.text.trim()
     if (block.type === 'image') return block.src.trim()
@@ -1950,12 +2203,47 @@ function DraftContentPreview({
         <article className="px-5 py-10">
           <div className="mx-auto max-w-2xl">
             <div className="text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#94a3b8]">{form.subtitle || 'SnowLand'}</p>
-              <h1 className="mt-4 text-2xl font-semibold tracking-wide text-[#1f2937]">{form.title || '未命名內容'}</h1>
-              {form.summary && <p className="mt-5 text-sm leading-7 text-[#64748b]">{form.summary}</p>}
+              {form.location_key === 'course.pricing' ? (
+                <h1 className="text-xl font-semibold text-[#1f2937]">官網展示價目</h1>
+              ) : (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#94a3b8]">{form.subtitle || 'SnowLand'}</p>
+                  <h1 className="mt-4 text-2xl font-semibold tracking-wide text-[#1f2937]">{form.title || '未命名內容'}</h1>
+                  {form.summary && <p className="mt-5 text-sm leading-7 text-[#64748b]">{form.summary}</p>}
+                </>
+              )}
             </div>
 
-            {visibleBlocks.length === 0 ? (
+            {form.location_key === 'course.pricing' ? (
+              <div className="mt-8 space-y-5">
+                <p className="text-center text-sm font-semibold text-[#2b5f8f]">{String(pricing.season_label || '課程價格')}</p>
+                {(['discount', 'regular'] as const).map((key) => {
+                  const plan = isRecord(plans[key]) ? plans[key] : {}
+                  const rows = Array.isArray(plan.rows) ? plan.rows.filter(isRecord) : []
+                  return (
+                    <div key={key} className="rounded-lg border border-[#e2e8f0] bg-white p-4">
+                      <h2 className="font-semibold text-[#1f2937]">{String(plan.label || (key === 'discount' ? '優惠時段' : '一般時段'))}</h2>
+                      {Boolean(plan.period) && <p className="mt-1 text-xs text-[#64748b]">{String(plan.period)}</p>}
+                      {rows.length ? rows.map((row, index) => (
+                        <div key={index} className="mt-3 flex flex-wrap justify-between gap-2 border-t border-[#e2e8f0] pt-3 text-sm text-[#334155]">
+                          <span>{String(row.label || '未填人數')}</span>
+                          <span>全天 {String(pricing.currency || 'NT$')}{String(row.full ?? '—')}{showHalfDay ? ` ／ 半天 ${String(pricing.currency || 'NT$')}${String(row.half ?? '—')}` : ''}</span>
+                        </div>
+                      )) : <p className="mt-3 text-sm text-[#64748b]">尚未新增人數價格</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : form.location_key === 'course.resort-pages' ? (
+              <div className="mt-8 space-y-5">
+                {resortTabs.length ? resortTabs.map((tab, index) => (
+                  <section key={String(tab.slug || index)} className="rounded-lg border border-[#e2e8f0] bg-white p-4">
+                    <h2 className="mb-3 text-base font-semibold text-[#1f2937]">{String(tab.title || tab.slug || '未命名分頁')}</h2>
+                    {tab.html ? <div className="max-h-72 overflow-auto text-sm leading-7 text-[#475569] [&_img]:max-w-full [&_table]:min-w-[520px] [&_table]:border-collapse [&_td]:border [&_td]:border-[#e2e8f0] [&_td]:p-2 [&_th]:border [&_th]:border-[#e2e8f0] [&_th]:p-2" dangerouslySetInnerHTML={{ __html: String(tab.html) }} /> : <p className="text-sm text-[#64748b]">尚未填寫內容</p>}
+                  </section>
+                )) : <p className="rounded-lg border border-dashed border-[#cbd5e1] bg-white p-6 text-center text-sm text-[#64748b]">尚未新增雪場分頁</p>}
+              </div>
+            ) : visibleBlocks.length === 0 ? (
               <div className="mt-10 rounded-lg border border-dashed border-[#cbd5e1] bg-white p-8 text-center text-sm text-[#64748b]">
                 左邊新增正文區塊後，這裡會照順序預覽。
               </div>
@@ -2016,12 +2304,14 @@ function TextInput({
   value,
   onChange,
   type = 'text',
+  min,
   placeholder = '',
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   type?: string
+  min?: number
   placeholder?: string
 }) {
   return (
@@ -2029,6 +2319,7 @@ function TextInput({
       <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{label}</span>
       <input
         type={type}
+        min={min}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
