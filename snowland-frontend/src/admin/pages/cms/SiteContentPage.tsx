@@ -281,7 +281,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 const createBlockId = () => `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 const normalizeContentBlocks = (metadata: Record<string, unknown> | undefined, body = '', imageUrl = ''): CmsContentBlock[] => {
-  const rawBlocks = Array.isArray(metadata?.blocks) ? metadata.blocks : []
+  const page = isRecord(metadata?.page) ? metadata.page : {}
+  const rawBlocks = Array.isArray(metadata?.blocks) ? metadata.blocks : Array.isArray(page.blocks) ? page.blocks : []
   const blocks = rawBlocks
     .map((block): CmsContentBlock | null => {
       if (!isRecord(block)) return null
@@ -1332,7 +1333,7 @@ function ContentDrawer({
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{isPhotographyPage ? '依原版型修改欄位；儲存後官網才會更新。' : '填寫資料後，下方預覽會同步更新。'}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button type="button" aria-label="關閉內容編輯" onClick={onClose} className="min-h-11 min-w-11 rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />
           </button>
         </div>
@@ -1562,14 +1563,14 @@ function ContentDrawer({
             type="button"
             onClick={onClose}
             disabled={isSaving}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
           >
             取消
           </button>
           <button
             type="submit"
             disabled={isSaving || cannotPublishEmptyPricing}
-            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             style={{ backgroundColor: PRIMARY }}
           >
             {isSaving && <Loader2 size={14} className="animate-spin" />}
@@ -1966,7 +1967,13 @@ function ContentBlocksEditor({
   blocks: CmsContentBlock[]
   onChange: (blocks: CmsContentBlock[]) => void
 }) {
+  const [search, setSearch] = useState('')
+  const [matchedIds, setMatchedIds] = useState<string[] | null>(null)
+  const visibleBlocks = blocks.map((block, index) => ({ block, index }))
+    .filter(({ block }) => !search.trim() || matchedIds?.includes(block.id))
   const addBlock = (type: CmsContentBlock['type']) => {
+    setSearch('')
+    setMatchedIds(null)
     const nextBlock: CmsContentBlock =
       type === 'heading'
         ? { id: createBlockId(), type: 'heading', text: '新的小標題', level: 2 }
@@ -2012,13 +2019,21 @@ function ContentBlocksEditor({
         </button>
       </div>
 
+      {(blocks.length > 10 || search) && <label className="block text-sm text-gray-700 dark:text-gray-200">搜尋原頁內容（{visibleBlocks.length}/{blocks.length} 區塊）
+        <input type="search" value={search} className={inputClass} placeholder="輸入要修改的文字、圖片說明或網址" onChange={event => {
+          const query = event.target.value.trim().toLowerCase()
+          setSearch(event.target.value)
+          setMatchedIds(blocks.filter(block => JSON.stringify(block).toLowerCase().includes(query)).map(block => block.id))
+        }} />
+      </label>}
+      {search && !visibleBlocks.length && <p className="text-sm text-gray-500 dark:text-gray-400">找不到符合的區塊。<button type="button" onClick={() => setSearch('')} className="ml-2 min-h-11 underline">清除搜尋</button></p>}
       {blocks.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-400">
           還沒有正文區塊。先加一段文字或圖片，右邊會立即看到草稿排版。
         </div>
       ) : (
         <div className="space-y-3">
-          {blocks.map((block, index) => (
+          {visibleBlocks.map(({ block, index }) => (
             <div key={block.id} className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/60">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="text-xs font-bold text-gray-700 dark:text-gray-200">

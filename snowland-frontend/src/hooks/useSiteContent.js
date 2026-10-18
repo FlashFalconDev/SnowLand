@@ -87,6 +87,7 @@ export const siteContentToPage = (item) => {
       subtitle: item.subtitle || storedPage.subtitle,
       summary: item.summary || storedPage.summary,
       heroImage: item.image_url || storedPage.heroImage,
+      blocks: Array.isArray(item.metadata?.blocks) ? item.metadata.blocks : storedPage.blocks,
     };
   }
   return {

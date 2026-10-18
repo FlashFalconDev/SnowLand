@@ -168,6 +168,22 @@ const CMS_LOCATION_BY_PAGE_KEY = {
 };
 
 function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = false }) {
+  const cmsLocationKey = CMS_LOCATION_BY_PAGE_KEY[pageKey] ?? `legacy.${pageKey}`;
+  const { items: cmsPageItems, isLoading: pageLoading, error: pageError } = useSiteContent(cmsLocationKey, { limit: 20 });
+  const { items: articleItems } = useSiteContent('guides.articles');
+  const page = siteContentToPage(cmsPageItems[0]);
+  if (!page) return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
+    <SiteHeader forceTransparent />
+    <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
+      <p role={pageError ? 'alert' : 'status'} className={`text-sm ${pageError ? 'text-red-600' : 'text-[#64748b]'}`}>
+        {pageError ? '內容暫時無法載入，請稍後再試。' : pageLoading ? '內容載入中。' : '目前沒有已發布的內容。'}
+      </p>
+    </main><SiteFooter />
+  </div>;
+  return <LegacyContentLayout key={pageKey} pageKey={pageKey} page={page} guidesArticles={articleItems.map(siteContentToArticle)} forceDarkHeader={forceDarkHeader} forceLogoColor={forceLogoColor} />;
+}
+
+function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = false, forceLogoColor = false }) {
   const isAboutPage = pageKey === "about";
   const isJoinUsPage = pageKey === "join-us";
   const isGuidesFaqPage = pageKey === "guides-faq";
@@ -188,11 +204,6 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
   const [joinUsMobileSlide, setJoinUsMobileSlide] = useState(0);
   const joinUsMobileCarouselRef = useRef(null);
   const [isTocOpen, setIsTocOpen] = useState(true);
-  const cmsLocationKey = CMS_LOCATION_BY_PAGE_KEY[pageKey] ?? `legacy.${pageKey}`;
-  const { items: cmsPageItems, isLoading: pageLoading, error: pageError } = useSiteContent(cmsLocationKey, { limit: 20 });
-  const { items: articleItems } = useSiteContent('guides.articles');
-  const page = siteContentToPage(cmsPageItems[0]);
-  const guidesArticles = articleItems.map(siteContentToArticle);
   const prefersReducedMotion = useReducedMotion();
   const activeDealsKey = pageKey === "deals" ? "deals-earlybird" : pageKey;
   const categoryBadgeStyles = {
@@ -221,20 +232,6 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
     .filter((card) => card.category === "限時活動")
     .slice()
     .sort((a, b) => dateToNumber(b.date) - dateToNumber(a.date));
-
-  if (!page) {
-    return (
-      <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
-        <SiteHeader forceTransparent />
-        <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
-          <p className={`text-sm ${pageError ? "text-red-600" : "text-[#64748b]"}`}>
-            {pageError ? "內容暫時無法載入，請稍後再試。" : pageLoading ? "內容載入中。" : "目前沒有已發布的內容。"}
-          </p>
-        </main>
-        <SiteFooter />
-      </div>
-    );
-  }
 
   let blocks = page.blocks ?? [];
   const normalizedTitle = page.title?.replace(/\s+/g, "");
