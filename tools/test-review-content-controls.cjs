@@ -1,6 +1,8 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm')
 const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequire(path.join(root,'package.json'))
 const React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
+const articleContext=vm.createContext({exports:{}})
+vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/admin/utils/articleContent.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,articleContext)
 const source=fs.readFileSync(path.join(root,'src/admin/pages/cms/SiteContentPage.tsx'),'utf8')
 const groups=[{id:'homepage',label:'首頁',description:'',locations:[{key:'homepage.reviews',label:'學生評價',hint:'',type:'review'}]},
   {id:'photography',label:'攝影作品',description:'',locations:[{key:'photography.gallery',label:'攝影作品',hint:'',type:'media'}]},
@@ -24,6 +26,8 @@ function harness({rulesError=false}={}){
     if(name==='../../components/ReviewPlacementFields')return{default:function ReviewPlacementFields(){return null}}
     if(name==='../../components/GalleryFields')return{default:function GalleryFields(){return null}}
     if(name==='../../components/PhotographyPageEditor')return{default:function PhotographyPageEditor(){return null}}
+    if(name==='../../components/ArticlePageEditor')return{default:function ArticlePageEditor(){return null}}
+    if(name==='../../utils/articleContent')return articleContext.exports
     throw new Error('Unexpected dependency '+name)
   }})
   vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText+'\nexports.Drawer=ContentDrawer;exports.preview=getContentPreviewText;',ctx)
@@ -52,6 +56,12 @@ assert.ok(find(photoDrawer,n=>typeof n.type==='function'&&n.type.name==='Photogr
 assert.ok(photoHtml.includes('依原版型修改欄位'));assert.ok(!photoHtml.includes('封面圖片（可空白'))
 assert.ok(!photoHtml.includes('左邊新增正文區塊'));assert.ok(photoHtml.includes('正式官網預覽'))
 assert.ok(photoHtml.includes('role="alert"'));assert.ok(photoHtml.includes('QA儲存失敗必須持續顯示'))
+let articleSaved
+const articleDrawer=harness().drawer({groups:[{id:'guides',label:'攻略',locations:[{key:'guides.packing',label:'裝備',type:'page'}]}],group:'guides',item:{id:234,location_key:'guides.packing',content_type:'article',title:'舊標題',tags:[],metadata:{article:{title:'新標題',heroImage:'/new.svg',lead:'新說明',html:'<p>原HTML</p>'}}},galleryItems:[],resortOptions:[],onClose(){},onSubmit:data=>articleSaved=data,isSaving:false})
+assert.ok(find(articleDrawer,n=>typeof n.type==='function'&&n.type.name==='ArticlePageEditor'))
+assert.ok(!find(articleDrawer,n=>typeof n.type==='function'&&n.type.name==='ContentBlocksEditor'))
+find(articleDrawer,n=>n.type==='form').props.onSubmit({preventDefault(){}})
+assert.equal(articleSaved.title,'新標題');assert.equal(articleSaved.summary,'新說明');assert.equal(articleSaved.image_url,'/new.svg');assert.equal(articleSaved.metadata.article.html,'<p>原HTML</p>')
 const failed=harness({rulesError:true}),tree=failed.render({contentTypes:['review']})
 const retry=find(tree,node=>node.type==='button'&&node.props.children==='重新載入')
 assert.ok(retry);retry.props.onClick();assert.equal(failed.refetched(),2)

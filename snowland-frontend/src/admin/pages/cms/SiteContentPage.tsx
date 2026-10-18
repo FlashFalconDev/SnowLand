@@ -19,6 +19,8 @@ import { useNotification } from '../../context'
 import ReviewPlacementFields from '../../components/ReviewPlacementFields'
 import GalleryFields from '../../components/GalleryFields'
 import PhotographyPageEditor from '../../components/PhotographyPageEditor'
+import ArticlePageEditor from '../../components/ArticlePageEditor'
+import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
   createSiteContent,
   deleteSiteContent,
@@ -354,6 +356,7 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (isRecord(item.metadata?.article)) return String(item.metadata.article.lead || item.metadata.article.title || '原文章內容')
   if (['photography.winter', 'photography.summer'].includes(item.location_key)) {
     const content = isRecord(item.metadata?.photography) ? item.metadata.photography : {}
     const values = isRecord(content.values) ? content.values : {}
@@ -478,7 +481,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   }, [structureItem, contentTypes, reviewGroups.data])
   const locationMap = useMemo(() => buildLocationMap(groups), [groups])
   const defaultLocationByGroup = useMemo(() => getDefaultLocationByGroup(groups), [groups])
-  const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY && (!contentTypes || contentTypes.includes(item.content_type))), [contents, contentTypes])
+  const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY && (!contentTypes || contentTypes.includes(item.content_type))).map(toEditorSiteContent), [contents, contentTypes])
 
   useEffect(() => {
     const targetGroup = groups.find((group) => group.id === initialGroup) || groups[0]
@@ -506,7 +509,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   }, [activeGroup, activeLocationKey, groups])
 
   const createMutation = useMutation({
-    mutationFn: createSiteContent,
+    mutationFn: (data: SiteContentWriteData) => createSiteContent(toStoredSiteContent(data)),
     onSuccess: () => {
       notify.success('已新增官網內容')
       refresh()
@@ -521,7 +524,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<SiteContentWriteData> }) => updateSiteContent(id, data),
+    mutationFn: ({ id, data }: { id: number; data: SiteContentWriteData }) => updateSiteContent(id, toStoredSiteContent(data)),
     onSuccess: () => {
       notify.success('已更新官網內容')
       refresh()
@@ -612,6 +615,8 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   }, [selectedId, locationContents])
 
   const openCreate = (locationKey?: string) => {
+    const originalArticle = locationKey === 'guides.packing' && contentItems.find(item => item.location_key === locationKey && isRecord(item.metadata?.article))
+    if (originalArticle) { openEdit(originalArticle); return }
     setSaveError('')
     setEditing(null)
     setCreateLocation(locationKey || null)
@@ -659,7 +664,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm"
           style={{ backgroundColor: PRIMARY }}
         >
-          <Plus size={16} />新增內容
+          <Plus size={16} />{activeLocation?.key === 'guides.packing' && locationContents.length ? '編輯裝備原稿' : '新增內容'}
         </button>
       </div>
 
@@ -779,7 +784,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
                 className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm"
                 style={{ backgroundColor: PRIMARY }}
               >
-                <Plus size={15} />新增資料
+                <Plus size={15} />{activeLocation.key === 'guides.packing' && locationContents.length ? '編輯裝備原稿' : '新增資料'}
               </button>
             </div>
 
@@ -1276,6 +1281,8 @@ function ContentDrawer({
   } : makeEmptyForm(initialLocation || groupInfo?.locations[0]?.key, initialLocation ? drawerLocationMap[initialLocation] : groupInfo?.locations[0]))
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
   const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
+  const isArticlePage = form.location_key === 'guides.packing' || (form.location_key === 'guides.article-pages' && isRecord(form.metadata?.article))
+  const isStructuredPage = isPhotographyPage || isArticlePage
   const pricingResortOptions = resortOptions.length && form.external_id && !resortOptions.some((option) => option.value === form.external_id)
     ? [{ value: form.external_id, label: form.external_id }, ...resortOptions]
     : resortOptions
@@ -1311,9 +1318,10 @@ function ContentDrawer({
       : form.metadata
     onSubmit({
       ...form,
+      ...(isArticlePage ? { title: String((form.metadata?.article as Record<string, unknown>)?.title || ''), summary: String((form.metadata?.article as Record<string, unknown>)?.lead || ''), image_url: String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') } : {}),
       external_id: form.location_key === 'course.resort-pages' ? resortPageSlug : form.external_id,
       body: blocksToPlainText(normalizedBlocks),
-      image_url: form.image_url || getFirstBlockImage(normalizedBlocks),
+      image_url: isArticlePage ? String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') : form.image_url || getFirstBlockImage(normalizedBlocks),
       start_at: fromDateTimeInput(toDateTimeInput(form.start_at)),
       end_at: fromDateTimeInput(toDateTimeInput(form.end_at)),
       display_order: Number(form.display_order) || 0,
@@ -1331,7 +1339,7 @@ function ContentDrawer({
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{isPhotographyPage ? '依原版型修改欄位；儲存後官網才會更新。' : '填寫資料後，下方預覽會同步更新。'}</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{isStructuredPage ? '依原版型修改欄位；儲存後官網才會更新。' : '填寫資料後，下方預覽會同步更新。'}</p>
           </div>
           <button type="button" aria-label="關閉內容編輯" onClick={onClose} className="min-h-11 min-w-11 rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />
@@ -1423,7 +1431,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {form.location_key === 'course.pricing' || ['photography.winter', 'photography.summer'].includes(form.location_key) ? (
+            {isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1446,7 +1454,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {['photography.winter', 'photography.summer'].includes(form.location_key) ? (
+            {isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (
@@ -1463,8 +1471,8 @@ function ContentDrawer({
             )}
 
             {form.content_type === 'review' && <ReviewPlacementFields metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />}
-            <FormSection title={isPhotographyPage ? '4. 顯示順序' : '4. 連結與顯示順序'}>
-              {!isPhotographyPage && <div className="grid gap-4 md:grid-cols-2">
+            <FormSection title={isStructuredPage ? '4. 顯示順序' : '4. 連結與顯示順序'}>
+              {!isStructuredPage && <div className="grid gap-4 md:grid-cols-2">
                 {form.location_key !== 'photography.gallery' && <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />}
                 <TextInput label="點擊後連結" value={form.link_url} placeholder="/specialoffers/earlybird" onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />
               </div>}
@@ -1543,15 +1551,15 @@ function ContentDrawer({
 
           <div className="border-t border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950 lg:col-span-5 lg:overflow-y-auto lg:border-l lg:border-t-0">
             <div className="mb-3">
-              <div className="text-sm font-semibold text-gray-900 dark:text-white">{isPhotographyPage ? '攝影頁面草稿檢查' : form.location_key === 'course.pricing' ? '價目草稿預覽' : '草稿預覽'}</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white">{isStructuredPage ? '原版型內容檢查' : form.location_key === 'course.pricing' ? '價目草稿預覽' : '草稿預覽'}</div>
               <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {isPhotographyPage ? '使用既有官網版型，並非新增通用正文區塊。' : form.location_key === 'course.pricing' ? '此處預覽價目資料；官網版型請以正式頁為準，儲存後才會更新。' : '這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。'}
+                {isStructuredPage ? '使用既有官網版型，並非新增通用正文區塊。' : form.location_key === 'course.pricing' ? '此處預覽價目資料；官網版型請以正式頁為準，儲存後才會更新。' : '這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。'}
               </p>
             </div>
-            {isPhotographyPage ? <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+            {isStructuredPage ? <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
               <p>請在左側展開區塊，或搜尋要修改的文字與方案。</p>
               <p>儲存後，可從外層「正式官網預覽」查看完整排版。</p>
-              <p>照片、說明及展示價格各有對應欄位；實際收費不會在這裡變更。</p>
+              <p>照片與說明各有對應欄位；實際收費不會在這裡變更。</p>
             </div> : <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />}
           </div>
         </div>

@@ -258,6 +258,14 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         content_type=attrs.get('content_type',getattr(self.instance,'content_type',None))
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
+        metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
+        external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location == 'guides.packing' or (location == 'guides.article-pages' and (external_id == 'packing-checklist' or isinstance(metadata, dict) and 'article' in metadata)):
+            from Client.article_pages import validate_article_metadata
+            try:
+                attrs['metadata'] = validate_article_metadata(metadata, attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active')
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
         if content_type == 'page' and location in ('photography.winter', 'photography.summer'):
             from Client.photography_pages import validate_photography_metadata
             try:
