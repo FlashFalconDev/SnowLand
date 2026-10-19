@@ -1,3 +1,4 @@
+from booking.tests_policy_support import checkout_policy_acknowledgement
 from copy import deepcopy
 from datetime import timedelta
 
@@ -30,7 +31,7 @@ class RebookLearnerTests(TestCase):
     def payload(self):
         item=self.quick()
         item['courses'][0]['date']=str(timezone.localdate()+timedelta(days=30))
-        return {'cart':[item],'accepted_policy':True,'contact':{'name':'QA訂購人','email':self.owner.email,'phone':'0900000000','messengerType':'line','messengerId':'qa-only','referralSource':'其他'}}
+        return {'cart':[item],**checkout_policy_acknowledgement(),'contact':{'name':'QA訂購人','email':self.owner.email,'phone':'0900000000','messengerType':'line','messengerId':'qa-only','referralSource':'其他'}}
 
     def create(self,body,advanced=False):
         url='/booking/snowland/api/super-schedule/' if advanced else '/booking/snowland/api/create-reservation/'

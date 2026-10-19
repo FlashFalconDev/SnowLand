@@ -5,6 +5,18 @@ import type { CourseSession } from '@/types/booking'
 const DISCOUNT_PREVIEW_TIMEOUT_MS = 30000
 const RESERVATION_SUBMIT_TIMEOUT_MS = 120000
 
+export interface CheckoutPolicyAcceptance {
+  terms: boolean
+  privacy: boolean
+  terms_version: string
+  privacy_version: string
+}
+export interface CheckoutPolicies {
+  documents: Record<'terms' | 'privacy', { title: string; body: string; version: string }>
+  pages: Record<string, { title: string; body: string; html: string }>
+}
+export const fetchCheckoutPolicies = async (): Promise<CheckoutPolicies> => api.get('/checkout-policies/')
+
 export interface SiteContentItem {
   id: number
   content_type: string
@@ -155,6 +167,7 @@ export const calculatePrice = async (params: CalculatePriceParams): Promise<Calc
 export interface CreateReservationParams {
   staff_link?: string
   accepted_policy?: boolean
+  policy_acceptance?: CheckoutPolicyAcceptance | null
   contact?: {
     name?: string
     email?: string

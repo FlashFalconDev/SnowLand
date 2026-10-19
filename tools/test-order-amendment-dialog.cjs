@@ -3,7 +3,7 @@ const root=path.resolve(__dirname,'../snowland-frontend'),localRequire=Module.cr
 const React=localRequire('react'),ts=localRequire('typescript')
 const compiled=ts.transpileModule(fs.readFileSync(path.join(root,'src/admin/components/OrderAmendmentDialog.tsx'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText
 const item={reservation_id:1,resort:'QA',course_type:'QA課程',number_of_people:1,members:[{id:4,name:'原學員'}],templates:[],coaches:[],equipment_slots:[]}
-const quote={quote_token:'signed',previous_total:9500,new_total:11500,difference_amount:2000}
+const quote={quote_token:'signed',previous_total:9500,new_total:11500,difference_amount:2000,items:[{waiver_resign_count:2,insurance_recheck_count:1}]}
 const draft={reservation_id:1,number_of_people:2,ability_level_counts:{no_exp:2},retained_member_ids:[4],courses:[]}
 function harness(initial,items=[item]){
   const state=[...initial],refs=[],calls=[];let si=0,ri=0,fail
@@ -22,6 +22,9 @@ async function main(){
   assert.equal(blocked.find(blocked.render(),node=>node.type==='select').props.disabled,true)
   const states=[1,draft,quote,null,'QA原因',true,false,false,'',false]
   let ui=harness(states)
+  const previewHtml=localRequire('react-dom/server').renderToStaticMarkup(ui.render())
+  assert.match(previewHtml,/舊簽署留底/)
+  assert.match(previewHtml,/本次須重新簽署：2 位；投保重新核對：1 位/)
   assert.equal(ui.button('確認保存修改').props.disabled,false)
   await ui.button('確認保存修改').props.onClick()
   assert.equal(ui.calls[0][1],42);assert.equal(ui.calls[0][2].changes[0],draft)

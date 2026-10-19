@@ -174,7 +174,7 @@ function CampusManagerOrdersPage({ isPrincipal }: { isPrincipal: boolean }) {
       {expandedId === order.id && <div className="mt-4 space-y-2 border-t border-gray-100 pt-4 dark:border-gray-700">
         {order.sessions.map((session, index) => <div key={`${session.date}-${index}`} className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700 dark:bg-gray-700 dark:text-gray-200">
           <div className="font-medium">{session.date}　{session.start_time.slice(0, 5)}–{session.end_time.slice(0, 5)} · {session.course_type || '課程'}</div>
-          <div className="mt-1 text-xs text-gray-500 dark:text-gray-300">{session.number_of_people} 人 · 程度：{formatAbilityLevel(session.ability_level)} · 年齡：{session.age_ranges.join('、') || '未填'}</div>
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-300">{session.number_of_people} 人 · 程度：{formatAbilityLevel(session.ability_level)} · 年齡：{session.age_ranges.filter(Boolean).join('、') || '未填'}</div>
         </div>)}
       </div>}
     </section>)}
@@ -310,7 +310,7 @@ function FullOrdersPage() {
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
                   {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} NT$ {Math.abs(order.amendment_balance.amount).toLocaleString()}</span>}
-                  <button type="button" onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
+                  <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
                 </div>
               </div>
             })}
@@ -914,11 +914,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               {r.status === 'manually_assigned' && <p className="mt-3 rounded-lg bg-violet-50 p-3 text-sm leading-6 text-violet-800 dark:bg-violet-900/20 dark:text-violet-200">人工排定已鎖定教練，不會因其他訂單自動排課而被換走；如需改派，請在此訂單明確修改。</p>}
 
               {canComplete && <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-100">
-                <p>課程都已結束。確認實際授課完成後，才會納入教練時數與薪資，並建立學員評量。</p>
+                <p>課程都已結束。確認實際授課完成後，才會納入已完成授課統計與薪資，並建立學員評量。</p>
                 {confirmCompletionId === r.id ? <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={() => setConfirmCompletionId(null)} disabled={completeCourse.isPending} className="rounded-lg border border-violet-300 px-3 py-2 text-sm disabled:opacity-40">返回</button>
-                  <button onClick={() => completeCourse.mutate(r.id)} disabled={completeCourse.isPending} className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">{completeCourse.isPending ? '處理中…' : '確認已授課完成'}</button>
-                </div> : <button onClick={() => setConfirmCompletionId(r.id)} className="mt-3 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white">標記課程完成</button>}
+                  <button onClick={() => setConfirmCompletionId(null)} disabled={completeCourse.isPending} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-sm disabled:opacity-40">返回</button>
+                  <button onClick={() => completeCourse.mutate(r.id)} disabled={completeCourse.isPending} className="min-h-11 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">{completeCourse.isPending ? '處理中…' : '確認已授課完成'}</button>
+                </div> : <button onClick={() => setConfirmCompletionId(r.id)} className="mt-3 min-h-11 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white">標記課程完成</button>}
               </div>}
               {r.status === 'completed' && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200">已確認完課；時段與教練已鎖定，評量可在「學習評量」查看，教練時數可在「薪資結算」計算。</p>}
 

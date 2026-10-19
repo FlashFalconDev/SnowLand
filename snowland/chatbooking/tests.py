@@ -1963,6 +1963,8 @@ class ChatBookingOrderIntegrationTests(TestCase):
         self.assertEqual(first.status_code, 200, first.content)
         self.assertEqual(ReservationGroup.objects.count(), 1)
         self.assertTrue(ReservationGroup.objects.get().booking_contact['policy_accepted_at'])
+        self.assertEqual(ReservationGroup.objects.get().booking_contact['policy_consent_channel'], 'legacy_chat')
+        self.assertNotIn('policy_acceptance', ReservationGroup.objects.get().booking_contact)
         self.assertEqual(first.json()["payment"]["total_amount"], 10000)
 
         second = self.client.post(

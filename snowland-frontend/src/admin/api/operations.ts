@@ -76,6 +76,11 @@ export interface InsuranceRecordDetail extends InsuranceRecord {
   insurance_data: Record<string, string>
   waiver_signature: string; waiver_document_version: string; waiver_document_snapshot: string
   media_consent: string
+  document_history: { id:number; created_at:string; reason:string; version:number; snapshot: {
+    waiver_signature:string; waiver_document_version:string; waiver_document_snapshot:string; waiver_completed_at:string|null;
+    insurance_processing_status:string; insurance_premium_amount:string|null; insurance_premium_currency:string;
+    previous_courses:{date:string}[]
+  } }[]
 }
 
 export interface InsuranceReminderPreview { field:'insurance'|'waiver'; recipient_email:string; subject:string; message:string; action_url:string; local_test:boolean }

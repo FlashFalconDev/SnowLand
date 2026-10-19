@@ -558,6 +558,7 @@ export default function SchedulingPage() {
                   {reschedulingClassId === candidate.shared_class_id && <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/50">
                     {scheduleOptionsLoading ? <p className="text-sm text-gray-600 dark:text-gray-300">正在讀取可選時段…</p> : scheduleOptionsError ? <p role="alert" className="text-sm text-red-600 dark:text-red-300">無法讀取班級時段，請稍後再試。</p> : <>
                       <p className="text-sm text-gray-700 dark:text-gray-200">會同步修改 {scheduleOptions?.affected_orders ?? candidate.orders.length} 筆訂單，不會改動已收金額。儲存後請通知客人確認新時間。</p>
+                      {rescheduleDate!==candidate.date&&<p role="status" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">改期須重新簽署：{scheduleOptions?.waiver_resign_count ?? 0} 位；已投保重核：{scheduleOptions?.insurance_recheck_count ?? 0} 位。舊簽署留底，不沿用原投保狀態與保費。</p>}
                       <div className="mt-3 flex flex-wrap items-end gap-2">
                         <label className="min-w-40 flex-1 text-sm font-medium text-gray-900 dark:text-white">新日期
                           <input type="date" min={todayStr} value={rescheduleDate} disabled={rescheduleMutation.isPending} onChange={(event) => { setRescheduleDate(event.target.value); setRescheduleError('') }} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white" />

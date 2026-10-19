@@ -86,6 +86,8 @@ export interface SharedClassScheduleOptions {
   start_time: string
   end_time: string
   affected_orders: number
+  waiver_resign_count: number
+  insurance_recheck_count: number
   sessions: Array<{ start_time: string; end_time: string }>
 }
 

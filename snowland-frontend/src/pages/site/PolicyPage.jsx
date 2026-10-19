@@ -1,17 +1,20 @@
 import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchCheckoutPolicies } from '../../api/booking';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import footerPagesContent from '../../data/site/footerPagesContent';
 
 function PolicyPage({ contentKey, eyebrow = "POLICY" }) {
-  const page = footerPagesContent[contentKey];
+  const tenantCode = typeof window === 'undefined' ? '' : window.location.pathname.split('/').filter(Boolean)[0];
+  const policies = useQuery({ queryKey: ['checkout-policies', tenantCode], queryFn: fetchCheckoutPolicies, staleTime: 0 });
+  const page = policies.data?.pages?.[contentKey];
 
   if (!page) {
     return (
       <div className="min-h-screen bg-white text-[#1f2937] flex flex-col">
         <SiteHeader forceTransparent forceDarkText forceLogoColor />
         <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
-          <p className="text-sm text-[#64748b]">內容載入中。</p>
+          <div className="text-sm text-[#64748b]">{policies.isError ? <p role="alert">內容載入失敗。<button type="button" onClick={() => policies.refetch()} className="min-h-11 px-3 underline">重新載入</button></p> : <p role="status">內容載入中。</p>}</div>
         </main>
         <SiteFooter />
       </div>

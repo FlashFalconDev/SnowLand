@@ -12,6 +12,7 @@ from Client.models import Client
 from Coach.models import Coach, CoachLeaveRequest
 from Coursekit.models import CourseTemplate
 from booking.models import Booking, MemberDetail, OrderAmendment, Reservation, ReservationGroup
+from booking.course_documents import capture_course_documents, save_course_documents
 from booking.operations import order_snapshot, record_order_revision, resolve_payment_account
 from .manual_notifications import NotificationConflict
 from .order_amendments import AmendmentQuoteInput, amendment_digest, amendment_state, quote_order_amendment
@@ -31,11 +32,12 @@ class AmendmentConfirmInput(AmendmentQuoteInput):
 
 def amendment_summary(row,duplicate=False):
     from booking.amendment_notifications import notice_receipt
+    document_notice=' 課程變更的舊文件已留底；已簽學員須重新簽署，已投保者請行政重新核對。' if row.revision.member_document_revisions.exists() else ''
     return {'id':row.pk,'version':row.revision.version,'previous_total':row.previous_total,'new_total':row.new_total,
         'difference_amount':row.difference_amount,'balance_amount':row.balance_amount,'status':row.status,
         'participant_changes':row.participant_changes,'bank_snapshot':row.bank_snapshot,'duplicate':duplicate,
         'notification_status':notice_receipt(row)['email'],'notification':notice_receipt(row),
-        'notice':'訂單修改已留底；通知狀態另列，系統沒有執行收款或退款。'}
+        'notice':'訂單修改已留底；通知狀態另列，系統沒有執行收款或退款。'+document_notice}
 
 
 def _verify_quote(group,data,actor):
@@ -141,15 +143,17 @@ def confirm_order_amendment(request,group_id,data,scope):
     for booking in Booking.objects.filter(is_scheduled=True,reservation__preferred_coach_id__in=coach_ids).exclude(
             reservation__status__in=['deleted','cancelled']).exclude(reservation_id__in=changed_ids).select_related('reservation'):
         busy[booking.reservation.preferred_coach_id].append((booking.date,booking.start_time,booking.end_time))
-    before=order_snapshot(group);plans=[]
+    before=order_snapshot(group);plans=[];document_archives=[]
     for item in quote['items']:
         reservation=reservations[item['reservation_id']]
         bookings=list(reservation.bookings.order_by('pk'))
         old={booking.pk:booking for booking in bookings}
         changes_course=any(course['date']!=old[course['booking_id']].date or course['template_id']!=(old[course['booking_id']].course_template_id or reservation.course_template_id) for course in item['courses'])
         active,keep,levels=_participants(reservation,item)
-        if changes_course and any(member.waiver_signature or member.waiver_completed_at or member.insurance_processing_status=='insured' for member in active):
-            raise NotificationConflict('此課程已有簽署或投保紀錄，變更日期／模板的重簽與投保核對規則尚待確認，原資料未變更')
+        if changes_course:
+            document_archives.extend(capture_course_documents([member for member in active if member.pk in keep],
+                [{'id':row.pk,'date':row.date,'start_time':row.start_time,'end_time':row.end_time,
+                  'template_id':row.course_template_id or reservation.course_template_id} for row in bookings],item['courses']))
         assignment=_assignment(reservation,item,busy,levels)
         plans.append((reservation,item,old,active,keep,levels,assignment))
     if not group.revisions.exists():record_order_revision(group,user=request.user,change_type='create',reason='首次修改前原單留底')
@@ -197,6 +201,7 @@ def confirm_order_amendment(request,group_id,data,scope):
                 balance_amount=balance,status=status,before_snapshot=before,participant_changes=participants,created_by=request.user,
                 bank_snapshot={key:getattr(bank,key) for key in ['name','bank_name','bank_branch','account_number','account_holder','overseas_details']} if bank else {})
     except IntegrityError:raise NotificationConflict('修改識別碼已使用，原訂單未重複修改，請重新載入確認')
+    save_course_documents(document_archives,revision,request.user)
     from booking.amendment_notifications import prepare_amendment_notice
     prepare_amendment_notice(amendment,request.user)
     return amendment,False

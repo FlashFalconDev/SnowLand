@@ -956,6 +956,10 @@ def commit_draft(session, request_user):
         },
         user=request_user,
     )
+    # Preserve the existing chat's explicit conversational cancellation consent.
+    # This server-only attribute cannot be supplied by a public JSON request and
+    # must not be represented as having read both website checkout documents.
+    proxy.checkout_consent_channel = 'legacy_chat'
     class CommitRejected(Exception):
         pass
 

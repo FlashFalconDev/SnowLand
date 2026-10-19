@@ -1,3 +1,4 @@
+from booking.tests_policy_support import checkout_policy_acknowledgement
 from datetime import date, timedelta
 from unittest.mock import patch
 
@@ -46,7 +47,7 @@ class MemberEnrollmentTests(TestCase):
 
     def book(self, expected_status=200):
         response = self.api.post('/booking/snowland/api/create-reservation/', {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': '訂課人', 'email': 'owner@example.test', 'phone': '0900000000',
                 'messengerType': 'line', 'messengerId': 'qa-owner', 'referralSource': '其他',

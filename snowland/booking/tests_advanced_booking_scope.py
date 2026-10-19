@@ -1,3 +1,4 @@
+from booking.tests_policy_support import checkout_policy_acknowledgement
 from copy import deepcopy
 from datetime import timedelta
 from django.test import TestCase
@@ -17,7 +18,7 @@ class AdvancedBookingScopeTests(TestCase):
         self.campus.resorts.add(self.resort)
         self.resort.auto_scheduling_enabled=False;self.resort.save()
         self.url='/booking/snowland/api/super-schedule/'
-        self.payload={'accepted_policy':True,'contact':{'name':'QA會員','email':'qa@example.test','phone':'0900000000','messengerType':'line','messengerId':'qa','referralSource':'其他'},'cart':[{'coach':'any','peopleCount':2,'abilityLevel':'no_exp','abilityLevelCounts':{'no_exp':2},'equipment':False,'equipmentOption':'own_equipment','language':'zh','resort':self.resort.name,'resortName':self.resort.display_name,'campusId':self.campus.pk,'courseCategory':'滑雪課程','courses':[{'date':str(timezone.localdate()+timedelta(days=20+i)),'courseTypeId':self.private_template.course_type_id,'courseTypeName':'QA課程','courseTemplateId':self.private_template.pk,'courseTemplateName':self.private_template.name,'durationHours':4,'timeSlotStart':'09:00','timeSlotEnd':'13:00'} for i in range(2)]}]}
+        self.payload={**checkout_policy_acknowledgement(),'contact':{'name':'QA會員','email':'qa@example.test','phone':'0900000000','messengerType':'line','messengerId':'qa','referralSource':'其他'},'cart':[{'coach':'any','peopleCount':2,'abilityLevel':'no_exp','abilityLevelCounts':{'no_exp':2},'equipment':False,'equipmentOption':'own_equipment','language':'zh','resort':self.resort.name,'resortName':self.resort.display_name,'campusId':self.campus.pk,'courseCategory':'滑雪課程','courses':[{'date':str(timezone.localdate()+timedelta(days=20+i)),'courseTypeId':self.private_template.course_type_id,'courseTypeName':'QA課程','courseTemplateId':self.private_template.pk,'courseTemplateName':self.private_template.name,'durationHours':4,'timeSlotStart':'09:00','timeSlotEnd':'13:00'} for i in range(2)]}]}
 
     def test_anonymous_is_rejected_before_creating_any_order(self):
         self.api.force_authenticate(None)

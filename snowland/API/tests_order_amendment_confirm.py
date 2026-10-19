@@ -221,12 +221,112 @@ class OrderAmendmentConfirmTests(TestCase):
         self.assertEqual(MemberDetail.all_objects.filter(reservation=self.reservation).count(),1)
         self.assertEqual(self.group.revisions.count(),0);self.assertEqual(OrderAmendment.objects.count(),0)
 
-    def test_signed_course_date_change_waits_for_policy_without_erasing_signature(self):
+    def test_signed_course_date_change_archives_signature_and_requires_resign(self):
         from datetime import timedelta
         self.member.waiver_signature='QA原簽名';self.member.save()
         body=self.body();body['changes'][0]['courses'][0]['date']=str(self.day+timedelta(days=1))
         preview=self.api.post(self.url,{'changes':body['changes']},format='json');self.assertEqual(preview.status_code,200)
         body['quote_token']=preview.data['data']['quote_token']
-        self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,409)
+        self.assertEqual(preview.data['data']['items'][0]['waiver_resign_count'],1)
+        self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,201)
         self.member.refresh_from_db();self.assertEqual(self.member.waiver_signature,'QA原簽名')
-        self.booking.refresh_from_db();self.assertEqual(self.booking.date,self.day)
+        self.assertTrue(self.member.waiver_resign_required)
+        archive=self.member.course_document_revisions.get()
+        self.assertEqual(archive.snapshot['waiver_signature'],'QA原簽名')
+        from booking.amendment_notifications import _content
+        self.assertIn('登入自己的會員區重新簽署',_content(archive.revision.amendment)[1])
+        self.assertNotIn('QA原簽名',_content(archive.revision.amendment)[1])
+        self.assertEqual(archive.snapshot['previous_courses'][0]['date'],str(self.day))
+        self.booking.refresh_from_db();self.assertEqual(self.booking.date,self.day+timedelta(days=1))
+        self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,200)
+        self.assertEqual(self.member.course_document_revisions.count(),1)
+        self.assertNotIn('document_history',str(self.api.get('/api/admin/snowland/insurance-records/?status=all').data))
+        from booking.legal_documents import get_current_waiver
+        self.member.user=self.manager;self.member.save(update_fields=['user'])
+        member_api=APIClient();member_api.force_authenticate(self.manager)
+        center='/booking/snowland/api/member-center/'
+        form=next(row for row in member_api.get(center).data['pre_course_forms'] if row['id']==self.member.pk)
+        self.assertNotIn('document_history',str(member_api.get(center).data))
+        self.assertTrue(form['waiver_resign_required']);self.assertFalse(form['waiver_completed'])
+        payload={'action':'update_pre_course_form','member_id':self.member.pk,'age_range':'25-35y',
+            'insurance_data':{'full_name':'QA原學員','birth_date':'1995-01-01'},'waiver_agreed':False}
+        self.assertEqual(member_api.post(center,payload,format='json').status_code,200)
+        self.member.refresh_from_db();self.assertTrue(self.member.waiver_resign_required)
+        payload.update(waiver_agreed=True,waiver_signature='QA重新簽名',media_consent='decline',
+            waiver_document_version=get_current_waiver(self.tenant)['version'])
+        self.assertEqual(member_api.post(center,payload,format='json').status_code,409)
+        payload['waiver_course_revision']=archive.pk
+        self.assertEqual(member_api.post(center,payload,format='json').status_code,200)
+        self.member.refresh_from_db();self.assertFalse(self.member.waiver_resign_required)
+        archive.refresh_from_db();self.assertEqual(archive.snapshot['waiver_signature'],'QA原簽名')
+
+    def test_insured_amendment_requires_recheck_preserves_private_history_and_cannot_mark_resigned(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.member.waiver_completed_at=timezone.now()
+        self.member.insurance_processing_status='insured';self.member.insurance_premium_amount=300
+        self.member.insurance_premium_currency='TWD';self.member.save()
+        body=self.body(number_of_people=1)
+        body['changes'][0]['courses'][0]['date']=str(self.day+timedelta(days=1))
+        preview=self.api.post(self.url,{'changes':body['changes']},format='json')
+        self.assertEqual(preview.data['data']['items'][0]['insurance_recheck_count'],1)
+        body['quote_token']=preview.data['data']['quote_token']
+        self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,201)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.insurance_processing_status,'checking')
+        self.assertIsNone(self.member.insurance_premium_amount)
+        self.assertTrue(self.member.waiver_resign_required)
+        history=self.member.course_document_revisions.get()
+        self.assertEqual(history.snapshot['insurance_processing_status'],'insured')
+        self.assertEqual(history.snapshot['insurance_premium_amount'],'300.00')
+        detail_url=f'/api/admin/snowland/insurance-records/{self.member.pk}/'
+        self.assertEqual(self.api.get(detail_url).data['document_history'][0]['snapshot']['insurance_processing_status'],'insured')
+        self.assertEqual(self.api.post(detail_url+'complete/',{'field':'waiver'},format='json').status_code,409)
+        self.assertNotIn('document_history',str(self.api.get(self.url.split('amendment-quote/')[0]).data))
+        self.assertEqual(self.api.get(detail_url,HTTP_X_CAMPUS_ID=str(self.campus_b.pk)).status_code,404)
+
+    def test_time_only_change_does_not_invalidate_documents_or_insurance(self):
+        self.member.waiver_signature='QA保留';self.member.insurance_processing_status='insured';self.member.save()
+        body=self.body(number_of_people=1)
+        body['changes'][0]['courses'][0].update(start_time='10:00',end_time='13:00')
+        preview=self.api.post(self.url,{'changes':body['changes']},format='json')
+        body['quote_token']=preview.data['data']['quote_token']
+        self.assertEqual(preview.data['data']['items'][0]['waiver_resign_count'],0)
+        self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,201)
+        self.member.refresh_from_db()
+        self.assertFalse(self.member.waiver_resign_required)
+        self.assertEqual(self.member.insurance_processing_status,'insured')
+        self.assertFalse(self.member.course_document_revisions.exists())
+
+    def test_template_change_also_requires_resign_without_changing_date(self):
+        from Coursekit.models import CourseTemplate
+        replacement=CourseTemplate.objects.create(course_type=self.template.course_type,name='QA另一模板',duration_hours=3,max_capacity=4)
+        replacement.resorts.add(self.resort_a);self.pricing.templates.add(replacement)
+        self.member.waiver_signature='QA舊模板簽名';self.member.save()
+        body=self.body(number_of_people=1)
+        body['changes'][0]['courses'][0]['template_id']=replacement.pk
+        preview=self.api.post(self.url,{'changes':body['changes']},format='json')
+        self.assertEqual(preview.status_code,200,preview.data)
+        body['quote_token']=preview.data['data']['quote_token']
+        self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,201)
+        self.member.refresh_from_db();self.booking.refresh_from_db()
+        self.assertTrue(self.member.waiver_resign_required)
+        self.assertEqual(self.booking.date,self.day)
+        self.assertEqual(self.booking.course_template_id,replacement.pk)
+        self.assertEqual(self.member.course_document_revisions.get().snapshot['previous_courses'][0]['template_id'],self.template.pk)
+
+    def test_failed_reassignment_rolls_back_date_and_signed_document_state(self):
+        from datetime import timedelta
+        self.member.waiver_signature='QA不得被覆寫';self.member.insurance_processing_status='insured';self.member.save()
+        body=self.body(number_of_people=1)
+        body['changes'][0]['courses'][0]['date']=str(self.day+timedelta(days=1))
+        body['quote_token']=self.api.post(self.url,{'changes':body['changes']},format='json').data['data']['quote_token']
+        body['reschedule']=True
+        with patch('booking.scheduler.assign_coachs',return_value=(False,{})):
+            self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,409)
+        self.member.refresh_from_db();self.booking.refresh_from_db()
+        self.assertEqual(self.booking.date,self.day)
+        self.assertEqual(self.member.waiver_signature,'QA不得被覆寫')
+        self.assertEqual(self.member.insurance_processing_status,'insured')
+        self.assertFalse(self.member.waiver_resign_required)
+        self.assertFalse(self.member.course_document_revisions.exists())

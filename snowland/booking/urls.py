@@ -4,6 +4,7 @@ from .payment_email import PaymentEmailAPI
 from .class_group_qr import ClassGroupQRAPI
 from API.contact_inbox import PublicContactAPI
 from .api_views import (
+    CheckoutPoliciesAPI,
     SiteContentListAPI,
     CoachListAPI,
     WebsiteCoachListAPI,
@@ -65,6 +66,7 @@ urlpatterns = [
 
     # 付款 API
     path('<str:client_code>/api/payment-info/', PaymentInfoAPI.as_view(), name='api_payment_info_client'),
+    path('<str:client_code>/api/checkout-policies/', CheckoutPoliciesAPI.as_view(), name='api_checkout_policies_client'),
     path('<str:client_code>/api/process-payment/', ProcessPaymentAPI.as_view(), name='api_process_payment_client'),
 
     # 歷史紀錄 API

@@ -260,6 +260,16 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
         metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        from booking.checkout_policies import POLICY_PAGES
+        previous_location = getattr(self.instance, 'location_key', None)
+        if previous_location in POLICY_PAGES.values() and location != previous_location:
+            raise serializers.ValidationError({'location_key': '條款文件不能移至其他位置'})
+        if location in POLICY_PAGES.values():
+            if content_type != 'page':
+                raise serializers.ValidationError({'content_type': '條款請使用頁面內容類型'})
+            for field in ('title', 'body'):
+                if not attrs.get(field, getattr(self.instance, field, '')).strip():
+                    raise serializers.ValidationError({field: '請填寫完整條款內容'})
         if location == 'membership.waiver':
             if content_type != 'page':
                 raise serializers.ValidationError({'content_type':'聲明書請使用頁面內容類型'})
@@ -2059,6 +2069,12 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 
 class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     member_email = serializers.SerializerMethodField()
+    document_history = serializers.SerializerMethodField()
+
+    def get_document_history(self, obj):
+        return [{'id':row.pk,'created_at':row.created_at,'reason':row.revision.reason,
+                 'version':row.revision.version,'snapshot':row.snapshot}
+                for row in obj.course_document_revisions.select_related('revision').order_by('-pk')]
 
     def get_member_email(self, obj):
         if obj.user_id and obj.user.email:
@@ -2069,7 +2085,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     class Meta(InsuranceRecordAdminSerializer.Meta):
         fields = InsuranceRecordAdminSerializer.Meta.fields + [
             'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
-            'waiver_document_snapshot', 'media_consent',
+            'waiver_document_snapshot', 'media_consent', 'document_history',
         ]
         read_only_fields = fields
 

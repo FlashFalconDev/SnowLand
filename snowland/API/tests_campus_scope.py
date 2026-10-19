@@ -1,3 +1,4 @@
+from booking.tests_policy_support import checkout_policy_acknowledgement
 from datetime import datetime, time, timedelta, timezone as datetime_timezone
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
@@ -1390,7 +1391,7 @@ class CampusScopeApiTests(TestCase):
             )
         with patch('booking.api_views.calculate_cart_discount_summary', return_value={}):
             response = self.authenticated(self.manager).post('/booking/snowland/api/create-reservation/', {
-                'accepted_policy': True,
+                **checkout_policy_acknowledgement(),
                 'contact': {
                     'name': '舊購物車測試', 'phone': '0900000000',
                     'messengerType': 'line', 'messengerId': 'qa-test',

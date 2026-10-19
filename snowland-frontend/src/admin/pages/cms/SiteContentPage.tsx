@@ -27,6 +27,7 @@ import HomepagePresentationFields from '../../components/HomepagePresentationFie
 import SiteFooterFields from '../../components/SiteFooterFields'
 import SiteTrackingFields from '../../components/SiteTrackingFields'
 import WaiverDocumentFields from '../../components/WaiverDocumentFields'
+import { fetchCheckoutPolicies } from '../../../api/booking'
 import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
 import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
@@ -174,6 +175,9 @@ const DEFAULT_GROUPS: GroupInfo[] = [
   },
   {id:'membership',label:'會員文件',description:'課前聲明書內容與版本',locations:[
     {key:'membership.waiver',label:'課前聲明書',hint:'修改標題或正文會自動建立新版本；既有簽名快照會保留',type:'page'},
+    {key:'policy.membership-terms',label:'會員服務條款',hint:'結帳前須閱讀；修改後新訂單使用新版，舊訂單保留快照',type:'page'},
+    {key:'policy.privacy-policy',label:'隱私政策',hint:'結帳前獨立確認的個人資料使用規範',type:'page'},
+    {key:'policy.cancellation-policy',label:'取消與退費規則',hint:'與服務條款一起提供訂課人閱讀確認',type:'page'},
   ]},
 ]
 
@@ -269,11 +273,12 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
       home.locations.push(DEFAULT_GROUPS[0].locations.find(location=>location.key===key)!)
     }
   }
-  if (!groups.some(group=>group.locations.some(location=>location.key==='membership.waiver'))) {
+  for (const location of DEFAULT_GROUPS.find(group=>group.id==='membership')!.locations) {
+    if (groups.some(group=>group.locations.some(item=>item.key===location.key))) continue
     const fallback = DEFAULT_GROUPS.find(group=>group.id==='membership')!
     const membership = groups.find(group=>group.id==='membership')
-    if (membership) membership.locations.push(fallback.locations[0])
-    else groups.push(fallback)
+    if (membership) membership.locations.push(location)
+    else groups.push({...fallback,locations:[location]})
   }
   return groups
 }
@@ -487,6 +492,9 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'about.join-us': { path: '/join-us' },
   'about.contact': { path: '/contact' },
   'membership.waiver': {path:'/membership/pre-course-forms'},
+  'policy.membership-terms': {path:'/membership-terms'},
+  'policy.privacy-policy': {path:'/privacy-policy'},
+  'policy.cancellation-policy': {path:'/cancellation-policy'},
 }
 
 const getTenantBasePath = () => {
@@ -1360,13 +1368,20 @@ function ContentDrawer({
   const isSiteFooter = form.location_key === 'site.footer'
   const isTracking = form.location_key === 'site.tracking'
   const isWaiver = form.location_key === 'membership.waiver'
+  const policyPageKey = ({'policy.membership-terms':'membershipTerms','policy.privacy-policy':'privacyPolicy','policy.cancellation-policy':'cancellationPolicy'} as Record<string,string>)[form.location_key]
+  const isCheckoutPolicy = !!policyPageKey
+  const currentPolicies = useQuery({queryKey:['admin','checkout-policies',getTenantBasePath()],queryFn:fetchCheckoutPolicies,enabled:isCheckoutPolicy&&!item})
+  useEffect(()=>{
+    const page=currentPolicies.data?.pages[policyPageKey]
+    if(isCheckoutPolicy&&!item&&page) setForm(previous=>previous.body?previous:{...previous,title:page.title,body:page.body})
+  },[isCheckoutPolicy,item,currentPolicies.data,policyPageKey])
   const currentWaiver = useQuery({queryKey:['admin','current-waiver'],queryFn:fetchCurrentWaiver,enabled:isWaiver&&!item})
   useEffect(()=>{
     if (!isWaiver || item || !currentWaiver.data) return
     const document = currentWaiver.data
     setForm(previous=>previous.body ? previous : {...previous,title:previous.title||document.title,body:document.body,link_url:document.source_url})
   },[isWaiver,item,currentWaiver.data])
-  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || isSiteFooter || isTracking || isWaiver || form.location_key === 'course.areas'
+  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || isSiteFooter || isTracking || isWaiver || isCheckoutPolicy || form.location_key === 'course.areas'
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
@@ -1408,13 +1423,13 @@ function ContentDrawer({
       ...form,
       ...(isArticlePage ? { title: String((form.metadata?.article as Record<string, unknown>)?.title || ''), summary: String((form.metadata?.article as Record<string, unknown>)?.lead || ''), image_url: String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') } : {}),
       external_id: form.location_key === 'course.resort-pages' ? resortPageSlug : form.external_id,
-      body: isWaiver ? form.body : blocksToPlainText(normalizedBlocks),
+      body: isWaiver || isCheckoutPolicy ? form.body : blocksToPlainText(normalizedBlocks),
       image_url: isArticlePage ? String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') : form.image_url || getFirstBlockImage(normalizedBlocks),
       start_at: fromDateTimeInput(toDateTimeInput(form.start_at)),
       end_at: fromDateTimeInput(toDateTimeInput(form.end_at)),
       display_order: Number(form.display_order) || 0,
       tags: form.tags.map((tag) => tag.trim()).filter(Boolean),
-      metadata: isTracking ? metadata : {
+      metadata: isTracking || isCheckoutPolicy ? metadata : {
         ...(metadata || {}),
         blocks: normalizedBlocks,
         ...(isArticlePage && isGuideListing ? {article:{...(metadata?.article as Record<string,unknown>),date:metadata?.date || ''}} : {}),
@@ -1450,6 +1465,7 @@ function ContentDrawer({
                   <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">網站位置</span>
                   <select
                     value={form.location_key}
+                    disabled={Boolean(item && isCheckoutPolicy)}
                     onChange={(event) => {
                       const locationKey = event.target.value
                       setForm((prev) => ({
@@ -1534,7 +1550,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {isTracking ? <SiteTrackingFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))}/> : isWaiver ? <><p role="status" className="text-xs text-gray-600 dark:text-gray-300">{currentWaiver.isError ? '現行文件尚未載入。' : currentWaiver.isLoading ? '正在讀取現行聲明書…' : !item ? '已帶入現行聲明書；儲存為草稿不會更改會員使用中的文件。' : '修改後儲存會更新這份文件；請先確認公開狀態。'}</p>{currentWaiver.isError&&<p role="alert" className="text-sm text-red-700 dark:text-red-200">現行文件無法載入。<button type="button" onClick={()=>currentWaiver.refetch()} className="min-h-11 px-2 underline">重試</button></p>}<WaiverDocumentFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))}/></> : isSiteFooter ? <SiteFooterFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
+            {isCheckoutPolicy ? <section aria-label="訂課條款編輯" className="space-y-4"><p role="status" className="text-sm text-gray-600 dark:text-gray-300">草稿不會公開；公開後新訂單使用新版，原訂單同意的內容快照仍會保留。只有總部可變更。</p>{currentPolicies.isError && <p role="alert">現行條款載入失敗。<button type="button" className="min-h-11 px-3 underline" onClick={()=>currentPolicies.refetch()}>重試</button></p>}<label className="block text-sm text-gray-700 dark:text-gray-200">條款標題<input required value={form.title} onChange={event=>setForm(previous=>({...previous,title:event.target.value}))} className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 bg-white p-3 text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white" /></label><label className="block text-sm text-gray-700 dark:text-gray-200">條款完整正文<textarea required rows={16} value={form.body} onChange={event=>setForm(previous=>({...previous,body:event.target.value}))} className="mt-2 w-full rounded-lg border border-gray-300 bg-white p-3 text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white" /></label></section> : isTracking ? <SiteTrackingFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))}/> : isWaiver ? <><p role="status" className="text-xs text-gray-600 dark:text-gray-300">{currentWaiver.isError ? '現行文件尚未載入。' : currentWaiver.isLoading ? '正在讀取現行聲明書…' : !item ? '已帶入現行聲明書；儲存為草稿不會更改會員使用中的文件。' : '修改後儲存會更新這份文件；請先確認公開狀態。'}</p>{currentWaiver.isError&&<p role="alert" className="text-sm text-red-700 dark:text-red-200">現行文件無法載入。<button type="button" onClick={()=>currentWaiver.refetch()} className="min-h-11 px-2 underline">重試</button></p>}<WaiverDocumentFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))}/></> : isSiteFooter ? <SiteFooterFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1557,7 +1573,7 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {isHomepagePresentation || isSiteFooter || isWaiver || isTracking ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+            {isHomepagePresentation || isSiteFooter || isWaiver || isTracking || isCheckoutPolicy ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
               <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
                 onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
             ) : form.location_key === 'photography.gallery' ? (
