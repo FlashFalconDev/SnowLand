@@ -19,6 +19,14 @@ function setup({fail=false,error=false,loading=false,rows=[row]}={}){
 }
 ;(async()=>{
   const app=setup();let tree=app.render()
+  const searchForm=find(tree,n=>n.type==='form'&&String(n.props.className).includes('sm:flex-row'))
+  searchForm.props.onSubmit({preventDefault(){}})
+  assert.equal(app.retries(),1,'Searching unchanged filters must reload new incoming messages')
+  app.states[2]='QA新條件'
+  find(app.render(),n=>n.type==='form'&&String(n.props.className).includes('sm:flex-row')).props.onSubmit({preventDefault(){}})
+  assert.equal(app.retries(),1,'Changed query key reloads without an extra request for the old filters')
+  assert.equal(app.states[3],'QA新條件')
+  app.states[4]=row
   assert.equal(find(tree,n=>n.type==='input'&&n.props['aria-label']==='搜尋聯絡留言').props.disabled,false)
   find(tree,n=>n.type==='textarea').props.onChange({target:{value:'QA未儲存'}})
   tree=app.render();assert.equal(find(tree,n=>n.type==='input'&&n.props['aria-label']==='搜尋聯絡留言').props.disabled,true)

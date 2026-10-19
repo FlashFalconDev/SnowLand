@@ -53,7 +53,7 @@ export default function ContactInboxPage() {
   return <div className="space-y-6 text-gray-900 dark:text-white">
     <header><h1 className="text-2xl font-bold">聯絡收件</h1><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">官網留言統一進入總部收件箱，不依目前校區篩選。先查看留言，再標記處理狀態；此處不會直接回信。</p></header>
     <InboxSettings />
-    <form className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 sm:flex-row" onSubmit={e=>{e.preventDefault();setPage(1);setKeyword(search.trim());setSelected(null)}}>
+    <form className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 sm:flex-row" onSubmit={e=>{e.preventDefault();const next=search.trim();if(page===1&&next===keyword)void query.refetch();setPage(1);setKeyword(next);setSelected(null)}}>
       <input className={input} disabled={busy||dirty} aria-label="搜尋聯絡留言" placeholder="搜尋姓名、Email或主旨" value={search} onChange={e=>setSearch(e.target.value)} />
       <select className={input+' sm:max-w-40'} disabled={busy||dirty} aria-label="處理狀態篩選" value={filter} onChange={e=>{setFilter(e.target.value);setPage(1);setSelected(null)}}><option value="">全部狀態</option>{Object.entries(states).map(([v,label])=><option key={v} value={v}>{label}</option>)}</select>
       <button className={button+' shrink-0'} disabled={busy||dirty}>搜尋</button>
