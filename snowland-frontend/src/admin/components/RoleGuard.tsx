@@ -57,8 +57,25 @@ export default function RoleGuard({ requireManager, requireCoach, permission }: 
   const [user, setUser] = useState<AdminUser | null | undefined>(undefined)
 
   useEffect(() => {
-    fetchAdminMe().then((res) => setUser(res.user))
-  }, [])
+    let active = true
+    let revision = 0
+    setUser(undefined)
+    const refreshAccess = () => {
+      const current = ++revision
+      void fetchAdminMe().then(result => { if (active && current === revision) setUser(result.user) })
+    }
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshAccess() }
+    refreshAccess()
+    window.addEventListener('focus', refreshAccess)
+    window.addEventListener('snowland:campuses-updated', refreshAccess)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener('focus', refreshAccess)
+      window.removeEventListener('snowland:campuses-updated', refreshAccess)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [location.pathname])
 
   if (user === undefined) {
     return (
@@ -137,7 +154,7 @@ function NoAccess({ title, message, onAction, actionLabel }: {
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <button
           onClick={onAction}
-          className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+          className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
           style={{ backgroundColor: PRIMARY }}
         >
           {actionLabel}

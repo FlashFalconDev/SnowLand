@@ -89,12 +89,14 @@ def get_group_payment_hold(group):
         return PENDING_COACH_CONFIRMATION_MESSAGE, 'pending_coach_approval'
     if group.reservations.filter(status='auto_assignment_failed').exists():
         return SCHEDULING_FAILED_PAYMENT_MESSAGE, 'scheduling_failed'
-    payment = group.payments.order_by('-created_at').first()
+    payment = group.payments.order_by('-created_at', '-pk').first()
+    if payment and payment.status == 'unpaid' and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
+        return '此訂單有既有收款或退款紀錄，請先聯絡客服核對；請勿再次付款', 'payment_records_review'
     if payment and payment.status == 'expired':
         return '付款期限已結束，請聯絡客服改期或取消', 'expired'
     if payment and payment.status == 'unpaid' and payment.expires_at and payment.expires_at <= timezone.now():
-        payment.status = 'expired'
-        payment.save(update_fields=['status'])
+        # A read must not expire only the payment: the job must still see the
+        # unpaid candidate and atomically release its reservations as well.
         return '付款保留期已結束，請聯絡客服改期或取消', 'expired'
     return None, None
 
@@ -847,6 +849,9 @@ class SiteContentListAPI(APIView):
         content_type = (request.GET.get('content_type') or '').strip()
         location_key = (request.GET.get('location_key') or '').strip()
         tag = (request.GET.get('tag') or '').strip()
+        view = (request.GET.get('view') or '').strip()
+        if view not in ('','cards') or view == 'cards' and location_key != 'guides.articles':
+            return Response({'error':'文章顯示方式不正確'},status=status.HTTP_400_BAD_REQUEST)
 
         if content_type:
             qs = qs.filter(content_type=content_type)
@@ -859,6 +864,16 @@ class SiteContentListAPI(APIView):
             qs = qs.filter(location_key=location_key)
         if tag:
             qs = qs.filter(tags__contains=[tag])
+
+        content_id = request.GET.get('content_id')
+        if content_id:
+            try:
+                content_id = int(content_id)
+                if content_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response({'error': '文章代號格式不正確'}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(pk=content_id)
 
         now = timezone.now()
         include_ended = str(request.GET.get('include_ended') or '').lower() in ('1', 'true', 'yes')
@@ -878,7 +893,8 @@ class SiteContentListAPI(APIView):
         limit = request.GET.get('limit')
         if limit:
             try:
-                qs = qs[:max(1, min(int(limit), 100))]
+                maximum = 500 if location_key == 'guides.articles' else 100
+                qs = qs[:max(1, min(int(limit), maximum))]
             except (TypeError, ValueError):
                 pass
 
@@ -907,6 +923,27 @@ class SiteContentListAPI(APIView):
             }
             for item in qs
         ]
+
+        if location_key in ('guides.articles','guides.article-pages'):
+            if view == 'cards':
+                for row in data:
+                    metadata = row['metadata']
+                    mode = metadata.get('article_mode') or ('external' if row['link_url'] and not row['body'] else 'internal')
+                    row['metadata'] = {key:value for key,value in metadata.items() if key not in ('article','blocks','page')}
+                    row['metadata']['article_mode'] = mode
+                    row['body'] = ''
+            elif any(isinstance(row['metadata'].get('article'),dict) for row in data):
+                from Client.guide_links import guide_link_index, rewrite_guide_links, resolve_guide_link
+                index = guide_link_index(client)
+                for row in data:
+                    article = row['metadata'].get('article')
+                    if isinstance(article,dict) and isinstance(article.get('html'),str):
+                        updated_article = {**article,'html':rewrite_guide_links(article['html'],index)}
+                        if isinstance(article.get('relatedLinks'),list):
+                            updated_article['relatedLinks'] = [
+                                {**link,'url':resolve_guide_link(link['url'],index,link.get('title',''))} if isinstance(link,dict) and isinstance(link.get('url'),str) else link
+                                for link in article['relatedLinks']]
+                        row['metadata'] = {**row['metadata'],'article':updated_article}
 
         return Response(data, status=status.HTTP_200_OK)
 
@@ -2863,9 +2900,11 @@ class MemberCenterAPI(APIView):
                     'id': reservation.id,
                     'resort': reservation.resort.display_name if reservation.resort else '未指定',
                     'course_type': reservation.course_type.name if reservation.course_type else '',
+                    'service_type': reservation.course_type.category.service_type if reservation.course_type else 'ski',
                     'course_template': reservation.course_template.name if reservation.course_template else '',
                     'coach': reservation.preferred_coach.name if reservation.preferred_coach else '安排中',
                     'is_shared_class': reservation.shared_course_class_id is not None,
+                    'is_preferred_coach': reservation.is_preferred_coach and reservation.shared_course_class_id is None,
                     'shared_class_summary': shared_summary,
                     'status': reservation.status,
                     'people': reservation.number_of_people,
@@ -2877,7 +2916,7 @@ class MemberCenterAPI(APIView):
                     } for index, member in enumerate(sorted(reservation.members.all(), key=lambda item: item.pk), 1)],
                     'bookings': bookings,
                 })
-            payment = group.payments.order_by('-created_at').first()
+            payment = group.payments.order_by('-created_at','-pk').first()
             for reservation in reservations:
                 for participant in reservation['participants']:
                     participant['can_invite'] = bool(
@@ -2900,6 +2939,8 @@ class MemberCenterAPI(APIView):
                     payment_hold_status = 'pending_coach_approval'
                 elif group.reservations.filter(status='auto_assignment_failed').exists():
                     payment_hold_status = 'scheduling_failed'
+                elif payment and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
+                    payment_hold_status = 'payment_records_review'
             orders.append({
                 'id': group.id,
                 'line_group_url': class_group_url,
@@ -2920,6 +2961,11 @@ class MemberCenterAPI(APIView):
                 'total_amount': sum(
                     reservation.payment_amount
                     for reservation in group.reservations.exclude(status__in=['deleted', 'cancelled'])
+                ),
+                # Historical display is separate from current payable/refund calculations.
+                'historical_amount': sum(
+                    reservation.payment_amount
+                    for reservation in group.reservations.exclude(status='deleted')
                 ),
                 'reservations': reservations,
             })
@@ -3281,6 +3327,7 @@ class MemberCenterAPI(APIView):
                 })
             cart.append({
                 'id': f'rebook-{reservation.id}',
+                'serviceType': reservation.course_type.category.service_type if reservation.course_type else 'ski',
                 'rebookSource': rebook_source_details(reservation, request.user),
                 'coach': specified_coach.pk if specified_coach else 'any',
                 'coachName': '由學校安排' if is_shared_class else (specified_coach.name if specified_coach else '不指定'),
@@ -3397,14 +3444,24 @@ class MemberNotificationsAPI(APIView):
             group = delivery.group
             if delivery.template.event == 'manual':
                 notice_active=True
+                action_path = '/membership/orders' if group else ''
+                reminder_reservation = payload.get('insurance_reminder_reservation_id')
+                if reminder_reservation and group:
+                    visible_course = Reservation.objects.filter(pk=reminder_reservation, group=group).exclude(status__in=['cancelled','deleted'])
+                    if group.user_id != request.user.pk:
+                        visible_course = visible_course.filter(Q(members__user=request.user)|Q(members__guardian=request.user))
+                    notice_active = visible_course.exists()
+                    action_path = f'/membership/pre-course-forms?reservation={reminder_reservation}' if notice_active else ''
                 if payload.get('amendment_notice'):
                     from .amendment_notifications import amendment_delivery_is_current
                     notice_active=amendment_delivery_is_current(delivery)
+                    if group and group.user_id == request.user.pk:
+                        action_path = payload.get('in_app_action_path')
                 results.append({
                     'id': delivery.pk, 'event': 'manual', 'subject': (payload.get('in_app_subject') or 'SnowLand 通知') if notice_active else '訂單通知（狀態已更新）',
                     'body': (payload.get('in_app_body') or '') if notice_active else '此通知的狀態或訂購人已更新，請以最新訂單資料為準。', 'sent_at': delivery.sent_at.isoformat(),
                     'read_at': payload.get('read_at'), 'legacy': False, 'active': notice_active,
-                    'action_path': (payload.get('in_app_action_path') if payload.get('amendment_notice') and group and group.user_id==request.user.pk else '/membership/orders') if group else '', 'line_group_url': '',
+                    'action_path': action_path, 'line_group_url': '',
                 })
                 continue
             if delivery.template.event in COURSE_RECIPIENT_EVENTS:
@@ -3965,6 +4022,8 @@ class PaymentInfoAPI(APIView):
     permission_classes = []  # 公開 API（但建議加上權限檢查）
 
     def get(self, request, client_code=None):
+        from django.middleware.csrf import get_token
+        get_token(request._request)
         try:
             reservation_group_id = request.GET.get('reservation_group')
 
@@ -3990,11 +4049,8 @@ class PaymentInfoAPI(APIView):
                 return Response({'error': '找不到預約群組'}, status=status.HTTP_404_NOT_FOUND)
 
             # 獲取付款記錄
-            try:
-                payment = Payment.objects.get(reservation_group=group)
-                payment_status = payment.status
-            except Payment.DoesNotExist:
-                payment_status = 'unpaid'
+            payment = group.payments.order_by('-created_at','-pk').first()
+            payment_status = payment.status if payment else 'unpaid'
 
             # 獲取有效的預約（排除已刪除的）
             active_reservations = group.reservations.exclude(status='deleted')
@@ -4262,7 +4318,11 @@ class ProcessPaymentAPI(APIView):
     }
     """
 
+    @transaction.atomic
     def post(self, request, client_code=None):
+        if request.user.is_authenticated:
+            from rest_framework.authentication import SessionAuthentication
+            SessionAuthentication().enforce_csrf(request)
         try:
             reservation_group_id = request.data.get('reservation_group_id')
             payment_type = request.data.get('payment_type')
@@ -4277,9 +4337,11 @@ class ProcessPaymentAPI(APIView):
             except TenantResolutionError as exc:
                 return Response({'error': str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
+            # Match expiry/admin lock order so a transfer cannot race cancellation.
+            type(tenant).objects.select_for_update().get(pk=tenant.pk)
             # 獲取預約群組
             try:
-                group = ReservationGroup.objects.get(pk=reservation_group_id, client=tenant)
+                group = ReservationGroup.objects.select_for_update().get(pk=reservation_group_id, client=tenant)
             except (ReservationGroup.DoesNotExist, ValueError, TypeError):
                 return Response({
                     'error': '找不到預約群組'
@@ -4299,9 +4361,9 @@ class ProcessPaymentAPI(APIView):
             if not group.reservations.exclude(status__in=['deleted', 'cancelled']).exists():
                 return Response({'error': '此訂單已沒有可付款的課程'}, status=status.HTTP_400_BAD_REQUEST)
 
-            current_payment = group.payments.order_by('-created_at').first()
-            if current_payment and current_payment.status in {'paid', 'expired'}:
-                message = '此訂單已付款，請勿重複提交' if current_payment.status == 'paid' else '付款期限已結束，請聯絡客服'
+            current_payment = group.payments.order_by('-created_at', '-pk').first()
+            if current_payment and current_payment.status not in {'unpaid','pending'}:
+                message = {'paid':'此訂單已付款，請勿重複提交','expired':'付款期限已結束，請聯絡客服','refunded':'此訂單已退款，不能重新回報付款'}.get(current_payment.status,'付款狀態不允許回報，請聯繫客服')
                 return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
 
             if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
@@ -4389,7 +4451,7 @@ class ProcessPaymentAPI(APIView):
         """處理銀行匯款"""
         sender_account = request.data.get('sender_account')
 
-        if not sender_account or len(sender_account) != 5:
+        if not isinstance(sender_account,str) or len(sender_account) != 5 or any(char not in '0123456789' for char in sender_account):
             return Response({
                 'error': '請輸入正確的匯款帳戶後五碼'
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -4397,10 +4459,11 @@ class ProcessPaymentAPI(APIView):
         # 更新付款記錄
         user = request.user if request.user.is_authenticated else group.user
 
-        payment, created = Payment.objects.get_or_create(
-            reservation_group=group,
-            defaults={'status': 'pending', 'payment_method': 'TT'}
-        )
+        payment = group.payments.select_for_update().order_by('-created_at', '-pk').first()
+        if payment and payment.status not in {'unpaid', 'pending'}:
+            return Response({'error': '付款狀態已更新，請重新載入訂單後確認'}, status=status.HTTP_400_BAD_REQUEST)
+        if payment is None:
+            payment = Payment.objects.create(reservation_group=group, status='pending', payment_method='TT')
 
         payment.status = 'pending'
         payment.bank_account = sender_account

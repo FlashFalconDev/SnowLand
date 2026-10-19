@@ -129,6 +129,10 @@ class CampusScopeApiTests(TestCase):
         self.assertFalse(StaffBookingLink.objects.filter(title='空白代客連結').exists())
 
     def test_staff_booking_link_does_not_publish_internal_snapshot_fields(self):
+        template=CourseTemplate.objects.create(course_type=CourseType.objects.create(
+            category=CourseCategory.objects.create(client=self.tenant,name='隱私選課測試'),name='單板'),
+            name='有效測試課程',duration_hours=3)
+        template.resorts.add(self.resort_a)
         link = StaffBookingLink.objects.create(
             client=self.tenant, campus=self.campus_a, created_by=self.superuser,
             expires_at=timezone.now() + timedelta(days=1),
@@ -137,7 +141,7 @@ class CampusScopeApiTests(TestCase):
                 'peopleCount': 2,
                 'internal_note': '不應公開的內部備註',
                 'courses': [{
-                    'courseTemplateId': 1,
+                    'courseTemplateId': template.pk,
                     'date': (timezone.localdate() + timedelta(days=30)).isoformat(),
                     'internal_note': '不應公開的課程備註',
                 }],
@@ -149,7 +153,7 @@ class CampusScopeApiTests(TestCase):
             'resort': self.resort_a.name,
             'peopleCount': 2,
             'courses': [{
-                'courseTemplateId': 1,
+                'courseTemplateId': template.pk,
                 'date': (timezone.localdate() + timedelta(days=30)).isoformat(),
             }],
         }])
@@ -1532,6 +1536,38 @@ class CampusScopeApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(general.userprofile.is_manager)
+
+    def test_non_superuser_headquarters_can_grant_and_revoke_scoped_staff_without_protected_flag(self):
+        hq = User.objects.create_user('ordinary-hq-staff', 'hq-staff@example.test', 'test-password')
+        profile = hq.userprofile
+        profile.is_manager = True
+        profile.manager_client = self.tenant
+        profile.role = 'hq_admin'
+        profile.admin_permissions = ['staff']
+        profile.save()
+        target = User.objects.create_user('new-scoped-staff', 'scoped-staff@example.test', 'test-password')
+        url = f'/api/admin/snowland/customers/{target.pk}/permission/'
+        payload = {'is_manager': True, 'is_coach': False, 'role': 'campus_manager',
+            'permissions': ['orders'], 'campus_ids': [self.campus_a.pk]}
+        client = self.authenticated(hq)
+        campuses = client.get('/api/admin/snowland/campuses/')
+        self.assertEqual(campuses.status_code, 200, campuses.data)
+        self.assertEqual(client.patch(f'/api/admin/snowland/campuses/{self.campus_a.pk}/',
+            {'name': '不應被員工管理權限修改'}, format='json').status_code, 403)
+        result = client.post(url, payload, format='json')
+        self.assertEqual(result.status_code, 200, result.data)
+        target.refresh_from_db()
+        self.assertFalse(target.is_superuser)
+        scope = self.authenticated(target).get('/api/admin/snowland/me/')
+        self.assertEqual(scope.status_code, 200, scope.data)
+        self.assertEqual([row['id'] for row in scope.data['data']['campuses']], [self.campus_a.pk])
+        self.assertEqual(client.post(url, {**payload, 'is_superuser': True}, format='json').status_code, 403)
+        target.refresh_from_db()
+        self.assertFalse(target.is_superuser)
+        revoked = client.post(url, {'is_manager': False, 'is_coach': False, 'role': '',
+            'permissions': [], 'campus_ids': []}, format='json')
+        self.assertEqual(revoked.status_code, 200, revoked.data)
+        self.assertEqual(self.authenticated(target).get('/api/admin/snowland/me/').status_code, 403)
 
     def test_existing_campus_manager_without_campus_cannot_view_customers_or_orders(self):
         self.profile.admin_permissions = ['customers', 'orders']

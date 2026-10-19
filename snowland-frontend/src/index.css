@@ -40,6 +40,12 @@ body {
   min-height: 100vh;
 }
 
+/* Keep the Console header sticky to the page, not an unscrollable ancestor. */
+html:has(.admin-shell), body:has(.admin-shell), #root:has(.admin-shell) {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
 /* Native form popups do not always inherit Tailwind dark-mode colors on Windows. */
 .dark .admin-shell select,
 .dark .admin-shell input,
@@ -99,6 +105,17 @@ body {
 .article-content td,
 .article-content th { padding: 0.75rem; border: 1px solid #e2e8f0; vertical-align: top; }
 .article-content a { color: #2b5f8f; text-decoration: underline; text-underline-offset: 2px; }
+.imported-guide :where(div,figure,img,table) { max-width: 100% !important; }
+.imported-guide table { display: block; overflow-x: auto; }
+.imported-guide table td, .imported-guide table th { min-width: 10rem; }
+.imported-guide iframe { display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 16 / 9; margin: 1.5rem 0; border: 0; }
+.imported-guide :is(h2,h3,h4) { scroll-margin-top: 6rem; }
+/* Keep clipping horizontal overflow without creating a false scroll container
+   above the article's sticky table of contents. Other screens are unchanged. */
+html:has(.imported-guide), body:has(.imported-guide), #root:has(.imported-guide) {
+  overflow-x: clip;
+  overflow-y: visible;
+}
 
 .legacy-tab-content h3,
 .legacy-tab-content h4,

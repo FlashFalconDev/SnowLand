@@ -2,16 +2,14 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import aboutSnowland from '../../assets/site/About snowland.jpg';
-import tomamuResort from '../../assets/site/Homepage-Tomamu ski resort.jpg';
-import offPisteCourse from '../../assets/site/Homepage-course-Off piste.jpg';
-import hokkaidoCourse from '../../assets/site/Homepage-course-Hokkaido.jpg';
 import SpecialOffers from '../../components/site/SpecialOffers';
+import PopularCourses from '../../components/site/PopularCourses';
 import CoachLoadNotice from '../../components/site/CoachLoadNotice';
 import { useWebsiteCoachCards } from '../../api/websiteCoaches';
 import { fetchSiteContent } from '../../api/booking';
 import SiteFooter from '../../components/site/SiteFooter';
-import SiteHeader from '../../components/site/SiteHeader';
+import HomepagePresentation, {ContentState, HomepageCoachHeading, HomepageContactBanner} from '../../components/site/HomepagePresentation';
+import {useSiteContent} from '../../hooks/useSiteContent';
 
 function HomePage() {
   const containerRef = useRef(null);
@@ -22,8 +20,6 @@ function HomePage() {
 
   const y = useTransform(scrollYProgress, [0, 1], ["0%", "50%"]);
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
-  const [showAboutMore, setShowAboutMore] = useState(false);
-  const [expandedCourses, setExpandedCourses] = useState({});
   const [isReviewsPaused, setIsReviewsPaused] = useState(false);
   const [expandedReviewIndex, setExpandedReviewIndex] = useState(null);
   const [cmsReviews, setCmsReviews] = useState([]);
@@ -31,43 +27,13 @@ function HomePage() {
   const [reviewRetry, setReviewRetry] = useState(0);
   const reviewTextRefs = useRef([]);
   const [clampedReviewIndices, setClampedReviewIndices] = useState([]);
-  const aboutParagraphs = [
-    "SnowLand滑雪學校為星野Tomamu度假村／留壽都渡假村／手稻滑雪場 / 札幌國際雪場官方許可，於日本合法登記的滑雪學校，擁有多年北海道雪場教學經歷。",
-    "提供中文、粵語、英文等多語言教學選擇，以確保每位學員都能在熟悉和舒適的語言環境中自在學習滑雪技巧。",
-    "無論您是初次接觸滑雪的初心者，還是有一定滑雪經驗滑雪玩家，我們將根據您的需求和程度，量身定制最適合的教學計畫，以耐心與專業經驗陪你一起成長。我們注重教學的互動性和實踐性，通過系統化的教學流程，幫助您快速掌握滑雪技巧，並在過程中感受到樂趣和成就感。",
-    "滑雪是一項能夠帶來無限樂趣和挑戰的運動，同時也是一種能夠拓展人生視野、增進人與大自然連結的方式。透過SnowLand滑雪學校的教學，啟發您對滑雪的熱情，我們希望陪你穩健的從零出發，也陪你愛上這片雪白的世界。",
-  ];
   const { coaches: coachCards, isLoading: coachesLoading, error: coachesError, retry: retryCoaches } = useWebsiteCoachCards();
+  const coachSectionResult=useSiteContent('homepage.coaches');
+  const coachSection=coachSectionResult.items[0];
   const coachScrollerRef = useRef(null);
   const coachItemRefs = useRef([]);
   const [activeCoachIndex, setActiveCoachIndex] = useState(0);
   const totalCoachCards = coachCards.length;
-  const resortCards = [
-    {
-      title: "星野 TOMAMU",
-      image: tomamuResort,
-      description:
-        "在北海道中心體驗世界級粉雪，星野 Tomamu 擁有 29 條雪道，涵蓋初、中、進階不同難度，及開放夜間滑雪。從新手友善的平坦滑坡到具挑戰性的道外與樹林區，適合各程度的滑雪者。滑雪之外還有豐富的雪上活動設施：雪地卡丁車、夢幻的愛絲冰城，以及可俯瞰山谷與森林的霧冰平台，不滑雪也能盡情欣賞雪山美景。",
-      cta: "立即查看課程",
-      href: "/course/tomamu"
-    },
-    {
-      title: "野雪嚮導",
-      image: offPisteCourse,
-      description:
-        "探索真正的粉雪天堂，由具國際認證的嚮導專業帶領，深入北海道山岳地形，體驗滑出雪道邊界的自由與純粹。適合進階滑雪玩家挑戰極致的樂趣。嚮導團隊具備雪崩安全知識與山岳滑行經驗，依每日雪況與天氣做風險評估，即時規劃安全又具挑戰性的路線，全程專業陪伴，帶你體驗北海道原始雪山的壯闊與自由。",
-      cta: "立即查看課程",
-      href: "/course/off-piste-guide"
-    },
-    {
-      title: "北海道",
-      image: hokkaidoCourse,
-      description:
-        "SnowLand 的滑雪課程遍佈北海道各地：神居、聖誕禮物公園、比布、夕張與佐幌等熱門雪場。讓您依興趣與程度選擇最適合的學習環境。每個雪場皆有不同特色與風景。我們的專業教練團隊將協助您規劃最適合您的滑雪體驗。",
-      cta: "立即查看課程",
-      href: "/course/hokkaido"
-    }
-  ];
   React.useEffect(() => {
     let mounted = true;
     setReviewsStatus('loading');
@@ -87,7 +53,7 @@ function HomePage() {
     return cmsReviews.map((item) => ({
       name: item.title || 'SnowLand 學員',
       initials: item.metadata?.initials || (item.title || 'SL').slice(0, 2).toUpperCase(),
-      media: item.image_url ? 'image' : 'placeholder',
+      media: item.image_url ? 'image' : '',
       image: item.image_url || '',
       textPrimary: item.summary || item.body || item.subtitle || '',
       textSecondary: item.summary && item.body ? item.body : '',
@@ -174,235 +140,9 @@ function HomePage() {
 
   return (
     <div className="w-full font-sans">
-      <SiteHeader />
-      <div ref={containerRef} className="relative w-full h-screen overflow-hidden">
+      <HomepagePresentation containerRef={containerRef} y={y} opacity={opacity} />
 
-        {/* Background Video (YouTube) */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
-          <div className="absolute top-1/2 left-1/2 min-w-full min-h-full w-[177.77vh] h-[56.25vw] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-            <iframe
-              className="w-full h-full scale-105" // Slight scale to prevent edge flickering
-              src="https://www.youtube.com/embed/m-4vgzqVNqI?autoplay=1&mute=1&controls=0&loop=1&playlist=m-4vgzqVNqI&playsinline=1&showinfo=0&rel=0&iv_load_policy=3&disablekb=1&modestbranding=1&autohide=1&enablejsapi=1"
-              title="Background Video"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            ></iframe>
-          </div>
-        </div>
-
-        {/* Dark Overlay with Gradient */}
-        <div className="absolute top-0 left-0 w-full h-full bg-linear-to-b from-black/60 via-black/40 to-black/70 z-10 pointer-events-none"></div>
-
-        {/* Content Container */}
-        <motion.div
-          style={{ y, opacity }}
-          className="relative z-20 w-full h-full flex flex-col items-center justify-center text-center px-4 md:px-8 text-white max-w-7xl mx-auto"
-        >
-
-          {/* Main Headline */}
-          <motion.h1
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-            className="text-2xl md:text-4xl lg:text-5xl font-bold mb-6 tracking-wide drop-shadow-xl font-display leading-tight"
-          >
-            北海道星野TOMAMU<br />
-            官方許可滑雪學校
-          </motion.h1>
-
-          {/* Subhead CN */}
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
-            className="text-base md:text-lg lg:text-xl font-medium mb-4 tracking-wider drop-shadow-md opacity-95 text-balance"
-          >
-            安心的親子共學旅程，一起創造難忘的滑雪回憶
-          </motion.p>
-
-          {/* Subhead EN */}
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.6, ease: "easeOut" }}
-            className="text-xs md:text-sm lg:text-base font-light mb-16 tracking-wide font-inter italic opacity-80 max-w-3xl mx-auto"
-          >
-            Enjoy a joyful family ski experience — create unforgettable memories together.
-          </motion.p>
-
-          {/* CTA Button */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.8, delay: 0.8, ease: "easeOut" }}
-          >
-            <SiteLink
-              to="/booking"
-              className="group relative inline-flex items-center justify-center px-10 py-5 text-sm md:text-base font-bold text-white transition-all duration-300 bg-[#8ec8f0] rounded-full hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
-            >
-              {/* Shimmer Effect */}
-              <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-
-              <span className="relative z-10">預約課程</span>
-              <svg
-                className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-              </svg>
-            </SiteLink>
-          </motion.div>
-        </motion.div>
-
-        <a
-          href="#about-snowland"
-          aria-label="Scroll down"
-          className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 text-white/80 hover:text-white transition-colors"
-        >
-          <div className="w-10 h-10 flex items-center justify-center">
-            <svg
-              className="w-4 h-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </div>
-        </a>
-      </div>
-
-      <section id="about-snowland" className="bg-white">
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-6 md:gap-12 lg:gap-16 items-center">
-          <div className="w-full h-72 md:h-[420px] lg:h-full min-h-[420px]">
-            <img loading="eager" decoding="async" fetchpriority="high"
-              src={aboutSnowland}
-              alt="Snowland 滑雪學校"
-              className="w-full h-full object-cover"
-            />
-          </div>
-
-          <div className="px-6 md:px-10 pt-10 pb-16 md:py-24">
-            <div className="max-w-2xl text-[#2b2b2b] text-sm md:text-base leading-relaxed space-y-6">
-              <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                Snowland 滑雪學校
-              </h2>
-              <p>
-                SnowLand滑雪學校為
-                <span className="font-semibold">
-                  星野Tomamu度假村／留壽都渡假村／手稻滑雪場 / 札幌國際雪場
-                </span>
-                官方許可，於日本合法登記的滑雪學校，擁有多年北海道雪場教學經歷。
-              </p>
-              <p>
-                提供
-                <span className="font-semibold">中文、粵語、英文</span>
-                等多語言教學選擇，以確保每位學員都能在熟悉和舒適的語言環境中自在學習滑雪技巧。
-              </p>
-              {showAboutMore &&
-                aboutParagraphs.slice(2).map((text, index) => (
-                  <p key={`about-more-${index}`}>{text}</p>
-                ))}
-              <button
-                type="button"
-                onClick={() => setShowAboutMore((prev) => !prev)}
-                className="inline-flex items-center text-sm font-semibold text-[#1f2937] hover:text-[#0f172a] transition-colors underline underline-offset-4"
-              >
-                {showAboutMore ? "收起" : "展開"}
-              </button>
-              <div className="flex justify-center">
-                <SiteLink
-                  to="/about"
-                  className="relative z-10 pointer-events-auto inline-flex items-center justify-center px-6 py-2 rounded-full border border-[#1f2937] text-sm font-semibold text-[#1f2937] hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white transition-colors"
-                >
-                  了解更多
-                </SiteLink>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white">
-        <div className="max-w-6xl mx-auto px-6 md:px-10 py-16 md:py-24">
-          <div className="text-center mb-12 md:mb-16">
-            <p className="text-xs md:text-sm tracking-[0.3em] uppercase text-[#6b7280] font-medium font-display">
-              Course
-            </p>
-            <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-              熱門課程
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 md:gap-16">
-            {resortCards.map((resort) => (
-              <article
-                key={resort.title}
-                className="group flex flex-col items-center w-full max-w-md mx-auto"
-              >
-                <h3 className="text-xl font-semibold text-[#2b2b2b] font-display tracking-wide text-center">
-                  {resort.title}
-                </h3>
-
-                <div className="mt-6 w-full">
-                  <div className="relative w-full h-56 md:h-60 shadow-[0_16px_28px_rgba(15,23,42,0.12)] overflow-hidden">
-                    <img loading="lazy" decoding="async"
-                      src={resort.image}
-                      alt={`${resort.title} Course`}
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/10 to-transparent opacity-70 transition-opacity duration-300 group-hover:opacity-90"></div>
-                  </div>
-                </div>
-
-                <div className="mt-6 text-[#3f3f3f] text-sm leading-relaxed w-full">
-                  <p
-                    style={
-                      expandedCourses[resort.title]
-                        ? undefined
-                        : {
-                          display: "-webkit-box",
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                        }
-                    }
-                  >
-                    {resort.description}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedCourses((prev) => ({
-                        ...prev,
-                        [resort.title]: !prev[resort.title],
-                      }))
-                    }
-                    className="mt-3 inline-flex items-center text-sm font-semibold text-[#1f2937] hover:text-[#0f172a] transition-colors underline underline-offset-4"
-                  >
-                    {expandedCourses[resort.title] ? "收起" : "展開"}
-                  </button>
-                  <div className="w-12 h-px bg-[#c4c4c4] my-6 mx-auto"></div>
-                  <div className="mt-6 text-center">
-                    <SiteLink
-                      to={resort.href}
-                      className="inline-flex items-center justify-center px-8 py-2 rounded-full border border-[#1f2937] text-sm font-semibold text-[#1f2937] hover:border-[#4A6B8A] hover:bg-[#4A6B8A] hover:text-white transition-colors"
-                    >
-                      {resort.cta}
-                    </SiteLink>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
+      <PopularCourses />
 
       <section id="homepage-reviews" className="bg-[#f3f6f9] scroll-mt-24">
         <div className="max-w-6xl mx-auto px-6 md:px-10 pt-16 md:pt-24">
@@ -449,11 +189,6 @@ function HomePage() {
                     setExpandedReviewIndex((prev) => (prev === index ? null : index))
                   }
                 >
-                  {review.media === "placeholder" && (
-                    <div className="review-image mb-5 w-full rounded-lg bg-gradient-to-br from-[#d9e6f2] via-[#eef3f8] to-[#f9fbfd] flex items-center justify-center text-xs tracking-[0.2em] uppercase text-[#8aa0b5]">
-                      Image Holder
-                    </div>
-                  )}
                   {review.media === "image" && review.image && (
                     <img
                       loading="lazy"
@@ -502,21 +237,9 @@ function HomePage() {
         <div className="pb-16 md:pb-24"></div>
       </section>
 
-      <section id="homepage-coaches" className="bg-white scroll-mt-24">
+      {coachSection ? <section id="homepage-coaches" className="bg-white scroll-mt-24">
         <div className="max-w-6xl mx-auto px-6 md:px-10 py-16 md:py-24">
-          <div className="text-center mb-12 md:mb-16">
-            <p className="text-xs md:text-sm tracking-[0.3em] uppercase text-[#6b7280] font-medium font-display">
-              COACH
-            </p>
-            <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-              <SiteLink
-                to="/coach"
-                className="no-underline text-[#1f2937] hover:text-[#1f2937]"
-              >
-                教練團隊
-              </SiteLink>
-            </h2>
-          </div>
+          <HomepageCoachHeading item={coachSection} />
 
           <CoachLoadNotice isLoading={coachesLoading} error={coachesError} count={coachCards.length} retry={retryCoaches} />
           <div className="md:hidden">
@@ -566,16 +289,16 @@ function HomePage() {
                 );
               })}
             </div>
-            <div className="mt-4 flex items-center justify-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               {coachCards.map((coach, index) => (
                 <button
                   key={`coach-dot-${coach.name}`}
                   type="button"
                   onClick={() => scrollToCoachIndex(index)}
                   aria-label={`View ${coach.name}`}
-                  className={`h-2 w-2 rounded-full transition-colors ${activeCoachIndex === index ? "bg-[#2b5f8f]" : "bg-[#cbd5e1]"
-                    }`}
-                />
+                  aria-pressed={activeCoachIndex === index}
+                  className="min-h-11 min-w-11 inline-flex items-center justify-center"
+                ><span className={`h-2 w-2 rounded-full transition-colors ${activeCoachIndex === index ? "bg-[#2b5f8f]" : "bg-[#cbd5e1]"}`} /></button>
               ))}
             </div>
           </div>
@@ -600,41 +323,11 @@ function HomePage() {
             })}
           </div>
         </div>
-      </section>
+      </section> : <ContentState result={coachSectionResult} label="首頁教練區" />}
 
       <SpecialOffers />
 
-      <section className="bg-white">
-        <div className="max-w-4xl mx-auto px-6 md:px-10 py-16 md:py-20 text-center">
-          <div
-            className="relative mx-auto w-full max-w-[724px] overflow-hidden rounded-sm border border-[#e2e8f0] px-6 py-8 md:h-[190px] md:px-10 md:py-0 flex flex-col items-center justify-center bg-cover"
-            style={{
-              backgroundImage: "url(/Course/off-piste-guide/off-piste-guide-006.jpg)",
-              backgroundPosition: "center 60%",
-            }}
-          >
-            <div className="absolute inset-0 bg-black/20" />
-            <div className="relative z-10">
-              <h2 className="text-2xl font-semibold text-white font-display">
-                <span className="block md:inline">不知道該選哪個雪場</span>
-                <span className="block md:inline">或課程天數？</span>
-              </h2>
-              <p className="mt-4 text-sm md:text-base text-white/90 leading-relaxed">
-                <span className="block md:inline">歡迎與我們聯繫，協助你規劃</span>
-                <span className="block md:inline">最適合你的滑雪旅程。</span>
-              </p>
-              <div className="mt-8">
-                <SiteLink
-                  to="/contact"
-                  className="inline-flex items-center justify-center rounded-full bg-[#8ec8f0] px-6 py-3 text-sm font-semibold text-white hover:bg-[#7bbbe7] transition-colors"
-                >
-                  立即諮詢
-                </SiteLink>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <HomepageContactBanner />
 
       <SiteFooter />
 

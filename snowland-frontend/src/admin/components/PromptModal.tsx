@@ -74,6 +74,9 @@ export default function PromptModal({
     setLoading(true)
     try {
       await onSubmit(submittedValues)
+    } catch (failure) {
+      const message = failure && typeof failure === 'object' && 'message' in failure && typeof failure.message === 'string' ? failure.message : ''
+      setError(message || '儲存失敗，請稍後再試。')
     } finally {
       setLoading(false)
     }
@@ -92,7 +95,7 @@ export default function PromptModal({
         <div className="shrink-0 rounded-t-2xl px-6 py-4 text-white flex items-center justify-between"
           style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
           <h3 className="text-lg font-semibold">{title}</h3>
-          <button type="button" onClick={onCancel} disabled={loading} aria-label="關閉視窗" className="text-white/80 hover:text-white disabled:opacity-50">
+          <button type="button" onClick={onCancel} disabled={loading} aria-label="關閉視窗" className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center text-white/80 hover:text-white disabled:opacity-50">
             <X size={18} />
           </button>
         </div>
@@ -147,16 +150,16 @@ export default function PromptModal({
               )}
             </div>
           ))}
-          {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</p>}
         </div>
 
+        {error && <div className="shrink-0 px-6 pb-3"><p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</p></div>}
         <div className="shrink-0 flex justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
           <button type="button" onClick={onCancel} disabled={loading}
-            className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">
+            className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">
             取消
           </button>
           <button type="submit" disabled={loading}
-            className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+            className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
             style={{ backgroundColor: PRIMARY }}>
             {loading && <Loader2 size={14} className="animate-spin" />}
             {submitLabel}

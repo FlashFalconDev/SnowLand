@@ -20,8 +20,9 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from datetime import timedelta, datetime, date, time
 from collections import defaultdict
+from types import SimpleNamespace
 
-from Client.models import SiteContent
+from Client.models import Client, SiteContent
 from .payroll_security import PayrollCsrfMixin
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
 from Resorts.models import Resorts, Campus, PaymentAccount, OperatingPolicy
@@ -328,6 +329,7 @@ def _equipment_assistance_calendar_item(reservation, booking, include_coach=True
     }
     if include_coach:
         item['coach_name'] = reservation.preferred_coach.name if reservation.preferred_coach else ''
+        item['coach_id'] = reservation.preferred_coach_id
     return item
 
 
@@ -424,6 +426,25 @@ def _calendar_date_keys(start_date, end_date):
         days.append(current)
         current += timedelta(days=1)
     return days
+
+
+def _calendar_coach_roster(*, tenant, start_date, end_date, campus_ids=None):
+    if not tenant or not start_date or not end_date or end_date < start_date:
+        return [], []
+    coaches = Coach.objects.filter(client=tenant, availability_status__in=['active', 'passive'])
+    if campus_ids is not None:
+        coaches = coaches.filter(campuses__id__in=campus_ids)
+    roster = list(coaches.order_by('name', 'pk').values('id', 'name').distinct())
+    leaves = CoachLeaveRequest.objects.filter(
+        coach_id__in=[row['id'] for row in roster], status='approved',
+        start_date__lte=end_date, end_date__gte=start_date,
+    ).select_related('coach').order_by('coach_id', 'start_date', 'pk')
+    # Calendar access does not grant access to medical or other private leave reasons.
+    return roster, [{
+        'coach_id': leave.coach_id, 'coach_name': leave.coach.name,
+        'start_date': max(leave.start_date, start_date).isoformat(),
+        'end_date': min(leave.end_date, end_date).isoformat(),
+    } for leave in leaves]
 
 
 def _daily_coach_availability_summary(*, tenant, start_date, end_date, campus_ids=None):
@@ -535,6 +556,42 @@ class SiteContentAdminViewSet(ModelViewSet):
     serializer_class = SiteContentAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'cms'
+
+    @action(detail=False, methods=['get'], url_path='waiver-current')
+    def waiver_current(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'cms')
+        if denied is not None:
+            return denied
+        from booking.legal_documents import get_current_waiver
+        return Response({'code':200,'data':get_current_waiver(request.tenant)})
+
+    @action(detail=False, methods=['get'], url_path='join-schema')
+    def join_schema(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'cms')
+        if denied is not None:
+            return denied
+        from Client.about_pages import about_schema
+        return Response({'code': 200, 'data': about_schema('join-us')})
+
+    @action(detail=False, methods=['get'], url_path='about-schema')
+    def about_schema(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'cms')
+        if denied is not None:
+            return denied
+        from Client.about_pages import about_schema
+        return Response({'code': 200, 'data': about_schema()})
+
+    @action(detail=False, methods=['get'], url_path='photography-schema')
+    def photography_schema(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'cms')
+        if denied is not None:
+            return denied
+        from Client.photography_pages import photography_schema
+        try:
+            schema = photography_schema(request.query_params.get('season', ''))
+        except ValueError as exc:
+            raise ValidationError({'season': str(exc)})
+        return Response({'code': 200, 'data': schema})
 
     def get_permissions(self):
         self.permission_key = 'cms' if user_has_admin_permission(self.request.user, 'cms') else 'reviews'
@@ -842,6 +899,7 @@ class CampusAdminViewSet(ModelViewSet):
     serializer_class = CampusAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'campuses'
+    read_permission_keys = ('staff',)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
@@ -1563,7 +1621,8 @@ class OrderAdminViewSet(ModelViewSet):
                 tail_digits = re.fullmatch(r'(?:\d{8}-|SL-\d{8}-)?(\d+)', search)
             else:
                 search_q = (
-                    Q(user__username__icontains=search)
+                    Q(order_number__icontains=search)
+                    | Q(user__username__icontains=search)
                     | Q(user__first_name__icontains=search)
                     | Q(user__last_name__icontains=search)
                     | Q(user__email__icontains=search)
@@ -1768,6 +1827,8 @@ class OrderAdminViewSet(ModelViewSet):
             ]
         }
         """
+        # Use the same lock order as versioned amendments: tenant, then order.
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
         instance = self.get_object()
         instance = get_object_or_404(self.get_queryset().select_for_update(),pk=instance.pk)
         data = request.data
@@ -1838,6 +1899,7 @@ class OrderAdminViewSet(ModelViewSet):
 
         # 2. 收集教練變更
         coach_changes = []
+        seen_reservations = set()
         for upd in reservation_updates:
             if not isinstance(upd, dict):
                 return Response({'code': 400, 'msg': '教練變更格式錯誤'}, status=400)
@@ -1846,11 +1908,20 @@ class OrderAdminViewSet(ModelViewSet):
             if not r_id:
                 return Response({'code': 400, 'msg': '缺少預約編號'}, status=400)
             try:
+                r_id = int(r_id)
+            except (TypeError, ValueError):
+                return Response({'code': 400, 'msg': '預約編號格式錯誤'}, status=400)
+            if r_id in seen_reservations:
+                return Response({'code': 400, 'msg': '同一組課程不能重複修改教練，請重新核對'}, status=400)
+            seen_reservations.add(r_id)
+            try:
                 r = instance.reservations.get(pk=r_id)
             except Reservation.DoesNotExist:
                 return Response({'code': 400, 'msg': '找不到這張訂單的預約'}, status=400)
             old_coach_id = r.preferred_coach_id
             if str(old_coach_id) != str(new_coach_id):
+                if r.status in ('cancelled', 'deleted'):
+                    return Response({'code': 400, 'msg': '課程已取消或刪除，不能重新指派教練'}, status=400)
                 if r.shared_course_class_id:
                     return Response({
                         'code': 400,
@@ -1911,6 +1982,39 @@ class OrderAdminViewSet(ModelViewSet):
             # 純儲存
             if not coach_changes and not booking_changes and not payment_status:
                 return Response({'code': 200, 'msg': '沒有資料變更，未建立修改紀錄'})
+            # Manual assignment must obey the same leave and conflict rules as scheduling.
+            # Validate the whole batch before writing any course, payment or revision.
+            assigned = [change for change in coach_changes if change['new_coach_id']]
+            if assigned:
+                from booking.scheduler import can_assign_all_bookings, get_manual_assignment_coaches
+                coach_ids = {change['new_coach_id'] for change in assigned}
+                list(Coach.objects.select_for_update().filter(pk__in=coach_ids).order_by('pk'))
+                released = {change['reservation'].pk for change in coach_changes}
+                released.update(change['booking'].reservation_id for change in booking_changes
+                                if not change['booking'].reservation.is_preferred_coach)
+                busy = defaultdict(list)
+                occupied = Booking.objects.filter(is_scheduled=True, reservation__preferred_coach_id__in=coach_ids).exclude(
+                    reservation__status__in=['cancelled', 'deleted']).exclude(reservation_id__in=released).exclude(
+                    pk__in=[change['booking'].pk for change in booking_changes]).select_related('reservation')
+                for booking in occupied:
+                    busy[booking.reservation.preferred_coach_id].append((booking.date, booking.start_time, booking.end_time))
+                new_slots = {change['booking'].pk: change for change in booking_changes}
+                for change in assigned:
+                    reservation, coach_id = change['reservation'], change['new_coach_id']
+                    bookings = list(reservation.bookings.all())
+                    if not bookings:
+                        return Response({'code': 400, 'msg': '這組課程沒有上課時段，不能指派教練'}, status=400)
+                    if coach_id not in {coach.pk for coach in get_manual_assignment_coaches(reservation, bookings)}:
+                        return Response({'code': 400, 'msg': '教練已不符合課程語言、學員程度、模板資格或可接課名單，請核對教練／課程設定並重新選擇；原訂單與付款未變更'}, status=400)
+                    for booking in bookings:
+                        update = new_slots.get(booking.pk)
+                        slot = SimpleNamespace(reservation=reservation,
+                            date=update['new_date'] if update else booking.date,
+                            start_time=update['new_start_time'] if update else booking.start_time,
+                            end_time=update['new_end_time'] if update else booking.end_time)
+                        if not can_assign_all_bookings([slot], coach_id, busy):
+                            return Response({'code': 400, 'msg': '這位教練在課程時段已有其他課程、核准請假，或已不符合校區／雪場條件；原訂單與付款未變更'}, status=400)
+                        busy[coach_id].append((slot.date, slot.start_time, slot.end_time))
             self._apply_booking_changes(booking_changes)
             for c in coach_changes:
                 r = c['reservation']
@@ -1919,13 +2023,12 @@ class OrderAdminViewSet(ModelViewSet):
                     coach = Coach.objects.get(pk=new_coach_id)
                     r.preferred_coach = coach
                     r.is_preferred_coach = False
-                    if r.status in ['created', 'auto_assigned']:
-                        r.status = 'manually_assigned'
+                    r.status = 'pending_coach_confirmation' if coach.availability_status == 'passive' else 'manually_assigned'
                     r.bookings.update(is_scheduled=True)
                 else:
                     r.preferred_coach = None
                     r.is_preferred_coach = False
-                    if r.status in ['auto_assigned', 'manually_assigned']:
+                    if r.status in ['auto_assigned', 'manually_assigned', 'pending_coach_confirmation']:
                         r.status = 'created'
                     r.bookings.update(is_scheduled=False)
                 r.save()
@@ -1945,7 +2048,11 @@ class OrderAdminViewSet(ModelViewSet):
 
         elif action == 'schedule':
             # 觸發 AI 排課
-            if not coach_changes and not booking_changes:
+            retryable = instance.reservations.filter(
+                status='created', preferred_coach__isnull=True,
+                shared_course_class__isnull=True, bookings__isnull=False,
+            ).exists()
+            if not coach_changes and not booking_changes and not retryable:
                 save_payment_status()
                 return Response({'code': 200, 'msg': '付款狀態已儲存' if payment_status else '沒有變更，無需排課'})
 
@@ -1968,7 +2075,8 @@ class OrderAdminViewSet(ModelViewSet):
             try:
                 from booking.scheduler import assign_coachs
                 reservations_to_assign = list(
-                    instance.reservations.select_related('preferred_coach', 'resort', 'course_type')
+                    instance.reservations.filter(status='created', shared_course_class__isnull=True)
+                    .select_related('preferred_coach', 'resort', 'course_type')
                     .prefetch_related('bookings', 'rejected_coaches')
                 )
                 ok, _schedule_report = assign_coachs(reservations_to_assign=reservations_to_assign)
@@ -1983,7 +2091,7 @@ class OrderAdminViewSet(ModelViewSet):
                     record_order_revision(instance, user=request.user, change_type='modify', reason=data.get('reason', '後台修改並重新排課'))
                     return Response({
                         'code': 200,
-                        'msg': f'排課成功！已更新 {len(coach_changes) + len(booking_changes)} 筆資料',
+                        'msg': f'排課成功！已處理 {len(reservations_to_assign)} 組待排課程',
                     })
                 # 失敗 → 回滾
                 self._rollback_coach_changes(coach_changes)
@@ -2354,7 +2462,7 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         profile = getattr(request.user, 'userprofile', None)
-        if request.method not in SAFE_METHODS and self.action != 'reminder' and not request.user.is_superuser and profile and profile.role == 'assistant':
+        if request.method not in SAFE_METHODS and self.action not in ('reminder', 'processing') and not request.user.is_superuser and profile and profile.role == 'assistant':
             raise PermissionDenied('行政小幫手僅能查看保險與聲明書，不能修改或標記完成')
 
     def get_serializer_class(self):
@@ -2366,17 +2474,20 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
 
     def get_queryset(self):
         qs = MemberDetail.objects.filter(reservation__group__client=self.request.tenant).select_related(
-            'user', 'guardian', 'reservation__group__campus'
+            'user', 'guardian', 'reservation__group__campus', 'reservation__group__client'
         ).prefetch_related('reservation__bookings')
         if _campus_ids(self.request) and (
             not self.request.can_view_all_campuses or self.request.selected_campus_id is not None
         ):
             qs = qs.filter(reservation__group__campus_id__in=_campus_ids(self.request))
         status_filter = self.request.query_params.get('status')
+        from booking.legal_documents import get_current_waiver
+        current_version = get_current_waiver(self.request.tenant)['version']
+        stale_signature = Q(waiver_signature__isnull=False) & ~Q(waiver_signature='') & ~Q(waiver_document_version=current_version)
         if status_filter == 'missing':
-            qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True))
+            qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True) | stale_signature)
         elif status_filter == 'completed':
-            qs = qs.filter(insurance_completed_at__isnull=False, waiver_completed_at__isnull=False)
+            qs = qs.filter(insurance_completed_at__isnull=False, waiver_completed_at__isnull=False).exclude(stale_signature)
         # Ordering by a related booking date makes SQL include that date in the
         # DISTINCT result, so one member appears once per course day.  The
         # serializer already returns all course dates; keep one row per member.
@@ -2406,6 +2517,12 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
             if preview['recipient_email'] != data['recipient_email'].strip().lower():
                 return Response({'code':409,'msg':'收件人已改變，請重新開啟提醒視窗確認'},status=409)
             delivery_id = prepare_email(request,member.reservation.group,{**preview,'request_key':data['request_key']})
+            delivery = NotificationDelivery.objects.get(pk=delivery_id)
+            if delivery.payload.get('insurance_reminder_reservation_id') not in (None, member.reservation_id):
+                from .manual_notifications import NotificationConflict
+                raise NotificationConflict('此寄信識別碼屬於其他課程，請重新開啟提醒視窗')
+            delivery.payload = {**delivery.payload, 'insurance_reminder_reservation_id':member.reservation_id}
+            delivery.save(update_fields=['payload'])
         response_status, response = deliver_order_email(delivery_id)
         return Response(response,status=response_status)
 
@@ -2941,9 +3058,14 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
             end_date=end_date,
             campus_ids=_campus_ids(request),
         )
+        coaches, leaves = _calendar_coach_roster(
+            tenant=getattr(request, 'tenant', None), start_date=start_date, end_date=end_date,
+            campus_ids=_campus_ids(request),
+        )
         return Response({
             'code': 200, 'msg': 'OK',
-            'data': {'list': items, 'total': len(items), 'daily_summary': daily_summary},
+            'data': {'list': items, 'total': len(items), 'daily_summary': daily_summary,
+                     'coaches': coaches, 'leaves': leaves},
         })
 
     @action(detail=False, methods=['get'], url_path='group-candidates')
@@ -4034,10 +4156,16 @@ def _confirm_individual_course(request, coach, reservation_id, action):
             # A failed attempt must not leave partial scheduler writes behind;
             # keep the already successful rejection for manual assignment.
             with transaction.atomic():
-                new_status = reassign_single_reservation(r)
-            return Response({'code': 200, 'msg': f'已拒絕，重新排課狀態：{new_status}'})
+                reassigned = reassign_single_reservation(r.pk)
+            r.refresh_from_db()
+            if reassigned and r.preferred_coach_id:
+                message = ('已拒絕，已重新安排替代教練，等待對方確認'
+                           if r.status == 'pending_coach_confirmation' else '已拒絕，已重新安排可接課教練')
+            else:
+                message = '已拒絕，目前沒有可用的替代教練，請由行政安排'
+            return Response({'code': 200, 'msg': message})
         except Exception:
-            return Response({'code': 200, 'msg': '已拒絕（無自動重排）'})
+            return Response({'code': 200, 'msg': '已拒絕，自動重排暫時未完成，請由行政核對安排'})
 
     return Response({'code': 400, 'msg': '未知 action'}, status=400)
 

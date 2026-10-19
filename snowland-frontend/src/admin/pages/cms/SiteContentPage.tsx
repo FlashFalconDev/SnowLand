@@ -17,10 +17,22 @@ import {
 } from 'lucide-react'
 import { useNotification } from '../../context'
 import ReviewPlacementFields from '../../components/ReviewPlacementFields'
+import GalleryFields from '../../components/GalleryFields'
+import PhotographyPageEditor from '../../components/PhotographyPageEditor'
+import AboutPageEditor from '../../components/AboutPageEditor'
+import ArticlePageEditor from '../../components/ArticlePageEditor'
+import GuideArticleFields from '../../components/GuideArticleFields'
+import CourseAreaFields from '../../components/CourseAreaFields'
+import HomepagePresentationFields from '../../components/HomepagePresentationFields'
+import SiteFooterFields from '../../components/SiteFooterFields'
+import WaiverDocumentFields from '../../components/WaiverDocumentFields'
+import { GUIDE_CATEGORIES, guideArticleMode } from '../../../hooks/useSiteContent'
+import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleContent'
 import {
   createSiteContent,
   deleteSiteContent,
   fetchSiteContents,
+  fetchCurrentWaiver,
   fetchReviewContentGroups,
   updateSiteContent,
   type SiteContentItem,
@@ -80,9 +92,13 @@ const DEFAULT_GROUPS: GroupInfo[] = [
     description: '首頁會看到的主視覺、評價、教練區塊與優惠卡',
     locations: [
       { key: 'homepage.hero', label: '首頁主視覺', hint: '首頁第一屏標題、圖片與主要文案', type: 'setting' },
+      { key: 'homepage.intro', label: '首頁學校介紹', hint: '首頁照片、學校介紹、粗體文字、展開段落與了解更多按鈕', type: 'setting' },
+      { key: 'homepage.courses', label: '熱門課程', hint: '首頁課程卡片：名稱、短文字、圖片、按鈕、排序與上下架', type: 'page' },
       { key: 'homepage.reviews', label: '學生評價', hint: '首頁下方的評論卡片', type: 'review' },
-      { key: 'homepage.coaches', label: '教練團隊區塊', hint: '首頁教練區塊文字或設定', type: 'setting' },
+      { key: 'homepage.coaches', label: '教練團隊區塊', hint: '首頁教練區標題、說明、連結及上下架；教練卡片由教練管理維護', type: 'setting' },
       { key: 'homepage.offers', label: '首頁限定優惠', hint: '首頁的優惠圖片卡', type: 'offer' },
+      { key: 'homepage.contact', label: '首頁諮詢區塊', hint: '首頁底部諮詢標題、說明、背景圖、按鈕與上下架', type: 'setting' },
+      { key: 'site.footer', label: '頁尾與社群', hint: '全站公司名稱、聯絡Email、版權文字、社群及浮動客服連結', type: 'setting' },
     ],
   },
   {
@@ -91,6 +107,7 @@ const DEFAULT_GROUPS: GroupInfo[] = [
     description: '官網導覽列的滑雪課程與相關資訊',
     locations: [
       { key: 'course.tomamu', label: '星野滑雪課程', hint: '星野 Tomamu 課程頁內容、價目表與說明', type: 'page' },
+      { key: 'course.areas', label: '官網校區導覽', hint: '官網滑雪課程選單的校區名稱、順序及雪場分組；不影響營運權限', type: 'page' },
       { key: 'course.off-piste-guide', label: '野雪嚮導', hint: '野雪嚮導課程頁內容', type: 'page' },
       { key: 'course.hokkaido', label: '北海道其他雪場課程', hint: '其他雪場課程頁內容', type: 'page' },
       { key: 'course.how-to-book', label: '預約流程', hint: '滑雪課程預約流程說明', type: 'page' },
@@ -153,6 +170,9 @@ const DEFAULT_GROUPS: GroupInfo[] = [
       { key: 'about.contact', label: '聯絡我們', hint: '聯絡頁文字、信箱與提示', type: 'page' },
     ],
   },
+  {id:'membership',label:'會員文件',description:'課前聲明書內容與版本',locations:[
+    {key:'membership.waiver',label:'課前聲明書',hint:'修改標題或正文會自動建立新版本；既有簽名快照會保留',type:'page'},
+  ]},
 ]
 
 const buildLocationMap = (groups: GroupInfo[]) => groups.flatMap((group) => group.locations).reduce<Record<string, LocationInfo>>((map, location) => {
@@ -226,7 +246,34 @@ const normalizeCmsStructureGroups = (metadata?: Record<string, unknown>): GroupI
     && !groupIds.has('about')
   )
 
-  return looksLikeLegacyDefaultStructure ? DEFAULT_GROUPS : groups
+  if (looksLikeLegacyDefaultStructure) return DEFAULT_GROUPS
+  // Introduce the required card section without resetting custom CMS groups.
+  const homeGroup = groups.find(group => group.id === 'homepage')
+  if (!groups.some(group => group.locations.some(location => location.key === 'homepage.courses'))) {
+    const location = DEFAULT_GROUPS[0].locations.find(location => location.key === 'homepage.courses')!
+    if (homeGroup) homeGroup.locations.push(location)
+    else groups.push({ ...DEFAULT_GROUPS[0], locations: [location] })
+  }
+  if (!groups.some(group => group.locations.some(location => location.key === 'course.areas'))) {
+    const courses = DEFAULT_GROUPS.find(group => group.id === 'courses')!
+    const location = courses.locations.find(location => location.key === 'course.areas')!
+    const group = groups.find(group => group.id === 'courses')
+    if (group) group.locations.push(location)
+    else groups.push({...courses, locations:[location]})
+  }
+  for (const key of ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact','site.footer']) {
+    if (!groups.some(group=>group.locations.some(location=>location.key===key))) {
+      const home=groups.find(group=>group.id==='homepage')!
+      home.locations.push(DEFAULT_GROUPS[0].locations.find(location=>location.key===key)!)
+    }
+  }
+  if (!groups.some(group=>group.locations.some(location=>location.key==='membership.waiver'))) {
+    const fallback = DEFAULT_GROUPS.find(group=>group.id==='membership')!
+    const membership = groups.find(group=>group.id==='membership')
+    if (membership) membership.locations.push(fallback.locations[0])
+    else groups.push(fallback)
+  }
+  return groups
 }
 
 const makeEmptyForm = (locationKey?: string, location?: LocationInfo): SiteContentWriteData => {
@@ -243,7 +290,7 @@ const makeEmptyForm = (locationKey?: string, location?: LocationInfo): SiteConte
     source: '',
     external_id: '',
     tags: [],
-    metadata: {},
+    metadata: key === 'membership.waiver' ? {is_draft:true} : {},
     status: 'draft',
     start_at: null,
     end_at: null,
@@ -269,7 +316,7 @@ const getLocationLabel = (key: string) => DEFAULT_LOCATION_MAP[key]?.label || ke
 const getLocationHint = (key: string) => DEFAULT_LOCATION_MAP[key]?.hint || ''
 
 type CmsContentBlock =
-  | { id: string; type: 'heading'; text: string; level: 2 | 3 }
+  | { id: string; type: 'heading'; text: string; level: 1 | 2 | 3 | 4 }
   | { id: string; type: 'paragraph'; text: string }
   | { id: string; type: 'image'; src: string; alt: string }
   | { id: string; type: 'list'; items: string[]; ordered: boolean }
@@ -279,7 +326,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 const createBlockId = () => `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 const normalizeContentBlocks = (metadata: Record<string, unknown> | undefined, body = '', imageUrl = ''): CmsContentBlock[] => {
-  const rawBlocks = Array.isArray(metadata?.blocks) ? metadata.blocks : []
+  const page = isRecord(metadata?.page) ? metadata.page : {}
+  const rawBlocks = Array.isArray(metadata?.blocks) ? metadata.blocks : Array.isArray(page.blocks) ? page.blocks : []
   const blocks = rawBlocks
     .map((block): CmsContentBlock | null => {
       if (!isRecord(block)) return null
@@ -289,7 +337,7 @@ const normalizeContentBlocks = (metadata: Record<string, unknown> | undefined, b
           id,
           type: 'heading',
           text: typeof block.text === 'string' ? block.text : '',
-          level: block.level === 3 ? 3 : 2,
+          level: [1,2,3,4].includes(Number(block.level)) ? Number(block.level) as 1 | 2 | 3 | 4 : 2,
         }
       }
       if (block.type === 'paragraph') {
@@ -315,7 +363,7 @@ const normalizeContentBlocks = (metadata: Record<string, unknown> | undefined, b
     })
     .filter((block): block is CmsContentBlock => Boolean(block))
 
-  if (blocks.length) return blocks
+  if (blocks.length || Array.isArray(metadata?.blocks) || Array.isArray(page.blocks)) return blocks
 
   const fallbackBlocks: CmsContentBlock[] = []
   if (imageUrl) {
@@ -351,6 +399,25 @@ const getFirstBlockImage = (blocks: CmsContentBlock[]) => {
 }
 
 const getContentPreviewText = (item: SiteContentItem) => {
+  if (item.location_key === 'membership.waiver') return item.body || '尚未填寫聲明書正文'
+  if (item.location_key === 'site.footer') {
+    const metadata = item.metadata || {}
+    const links = isRecord(metadata.social_links) ? Object.values(metadata.social_links).filter(value=>typeof value==='string' && value.trim()).length : 0
+    return [metadata.company_name, metadata.email, `${links}個社群連結`].filter(value=>typeof value==='string' && value.trim()).join(' · ')
+  }
+  if (['about.snowland', 'about.join-us'].includes(item.location_key) && isRecord(item.metadata?.layout)) return `${item.location_key === 'about.snowland' ? '學校介紹' : '教練招募'}原版型 · ${Object.keys(isRecord(item.metadata.layout.values) ? item.metadata.layout.values : {}).length}個欄位`
+  if (isRecord(item.metadata?.article)) return String(item.metadata.article.lead || item.metadata.article.title || '原文章內容')
+  if (['photography.winter', 'photography.summer'].includes(item.location_key)) {
+    const content = isRecord(item.metadata?.photography) ? item.metadata.photography : {}
+    const values = isRecord(content.values) ? content.values : {}
+    return `${item.location_key === 'photography.winter' ? '冬季' : '夏季'}攝影整頁內容 · ${Object.keys(values).length}個版型欄位`
+  }
+  if (item.location_key === 'photography.gallery') {
+    const metadata = item.metadata || {}
+    const types = Array.isArray(metadata.shoot_types) ? metadata.shoot_types : []
+    return [metadata.media_type === 'video' ? 'YouTube影片' : '照片', metadata.location, metadata.section, ...types]
+      .filter(value => typeof value === 'string' && value.trim()).join(' · ')
+  }
   if (item.location_key === 'course.resort-pages') {
     const resort = isRecord(item.metadata?.resort) ? item.metadata.resort : {}
     const tabs = Array.isArray(resort.tabs) ? resort.tabs.filter(isRecord) : []
@@ -376,14 +443,19 @@ type SitePreviewRoute = {
 
 const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'homepage.hero': { path: '/' },
+  'homepage.intro': { path: '/', hash: 'about-snowland' },
+  'homepage.courses': { path: '/', hash: 'homepage-courses' },
   'homepage.reviews': { path: '/', hash: 'homepage-reviews' },
   'homepage.coaches': { path: '/', hash: 'homepage-coaches' },
+  'homepage.contact': { path: '/', hash: 'homepage-contact' },
+  'site.footer': { path: '/', hash: 'site-footer' },
   'homepage.offers': { path: '/', hash: 'homepage-offers' },
   'course.tomamu': { path: '/course/tomamu' },
   'course.off-piste-guide': { path: '/course/off-piste-guide' },
   'course.hokkaido': { path: '/course/hokkaido' },
   'course.how-to-book': { path: '/course/how-to-book' },
   'course.resorts': { path: '/course/hokkaido' },
+  'course.areas': { path: '/course/hokkaido' },
   'course.resort-pages': { path: '/course/hokkaido' },
   'course.pricing': { path: '/course/tomamu/price' },
   'course.info': { path: '/course/tomamu' },
@@ -412,6 +484,7 @@ const SITE_PREVIEW_ROUTES: Record<string, SitePreviewRoute> = {
   'about.coaches': { path: '/coach' },
   'about.join-us': { path: '/join-us' },
   'about.contact': { path: '/contact' },
+  'membership.waiver': {path:'/membership/pre-course-forms'},
 }
 
 const getTenantBasePath = () => {
@@ -423,7 +496,7 @@ const getTenantBasePath = () => {
 const buildOfficialPreviewUrl = (locationKey: string, externalId = '') => {
   const route = locationKey === 'course.pricing' && externalId
     ? { path: `/course/${encodeURIComponent(externalId)}/price` }
-    : locationKey === 'course.resort-pages' && externalId
+    : ['course.resort-pages','course.areas'].includes(locationKey) && externalId
       ? { path: `/course/${encodeURIComponent(externalId)}` }
     : SITE_PREVIEW_ROUTES[locationKey] || { path: '/' }
   const basePath = getTenantBasePath()
@@ -438,6 +511,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   const qc = useQueryClient()
   const [activeGroup, setActiveGroup] = useState<ContentGroup>(initialGroup)
   const [editing, setEditing] = useState<SiteContentItem | null>(null)
+  const [saveError, setSaveError] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [structureOpen, setStructureOpen] = useState(false)
   const [createLocation, setCreateLocation] = useState<string | null>(null)
@@ -457,13 +531,15 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
 
   const refresh = () => qc.invalidateQueries({ queryKey: QUERY_KEY })
   const structureItem = contents.find((item) => item.content_type === 'setting' && item.location_key === CMS_STRUCTURE_LOCATION_KEY) || null
+  // A content save returns new row objects; it must not reset the selected section.
+  const structureKey = JSON.stringify(contentTypes ? { groups: reviewGroups.data || [] } : structureItem?.metadata || {})
   const groups = useMemo(() => {
-    const source = normalizeCmsStructureGroups(contentTypes ? { groups: reviewGroups.data || [] } : structureItem?.metadata)
+    const source = normalizeCmsStructureGroups(JSON.parse(structureKey))
     return contentTypes ? source.map((group) => ({ ...group, locations: group.locations.filter((location) => contentTypes.includes(location.type)) })).filter((group) => group.locations.length) : source
-  }, [structureItem, contentTypes, reviewGroups.data])
+  }, [structureKey, contentTypes])
   const locationMap = useMemo(() => buildLocationMap(groups), [groups])
   const defaultLocationByGroup = useMemo(() => getDefaultLocationByGroup(groups), [groups])
-  const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY && (!contentTypes || contentTypes.includes(item.content_type))), [contents, contentTypes])
+  const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY && (!contentTypes || contentTypes.includes(item.content_type))).map(toEditorSiteContent), [contents, contentTypes])
 
   useEffect(() => {
     const targetGroup = groups.find((group) => group.id === initialGroup) || groups[0]
@@ -491,25 +567,33 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   }, [activeGroup, activeLocationKey, groups])
 
   const createMutation = useMutation({
-    mutationFn: createSiteContent,
+    mutationFn: (data: SiteContentWriteData) => createSiteContent(toStoredSiteContent(data)),
     onSuccess: () => {
       notify.success('已新增官網內容')
       refresh()
       setDrawerOpen(false)
       setCreateLocation(null)
     },
-    onError: (e: any) => notify.error(contentErrorMessage(e, '新增失敗')),
+    onError: (e: any) => {
+      const message = contentErrorMessage(e, '新增失敗')
+      setSaveError(message)
+      notify.error(message)
+    },
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<SiteContentWriteData> }) => updateSiteContent(id, data),
+    mutationFn: ({ id, data }: { id: number; data: SiteContentWriteData }) => updateSiteContent(id, toStoredSiteContent(data)),
     onSuccess: () => {
       notify.success('已更新官網內容')
       refresh()
       setDrawerOpen(false)
       setEditing(null)
     },
-    onError: (e: any) => notify.error(contentErrorMessage(e, '更新失敗')),
+    onError: (e: any) => {
+      const message = contentErrorMessage(e, '更新失敗')
+      setSaveError(message)
+      notify.error(message)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -589,12 +673,16 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   }, [selectedId, locationContents])
 
   const openCreate = (locationKey?: string) => {
+    const originalArticle = locationKey === 'guides.packing' && contentItems.find(item => item.location_key === locationKey && isRecord(item.metadata?.article))
+    if (originalArticle) { openEdit(originalArticle); return }
+    setSaveError('')
     setEditing(null)
     setCreateLocation(locationKey || null)
     setDrawerOpen(true)
   }
 
   const openEdit = (item: SiteContentItem) => {
+    setSaveError('')
     setEditing(item)
     setSelectedId(item.id)
     setDrawerOpen(true)
@@ -634,7 +722,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm"
           style={{ backgroundColor: PRIMARY }}
         >
-          <Plus size={16} />新增內容
+          <Plus size={16} />{activeLocation?.key === 'guides.packing' && locationContents.length ? '編輯裝備原稿' : '新增內容'}
         </button>
       </div>
 
@@ -754,7 +842,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
                 className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm"
                 style={{ backgroundColor: PRIMARY }}
               >
-                <Plus size={15} />新增資料
+                <Plus size={15} />{activeLocation.key === 'guides.packing' && locationContents.length ? '編輯裝備原稿' : '新增資料'}
               </button>
             </div>
 
@@ -810,6 +898,8 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           group={activeGroup}
           initialLocation={createLocation}
           item={editing}
+          galleryItems={contentItems.filter(content => content.location_key === 'photography.gallery')}
+          articleCategories={[...new Set([...GUIDE_CATEGORIES, ...contentItems.filter(content=>content.location_key==='guides.articles').map(content=>String(content.metadata?.category || content.tags?.[0] || '')).filter(Boolean)])]}
           resortOptions={contentItems
             .filter((content) => content.location_key === 'course.resorts')
             .map((content) => ({
@@ -823,10 +913,12 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
             setCreateLocation(null)
           }}
           onSubmit={(data) => {
+            setSaveError('')
             if (editing) updateMutation.mutate({ id: editing.id, data })
             else createMutation.mutate(data)
           }}
           isSaving={createMutation.isPending || updateMutation.isPending}
+          saveError={saveError}
         />
       )}
       {structureOpen && !contentTypes && (
@@ -854,7 +946,9 @@ function PreviewSidePanel({
   onEdit?: () => void
 }) {
   const previewSlug = location.key === 'course.resort-pages' ? String(item?.metadata?.slug || item?.external_id || '') : item?.external_id
-  const previewUrl = buildOfficialPreviewUrl(location.key, previewSlug)
+  const articlePreview = location.key === 'guides.articles' && item && guideArticleMode(item) === 'internal'
+    ? `${getTenantBasePath()}/guides/articles/${item.id}?cmsPreview=guides.articles` : undefined
+  const previewUrl = articlePreview || buildOfficialPreviewUrl(location.key, previewSlug)
 
   return (
     <aside className="self-start rounded-2xl bg-white p-4 shadow-sm dark:border dark:border-slate-700/70 dark:bg-[#172131] dark:shadow-none xl:sticky xl:top-4">
@@ -887,7 +981,7 @@ function PreviewSidePanel({
       </div>
 
       <div className="mt-4">
-        <OfficialSiteFrame location={location} externalId={previewSlug} heightClassName="h-[620px]" />
+        <OfficialSiteFrame key={`${item?.id || 'empty'}-${item?.updated_at || ''}`} location={location} externalId={previewSlug} explicitUrl={articlePreview} heightClassName="h-[620px]" />
       </div>
 
       <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600 dark:bg-[#111827] dark:text-slate-300">
@@ -907,8 +1001,8 @@ function PreviewSidePanel({
   )
 }
 
-function OfficialSiteFrame({ location, externalId = '', heightClassName = 'h-[520px]' }: { location: LocationInfo; externalId?: string; heightClassName?: string }) {
-  const previewUrl = buildOfficialPreviewUrl(location.key, externalId)
+function OfficialSiteFrame({ location, externalId = '', explicitUrl, heightClassName = 'h-[520px]' }: { location: LocationInfo; externalId?: string; explicitUrl?: string; heightClassName?: string }) {
+  const previewUrl = explicitUrl || buildOfficialPreviewUrl(location.key, externalId)
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-[#0f1724] dark:shadow-none">
@@ -985,7 +1079,7 @@ function ContentTile({
             <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{period}</span>
             {item.is_pinned && <span className="rounded-full bg-[#fef3c7] px-2 py-1 text-xs font-semibold text-amber-800">置頂</span>}
           </div>
-          <TagList tags={item.tags} />
+          {item.location_key !== 'photography.gallery' && <TagList tags={item.tags} />}
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
@@ -1206,22 +1300,36 @@ function ContentDrawer({
   group,
   initialLocation,
   item,
+  galleryItems,
+  articleCategories = GUIDE_CATEGORIES,
   resortOptions,
   onClose,
   onSubmit,
   isSaving,
+  saveError = '',
 }: {
   groups: GroupInfo[]
   contentTypes?: SiteContentType[]
   group: ContentGroup
   initialLocation: string | null
   item: SiteContentItem | null
+  galleryItems: SiteContentItem[]
+  articleCategories?: string[]
   resortOptions: { value: string; label: string }[]
   onClose: () => void
   onSubmit: (data: SiteContentWriteData) => void
   isSaving: boolean
+  saveError?: string
 }) {
   const groupInfo = groups.find((candidate) => candidate.id === group) || groups[0]
+  const editorDialog = useRef<HTMLDivElement>(null)
+  useEffect(()=>{
+    const previousFocus = document.activeElement as HTMLElement|null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    editorDialog.current?.focus()
+    return ()=>{document.body.style.overflow=previousOverflow;previousFocus?.focus()}
+  },[])
   const drawerLocationMap = useMemo(() => buildLocationMap(groups), [groups])
   const [form, setForm] = useState<SiteContentWriteData>(() => item ? {
     content_type: item.content_type,
@@ -1243,6 +1351,22 @@ function ContentDrawer({
     is_pinned: !!item.is_pinned,
   } : makeEmptyForm(initialLocation || groupInfo?.locations[0]?.key, initialLocation ? drawerLocationMap[initialLocation] : groupInfo?.locations[0]))
   const formLocation = drawerLocationMap[form.location_key] || groupInfo.locations[0]
+  const isPhotographyPage = ['photography.winter', 'photography.summer'].includes(form.location_key)
+  const isAboutPage = ['about.snowland', 'about.join-us'].includes(form.location_key)
+  const isHomepagePresentation = ['homepage.hero','homepage.intro','homepage.coaches','homepage.contact'].includes(form.location_key)
+  const isArticlePage = form.location_key === 'guides.packing' || (['guides.article-pages','guides.articles'].includes(form.location_key) && isRecord(form.metadata?.article) && guideArticleMode(form) === 'internal')
+  const isSiteFooter = form.location_key === 'site.footer'
+  const isWaiver = form.location_key === 'membership.waiver'
+  const currentWaiver = useQuery({queryKey:['admin','current-waiver'],queryFn:fetchCurrentWaiver,enabled:isWaiver&&!item})
+  useEffect(()=>{
+    if (!isWaiver || item || !currentWaiver.data) return
+    const document = currentWaiver.data
+    setForm(previous=>previous.body ? previous : {...previous,title:previous.title||document.title,body:document.body,link_url:document.source_url})
+  },[isWaiver,item,currentWaiver.data])
+  const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || isSiteFooter || isWaiver || form.location_key === 'course.areas'
+  const isGuideListing = form.location_key === 'guides.articles'
+  const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
+  const guideMode = guideArticleMode(form)
   const pricingResortOptions = resortOptions.length && form.external_id && !resortOptions.some((option) => option.value === form.external_id)
     ? [{ value: form.external_id, label: form.external_id }, ...resortOptions]
     : resortOptions
@@ -1261,7 +1385,8 @@ function ContentDrawer({
     setForm((prev) => ({
       ...prev,
       body: blocksToPlainText(blocks),
-      image_url: prev.image_url || getFirstBlockImage(blocks),
+      image_url: !prev.image_url || prev.image_url === getFirstBlockImage(normalizeContentBlocks(prev.metadata, prev.body, prev.image_url))
+        ? getFirstBlockImage(blocks) : prev.image_url,
       metadata: {
         ...(prev.metadata || {}),
         blocks,
@@ -1278,9 +1403,10 @@ function ContentDrawer({
       : form.metadata
     onSubmit({
       ...form,
+      ...(isArticlePage ? { title: String((form.metadata?.article as Record<string, unknown>)?.title || ''), summary: String((form.metadata?.article as Record<string, unknown>)?.lead || ''), image_url: String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') } : {}),
       external_id: form.location_key === 'course.resort-pages' ? resortPageSlug : form.external_id,
-      body: blocksToPlainText(normalizedBlocks),
-      image_url: form.image_url || getFirstBlockImage(normalizedBlocks),
+      body: isWaiver ? form.body : blocksToPlainText(normalizedBlocks),
+      image_url: isArticlePage ? String((form.metadata?.article as Record<string, unknown>)?.heroImage || '') : form.image_url || getFirstBlockImage(normalizedBlocks),
       start_at: fromDateTimeInput(toDateTimeInput(form.start_at)),
       end_at: fromDateTimeInput(toDateTimeInput(form.end_at)),
       display_order: Number(form.display_order) || 0,
@@ -1288,19 +1414,27 @@ function ContentDrawer({
       metadata: {
         ...(metadata || {}),
         blocks: normalizedBlocks,
+        ...(isArticlePage && isGuideListing ? {article:{...(metadata?.article as Record<string,unknown>),date:metadata?.date || ''}} : {}),
       },
     })
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/50">
+    <div ref={editorDialog} role="dialog" aria-modal="true" aria-labelledby="site-content-editor-title" tabIndex={-1} className="fixed inset-0 z-50 flex justify-end bg-black/50 outline-none" onKeyDown={event=>{
+      if(event.key==='Escape'&&!isSaving){event.preventDefault();onClose();return}
+      if(event.key!=='Tab')return
+      const focusable=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex]')).filter(element=>!element.hasAttribute('disabled')&&element.tabIndex>=0&&element.getClientRects().length>0)
+      const first=focusable[0],last=focusable[focusable.length-1]
+      if(event.shiftKey&&(document.activeElement===first||document.activeElement===editorDialog.current)){event.preventDefault();last?.focus()}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+    }}>
       <form onSubmit={handleSubmit} className="flex h-full w-full max-w-[1440px] flex-col bg-white shadow-xl dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">填寫資料後，下方預覽會同步更新。</p>
+            <h2 id="site-content-editor-title" className="text-lg font-bold text-gray-900 dark:text-white">{item ? '編輯網站內容' : '新增網站內容'}</h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{isStructuredPage ? '依原版型修改欄位；儲存後官網才會更新。' : '填寫資料後，下方預覽會同步更新。'}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button type="button" aria-label="關閉內容編輯" onClick={onClose} className="min-h-11 min-w-11 rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />
           </button>
         </div>
@@ -1361,6 +1495,13 @@ function ContentDrawer({
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{pricingResortOptions.length ? '選擇官網雪場列表中的雪場。' : '目前沒有雪場列表，請填入官網網址 /course/ 後面的雪場代號。'}</p>
                 </label>
               )}
+              {form.location_key === 'course.areas' && (
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">官網校區網址代號（建立後固定）</span>
+                  <input required disabled={Boolean(item)} value={form.external_id} onChange={event=>setForm(prev=>({...prev,external_id:event.target.value.trim().toLowerCase()}))} placeholder="例如 tomamu-area" className={inputClass} />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">請以-area結尾；校區名稱、雪場分組及排序仍可隨時修改。</p>
+                </label>
+              )}
               {form.location_key === 'course.resorts' && (
                 <label className="mt-4 block">
                   <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">官網雪場網址代號</span>
@@ -1390,7 +1531,7 @@ function ContentDrawer({
               )}
             </FormSection>
 
-            {form.location_key === 'course.pricing' ? (
+            {isWaiver ? <><p role="status" className="text-xs text-gray-600 dark:text-gray-300">{currentWaiver.isError ? '現行文件尚未載入。' : currentWaiver.isLoading ? '正在讀取現行聲明書…' : !item ? '已帶入現行聲明書；儲存為草稿不會更改會員使用中的文件。' : '修改後儲存會更新這份文件；請先確認公開狀態。'}</p>{currentWaiver.isError&&<p role="alert" className="text-sm text-red-700 dark:text-red-200">現行文件無法載入。<button type="button" onClick={()=>currentWaiver.refetch()} className="min-h-11 px-2 underline">重試</button></p>}<WaiverDocumentFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))}/></> : isSiteFooter ? <SiteFooterFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isHomepagePresentation ? <HomepagePresentationFields value={form} onChange={patch=>setForm(prev=>({...prev,...patch}))} /> : isArticlePage ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">下方直接編輯文章標題、日期、首圖及原內文。</p> : form.location_key === 'course.pricing' || isPhotographyPage || isAboutPage ? (
               <FormSection title="2. 後台辨識名稱">
                 <TextInput label="名稱（只在後台顯示）" value={form.title} placeholder="例如 26-27 星野課程價目" onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
               </FormSection>
@@ -1398,7 +1539,7 @@ function ContentDrawer({
               <FormSection title="2. 前台會看到的標題">
                 <div className="grid gap-4 md:grid-cols-2">
                   <TextInput label={form.content_type === 'review' ? '學員稱呼' : '標題'} value={form.title} onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
-                  <TextInput label="副標題" value={form.subtitle} onChange={(value) => setForm((prev) => ({ ...prev, subtitle: value }))} />
+                  <TextInput label={form.location_key === 'homepage.courses' ? '按鈕文字' : '副標題'} value={form.subtitle} onChange={(value) => setForm((prev) => ({ ...prev, subtitle: value }))} />
                 </div>
 
                 <label className="mt-4 block">
@@ -1413,22 +1554,29 @@ function ContentDrawer({
               </FormSection>
             )}
 
-            {form.location_key === 'course.pricing' ? (
+            {isHomepagePresentation || isSiteFooter || isWaiver ? null : form.location_key === 'course.areas' ? <CourseAreaFields metadata={form.metadata || {}} options={resortOptions} onChange={metadata=>setForm(prev=>({...prev,metadata}))} /> : form.location_key === 'homepage.courses' ? <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">卡片使用上方的標題、按鈕文字與短文字；圖片、課程連結及順序在下方設定，不需要另外建立正文。</p> : isAboutPage ? <AboutPageEditor key={form.location_key} pageKey={form.location_key === 'about.snowland' ? 'about' : 'join-us'} metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isArticlePage ? <ArticlePageEditor key={`${form.location_key}-${item?.id || 'new'}`} metadata={form.metadata || {}} showDate={!isGuideListing} onChange={metadata => setForm(prev => ({...prev,metadata}))} /> : isPhotographyPage ? (
+              <PhotographyPageEditor key={form.location_key} season={form.location_key.endsWith('winter') ? 'winter' : 'summer'} metadata={form.metadata || {}}
+                onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />
+            ) : form.location_key === 'photography.gallery' ? (
+              <GalleryFields metadata={form.metadata || {}} imageUrl={form.image_url} items={galleryItems} published={form.status === 'active'}
+                onChange={metadata => setForm(prev => ({ ...prev, metadata }))} onImageChange={image_url => setForm(prev => ({ ...prev, image_url }))} />
+            ) : form.location_key === 'course.pricing' ? (
               <CoursePricingEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
             ) : form.location_key === 'course.resort-pages' ? (
               <ResortTabsEditor metadata={form.metadata || {}} onChange={(metadata) => setForm((prev) => ({ ...prev, metadata }))} />
-            ) : (
+            ) : isGuideListing && guideMode === 'external' ? <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">此文章使用既有網址，不需要重複填寫內文。文章連結請在下方設定。</p> : (
               <FormSection title="3. 正文區塊（可圖字交錯）">
                 <ContentBlocksEditor blocks={draftBlocks} onChange={setDraftBlocks} />
               </FormSection>
             )}
 
             {form.content_type === 'review' && <ReviewPlacementFields metadata={form.metadata || {}} onChange={metadata => setForm(prev => ({ ...prev, metadata }))} />}
-            <FormSection title="4. 連結與顯示順序">
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextInput label="封面圖片（可空白，會抓第一張正文圖片）" value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />
-                <TextInput label="點擊後連結" value={form.link_url} placeholder="/specialoffers/earlybird" onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />
-              </div>
+            {isGuideListing && <GuideArticleFields metadata={{...form.metadata,category:form.metadata?.category ?? form.tags[0] ?? ''}} mode={guideMode} categories={articleCategories} onChange={metadata=>setForm(prev=>({...prev,metadata}))} />}
+            <FormSection title={isStructuredPage || isOfferPage ? '4. 顯示順序' : '4. 連結與顯示順序'}>
+              {!isStructuredPage && <div className="grid gap-4 md:grid-cols-2">
+                {form.location_key !== 'photography.gallery' && <TextInput label={isOfferPage ? '後台列表縮圖（官網圖片請在正文中修改）' : '封面圖片（可空白，會抓第一張正文圖片）'} value={form.image_url} placeholder="/homepage/example.jpg" onChange={(value) => setForm((prev) => ({ ...prev, image_url: value }))} />}
+                {!isOfferPage && (!isGuideListing || guideMode === 'external') && <TextInput label={isGuideListing ? '既有文章網址' : '點擊後連結'} value={form.link_url} placeholder={isGuideListing ? 'https://example.com/article' : '/specialoffers/earlybird'} onChange={(value) => setForm((prev) => ({ ...prev, link_url: value }))} />}
+              </div>}
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <TextInput
                   type="number"
@@ -1448,7 +1596,7 @@ function ContentDrawer({
               </div>
             </FormSection>
 
-            <FormSection title="5. 活動期間">
+            {!isWaiver && <FormSection title="5. 活動期間">
               <div className="grid gap-4 md:grid-cols-2">
                 <TextInput
                   type="datetime-local"
@@ -1467,7 +1615,7 @@ function ContentDrawer({
                 <CalendarDays size={14} />
                 不設定期間就會一直依狀態顯示；設定結束時間後，到期會自動變成已結束。
               </p>
-            </FormSection>
+            </FormSection>}
 
             <details className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/60">
               <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-200">進階欄位</summary>
@@ -1485,7 +1633,7 @@ function ContentDrawer({
                   </select>
                 </label>
                 <TextInput label="來源" value={form.source} placeholder="Google / Instagram / Facebook" onChange={(value) => setForm((prev) => ({ ...prev, source: value }))} />
-                {form.location_key !== 'course.pricing' && form.location_key !== 'course.resorts' && form.location_key !== 'course.resort-pages' && <TextInput label="外部 ID" value={form.external_id} placeholder="貼文 ID / 評論 ID，可空白" onChange={(value) => setForm((prev) => ({ ...prev, external_id: value }))} />}
+                {!['course.areas','course.pricing','course.resorts','course.resort-pages'].includes(form.location_key) && <TextInput label="外部 ID" value={form.external_id} placeholder="貼文 ID / 評論 ID，可空白" onChange={(value) => setForm((prev) => ({ ...prev, external_id: value }))} />}
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">標籤</span>
                   <input
@@ -1504,29 +1652,34 @@ function ContentDrawer({
 
           <div className="border-t border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950 lg:col-span-5 lg:overflow-y-auto lg:border-l lg:border-t-0">
             <div className="mb-3">
-              <div className="text-sm font-semibold text-gray-900 dark:text-white">{form.location_key === 'course.pricing' ? '價目草稿預覽' : '草稿預覽'}</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white">{isStructuredPage ? '原版型內容檢查' : form.location_key === 'course.pricing' ? '價目草稿預覽' : '草稿預覽'}</div>
               <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {form.location_key === 'course.pricing' ? '此處預覽價目資料；官網版型請以正式頁為準，儲存後才會更新。' : '這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。'}
+                {isStructuredPage ? '使用既有官網版型，並非新增通用正文區塊。' : form.location_key === 'course.pricing' ? '此處預覽價目資料；官網版型請以正式頁為準，儲存後才會更新。' : '這裡照左邊目前資料即時產生；正式官網需儲存後才會更新。'}
               </p>
             </div>
-            <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />
+            {isStructuredPage ? <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-7 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+              <p>{isHomepagePresentation || isSiteFooter ? '直接修改左側有名稱的欄位，再按「儲存變更」。' : '請在左側展開區塊，或搜尋要修改的文字與方案。'}</p>
+              <p>儲存後，可從外層「正式官網預覽」查看完整排版。</p>
+              <p>{isWaiver ? '會員課前表單使用目前公開的文件；草稿不會替換現行文件。' : isSiteFooter ? '留空的社群不會顯示；IG自動同步仍須另外完成官方授權。' : '照片與說明各有對應欄位；實際收費不會在這裡變更。'}</p>
+            </div> : <DraftContentPreview form={form} location={formLocation} blocks={draftBlocks} />}
           </div>
         </div>
 
+        {saveError && <p role="alert" aria-live="assertive" className="max-h-28 shrink-0 overflow-y-auto border-t border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">{saveError}</p>}
         <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
           {cannotPublishEmptyPricing && <p role="alert" className="mr-auto self-center text-xs text-red-600 dark:text-red-400">公開前請至少新增一筆，並填完每筆人數與價格。</p>}
           <button
             type="button"
             onClick={onClose}
             disabled={isSaving}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
           >
             取消
           </button>
           <button
             type="submit"
             disabled={isSaving || cannotPublishEmptyPricing}
-            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             style={{ backgroundColor: PRIMARY }}
           >
             {isSaving && <Loader2 size={14} className="animate-spin" />}
@@ -1923,7 +2076,13 @@ function ContentBlocksEditor({
   blocks: CmsContentBlock[]
   onChange: (blocks: CmsContentBlock[]) => void
 }) {
+  const [search, setSearch] = useState('')
+  const [matchedIds, setMatchedIds] = useState<string[] | null>(null)
+  const visibleBlocks = blocks.map((block, index) => ({ block, index }))
+    .filter(({ block }) => !search.trim() || matchedIds?.includes(block.id))
   const addBlock = (type: CmsContentBlock['type']) => {
+    setSearch('')
+    setMatchedIds(null)
     const nextBlock: CmsContentBlock =
       type === 'heading'
         ? { id: createBlockId(), type: 'heading', text: '新的小標題', level: 2 }
@@ -1955,40 +2114,48 @@ function ContentBlocksEditor({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => addBlock('heading')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('heading')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 小標題
         </button>
-        <button type="button" onClick={() => addBlock('paragraph')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('paragraph')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 文字
         </button>
-        <button type="button" onClick={() => addBlock('image')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('image')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 圖片
         </button>
-        <button type="button" onClick={() => addBlock('list')} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => addBlock('list')} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
           + 條列
         </button>
       </div>
 
+      {(blocks.length > 10 || search) && <label className="block text-sm text-gray-700 dark:text-gray-200">搜尋原頁內容（{visibleBlocks.length}/{blocks.length} 區塊）
+        <input type="search" value={search} className={inputClass} placeholder="輸入要修改的文字、圖片說明或網址" onChange={event => {
+          const query = event.target.value.trim().toLowerCase()
+          setSearch(event.target.value)
+          setMatchedIds(blocks.filter(block => JSON.stringify(block).toLowerCase().includes(query)).map(block => block.id))
+        }} />
+      </label>}
+      {search && !visibleBlocks.length && <p className="text-sm text-gray-500 dark:text-gray-400">找不到符合的區塊。<button type="button" onClick={() => setSearch('')} className="ml-2 min-h-11 underline">清除搜尋</button></p>}
       {blocks.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-400">
           還沒有正文區塊。先加一段文字或圖片，右邊會立即看到草稿排版。
         </div>
       ) : (
         <div className="space-y-3">
-          {blocks.map((block, index) => (
+          {visibleBlocks.map(({ block, index }) => (
             <div key={block.id} className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/60">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="text-xs font-bold text-gray-700 dark:text-gray-200">
                   {index + 1}. {block.type === 'heading' ? '小標題' : block.type === 'paragraph' ? '文字段落' : block.type === 'image' ? '圖片' : '條列清單'}
                 </div>
                 <div className="flex gap-1">
-                  <button type="button" onClick={() => moveBlock(index, -1)} disabled={index === 0} className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
+                  <button type="button" onClick={() => moveBlock(index, -1)} disabled={index === 0} className="min-h-11 min-w-11 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
                     上移
                   </button>
-                  <button type="button" onClick={() => moveBlock(index, 1)} disabled={index === blocks.length - 1} className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
+                  <button type="button" onClick={() => moveBlock(index, 1)} disabled={index === blocks.length - 1} className="min-h-11 min-w-11 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300">
                     下移
                   </button>
-                  <button type="button" onClick={() => removeBlock(block.id)} className="rounded-md border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/70 dark:hover:bg-red-950/40">
+                  <button type="button" onClick={() => removeBlock(block.id)} className="min-h-11 min-w-11 rounded-md border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/70 dark:hover:bg-red-950/40">
                     刪除
                   </button>
                 </div>
@@ -1998,9 +2165,11 @@ function ContentBlocksEditor({
                 <div className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)]">
                   <label className="block">
                     <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">層級</span>
-                    <select value={block.level} onChange={(event) => updateBlock(block.id, { level: Number(event.target.value) as 2 | 3 })} className={inputClass}>
+                    <select value={block.level} onChange={(event) => updateBlock(block.id, { level: Number(event.target.value) as 1 | 2 | 3 | 4 })} className={inputClass}>
+                      <option value={1}>主標題（原稿）</option>
                       <option value={2}>大標</option>
                       <option value={3}>小標</option>
+                      <option value={4}>次小標（原稿）</option>
                     </select>
                   </label>
                   <TextInput label="標題文字" value={block.text} onChange={(value) => updateBlock(block.id, { text: value })} />
@@ -2263,13 +2432,17 @@ function DraftContentPreview({
 
 function DraftBlock({ block, index }: { block: CmsContentBlock; index: number }) {
   if (block.type === 'heading') {
-    const HeadingTag = block.level === 3 ? 'h3' : 'h2'
-    return <HeadingTag className={block.level === 3 ? 'text-lg font-semibold text-[#1f2937]' : 'text-xl font-semibold text-[#111827]'}>{block.text}</HeadingTag>
+    const HeadingTag = `h${block.level}` as 'h1' | 'h2' | 'h3' | 'h4'
+    const size = {1:'text-2xl',2:'text-xl',3:'text-lg',4:'text-base'}[block.level]
+    return <HeadingTag className={`${size} font-semibold text-[#1f2937]`}>{block.text}</HeadingTag>
   }
   if (block.type === 'paragraph') {
     return <p className="whitespace-pre-line text-sm leading-7 text-[#475569]">{block.text}</p>
   }
   if (block.type === 'image') {
+    let safe = block.src.startsWith('/') && !block.src.startsWith('//')
+    try { const url = new URL(block.src); safe = ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname) } catch { /* Relative paths are checked above. */ }
+    if (!safe || /[\\\u0000-\u001f]/.test(block.src)) return <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">圖片網址格式不正確，請使用完整http/https網址或站內路徑。</p>
     return (
       <figure className="overflow-hidden rounded-sm bg-[#e2e8f0]">
         <img src={block.src} alt={block.alt || `內容圖片 ${index + 1}`} className="h-auto w-full" />

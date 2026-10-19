@@ -14,6 +14,9 @@ export interface ScheduleBooking {
   end_time: string
   course_name: string
   coach_name: string
+  coach_id?: number | null
+  ability_level?: string
+  is_preferred_coach?: boolean
   user_name: string
   resort: string
   campus_name: string
@@ -38,6 +41,15 @@ export interface DailyCoachSummary {
 export interface ScheduleCalendarData {
   bookings: ScheduleBooking[]
   dailySummary: DailyCoachSummary[]
+  coaches: Array<{ id: number; name: string }>
+  leaves: ScheduleLeave[]
+}
+
+export interface ScheduleLeave {
+  coach_id: number
+  coach_name: string
+  start_date: string
+  end_date: string
 }
 
 export interface GroupCandidate {
@@ -96,6 +108,8 @@ interface ListResp {
     list: ScheduleBooking[]
     total: number
     daily_summary?: DailyCoachSummary[]
+    coaches?: ScheduleCalendarData['coaches']
+    leaves?: ScheduleLeave[]
   }
 }
 
@@ -104,6 +118,8 @@ export async function fetchScheduleCalendar(params?: { start?: string; end?: str
   return {
     bookings: res.data?.list || [],
     dailySummary: res.data?.daily_summary || [],
+    coaches: res.data?.coaches || [],
+    leaves: res.data?.leaves || [],
   }
 }
 

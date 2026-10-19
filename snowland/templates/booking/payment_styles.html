@@ -1,0 +1,41 @@
+<style>
+  :root {color-scheme:light;font-family:"Segoe UI","Noto Sans TC",sans-serif;color:#182b3d;background:#f6f7fb}
+  * {box-sizing:border-box}
+  body {margin:0;line-height:1.6}
+  .container,.login-container {width:100%;padding:48px 20px}
+  .content,.login-card {width:100%;max-width:720px;margin:auto}
+  .payment-section,.login-card {padding:32px;background:#fff;border:1px solid #e5e9f2;border-radius:16px;box-shadow:0 8px 24px #182b3d0a}
+  h1,h2,h3,p {margin-top:0}
+  h2 {font-size:1.65rem;line-height:1.4}
+  h3 {font-size:1.1rem}
+  p {color:#526579}
+  .success-header,.info-header,.warning-header,.payment-header {text-align:center}
+  .success-icon,.info-icon,.warning-icon {display:grid;place-items:center;width:56px;height:56px;border-radius:50%;margin:0 auto 20px;font-size:28px;font-weight:700}
+  .success-icon {background:#e6f6ee;color:#12683e}
+  .success-icon::before {content:'✓'}
+  .info-icon {background:#e8f1fa;color:#2b5f8f}
+  .info-icon::before {content:'i'}
+  .warning-icon {background:#fff3db;color:#8c4d08}
+  .warning-icon::before {content:'!'}
+  .success-icon i,.info-icon i,.warning-icon i {display:none}
+  .cart-button,.google-btn {display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;padding:12px 16px;border:0;border-radius:10px;background:#2b5f8f;color:white;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;text-align:center}
+  .cart-button:hover,.google-btn:hover {background:#234e76}
+  .cart-button:disabled {background:#e5e7eb;color:#617689;cursor:wait}
+  a:focus-visible,button:focus-visible,input:focus-visible {outline:3px solid #2b5f8f;outline-offset:3px}
+  .bank-info,.order-summary,.transfer-form {margin:24px 0;padding:20px;border:1px solid #e5e9f2;border-radius:12px;background:#f7f9fc}
+  .detail-item,.fee-item,.total-amount {display:flex;justify-content:space-between;gap:16px;padding:8px 0}
+  .detail-label,.fee-label {color:#526579;flex-shrink:0}
+  .detail-value,.fee-value {font-weight:600;text-align:right;overflow-wrap:anywhere;min-width:0}
+  .amount {font-size:1.2rem;font-weight:700;color:#2b5f8f}
+  .order-item {padding:12px 0;border-bottom:1px solid #e5e9f2}
+  .total-amount {margin-top:16px;border-top:1px solid #e5e9f2;font-weight:700}
+  .form-group label {display:block;margin-bottom:8px}
+  .form-group input {width:100%;min-height:48px;padding:12px;border:1px solid #a9b9c9;border-radius:8px;font:inherit;background:white;color:#182b3d}
+  .loading-animation {position:fixed;inset:0;z-index:20;align-items:center;justify-content:center;background:#ffffffdf;font-weight:700}
+  .notification {display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:600px;padding:16px;border-radius:10px;z-index:30;background:#e8f1fa;color:#182b3d;box-shadow:0 4px 16px #182b3d26}
+  .notification.show {display:block}
+  .notification.error {background:#fff0f0;color:#a01f1f;border:1px solid #e7a5a5}
+  .notification.success {background:#e6f6ee;color:#12683e;border:1px solid #a1d7b8}
+  .google-icon {width:24px;height:24px;margin-right:12px}
+  @media(max-width:600px) {.container,.login-container{padding:24px 16px}.payment-section,.login-card{padding:24px 18px}.bank-info,.transfer-form,.order-summary{padding:16px}.detail-item{gap:10px}h2{font-size:1.4rem}}
+</style>

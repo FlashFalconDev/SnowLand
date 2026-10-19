@@ -21,11 +21,11 @@ ASSIGNED_RESERVATION_STATUSES = [
     'manually_assigned',
     'pending_coach_confirmation',
     'completed',
+    'form_filled',
 ]
 
 MOVABLE_ASSIGNED_STATUSES = [
     'auto_assigned',
-    'manually_assigned',
     'pending_coach_confirmation',
 ]
 
@@ -118,6 +118,11 @@ def assign_coachs(reservations_to_assign=None):
     """
     
     if reservations_to_assign is not None:
+        # An administrative batch can include unchanged sibling lines. Manual
+        # assignments and course history stay locked; explicitly changed lines
+        # are reset to created by the caller before requesting a new assignment.
+        reservations_to_assign = [reservation for reservation in reservations_to_assign
+            if reservation.status not in ('manually_assigned', 'completed', 'form_filled', 'cancelled', 'deleted')]
         incoming_ids = {r.id for r in reservations_to_assign}
     else:
         incoming_ids = set()
@@ -557,6 +562,36 @@ def get_feasible_coaches(language, resort, course_type, max_ability_level, rejec
     
     return final_coaches
 
+def get_manual_assignment_coaches(reservation, bookings):
+    """The picker and save endpoint must agree on every lesson's qualifications."""
+    if not bookings or not reservation.resort_id:
+        return []
+    template_ids = list(dict.fromkeys(booking.course_template_id or reservation.course_template_id for booking in bookings))
+    templates = {template.pk: template for template in CourseTemplate.objects.filter(
+        pk__in=[pk for pk in template_ids if pk]).select_related('course_type__category')}
+    rejected_ids = list(reservation.rejected_coaches.values_list('pk', flat=True))
+    qualified = None
+    for template_id in template_ids:
+        template = templates.get(template_id)
+        if template_id and template is None:
+            return []
+        kind = template.course_type if template else reservation.course_type
+        if not kind or kind.category.client_id != reservation.group.client_id:
+            return []
+        candidates = get_feasible_coaches(
+            reservation.language, reservation.resort, kind.pk, reservation.max_ability_level,
+            rejected_coach_ids=rejected_ids, course_template=template,
+        )
+        if qualified is None:
+            qualified = candidates
+        else:
+            ids = {coach.pk for coach in candidates}
+            qualified = [coach for coach in qualified if coach.pk in ids]
+        if not qualified:
+            return []
+    return qualified or []
+
+
 def coach_can_teach_course(coach, desired_course_type):
     """
     用 CoachCourseLevel 判斷教練是否會這個課程類型
@@ -900,8 +935,8 @@ def reassign_single_reservation(reservation_id):
     專門用於教練拒絕後的重新分配
     """
     from django.db import models
-    from .models import Reservation, Booking, Coach
-    from Coach.models import CoachResort
+    from .models import Reservation, Booking
+    from Coach.models import Coach, CoachResort
     
     print(f"\n=== 開始單個預約重新排課：Reservation ID {reservation_id} ===")
     
@@ -918,8 +953,8 @@ def reassign_single_reservation(reservation_id):
     
     # 排除當前預約，查詢其他已確認的預約來建立忙碌表
     other_confirmed_reservations = Reservation.objects.exclude(id=reservation_id).filter(
-        models.Q(is_preferred_coach=True) | models.Q(status__in=['auto_assigned', 'manually_assigned', 'pending_coach_confirmation'])
-    )
+        models.Q(is_preferred_coach=True) | models.Q(status__in=ASSIGNED_RESERVATION_STATUSES)
+    ).exclude(status__in=['cancelled', 'deleted'])
     
     print(f"其他已確認預約數量：{other_confirmed_reservations.count()}")
     
@@ -1016,13 +1051,13 @@ def reassign_single_reservation(reservation_id):
                 booking.is_scheduled = True
                 booking.save()
             
-            print(f"✅ 成功將預約 {reservation_id} 分配給教練 {coach.name}")
+            print(f"成功將預約 {reservation_id} 分配給教練 {coach.name}")
             return True
         else:
             print(f"教練 {coach.name} 有時間衝突，跳過")
     
     # 7. 如果所有教練都無法分配，恢復原狀態並設為需人工處理
-    print(f"❌ 無法為預約 {reservation_id} 找到合適的教練")
+    print(f"無法為預約 {reservation_id} 找到合適的教練")
     
     reservation.preferred_coach_id = original_coach_id
     reservation.status = 'manual_assignment_needed' # 需人工排定教練

@@ -82,13 +82,53 @@ class InsuranceProcessingTests(TestCase):
         updated=self.api.post(self.report_url,self.payload(status='processing',expected_updated_at=first.data['data']['insurance_processing_updated_at']),format='json')
         self.assertEqual(updated.status_code,200,updated.data)
 
-    def test_assistant_remains_readonly(self):
+    def test_assistant_can_report_insurance_progress_but_member_forms_remain_readonly(self):
+        # Customer slide59 separates operational insurance reporting from signed forms.
         self.profile.role='assistant'
         self.profile.admin_permissions=None
         self.profile.save()
         self.api.force_authenticate(User.objects.get(pk=self.manager.pk))
-        self.assertEqual(self.api.get(self.url).status_code,200)
-        self.assertEqual(self.api.post(self.report_url,self.payload(),format='json').status_code,403)
+        detail=self.api.get(self.url)
+        self.assertEqual(detail.status_code,200)
+        self.assertFalse(detail.data['can_mark_complete'])
+        self.assertTrue(detail.data['can_process_insurance'])
+        result=self.api.post(self.report_url,self.payload(status='checking',premium_amount='350.50',currency='JPY'),format='json')
+        self.assertEqual(result.status_code,200,result.data)
+        self.assertEqual(self.api.patch(self.url,{'age_range':'19-24y'},format='json').status_code,403)
+        self.assertEqual(self.api.post(self.url+'complete/',{'field':'waiver'},format='json').status_code,403)
+        self.assertEqual(self.api.get('/api/admin/snowland/campuses/').status_code,403)
+        self.assertEqual(self.api.get('/api/admin/snowland/payroll-statements/').status_code,403)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.insurance_processing_status,'checking')
+        self.assertEqual(self.member.insurance_processing_updated_by_id,self.manager.pk)
+        self.assertEqual(self.member.insurance_data,{'full_name':'QA 原學員'})
+        self.assertEqual(self.member.waiver_signature,'QA 原簽名')
+        self.assertEqual(self.member.waiver_document_snapshot,'QA 原文件')
+
+    def test_assistant_insured_report_still_needs_confirmation_and_cannot_forge_form_fields(self):
+        self.profile.role='assistant';self.profile.admin_permissions=None;self.profile.save()
+        self.api.force_authenticate(User.objects.get(pk=self.manager.pk))
+        self.assertEqual(self.api.post(self.report_url,self.payload(status='insured'),format='json').status_code,400)
+        self.assertEqual(self.api.post(self.report_url,self.payload(insurance_data={'full_name':'不應改動'}),format='json').status_code,400)
+        result=self.api.post(self.report_url,self.payload(status='insured',confirm_insured=True),format='json')
+        self.assertEqual(result.status_code,200,result.data)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.insurance_processing_status,'insured')
+        self.assertEqual(self.member.insurance_data,{'full_name':'QA 原學員'})
+        self.assertEqual(self.member.waiver_document_version,'QA-v1')
+
+    def test_assistant_processing_requires_current_permission_scope_and_csrf(self):
+        self.profile.role='assistant';self.profile.admin_permissions=None;self.profile.save()
+        api=APIClient(enforce_csrf_checks=True);api.force_login(User.objects.get(pk=self.manager.pk))
+        self.assertEqual(api.post(self.report_url,self.payload(),format='json').status_code,403)
+        self.assertEqual(api.get(self.url).status_code,200)
+        token=api.cookies['csrftoken'].value
+        self.assertEqual(api.post(self.report_url,self.payload(),format='json',HTTP_X_CSRFTOKEN=token,
+            HTTP_X_CAMPUS_ID=str(self.campus_b.pk)).status_code,404)
+        self.assertEqual(api.post(self.report_url,self.payload(),format='json',HTTP_X_CSRFTOKEN=token).status_code,200)
+        self.profile.admin_permissions=['orders'];self.profile.save(update_fields=['admin_permissions'])
+        self.assertEqual(api.get(self.url).status_code,403)
+        self.assertEqual(api.post(self.report_url,self.payload(),format='json',HTTP_X_CSRFTOKEN=token).status_code,403)
 
     def test_generic_patch_cannot_rebind_guardian_or_rewrite_form_completion(self):
         response=self.api.patch(self.url,{'guardian':self.manager.pk,'insurance_completed_at':None},format='json')

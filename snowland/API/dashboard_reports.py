@@ -46,6 +46,7 @@ def dashboard_report(data, *, file_format, start, end, date_basis, resort_name):
         response = HttpResponse(stream.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
     else:
         from openpyxl import Workbook
+        from openpyxl.styles import Alignment
         book = Workbook()
         sheet = book.active
         sheet.title = '營運統計'
@@ -57,6 +58,8 @@ def dashboard_report(data, *, file_format, start, end, date_basis, resort_name):
         sheet.column_dimensions['A'].width = 48
         sheet.column_dimensions['B'].width = 28
         sheet.column_dimensions['C'].width = 20
+        sheet['B6'].alignment = Alignment(wrap_text=True, vertical='top')
+        sheet.row_dimensions[6].height = 90
         sheet.freeze_panes = 'A9'
         stream = io.BytesIO()
         book.save(stream)

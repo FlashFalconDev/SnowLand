@@ -1,4 +1,5 @@
 ADMIN_PERMISSION_DEFINITIONS = [
+    {'key': 'contact_inbox', 'label': '聯絡收件', 'group': '營運管理', 'description': '總部人員查看網站留言及標記處理；收件設定限總部管理員'},
     {
         'key': 'analytics',
         'label': '營運分析',
@@ -121,7 +122,7 @@ ROLE_DEFAULT_PERMISSIONS = {
     'marketing': ['analytics', 'discounts'],
     'web_editor': ['cms', 'reviews'],
     'insurance': ['insurance_records'],
-    'assistant': ['orders', 'scheduling', 'insurance_records', 'evaluations', 'coaches', 'cms', 'reviews'],
+    'assistant': ['orders', 'scheduling', 'insurance_records', 'evaluations', 'coaches', 'cms', 'reviews', 'contact_inbox'],
     'campus_principal': ['analytics', 'orders', 'scheduling', 'coaches', 'evaluations', 'payroll'],
     'campus_manager': ['orders', 'scheduling', 'coaches', 'evaluations'],
     'photographer': ['evaluations', 'reviews'],

@@ -10,6 +10,7 @@ import { fetchStaff, updateCustomerPermission, type StaffMember } from '../api/e
 import { useNotification } from '../context'
 import { ADMIN_PERMISSION_DEFINITIONS, groupPermissions } from '../permissions'
 import { fetchCampuses } from '../api/campuses'
+import { fetchAdminMe } from '../api/auth'
 
 const PRIMARY = '#8b5cf6'
 const COMPANY_SCOPE_ROLES = new Set(['hq_admin', 'marketing', 'web_editor', 'insurance', 'assistant'])
@@ -350,6 +351,8 @@ function MemberPickerModal({
 function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: () => void }) {
   const notify = useNotification()
   const qc = useQueryClient()
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
+  const canManageSuperusers = adminMe?.user?.is_superuser === true
   const [isSuperuser, setIsSuperuser] = useState(staff.is_superuser)
   const [isManager, setIsManager] = useState(staff.is_superuser ? false : staff.is_manager)
   const [isCoach, setIsCoach] = useState(staff.is_coach)
@@ -370,7 +373,7 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
 
   const mutation = useMutation({
     mutationFn: () => updateCustomerPermission(staff.id, {
-      is_superuser: isSuperuser,
+      ...(canManageSuperusers ? { is_superuser: isSuperuser } : {}),
       is_manager: isSuperuser ? false : isManager,
       is_coach: isCoach,
       permissions: !isSuperuser && isManager ? permissions : [],
@@ -402,11 +405,11 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
           {staff.is_superuser && (
             <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-900/50 rounded-lg p-3 text-xs text-orange-800 dark:text-orange-300 flex gap-2">
               <Crown size={14} className="flex-shrink-0 mt-0.5" />
-              <div>此使用者是 <strong>Superuser</strong>，自動擁有所有權限（不受下方設定限制）</div>
+              <div>此使用者是 <strong>Superuser</strong>，自動擁有所有權限（不受下方設定限制）。只有最大管理員可以修改此帳號權限。</div>
             </div>
           )}
 
-          <label className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600">
+          {canManageSuperusers && <label className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600">
             <input
               type="checkbox"
               checked={isSuperuser}
@@ -424,7 +427,7 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
               </div>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">擁有全部後台權限，不受下方功能勾選限制。</p>
             </div>
-          </label>
+          </label>}
 
           <label className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600">
             <input
@@ -541,7 +544,7 @@ function EditPermissionModal({ staff, onClose }: { staff: StaffMember; onClose: 
           <button onClick={onClose} disabled={mutation.isPending} className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">取消</button>
           <button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || campusRequired}
+            disabled={mutation.isPending || campusRequired || !adminMe?.user || (staff.is_superuser && !canManageSuperusers)}
             className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
             style={{ backgroundColor: PRIMARY }}
           >

@@ -299,7 +299,6 @@ function CoachPage() {
   const coachReviews = coach?.reviews ?? [];
   const coachAbilityTags = coach?.abilityTags ?? null;
   const coachHeroBadges = coach?.heroBadges ?? [];
-  const coachHideTeachingLead = Boolean(coach?.hideTeachingLead);
   const coachTypeTags = coach?.coachType
     ? coach.coachType.split("/").map((tag) => tag.trim()).filter(Boolean)
     : [];
@@ -351,6 +350,38 @@ function CoachPage() {
   const [cashVideoScrollProgress, setCashVideoScrollProgress] = useState(0);
   const [selectedCashReview, setSelectedCashReview] = useState(null);
   const [selectedCashReviewPhoto, setSelectedCashReviewPhoto] = useState(null);
+  const reviewDialogRef = useRef(null);
+  const reviewPhotoDialogRef = useRef(null);
+  useEffect(() => {
+    const dialog = selectedCashReviewPhoto ? reviewPhotoDialogRef.current : reviewDialogRef.current;
+    if (!dialog) return;
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const controls = () => [...dialog.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]')];
+    (controls()[0] || dialog).focus();
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (selectedCashReviewPhoto) setSelectedCashReviewPhoto(null);
+        else setSelectedCashReview(null);
+      } else if (event.key === 'Tab') {
+        const items = controls();
+        const first = items[0] || dialog;
+        const last = items[items.length - 1] || dialog;
+        if (!dialog.contains(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [selectedCashReview, selectedCashReviewPhoto]);
   const [cashReviewPaging, setCashReviewPaging] = useState({ slug, page: 1 });
   const [cashReviewHasMoreMap, setCashReviewHasMoreMap] = useState({});
   const cashReviewPage = cashReviewPaging.slug === slug ? cashReviewPaging.page : 1;
@@ -470,9 +501,7 @@ function CoachPage() {
     id,
     title: coachTeachingSection.title,
     type: "teaching",
-    lead: coachTeachingSection.lead || (coachHideTeachingLead
-        ? ""
-        : lines.find((line) => !line.startsWith("【")) ?? lines[0] ?? ""),
+    lead: coachTeachingSection.lead || "",
     bgClass: "bg-[#dbe2f0]",
     textClass: "text-[#2b5f8f]",
     bodyClass: "text-[#2b5f8f]",
@@ -532,7 +561,7 @@ function CoachPage() {
       id: `extra-${index}`,
       title: section.title,
       type: section.media?.length ? "ski-experience" : "extra",
-      lead: section.lines[0] ?? "",
+      lead: section.lead || "",
       bgClass: "bg-[#dbe2f0]",
       borderClass: "border-[#cfd8e8]",
       textClass: "text-[#1f2937]",
@@ -553,6 +582,7 @@ function CoachPage() {
     : cashCoachStackCards.filter((card) => card.id !== "teaching");
 
   const renderStackCardMedia = (card) => {
+    if (!card.media.length) return null;
     if (card.id === "intro" || card.id === "ski-experience" || card.type === "extra" || card.type === "ski-experience") {
       return (
         <CashPhotoCarousel
@@ -1291,6 +1321,7 @@ function CoachPage() {
               </section>
             ) : null}
 
+            {cashVideoSlides.length > 0 ? (
             <section className="max-w-6xl mx-auto px-6 md:px-10 py-14 md:py-16 border-t border-[#d7dde3]">
               <div className="space-y-6">
                 <CashFadeIn as="div" className="space-y-3 text-center">
@@ -1399,6 +1430,8 @@ function CoachPage() {
                 </div>
               </div>
             </section>
+
+            ) : null}
 
             <section className="bg-[#eef3f8]">
               <div className="max-w-6xl mx-auto px-6 md:px-10 py-14 md:py-16 space-y-8">
@@ -1632,11 +1665,13 @@ function CoachPage() {
                 role="dialog"
                 aria-modal="true"
                 aria-label="學員評價詳情"
+                ref={reviewDialogRef}
+                tabIndex={-1}
                 onClick={() => setSelectedCashReview(null)}
               >
                 <button
                   type="button"
-                  className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
+                  className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
                   onClick={() => setSelectedCashReview(null)}
                 >
                   關閉
@@ -1710,11 +1745,13 @@ function CoachPage() {
                 role="dialog"
                 aria-modal="true"
                 aria-label="評價照片預覽"
+                ref={reviewPhotoDialogRef}
+                tabIndex={-1}
                 onClick={() => setSelectedCashReviewPhoto(null)}
               >
                 <button
                   type="button"
-                  className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
+                  className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
                   onClick={() => setSelectedCashReviewPhoto(null)}
                 >
                   關閉

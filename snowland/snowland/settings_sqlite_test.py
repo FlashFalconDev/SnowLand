@@ -11,6 +11,9 @@ DATABASES = {
     },
 }
 
+# Isolated test fixtures only; keep real migrations enabled unlike test_settings.
+PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
 # Local browser QA runs on plain HTTP. Production settings remain Secure-only.
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False

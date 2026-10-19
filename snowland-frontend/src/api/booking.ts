@@ -27,11 +27,13 @@ export interface SiteContentItem {
 }
 
 export const fetchSiteContent = async (params?: {
+  content_id?: string | number
   content_type?: string
   location_key?: string
   tag?: string
   limit?: number
   include_ended?: boolean
+  view?: 'cards'
 }): Promise<SiteContentItem[]> => {
   return api.get('/site-content/', { params })
 }

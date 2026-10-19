@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "page_key": "about",
+  "title": "滑雪學校介紹",
+  "sections": [
+    {
+      "id": "original",
+      "label": "目前官網原版型",
+      "fields": [
+        {
+          "key": "about_001",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "星野Tomamu度假村／留壽都渡假村／手稻滑雪場 / 札幌國際雪場"
+        },
+        {
+          "key": "about_002",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Our story"
+        },
+        {
+          "key": "about_003",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "關於 SnowLand"
+        },
+        {
+          "key": "about_004",
+          "kind": "text",
+          "label": "段落文字",
+          "value": "SnowLand 在北海道已經經營多個雪季，起源於我們多年在日本的親子滑雪教學經驗。我們始終相信，滑雪不只是運動，更是一段能夠創造美好回憶的旅程。"
+        },
+        {
+          "key": "about_005",
+          "kind": "text",
+          "label": "段落文字",
+          "value": "在雪地的學習過程中，家長與孩子一起嘗試、一起跌倒、也一起克服挑戰。這些過程讓彼此建立更深的信任與依賴，也讓滑雪成為家庭共同完成的一段珍貴經歷。"
+        },
+        {
+          "key": "about_006",
+          "kind": "text",
+          "label": "段落文字",
+          "value": "我們希望在 SnowLand 所營造的環境中，每個家庭都能安心學習、自在探索，在滑雪的過程中留下屬於彼此的雪地回憶。"
+        },
+        {
+          "key": "about_007",
+          "kind": "image",
+          "label": "區塊圖片",
+          "value": "/about/About-section-1.jpg"
+        },
+        {
+          "key": "about_008",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Registered Ski school"
+        },
+        {
+          "key": "about_009",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "專業滑雪學校"
+        },
+        {
+          "key": "about_010",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "SnowLand滑雪學校為"
+        },
+        {
+          "key": "about_011",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "官方許可，於日本合法登記的滑雪學校，擁有多年北海道雪場教學經歷。"
+        },
+        {
+          "key": "about_012",
+          "kind": "text",
+          "label": "段落文字",
+          "value": "提供中文、粵語、英文等多語言教學選擇，以確保每位學員都能在熟悉和舒適的語言環境中自在學習滑雪技巧。"
+        },
+        {
+          "key": "about_013",
+          "kind": "text",
+          "label": "段落文字",
+          "value": "無論您是初次接觸滑雪的初心者，還是有一定滑雪經驗滑雪玩家，我們將根據您的需求和程度，量身定制最適合的教學計畫，以耐心與專業經驗陪你一起成長。我們注重教學的互動性和實踐性，通過系統化的教學流程，幫助您快速掌握滑雪技巧，並在過程中感受到樂趣和成就感。"
+        },
+        {
+          "key": "about_014",
+          "kind": "image",
+          "label": "區塊圖片",
+          "value": "/about/About-section-2.jpg"
+        },
+        {
+          "key": "about_015",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Student Feedback System"
+        },
+        {
+          "key": "about_016",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "學員回饋機制"
+        },
+        {
+          "key": "about_017",
+          "kind": "text",
+          "label": "學員回饋機制：段落（每行一段）",
+          "value": "為了持續提升教學品質和學員體驗，我們的平台提供了回饋機制。\n您可以在課程結束後分享您的心得體驗，並與教練進行互動和詢問。\n這種互動和溝通將有助於增進學習成效，並讓優秀的教練獲得更多的認可和機會。\n同時，教練們也可以相互學習和觀摩，不斷提升自己的教學水平，共同創造良好的上課體驗。",
+          "source_heading": "學員回饋機制"
+        },
+        {
+          "key": "about_018",
+          "kind": "image",
+          "label": "區塊圖片",
+          "value": "/about/About-section-3.jpg"
+        },
+        {
+          "key": "about_019",
+          "kind": "text",
+          "label": "區塊英文標題",
+          "value": "Course Booking System"
+        },
+        {
+          "key": "about_020",
+          "kind": "text",
+          "label": "區塊標題",
+          "value": "課程預約系統"
+        },
+        {
+          "key": "about_021",
+          "kind": "text",
+          "label": "課程預約系統：段落（每行一段）",
+          "value": "SnowLand 導入 AI 預約系統，讓滑雪課程安排更快速、更精準。\n透過直覺化且使用者友善的流程，從預約到行程規劃都更加流暢，幫助您輕鬆安排理想的雪地假期。\n若有進一步需求，亦可透過客服與我們聯繫，獲得更完整的協助。",
+          "source_heading": "課程預約系統"
+        },
+        {
+          "key": "about_022",
+          "kind": "image",
+          "label": "區塊圖片",
+          "value": "/about/About-section-4.jpg"
+        },
+        {
+          "key": "about_023",
+          "kind": "text",
+          "label": "段落文字",
+          "value": "滑雪是一項能夠帶來無限樂趣和挑戰的運動，同時也是一種能夠拓展人生視野、增進人與大自然連結的方式。"
+        },
+        {
+          "key": "about_024",
+          "kind": "text",
+          "label": "段落文字",
+          "value": "透過SnowLand滑雪學校的教學，啟發您對滑雪的熱情，我們希望陪你穩健的從零出發，也陪你愛上這片雪白的世界。"
+        },
+        {
+          "key": "about_025",
+          "kind": "image",
+          "label": "圖片網址",
+          "value": "/about/About-hero.jpg"
+        },
+        {
+          "key": "about_026",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand About Hero"
+        },
+        {
+          "key": "about_027",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "About"
+        },
+        {
+          "key": "about_028",
+          "kind": "text",
+          "label": "標題",
+          "value": "SnowLand 滑雪學校"
+        },
+        {
+          "key": "about_029",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "滑雪，不只是運動"
+        },
+        {
+          "key": "about_030",
+          "kind": "text",
+          "label": "說明文字",
+          "value": "它是一段與家人共同完成的旅程。"
+        },
+        {
+          "key": "about_031",
+          "kind": "image",
+          "label": "圖片網址",
+          "value": "/about/About-vision.jpg"
+        },
+        {
+          "key": "about_032",
+          "kind": "text",
+          "label": "圖片說明",
+          "value": "SnowLand Vision"
+        },
+        {
+          "key": "about_033",
+          "kind": "text",
+          "label": "標題",
+          "value": "Vision"
+        }
+      ]
+    }
+  ]
+}

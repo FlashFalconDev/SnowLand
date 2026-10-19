@@ -107,6 +107,59 @@ class StaffIncentiveCalculationTests(TestCase):
         self.assertEqual(statement.refund_deduction, 250)
         self.assertEqual(statement.total_amount, -250)
 
+    def test_small_split_refunds_recover_the_same_bonus_as_one_full_refund(self):
+        self.rule.completed_order_percent = 25
+        self.rule.save()
+        self.reservation.course_fee = 2
+        self.reservation.coach_fee = 0
+        self.reservation.discount_amount = 0
+        self.reservation.save()
+        self.assertEqual(self.pay(self.calculate()).earned_amount, 1)
+        self.refund(amount=1)
+        self.refund(amount=1)
+        statement = self.calculate(date(2026, 3, 1))
+        self.assertEqual(statement.refund_deduction, 1)
+        self.assertEqual(sum(statement.lines.values_list('base_amount', flat=True)), 2)
+        self.assertEqual(self.calculate(date(2026, 3, 1)).refund_deduction, 1)
+
+    def test_zero_rounded_refund_retains_its_base_for_later_month(self):
+        self.rule.completed_order_percent = 25
+        self.rule.save()
+        self.reservation.course_fee = 2
+        self.reservation.coach_fee = 0
+        self.reservation.discount_amount = 0
+        self.reservation.save()
+        self.pay(self.calculate())
+        self.refund(amount=1)
+        march = self.calculate(date(2026, 3, 1))
+        self.assertEqual(march.refund_deduction, 0)
+        self.assertEqual(list(march.lines.values_list('base_amount', 'amount')), [(1, 0)])
+        self.pay(march)
+        self.refund(amount=1, day=date(2026, 3, 10))
+        april = self.calculate(date(2026, 4, 1))
+        self.assertEqual(april.refund_deduction, 1)
+        self.pay(april)
+        self.assertEqual(self.calculate(date(2026, 5, 1)).refund_deduction, 0)
+
+    def test_full_refund_recovers_a_bonus_cent_allocated_by_monthly_rounding(self):
+        self.rule.completed_order_percent = 25
+        self.rule.save()
+        self.reservation.course_fee = 1
+        self.reservation.coach_fee = 0
+        self.reservation.discount_amount = 0
+        self.reservation.save()
+        other = ReservationGroup.objects.create(client=self.client_tenant, campus=self.campus, user=self.user)
+        item = Reservation.objects.create(group=other, resort=self.resort, course_type=self.course_type,
+            status='completed', course_fee=1)
+        Booking.objects.create(reservation=item, date=date(2026, 1, 11), start_time=time(9), end_time=time(11))
+        Payment.objects.create(reservation_group=other, user=self.user, status='paid')
+        paid = self.pay(self.calculate())
+        self.assertEqual(paid.lines.get(group=other).amount, 1)
+        CancellationRequest.objects.create(group=other, reason='other', status='refunded',
+            original_amount=1, refund_amount=1,
+            reviewed_at=timezone.make_aware(__import__('datetime').datetime(2026, 2, 10, 12)))
+        self.assertEqual(self.calculate(date(2026, 3, 1)).refund_deduction, 1)
+
     def test_inactive_rule_stops_new_earnings_but_keeps_refund_obligation(self):
         self.pay(self.calculate())
         self.rule.is_active = False

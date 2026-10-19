@@ -1,18 +1,15 @@
 from django.shortcuts import render, get_object_or_404
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
+from django.views.decorators.http import require_GET
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
-from django.conf import settings
 from django.http import JsonResponse
 from .models import *
 from booking.scheduler import assign_coachs, check_availability_and_get_suggestions
 from datetime import datetime, timedelta
-from .funcNewebpay import neweb_pay_request
 from snowland.settings import RUN_HOST, PAYMENT_HOST
 import json
 from django.db import transaction
-from booking.tasks import auto_cancel_unpaid_reservations
-import requests
 from Coach.models import CoachCourseLevel, CoachResort, Coach, CoachLeaveRequest
 from Resorts.models import Resorts # 1. 匯入 Resorts model
 from Control.views import login_required_control
@@ -20,7 +17,6 @@ from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseS
 from .utils import build_course_data_optimized  # 新增：匯入優化的資料建構函數
 from django.core.cache import cache  # 新增：快取支援
 from .decorators import require_tenant  # 🔥 新增：匯入裝飾器
-from .operations import resolve_payment_account
 from .payment_access import can_access_payment, payment_url_for_group
 
 
@@ -56,9 +52,7 @@ def home(request, client_code):
     參數：
     - client_code: 由 URL 傳入，例如 /booking/snowland/ -> client_code='snowland'
     """
-    # TODO: 將 auto_cancel_unpaid_reservations() 移到 Celery 定時任務
-    # 暫時保留以確保向後相容，但應該盡快移除
-    auto_cancel_unpaid_reservations()
+    # Expiry is handled by the background task; page reads must not cancel orders.
 
     # 🔥 租戶資訊由 middleware 和裝飾器自動注入
     tenant = request.tenant  # 由 middleware 注入，裝飾器已確保存在
@@ -122,142 +116,56 @@ def home(request, client_code):
     })
 
 @log_ip
-@require_tenant  # 🔥 使用裝飾器
+@require_GET
 def payment(request, client_code):
-    """
-    付款頁面
+    """Keep the old HTML entrypoint, sharing the current payment read rules."""
+    from .api_views import PaymentInfoAPI, TenantResolutionError, resolve_tenant_client
 
-    參數：
-    - client_code: 由 URL 傳入，例如 /booking/snowland/payment/ -> client_code='snowland'
-    """
-    print("payment")
-    # auto_cancel_unpaid_reservations()
-    order_details = []
-    total_amount = 0
-    reservation_group_pk = request.GET.get('reservation_group', '')
-    tenant = request.tenant  # 🔥 由裝飾器確保存在
-
-    next_url = PAYMENT_HOST.replace('/booking/', f'/booking/{client_code}/') + '?reservation_group=' + reservation_group_pk
-    context = {'next_url': next_url, 'reservation_group_pk': reservation_group_pk}
-
-    # 🔥 多租戶過濾（裝飾器已確保 tenant 存在）
-    group = ReservationGroup.objects.filter(
-        pk=reservation_group_pk,
-        client=tenant
-    ).first()
-
-    if group and not can_access_payment(group, request.user, request.GET.get('access_token', '')):
+    try:
+        tenant = resolve_tenant_client(client_code)
+        group_id = int(request.GET.get('reservation_group', ''))
+        group = ReservationGroup.objects.get(pk=group_id, client=tenant)
+    except (TenantResolutionError, ReservationGroup.DoesNotExist, ValueError, TypeError, OverflowError):
         raise Http404
-    if group and not group.user_id:
-        next_url = payment_url_for_group(PAYMENT_HOST.replace('/booking/', f'/booking/{client_code}/'), group)
-        context['next_url'] = next_url
-        context['payment_access_token'] = request.GET.get('access_token', '')
-    
-    if group:
-        # 獲取所有未被軟刪除的預約
-        active_reservations = group.reservations.exclude(status='deleted')
-        
-        # 檢查是否有任何有效的預約
-        if not active_reservations.exists():
-            context['payment_status'] = 'no_active_reservations'
-            context['message'] = '此預約群組沒有有效的預約項目。'
-            return render(request, 'booking/payment.html', context)
-        
-        # --- 新增的嚴格狀態檢查 ---
-        # 檢查是否所有有效的預約都已準備好付款
-        for resv in active_reservations:
-            if resv.status not in ['auto_assigned', 'manually_assigned', 'cancelled']:
-                # 如果有任何一個預約尚未準備好，則根據其狀態阻擋付款
-                if resv.status == 'pending_coach_confirmation':
-                    context['payment_status'] = 'pending_coach_approval'
-                    context['message'] = '您的部分預約正在等待教練確認，在所有課程都被教練接受前無法付款，請稍後再試。'
-                elif resv.status == 'auto_assignment_failed':
-                    context['payment_status'] = 'assignment_failed'
-                    context['message'] = '系統自動排課失敗，請聯繫客服人員協助處理您的預約。'
-                else: # 包含 'created' 等其他中間狀態
-                    context['payment_status'] = 'processing'
-                    context['message'] = '您的預約正在處理中，請稍後再回來查看狀態。'
-                
-                return render(request, 'booking/payment.html', context)
-            
-        payment_status = Payment.objects.get(reservation_group__pk=reservation_group_pk).status
-        context['payment_status'] = payment_status
-        if payment_status == 'paid':
-            context['orderer_user'] = group.user.email
-            return render(request, 'booking/payment.html', context)
-        elif payment_status == 'pending':
-            return render(request, 'booking/payment.html', context)
-        elif payment_status == 'expired':
-            return render(request, 'booking/payment.html', context)
-        
-        # 過濾掉已取消的預約，以正確計算總金額
-        reservations_to_pay = active_reservations.exclude(status='cancelled')
+    token = request.GET.get('access_token', '')
+    if not can_access_payment(group, request.user, token):
+        raise Http404
 
-        # 如果過濾掉取消後沒有剩餘課程，也顯示特殊頁面
-        if not reservations_to_pay.exists():
-            context['payment_status'] = 'all_cancelled'
-            context['message'] = '您預約的所有課程均已取消，無需付款。'
-            return render(request, 'booking/payment.html', context)
-
-        for resv in reservations_to_pay:
-            resv = Reservation.objects.get(pk=resv.pk)
-
-            detail = {}
-            detail['pk'] = resv.pk
-            if resv.equipment_rental_fee != 0:
-                detail['equipment_rental_fee'] = resv.equipment_rental_fee
-            if resv.language_fee != 0:
-                detail['language_fee'] = resv.language_fee
-            if resv.coach_fee != 0:
-                detail['coach_fee'] = resv.coach_fee
-            if resv.course_fee != 0:
-                detail['course_fee'] = resv.course_fee
-            if resv.payment_amount != 0:
-                detail['payment_amount'] = resv.payment_amount
-            order_details.append(detail)
-            total_amount += resv.payment_amount
-
-        # 檢查總金額是否為0
-        if total_amount <= 0:
-            context['payment_status'] = 'zero_amount'
-            context['message'] = '此預約群組的總費用為0，無需付款'
-            return render(request, 'booking/payment.html', context)
-
-        account = resolve_payment_account(group)
-        bank_info = {
-            'bank_name': account.bank_name if account else tenant.bank_name,
-            'branch_name': account.bank_branch if account else tenant.bank_branch,
-            'account_number': account.account_number if account else tenant.bank_account_number,
-            'account_name': account.account_holder if account else tenant.bank_account_holder,
-        }
-        context['bank_transfer_ready'] = all(bank_info.values())
-
-        user_ip = get_client_ip(request)
-        # # 模擬國外IP（開發測試用）
-        # from django.conf import settings
-        # if settings.DEBUG:
-        #     user_ip = "8.8.8.8"  # 美國IP
-
-        paymentType = 'TT'
-        try:
-            resp = requests.get(f"https://ipinfo.io/{user_ip}/json", timeout=2)
-            if resp.status_code == 200:
-                data = resp.json()
-                country = data.get('country', '')
-                if country == 'TW':
-                    paymentType = 'TT'
-                else:
-                    paymentType = 'newebpay'
-        except Exception as e:
-            print("IP 位置查詢失敗:", e)
-        context['payment_type'] = paymentType
-        context['bank_info'] = bank_info
-        context['total_amount'] = total_amount
-        context['order_details'] = order_details
-        return render(request, 'booking/payment.html', context)
-    else:
-        context['payment_status'] = 'not_found'
-        return render(request, 'booking/payment.html', context)
+    result = PaymentInfoAPI.as_view()(request, client_code=client_code)
+    if result.status_code == 404:
+        raise Http404
+    if result.status_code >= 500:
+        return HttpResponse('付款資訊暫時無法載入，請稍後重試。', status=503)
+    data = result.data
+    bank = data.get('bank_info', {})
+    bank_info = {
+        'bank_name': bank.get('bank_name', ''), 'branch_name': bank.get('bank_branch', ''),
+        'account_number': bank.get('bank_account_number', ''), 'account_name': bank.get('bank_account_holder', ''),
+    }
+    methods = data.get('payment_methods', [])
+    context = {
+        'next_url': payment_url_for_group(PAYMENT_HOST.replace('/booking/', f'/booking/{client_code}/'), group),
+        'reservation_group_pk': group.pk, 'payment_access_token': token if not group.user_id else '',
+        'booking_home_url': f'/{client_code}/booking',
+        'member_order_url': f'/{client_code}/membership/orders/{group.pk}' if group.user_id else '',
+        'payment_status': data.get('payment_status', 'processing'), 'message': data.get('error', ''),
+        'total_amount': data.get('total_amount', 0), 'order_details': data.get('order_details', []),
+        'bank_info': bank_info, 'bank_transfer_ready': 'bank_transfer' in methods,
+        'payment_type': 'newebpay' if (group.source_country or 'TW') != 'TW' and 'newebpay' in methods else 'TT',
+    }
+    if context['payment_status'] == 'refunded':
+        context['message'] = '此訂單已退款，請勿再次付款。'
+    elif context['payment_status'] == 'unpaid' and context['total_amount'] <= 0:
+        context.update(payment_status='zero_amount', message='此預約群組的總費用為0，無需付款。')
+    elif context['payment_status'] == 'unpaid' and group.reservations.exclude(
+        status__in=['auto_assigned', 'manually_assigned', 'completed', 'form_filled', 'cancelled', 'deleted'],
+    ).exists():
+        context.update(payment_status='processing', message='您的預約正在處理中，確認排課前不需要付款。')
+    context['payment_data'] = {
+        'paymentType': context['payment_type'], 'paymentStatus': context['payment_status'],
+        'reservation_group_pk': str(group.pk), 'access_token': context['payment_access_token'],
+    }
+    return render(request, 'booking/payment.html', context)
 
 @api_view(['GET'])
 @login_required_control
@@ -802,67 +710,8 @@ def API(request, tunnel, Client_Info=None):
                 "price_list": price_list
             }, status=200)
     elif tunnel == 'process_payment':
-        if request.method == 'POST':
-            body = request.data
-            img = body.get('img', False)
-            reservation_group_pk = body.get("reservation_group_pk")
-            paymentType = body.get("paymentType")
-            resv = get_object_or_404(ReservationGroup, pk=reservation_group_pk)
-            if not request.user.is_authenticated:
-                return JsonResponse({'error': '請先登入'}, status=401)
-            if not can_access_payment(resv, request.user, body.get('access_token', '')):
-                return JsonResponse({'error': '找不到預約群組'}, status=404)
-            user_id = request.user.id
-            payment = Payment.objects.filter(reservation_group=resv).order_by('-created_at').first()
-            if not payment:
-                return JsonResponse({'error': '找不到付款資料'}, status=404)
-            if payment.status in {'paid', 'expired'}:
-                return JsonResponse({'error': '此訂單已付款或付款期限已結束'}, status=400)
-            if paymentType == "newebpay":
-                if not all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
-                    return JsonResponse({'error': '信用卡付款尚未開放，請改用銀行匯款'}, status=503)
-                # 使用 Newebpay 付款
-                bookings = Booking.objects.filter(reservation__in=resv.reservations.all())
-                # 使用集合来跟踪已经写过的日期和课程名称组合
-                written_courses = set()
-                product_name_parts = ["滑雪預約"]
-
-                for booking in bookings:
-                    # 假设 booking.date 是一个 datetime 对象
-                    # 使用 strftime 格式化日期
-                    formatted_date = booking.date.strftime("%Y-%m-%d")
-                    course_key = (formatted_date, booking.course_name)
-                    if course_key not in written_courses:
-                        product_name_parts.append(f"{formatted_date} {booking.course_name}")
-                        written_courses.add(course_key)
-
-                product_name = " / ".join(product_name_parts)
-
-                data = {
-                    "store": {
-                        "MerchantID": settings.NEWEBPAY_MERCHANT_ID,
-                        "HashKey": settings.NEWEBPAY_HASH_KEY,
-                        "HashIV": settings.NEWEBPAY_HASH_IV,
-                    },
-                    "body": {
-                        "img": img,  # 商品照片
-                        "OrderNo": reservation_group_pk,  # 訂單編號
-                        "price": str(sum(item.payment_amount for item in resv.reservations.exclude(status__in=['deleted', 'cancelled']))),
-                        "product": product_name,  # 商品名
-                        "NotifyURL": f"{RUN_HOST}/call_back/NewebPay/?user_id={user_id}",  # 返回網址
-                    },
-                }
-                response = neweb_pay_request(data)
-                return JsonResponse({"message": "Payment confirmed", 'html': response}, status=200)
-            elif paymentType == "TT":
-                senderAccount = body.get("senderAccount")
-                user = request.user
-                # 使用匯款付款
-                payment.status = 'pending'
-                payment.bank_account = senderAccount
-                payment.user = user
-                payment.save()
-                return JsonResponse({"message": "Payment confirmed"}, status=200)
+        from .legacy_payment import process_legacy_payment
+        return process_legacy_payment(request)
     elif tunnel == 'history_reservations':
         if request.method == 'GET':
             reservations = Reservation.objects.filter(user=request.user)

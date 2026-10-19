@@ -257,6 +257,91 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         content_type=attrs.get('content_type',getattr(self.instance,'content_type',None))
+        location = attrs.get('location_key', getattr(self.instance, 'location_key', None))
+        metadata = attrs.get('metadata', getattr(self.instance, 'metadata', {}))
+        external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
+        if location == 'membership.waiver':
+            if content_type != 'page':
+                raise serializers.ValidationError({'content_type':'聲明書請使用頁面內容類型'})
+            if not attrs.get('body', getattr(self.instance, 'body', '')).strip():
+                raise serializers.ValidationError({'body':'請填寫聲明書正文，不能以空白內容取代'})
+            if 'is_draft' in metadata and not isinstance(metadata['is_draft'], bool):
+                raise serializers.ValidationError({'metadata':'法務確認中必須是勾選或取消勾選'})
+        if location == 'site.footer':
+            from Client.site_footer import validate_site_footer
+            try:
+                attrs['metadata'] = validate_site_footer(attrs, self.instance, getattr(self.context.get('request'), 'tenant', None))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
+        if location in ('homepage.hero','homepage.intro','homepage.coaches','homepage.contact'):
+            from Client.homepage_presentation import validate_homepage_presentation
+            try:
+                attrs['metadata'] = validate_homepage_presentation(attrs,self.instance,getattr(self.context.get('request'),'tenant',None))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata':str(exc)})
+        if location == 'course.areas':
+            from Client.course_areas import validate_course_area
+            try:
+                attrs['metadata'] = validate_course_area(attrs, self.instance, getattr(self.context.get('request'), 'tenant', None))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
+        if location == 'homepage.courses':
+            from Client.article_pages import safe_article_url
+            if content_type != 'page':
+                raise serializers.ValidationError({'content_type': '熱門課程請使用頁面類型'})
+            for field in ('link_url', 'image_url'):
+                value = attrs.get(field, getattr(self.instance, field, ''))
+                if not safe_article_url(value):
+                    raise serializers.ValidationError({field: '請使用完整http/https網址或站內路徑'})
+            if attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active':
+                for field in ('title', 'link_url'):
+                    if not attrs.get(field, getattr(self.instance, field, '')).strip():
+                        raise serializers.ValidationError({field: '公開熱門課程前請填寫名稱與課程連結'})
+        if location in ('about.snowland', 'about.join-us'):
+            from Client.about_pages import validate_about_metadata
+            try:
+                attrs['metadata'] = validate_about_metadata(metadata, attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active', 'about' if location == 'about.snowland' else 'join-us')
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
+        if location in ('offers.earlybird','offers.referral','offers.promo'):
+            from Client.article_pages import validate_offer_metadata
+            try:
+                attrs['metadata'] = validate_offer_metadata(metadata,
+                    attrs.get('status',getattr(self.instance,'status','draft'))=='active',
+                    attrs.get('image_url',getattr(self.instance,'image_url','')))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata':str(exc)})
+        if location == 'guides.articles':
+            from Client.article_pages import validate_guide_article
+            try:
+                attrs['metadata'] = validate_guide_article(attrs, self.instance)
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
+        if location == 'guides.packing' or (location == 'guides.article-pages' and (external_id == 'packing-checklist' or isinstance(metadata, dict) and 'article' in metadata)):
+            from Client.article_pages import validate_article_metadata
+            try:
+                attrs['metadata'] = validate_article_metadata(metadata, attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active')
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
+        if content_type == 'page' and location in ('photography.winter', 'photography.summer'):
+            from Client.photography_pages import validate_photography_metadata
+            try:
+                attrs['metadata'] = validate_photography_metadata(
+                    attrs.get('metadata', getattr(self.instance, 'metadata', {})), location.rsplit('.', 1)[1],
+                    attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active',
+                )
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
+        if content_type == 'media' and location == 'photography.gallery':
+            from Client.photography_gallery import validate_gallery
+            try:
+                attrs['metadata'] = validate_gallery(
+                    attrs.get('metadata', getattr(self.instance, 'metadata', {})),
+                    attrs.get('image_url', getattr(self.instance, 'image_url', '')),
+                    attrs.get('status', getattr(self.instance, 'status', 'draft')) == 'active',
+                )
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
         if content_type=='review' and 'metadata' in attrs:
             from Client.coach_reviews import validate_review_metadata
             try:
@@ -272,7 +357,23 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context.get('request')
         client = getattr(request, 'tenant', None) if request else None
+        if validated_data.get('location_key') == 'membership.waiver':
+            from booking.legal_documents import versioned_waiver_metadata
+            validated_data['metadata'] = versioned_waiver_metadata(validated_data)
         return SiteContent.objects.create(client=client, **validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get('location_key', instance.location_key) != 'membership.waiver':
+            return super().update(instance, validated_data)
+        from django.db import transaction
+        from Client.models import Client
+        from booking.legal_documents import versioned_waiver_metadata
+        with transaction.atomic():
+            # Match reminder publishing: client first, then the document row.
+            Client.objects.select_for_update().get(pk=instance.client_id)
+            current = SiteContent.objects.select_for_update().get(pk=instance.pk)
+            validated_data['metadata'] = versioned_waiver_metadata(validated_data, current)
+            return super().update(current, validated_data)
 
 
 # ==================== Coach ====================
@@ -1661,21 +1762,12 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         return items
 
     def get_available_coaches(self, reservation):
-        if not reservation.resort or not reservation.course_type:
-            return []
         try:
             from collections import defaultdict
-            from booking.scheduler import get_feasible_coaches, can_assign_all_bookings
+            from booking.scheduler import get_manual_assignment_coaches, can_assign_all_bookings
 
-            rejected_ids = list(reservation.rejected_coaches.values_list('id', flat=True))
-            feasible_coaches = get_feasible_coaches(
-                reservation.language,
-                reservation.resort,
-                reservation.course_type,
-                reservation.max_ability_level,
-                rejected_coach_ids=rejected_ids,
-                course_template=reservation.course_template,
-            )
+            bookings = list(reservation.bookings.all())
+            feasible_coaches = get_manual_assignment_coaches(reservation, bookings)
 
             coach_busy_map = defaultdict(list)
             busy_bookings = self.context.get('_coach_busy_bookings')
@@ -1699,7 +1791,6 @@ class OrderAdminSerializer(serializers.ModelSerializer):
                 if coach_id:
                     coach_busy_map[coach_id].append((booking.date, booking.start_time, booking.end_time))
 
-            bookings = list(reservation.bookings.all())
             return [
                 {
                     'id': coach.id,
@@ -1898,8 +1989,10 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
 
 
 class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
+    waiver_requires_resign = serializers.SerializerMethodField()
     can_remind = serializers.SerializerMethodField()
     can_mark_complete = serializers.SerializerMethodField()
+    can_process_insurance = serializers.SerializerMethodField()
     member_name = serializers.SerializerMethodField()
     order_number = serializers.CharField(source='reservation.group.order_number', read_only=True)
     sn = serializers.SerializerMethodField()
@@ -1908,7 +2001,7 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MemberDetail
-        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'course_dates', 'can_mark_complete', 'can_remind',
+        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'waiver_requires_resign', 'course_dates', 'can_mark_complete', 'can_remind', 'can_process_insurance',
                   'insurance_processing_status', 'insurance_premium_amount', 'insurance_premium_currency', 'insurance_processing_updated_at']
         read_only_fields = [name for name in fields if name != 'age_range']
 
@@ -1924,6 +2017,15 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
         group = obj.reservation.group
         return f'{group.created_at:%Y%m%d}-{group.id:04d}' if group.created_at else f'00000000-{group.id:04d}'
 
+    def get_waiver_requires_resign(self, obj):
+        from booking.legal_documents import get_current_waiver, waiver_requires_resign
+        documents = getattr(self, '_waiver_documents', {})
+        tenant = obj.reservation.group.client
+        if tenant.pk not in documents:
+            documents[tenant.pk] = get_current_waiver(tenant)
+        self._waiver_documents = documents
+        return waiver_requires_resign(obj, documents[tenant.pk])
+
     def get_member_name(self, obj):
         return obj.display_name
 
@@ -1933,6 +2035,10 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
             return False
         profile = getattr(request.user, 'userprofile', None)
         return request.user.is_superuser or not (profile and profile.role == 'assistant')
+
+    def get_can_process_insurance(self, obj):
+        request = self.context.get('request')
+        return bool(request and user_has_admin_permission(request.user, 'insurance_records'))
 
     def get_course_dates(self, obj):
         if obj.reservation.status in {'cancelled','deleted'}:
@@ -2307,6 +2413,9 @@ class CustomerAdminSerializer(serializers.Serializer):
 
 class BookingScheduleAdminSerializer(serializers.ModelSerializer):
     reservation_id = serializers.IntegerField(read_only=True)
+    coach_id = serializers.IntegerField(source='reservation.preferred_coach_id', read_only=True, allow_null=True)
+    ability_level = serializers.CharField(source='reservation.max_ability_level', read_only=True, default='')
+    is_preferred_coach = serializers.BooleanField(source='reservation.is_preferred_coach', read_only=True, default=False)
     coach_name = serializers.CharField(source='reservation.preferred_coach.name', read_only=True, default='')
     group_id = serializers.SerializerMethodField()
     order_number = serializers.CharField(source='reservation.group.order_number', read_only=True, default='')
@@ -2324,7 +2433,7 @@ class BookingScheduleAdminSerializer(serializers.ModelSerializer):
         model = Booking
         fields = [
             'id', 'reservation_id', 'group_id', 'order_number', 'sn', 'date', 'start_time', 'end_time',
-            'course_name', 'coach_name', 'user_name', 'resort', 'campus_name', 'campus_is_active',
+            'course_name', 'coach_name', 'coach_id', 'ability_level', 'is_preferred_coach', 'user_name', 'resort', 'campus_name', 'campus_is_active',
             'number_of_people', 'is_scheduled', 'status', 'event_type',
             'service_type',
         ]
@@ -2362,6 +2471,8 @@ class BookingScheduleAdminSerializer(serializers.ModelSerializer):
             return ''
 
     def get_status(self, obj):
+        if obj.reservation and obj.reservation.status == 'completed':
+            return 'completed'
         if obj.is_scheduled:
             return 'scheduled'
         return obj.reservation.status if obj.reservation else 'pending'

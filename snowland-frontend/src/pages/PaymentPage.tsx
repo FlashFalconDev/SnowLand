@@ -4,6 +4,16 @@ import { CheckCircle, CreditCard, Building2, Copy, Check, ArrowLeft } from 'luci
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import Toast, { ToastType } from '@/components/ui/Toast'
 
+const paymentHeaders = (): Record<string,string> => {
+  const token=document.cookie.split(';').map(value=>value.trim()).find(value=>value.startsWith('csrftoken='))
+  return {'Content-Type':'application/json',...(token?{'X-CSRFToken':token.slice('csrftoken='.length)}:{})}
+}
+
+const paymentError = (data: {error?:string;detail?:string}, fallback:string) => {
+  const message=String(data.error || data.detail || fallback)
+  return message.startsWith('CSRF Failed:') ? '頁面驗證已失效，請重新整理後再試；本次未送出。' : message
+}
+
 interface OrderDetail {
   pk: number
   course_label?: string
@@ -80,7 +90,7 @@ export default function PaymentPage() {
         const data = await response.json()
 
         if (!response.ok) {
-          const message = data.error || '獲取付款資訊失敗'
+          const message = paymentError(data,'獲取付款資訊失敗')
           setLoadError(message)
           showToast(message, 'error')
           setLoading(false)
@@ -128,9 +138,7 @@ export default function PaymentPage() {
 
       const response = await fetch(`/booking/snowland/api/process-payment/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: paymentHeaders(),
         credentials: 'include',
         body: JSON.stringify({
           reservation_group_id: reservationGroupId,
@@ -143,7 +151,7 @@ export default function PaymentPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        showToast(data.error || '提交失敗', 'error')
+        showToast(paymentError(data,'提交失敗'), 'error')
         setLoadingMessage('')
         return
       }
@@ -164,9 +172,7 @@ export default function PaymentPage() {
 
       const response = await fetch(`/booking/snowland/api/process-payment/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: paymentHeaders(),
         credentials: 'include', // 包含 session cookies
         body: JSON.stringify({
           reservation_group_id: reservationGroupId,
@@ -178,7 +184,7 @@ export default function PaymentPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        showToast(data.error || '付款請求失敗', 'error')
+        showToast(paymentError(data,'付款請求失敗'), 'error')
         setLoadingMessage('')
         return
       }
@@ -227,7 +233,8 @@ export default function PaymentPage() {
   const canUseBankTransfer = paymentData.payment_methods?.includes('bank_transfer') === true
   const isPaid = paymentData.payment_status === 'paid'
   const isPending = paymentData.payment_status === 'pending'
-  const canSubmitPayment = !isPaid && !isPending
+  const isRefunded = paymentData.payment_status === 'refunded'
+  const canSubmitPayment = paymentData.payment_status === 'unpaid'
 
   return (
     <div className="min-h-screen bg-[#f7f8fa]">
@@ -312,6 +319,8 @@ export default function PaymentPage() {
         </div>
 
         {isPaid && <div role="status" className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 font-semibold text-emerald-800">此訂單已付款，無需再次提交匯款資料。</div>}
+        {isRefunded && <div role="status" className="mb-8 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 font-semibold text-[#1e4e73]">系統已記錄退款，不需再次付款。實際退款入帳請以銀行或金流紀錄為準。</div>}
+        {!canSubmitPayment && !isPaid && !isPending && !isRefunded && <div role="status" className="mb-8 rounded-sm border border-amber-200 bg-amber-50 p-5 font-semibold text-amber-900">付款狀態已更新，請返回會員訂單確認；請勿再次匯款。</div>}
         {isPending && <div role="status" className="mb-8 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 font-semibold text-[#1e4e73]">匯款資料已送出，正在等待 SnowLand 確認付款；請勿重複匯款。如需更正匯款資料，請聯繫客服。{accessToken && <p className="mt-2 text-sm font-normal">請保留這個付款連結，之後可回來查看付款狀態。</p>}</div>}
         {showLaterReminder && canSubmitPayment && <div role="status" className="mb-8 rounded-sm border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">目前尚未回報匯款。請保留這個付款連結，在付款期限內完成匯款後，再回來填寫匯款帳戶後五碼。</div>}
 

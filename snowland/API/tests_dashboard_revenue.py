@@ -258,6 +258,8 @@ class DashboardRevenueTests(TestCase):
         self.assertEqual(excel.status_code,200)
         from openpyxl import load_workbook
         book=load_workbook(BytesIO(excel.content))
+        self.assertTrue(book.active['B6'].alignment.wrap_text)
+        self.assertGreaterEqual(book.active.row_dimensions[6].height, 90)
         cells=[cell for row in book.active for cell in row]
         self.assertFalse(any(cell.data_type=='f' for cell in cells))
         self.assertTrue(any(cell.value==group.marketing_source and cell.data_type=='s' for cell in cells))

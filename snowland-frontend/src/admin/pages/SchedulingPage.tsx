@@ -8,7 +8,8 @@ import { ChevronLeft, ChevronRight, Filter, Calendar as CalendarIcon, Loader2, A
 import { assignSharedClassCoach, fetchGroupCandidates, fetchScheduleCalendar, fetchSharedClassCoaches, fetchSharedClassOpeningOptions, fetchSharedClassSchedule, openSharedClass, rescheduleSharedClass, type GroupCandidate, type ScheduleBooking } from '../api/schedule'
 import { fetchAdminMe } from '../api/auth'
 import { fetchOrder, type Order } from '../api/orders'
-import { OrderDetailDrawer } from './OrdersPage'
+import { OrderDetailDrawer, OrderDetailStatusDrawer } from './OrdersPage'
+import CoachScheduleTable from './CoachScheduleTable'
 
 const PRIMARY = '#8b5cf6'
 const EQUIPMENT_COLOR = '#d97706'
@@ -133,6 +134,18 @@ function getRangeLabel(mode: ScheduleViewMode, rangeStart: Date, rangeEnd: Date)
   return `${formatDateKey(rangeStart)} ~ ${formatDateKey(rangeEnd)}`
 }
 
+export function scheduleTimeRangeError(from: string, to: string) {
+  const valid = (value: string) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+  if (!valid(from) || !valid(to)) return '請輸入有效的 24 小時制時間。'
+  return from && to && from > to ? '起始時間不可晚於結束時間。' : ''
+}
+
+export function matchesScheduleStartTime(start: string, from: string, to: string) {
+  if ((!from && !to) || scheduleTimeRangeError(from, to)) return true
+  const time = start?.slice(0, 5)
+  return Boolean(time && /^([01]\d|2[0-3]):[0-5]\d$/.test(time) && (!from || time >= from) && (!to || time <= to))
+}
+
 export default function SchedulingPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -142,10 +155,14 @@ export default function SchedulingPage() {
   const canManageSharedClass = Boolean(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin')
   const today = new Date()
   const [viewMode, setViewMode] = useState<ScheduleViewMode>('month')
+  const [calendarLayout, setCalendarLayout] = useState<'calendar' | 'coaches'>('calendar')
   const [anchorDate, setAnchorDate] = useState(new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [resortFilter, setResortFilter] = useState('')
   const [coachFilter, setCoachFilter] = useState('')
+  const [timeFrom, setTimeFrom] = useState('')
+  const [timeTo, setTimeTo] = useState('')
+  const timeRangeError = scheduleTimeRangeError(timeFrom, timeTo)
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
   const [showAllCandidates, setShowAllCandidates] = useState(false)
   const [editingSharedClassId, setEditingSharedClassId] = useState<number | null>(null)
@@ -218,7 +235,7 @@ export default function SchedulingPage() {
     },
     onError: (error: any) => setOpeningError(error?.response?.data?.msg || '開班失敗，請確認課程期間與校區雪場設定。'),
   })
-  const visibleCandidates = groupCandidates.filter((candidate) => !resortFilter || candidate.resort_name === resortFilter)
+  const visibleCandidates = groupCandidates.filter((candidate) => (!resortFilter || candidate.resort_name === resortFilter) && matchesScheduleStartTime(candidate.start_time, timeFrom, timeTo))
   const selectedCandidates = selectedDate ? visibleCandidates.filter((candidate) => candidate.date === selectedDate) : []
   const { data: sharedCoachOptions, isLoading: sharedCoachesLoading, error: sharedCoachesError } = useQuery({
     queryKey: ['admin', 'shared-class-coaches', editingSharedClassId],
@@ -267,10 +284,13 @@ export default function SchedulingPage() {
     onError: (error: any) => setRescheduleError(error?.response?.data?.msg || '整班改期失敗，請重新確認時段。'),
   })
 
-  const { data: selectedOrder, isFetching: isOrderLoading } = useQuery<Order>({
+  const { data: selectedOrder, isFetching: isOrderLoading, error: orderError, refetch: refetchOrder } = useQuery<Order>({
     queryKey: ['admin', 'orders', selectedOrderId],
     queryFn: () => fetchOrder(selectedOrderId!),
     enabled: !!selectedOrderId,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
   })
 
   const firstDay = new Date(year, month, 1).getDay()
@@ -296,7 +316,7 @@ export default function SchedulingPage() {
     ...bookings.map((b) => b.resort),
     ...groupCandidates.map((candidate) => candidate.resort_name),
   ].filter(Boolean))), [bookings, groupCandidates])
-  const allCoaches = useMemo(() => Array.from(new Set(bookings.map((b) => b.coach_name).filter(Boolean))), [bookings])
+  const allCoaches = useMemo(() => Array.from(new Set([...bookings.map((b) => b.coach_name), ...(scheduleData?.coaches || []).map(coach => coach.name)].filter(Boolean))), [bookings, scheduleData?.coaches])
   const summaryByDate = useMemo(
     () => new Map(dailySummary.map((summary) => [summary.date, summary])),
     [dailySummary],
@@ -305,14 +325,14 @@ export default function SchedulingPage() {
     const counts = new Map<string, number>()
     visibleCandidates.forEach((candidate) => counts.set(candidate.date, (counts.get(candidate.date) || 0) + 1))
     return counts
-  }, [groupCandidates, resortFilter])
+  }, [groupCandidates, resortFilter, timeFrom, timeTo])
 
-  const getBookingsForDate = (dateStr: string) => bookings.filter((b) => {
-    if (b.date !== dateStr) return false
+  const filteredBookings = bookings.filter((b) => {
     if (resortFilter && b.resort !== resortFilter) return false
     if (coachFilter && b.coach_name !== coachFilter) return false
-    return true
+    return matchesScheduleStartTime(b.start_time, timeFrom, timeTo)
   })
+  const getBookingsForDate = (dateStr: string) => filteredBookings.filter((b) => b.date === dateStr)
 
   const selectedBookings = selectedDate ? getBookingsForDate(selectedDate) : []
   const selectedSummary = selectedDate ? summaryByDate.get(selectedDate) : null
@@ -407,7 +427,7 @@ export default function SchedulingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">排課管理</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">切換日、週、多週或月視圖檢視排課</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">切換日、週、多週或月視圖；教練排班表可對照每位教練的課程與休假。</p>
         {isCampusManager && <p className="mt-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm text-purple-800 dark:border-purple-800 dark:bg-purple-900/20 dark:text-purple-200">校區主管只顯示所屬校區從今天起 10 天內的排課；其他日期不會顯示課程。</p>}
       </div>
 
@@ -417,18 +437,20 @@ export default function SchedulingPage() {
             <Filter size={14} /><span>篩選：</span>
           </div>
           <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-            <select value={resortFilter} onChange={(e) => setResortFilter(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30">
+            <select aria-label="篩選雪場" value={resortFilter} onChange={(e) => setResortFilter(e.target.value)}
+              className="min-h-11 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30">
               <option value="">全部雪場</option>
               {allResorts.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
-            <select value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30">
+            <select aria-label="篩選教練" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)}
+              className="min-h-11 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30">
               <option value="">全部教練</option>
               {allCoaches.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div className="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-900">
+            <button type="button" aria-pressed={calendarLayout === 'calendar'} onClick={() => setCalendarLayout('calendar')} className={`min-h-11 rounded-md px-3 text-sm ${calendarLayout === 'calendar' ? 'bg-white text-violet-700 shadow-sm dark:bg-gray-700 dark:text-violet-200' : 'text-gray-600 dark:text-gray-300'}`}>日期日曆</button>
+            <button type="button" aria-pressed={calendarLayout === 'coaches'} onClick={() => { setCalendarLayout('coaches'); if (viewMode === 'month') switchViewMode('week') }} className={`min-h-11 rounded-md px-3 text-sm ${calendarLayout === 'coaches' ? 'bg-white text-violet-700 shadow-sm dark:bg-gray-700 dark:text-violet-200' : 'text-gray-600 dark:text-gray-300'}`}>教練排班表</button>
             {VIEW_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -444,6 +466,18 @@ export default function SchedulingPage() {
               </button>
             ))}
           </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+          <label className="min-w-0 flex-1 text-sm font-medium text-gray-700 dark:text-gray-200 sm:flex-none">上課開始時間從
+            <input type="time" aria-label="上課開始時間從" aria-describedby="schedule-time-filter-help" aria-invalid={Boolean(timeRangeError)} value={timeFrom} onChange={event => setTimeFrom(event.target.value)} className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-3 text-gray-900 [color-scheme:light] dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:[color-scheme:dark] sm:w-40" />
+          </label>
+          <label className="min-w-0 flex-1 text-sm font-medium text-gray-700 dark:text-gray-200 sm:flex-none">上課開始時間至
+            <input type="time" aria-label="上課開始時間至" aria-describedby="schedule-time-filter-help" aria-invalid={Boolean(timeRangeError)} value={timeTo} onChange={event => setTimeTo(event.target.value)} className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-3 text-gray-900 [color-scheme:light] dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:[color-scheme:dark] sm:w-40" />
+          </label>
+          <button type="button" disabled={!timeFrom && !timeTo} onClick={() => { setTimeFrom(''); setTimeTo('') }} className="min-h-11 w-full rounded-lg border border-gray-300 px-3 text-sm text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 sm:w-auto">清除時間</button>
+          <p id="schedule-time-filter-help" className="w-full text-xs leading-6 text-gray-500 dark:text-gray-400">依課程開始時間篩選，包含起訖時間；留白代表不限。同步套用日曆、教練表、當日明細及團體班候選；教練人數與休假仍按整日統計。</p>
+          {timeRangeError && <p role="alert" className="w-full rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-200">時間區間無效，暫不套用時間篩選：{timeRangeError}請修正或清除時間；其他篩選仍有效。</p>}
+          {!timeRangeError && (timeFrom || timeTo) && <p role="status" className="text-sm font-medium text-violet-700 dark:text-violet-200">已篩選開始時間 {timeFrom || '不限'}～{timeTo || '不限'}，本期間符合 {filteredBookings.length} 項課程／服務。</p>}
         </div>
       </div>
 
@@ -579,20 +613,20 @@ export default function SchedulingPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900 dark:text-white text-lg">{rangeLabel}</h3>
-              <div className="flex items-center gap-2">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="min-w-0 break-words font-semibold text-gray-900 dark:text-white text-base sm:text-lg">{rangeLabel}</h3>
+              <div className="flex shrink-0 items-center gap-2">
                 <button onClick={goToday}
-                  className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
-                <button onClick={() => shiftView(-1)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
-                <button onClick={() => shiftView(1)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
+                  className="min-h-11 whitespace-nowrap px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
+                <button aria-label="上一個期間" onClick={() => shiftView(-1)} className="inline-flex min-h-11 min-w-11 items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
+                <button aria-label="下一個期間" onClick={() => shiftView(1)} className="inline-flex min-h-11 min-w-11 items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
               </div>
             </div>
 
             {isLoading ? (
               <div className="flex items-center justify-center py-20"><Loader2 size={32} className="animate-spin" style={{ color: PRIMARY }} /></div>
             ) : (
-              viewMode === 'month' ? (
+              calendarLayout === 'coaches' ? <CoachScheduleTable coaches={scheduleData?.coaches || []} leaves={scheduleData?.leaves || []} bookings={filteredBookings} days={visibleDays} coachFilter={coachFilter} isOutsideWindow={isOutsideManagerWindow} onOpenOrder={openBookingOrder} onSelectDate={selectDate} /> : viewMode === 'month' ? (
               <>
                 <p className="border-b border-gray-200 px-3 py-2 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400 sm:hidden">綠色數字＝可排教練；紫色數字＝已排課。點日期看明細。</p>
                 <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
@@ -785,7 +819,7 @@ export default function SchedulingPage() {
                           <button
                             type="button"
                             onClick={() => openBookingOrder(firstBooking)}
-                            className="shrink-0 rounded border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                            className="min-h-11 shrink-0 rounded border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
                           >
                             查看訂單
                           </button>
@@ -830,19 +864,22 @@ export default function SchedulingPage() {
           </div>
         </div>
       )}
-      {isOrderLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="flex items-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-medium text-gray-700 shadow-lg dark:bg-gray-800 dark:text-gray-200">
-            <Loader2 size={16} className="animate-spin" />
-            載入訂單資料...
-          </div>
-        </div>
-      )}
-      {selectedOrder && (
-        <OrderDetailDrawer
-          order={selectedOrder}
+      {selectedOrderId !== null && (isOrderLoading || orderError) && (
+        <OrderDetailStatusDrawer
+          title={orderError ? '明細載入失敗' : '載入訂單明細中'}
+          error={orderError}
+          isRetrying={isOrderLoading}
+          onRetry={() => refetchOrder()}
           onClose={() => setSelectedOrderId(null)}
         />
+      )}
+      {selectedOrderId !== null && selectedOrder && (
+        <div className={isOrderLoading || orderError ? 'invisible' : undefined} aria-hidden={Boolean(isOrderLoading || orderError)}>
+          <OrderDetailDrawer
+            order={selectedOrder}
+            onClose={() => setSelectedOrderId(null)}
+          />
+        </div>
       )}
     </div>
   )

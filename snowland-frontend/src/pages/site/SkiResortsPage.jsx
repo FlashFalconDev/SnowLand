@@ -21,7 +21,7 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
     限時活動: "bg-[var(--tag-promo-bg)] text-[var(--tag-promo-text)]"
   };
   const dateToNumber = (value = "") => {
-    const parts = value.split(".").map((part) => part.trim());
+    const parts = value.split(/[.-]/).map((part) => part.trim());
     if (parts.length < 3) return 0;
     const [year, month, day] = parts.map((part) => Number.parseInt(part, 10) || 0);
     return year * 10000 + month * 100 + day;
@@ -82,7 +82,7 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
           </div>
           <div className="mt-8 grid w-full max-w-4xl mx-auto gap-6 md:grid-cols-2 lg:grid-cols-3">
             {relatedArticles.map((article) => {
-              const localRoute = localArticleRoutes[article.url];
+              const localRoute = article.url.startsWith('/') ? article.url : localArticleRoutes[article.url];
               const CardWrapper = localRoute ? SiteLink : "a";
               const wrapperProps = localRoute
                 ? { to: localRoute }

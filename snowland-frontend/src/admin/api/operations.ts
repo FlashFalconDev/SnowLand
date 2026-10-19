@@ -63,8 +63,9 @@ export interface StaffBookingLink {
 export interface InsuranceRecord {
   can_remind: boolean
   can_mark_complete: boolean
+  can_process_insurance?: boolean
   id: number; member_name: string; order_number: string; sn: string; campus_name: string; age_range: string
-  insurance_completed_at: string | null; waiver_completed_at: string | null; course_dates: string[]
+  insurance_completed_at: string | null; waiver_completed_at: string | null; waiver_requires_resign: boolean; course_dates: string[]
   insurance_processing_status: 'pending' | 'checking' | 'processing' | 'insured'
   insurance_premium_amount: string | null; insurance_premium_currency: string
   insurance_processing_updated_at: string | null
@@ -77,7 +78,7 @@ export interface InsuranceRecordDetail extends InsuranceRecord {
   media_consent: string
 }
 
-export interface InsuranceReminderPreview { field:'insurance'|'waiver'; recipient_email:string; subject:string; message:string; local_test:boolean }
+export interface InsuranceReminderPreview { field:'insurance'|'waiver'; recipient_email:string; subject:string; message:string; action_url:string; local_test:boolean }
 export const fetchInsuranceReminder = async(id:number,field:'insurance'|'waiver'):Promise<InsuranceReminderPreview> =>
   (await adminApi.get(`/insurance-records/${id}/reminder/?field=${field}`) as unknown as DetailResponse<InsuranceReminderPreview>).data
 export const sendInsuranceReminder = async(id:number,data:{field:'insurance'|'waiver';recipient_email:string;request_key:string}):Promise<{code:number;msg:string}> =>

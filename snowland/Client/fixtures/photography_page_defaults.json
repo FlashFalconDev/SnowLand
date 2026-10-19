@@ -1,0 +1,1612 @@
+[
+  {
+    "season": "winter",
+    "title": "冬季雪地攝影",
+    "version": 1,
+    "sections": [
+      {
+        "id": "page",
+        "label": "頁首與授權說明",
+        "fields": [
+          {
+            "key": "winter_004",
+            "kind": "text",
+            "label": "說明文字 1",
+            "value": "Winter Photography"
+          },
+          {
+            "key": "winter_005",
+            "kind": "text",
+            "label": "標題 2",
+            "value": "冬季雪地攝影"
+          },
+          {
+            "key": "winter_098",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "※授權聲明："
+          },
+          {
+            "key": "winter_099",
+            "kind": "text",
+            "label": "說明文字 4",
+            "value": "購買雪地攝影服務即視為同意我們將拍攝的畫面用於 SnowLand 滑雪學校的推廣，分享您的雪地英姿，傳遞北海道滑雪的樂趣與喜悅！"
+          }
+        ]
+      },
+      {
+        "id": "photos-photos",
+        "label": "主視覺輪播",
+        "fields": [
+          {
+            "key": "winter_001",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/photography-gallery/gallery-019.jpg"
+          },
+          {
+            "key": "winter_002",
+            "kind": "image",
+            "label": "圖片網址 2",
+            "value": "/photography-gallery/gallery-074.jpg"
+          },
+          {
+            "key": "winter_003",
+            "kind": "image",
+            "label": "圖片網址 3",
+            "value": "/photography-gallery/gallery-048.jpg"
+          }
+        ]
+      },
+      {
+        "id": "section-1",
+        "label": "主視覺輪播",
+        "fields": [
+          {
+            "key": "winter_006",
+            "kind": "text",
+            "label": "圖片說明 1",
+            "value": "Winter photography"
+          }
+        ]
+      },
+      {
+        "id": "section-2",
+        "label": "紀錄每個感動瞬間",
+        "fields": [
+          {
+            "key": "winter_007",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "紀錄每個感動瞬間"
+          },
+          {
+            "key": "winter_008",
+            "kind": "text",
+            "label": "說明文字 2",
+            "value": "為滑雪愛好者打造多彩的雪地體驗。"
+          },
+          {
+            "key": "winter_009",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "無論是滑雪課程側拍、個人滑雪寫真、全家福合影，或便服婚紗，我們完整記錄每一份感動，帶回專屬你的雪地故事。"
+          },
+          {
+            "key": "winter_010",
+            "kind": "text",
+            "label": "按鈕文字 4",
+            "value": "報名雪地攝影"
+          }
+        ]
+      },
+      {
+        "id": "section-3",
+        "label": "場景圖片區塊 3",
+        "fields": [
+          {
+            "key": "winter_011",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/photography-gallery/gallery-053.jpg"
+          },
+          {
+            "key": "winter_012",
+            "kind": "text",
+            "label": "圖片說明 2",
+            "value": "SnowLand x THE STAGE"
+          },
+          {
+            "key": "winter_013",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "SnowLand 的雪地攝影由經驗豐富的攝影團隊為您服務。我們運用專業的視覺敘事、引導能力與美學視角，呈現更細膩、更具故事感的雪地攝影風格。"
+          }
+        ]
+      },
+      {
+        "id": "section-4",
+        "label": "服務內容",
+        "fields": [
+          {
+            "key": "winter_014",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/photography-gallery/gallery-020.jpg"
+          },
+          {
+            "key": "winter_015",
+            "kind": "text",
+            "label": "圖片說明 2",
+            "value": "Snowland services"
+          },
+          {
+            "key": "winter_016",
+            "kind": "text",
+            "label": "標題 3",
+            "value": "服務內容"
+          },
+          {
+            "key": "winter_017",
+            "kind": "text",
+            "label": "說明文字 4",
+            "value": "捕捉你在北海道雪地的每個精彩瞬間。滑行抓拍帥氣時刻、家人溫暖的笑容、情侶甜蜜合影，或是帶著自由感又不失浪漫的便服婚紗，都能為你量身打造專屬雪地寫真。"
+          },
+          {
+            "key": "winter_018",
+            "kind": "text",
+            "label": "說明文字 5",
+            "value": "▸ 滑雪課程側拍"
+          },
+          {
+            "key": "winter_019",
+            "kind": "text",
+            "label": "說明文字 6",
+            "value": "▸ 全家福寫真"
+          },
+          {
+            "key": "winter_020",
+            "kind": "text",
+            "label": "說明文字 7",
+            "value": "▸ 個人寫真"
+          },
+          {
+            "key": "winter_021",
+            "kind": "text",
+            "label": "說明文字 8",
+            "value": "▸ 情侶寫真"
+          },
+          {
+            "key": "winter_022",
+            "kind": "text",
+            "label": "說明文字 9",
+            "value": "▸ 便服婚紗"
+          }
+        ]
+      },
+      {
+        "id": "section-5",
+        "label": "服務方案",
+        "fields": [
+          {
+            "key": "winter_023",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "服務方案"
+          },
+          {
+            "key": "winter_024",
+            "kind": "text",
+            "label": "說明文字 2",
+            "value": "⚲ 地點：星野 Tomamu・富良野 Furano"
+          },
+          {
+            "key": "winter_025",
+            "kind": "image",
+            "label": "圖片網址 3",
+            "value": "/photography-gallery/gallery-049.jpg"
+          },
+          {
+            "key": "winter_026",
+            "kind": "text",
+            "label": "圖片說明 4",
+            "value": "1 小時快閃旅行"
+          },
+          {
+            "key": "winter_027",
+            "kind": "text",
+            "label": "標題 5",
+            "value": "1 小時快閃旅行"
+          },
+          {
+            "key": "winter_028",
+            "kind": "text",
+            "label": "展示價格／優惠文字 6",
+            "value": "NT$15,000"
+          },
+          {
+            "key": "winter_029",
+            "kind": "text",
+            "label": "說明文字 7",
+            "value": "・毛片全給"
+          },
+          {
+            "key": "winter_030",
+            "kind": "text",
+            "label": "說明文字 8",
+            "value": "・保證至少 30 張照片"
+          },
+          {
+            "key": "winter_031",
+            "kind": "text",
+            "label": "說明文字 9",
+            "value": "・適合單一地點拍攝"
+          },
+          {
+            "key": "winter_032",
+            "kind": "text",
+            "label": "按鈕文字 10",
+            "value": "立即預約 →"
+          },
+          {
+            "key": "winter_033",
+            "kind": "image",
+            "label": "圖片網址 11",
+            "value": "/photography-gallery/gallery-030.jpg"
+          },
+          {
+            "key": "winter_034",
+            "kind": "text",
+            "label": "圖片說明 12",
+            "value": "2 小時經典旅行"
+          },
+          {
+            "key": "winter_035",
+            "kind": "text",
+            "label": "說明文字 13",
+            "value": "最熱門"
+          },
+          {
+            "key": "winter_036",
+            "kind": "text",
+            "label": "標題 14",
+            "value": "2 小時經典旅行"
+          },
+          {
+            "key": "winter_037",
+            "kind": "text",
+            "label": "展示價格／優惠文字 15",
+            "value": "NT$24,000"
+          },
+          {
+            "key": "winter_038",
+            "kind": "text",
+            "label": "說明文字 16",
+            "value": "・毛片全給"
+          },
+          {
+            "key": "winter_039",
+            "kind": "text",
+            "label": "說明文字 17",
+            "value": "・保證至少 60 張"
+          },
+          {
+            "key": "winter_040",
+            "kind": "text",
+            "label": "說明文字 18",
+            "value": "・適合家庭、情侶或多場景拍攝"
+          },
+          {
+            "key": "winter_041",
+            "kind": "text",
+            "label": "按鈕文字 19",
+            "value": "立即預約 →"
+          },
+          {
+            "key": "winter_042",
+            "kind": "image",
+            "label": "圖片網址 20",
+            "value": "/photography-gallery/gallery-073.jpg"
+          },
+          {
+            "key": "winter_043",
+            "kind": "text",
+            "label": "圖片說明 21",
+            "value": "3 小時半日樂活"
+          },
+          {
+            "key": "winter_044",
+            "kind": "text",
+            "label": "標題 22",
+            "value": "3 小時半日樂活"
+          },
+          {
+            "key": "winter_045",
+            "kind": "text",
+            "label": "展示價格／優惠文字 23",
+            "value": "NT$32,000"
+          },
+          {
+            "key": "winter_046",
+            "kind": "text",
+            "label": "說明文字 24",
+            "value": "・毛片全給"
+          },
+          {
+            "key": "winter_047",
+            "kind": "text",
+            "label": "說明文字 25",
+            "value": "・保證至少 90 張"
+          },
+          {
+            "key": "winter_048",
+            "kind": "text",
+            "label": "說明文字 26",
+            "value": "・適合滑雪側拍 + 外景寫真"
+          },
+          {
+            "key": "winter_049",
+            "kind": "text",
+            "label": "按鈕文字 27",
+            "value": "立即預約 →"
+          },
+          {
+            "key": "winter_050",
+            "kind": "text",
+            "label": "說明文字 28",
+            "value": "加購服務"
+          },
+          {
+            "key": "winter_051",
+            "kind": "text",
+            "label": "展示價格／優惠文字 29",
+            "value": "▸ 精修照片：NT$1,000 / 張"
+          }
+        ]
+      },
+      {
+        "id": "section-6",
+        "label": "滑雪課程加購優惠",
+        "fields": [
+          {
+            "key": "winter_052",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "滑雪課程加購優惠"
+          },
+          {
+            "key": "winter_053",
+            "kind": "text",
+            "label": "說明文字 2",
+            "value": "預約滑雪課程加購雪地攝影"
+          },
+          {
+            "key": "winter_054",
+            "kind": "text",
+            "label": "展示價格／優惠文字 3",
+            "value": "▸ 每小時折扣 NT$ 3000"
+          },
+          {
+            "key": "winter_055",
+            "kind": "image",
+            "label": "圖片網址 4",
+            "value": "/photography-gallery/gallery-075.jpg"
+          },
+          {
+            "key": "winter_056",
+            "kind": "text",
+            "label": "圖片說明 5",
+            "value": "滑雪課程加購優惠"
+          }
+        ]
+      },
+      {
+        "id": "section-7",
+        "label": "為什麼選擇 SnowLand",
+        "fields": [
+          {
+            "key": "winter_057",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "為什麼選擇 SnowLand"
+          },
+          {
+            "key": "winter_058",
+            "kind": "text",
+            "label": "項目說明 2",
+            "value": "✓ 專業雪地攝影團隊"
+          },
+          {
+            "key": "winter_059",
+            "kind": "text",
+            "label": "項目說明 3",
+            "value": "✓ 親子友善・多場景拍攝"
+          },
+          {
+            "key": "winter_060",
+            "kind": "text",
+            "label": "項目說明 4",
+            "value": "✓ 毛片全給不加價"
+          },
+          {
+            "key": "winter_061",
+            "kind": "text",
+            "label": "項目說明 5",
+            "value": "✓ 每小時至少 30 張以上"
+          },
+          {
+            "key": "winter_062",
+            "kind": "text",
+            "label": "項目說明 6",
+            "value": "✓ 7 日內雲端交件"
+          },
+          {
+            "key": "winter_063",
+            "kind": "text",
+            "label": "按鈕文字 7",
+            "value": "預約流程"
+          },
+          {
+            "key": "winter_064",
+            "kind": "text",
+            "label": "按鈕文字 8",
+            "value": "精選Q&A"
+          },
+          {
+            "key": "winter_065",
+            "kind": "text",
+            "label": "按鈕文字 9",
+            "value": "相關內容"
+          }
+        ]
+      },
+      {
+        "id": "section-8",
+        "label": "預約流程",
+        "fields": [
+          {
+            "key": "winter_066",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "預約流程"
+          },
+          {
+            "key": "winter_067",
+            "kind": "text",
+            "label": "項目說明 2",
+            "value": "1. 預約雪地攝影"
+          },
+          {
+            "key": "winter_068",
+            "kind": "text",
+            "label": "項目說明 3",
+            "value": "選擇拍攝的雪場地點及時間，及確定是否預訂滑雪課程享專案優惠(需提供課程訂單號碼)。"
+          },
+          {
+            "key": "winter_069",
+            "kind": "text",
+            "label": "項目說明 4",
+            "value": "2. 預約確認"
+          },
+          {
+            "key": "winter_070",
+            "kind": "text",
+            "label": "項目說明 5",
+            "value": "收到預約後，我們的客服將會與您聯繫確認。"
+          },
+          {
+            "key": "winter_071",
+            "kind": "text",
+            "label": "項目說明 6",
+            "value": "3. 線上付款"
+          },
+          {
+            "key": "winter_072",
+            "kind": "text",
+            "label": "項目說明 7",
+            "value": "銀行匯款轉帳支付"
+          },
+          {
+            "key": "winter_073",
+            "kind": "text",
+            "label": "項目說明 8",
+            "value": "4. 預約成功"
+          },
+          {
+            "key": "winter_074",
+            "kind": "text",
+            "label": "項目說明 9",
+            "value": "與攝影師討論拍攝需求，並享受屬於您的滑雪攝影。"
+          },
+          {
+            "key": "winter_075",
+            "kind": "text",
+            "label": "按鈕文字 10",
+            "value": "查看預約流程細節"
+          }
+        ]
+      },
+      {
+        "id": "section-9",
+        "label": "精選常見問題",
+        "fields": [
+          {
+            "key": "winter_076",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "精選常見問題"
+          },
+          {
+            "key": "winter_077",
+            "kind": "text",
+            "label": "問題 2",
+            "value": "拍攝後多久可以收到照片？"
+          },
+          {
+            "key": "winter_078",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "7 天內透過雲端交件。"
+          },
+          {
+            "key": "winter_079",
+            "kind": "text",
+            "label": "問題 4",
+            "value": "服務內容包括影片？"
+          },
+          {
+            "key": "winter_080",
+            "kind": "text",
+            "label": "說明文字 5",
+            "value": "目前僅提供靜態平面攝影，並不包含動態影片，側拍影片僅作為行銷用途，並不包含在滑雪攝影服務內。當您購買雪地攝影服務即視為同意我們將拍攝的畫面用於 SnowLand 滑雪學校的推廣，分享您的英姿，傳遞北海道滑雪的樂趣與喜悅！"
+          },
+          {
+            "key": "winter_081",
+            "kind": "text",
+            "label": "問題 6",
+            "value": "滑雪騎馬冰釣費用包含在內？"
+          },
+          {
+            "key": "winter_082",
+            "kind": "text",
+            "label": "說明文字 7",
+            "value": "A：雪地攝影服務費用僅包含照相，騎馬釣魚等活動需自行於星野官方網站預約付費。"
+          },
+          {
+            "key": "winter_083",
+            "kind": "text",
+            "label": "說明文字 8",
+            "value": "雪地騎馬體驗"
+          },
+          {
+            "key": "winter_084",
+            "kind": "link",
+            "label": "外部連結 9",
+            "value": "https://www.snowtomamu.jp/winter/cn/activity/10444"
+          },
+          {
+            "key": "winter_085",
+            "kind": "text",
+            "label": "按鈕文字 10",
+            "value": "https://www.snowtomamu.jp/winter/cn/activity/10444"
+          },
+          {
+            "key": "winter_086",
+            "kind": "text",
+            "label": "說明文字 11",
+            "value": "湖上野餐和冰上的魚"
+          },
+          {
+            "key": "winter_087",
+            "kind": "link",
+            "label": "外部連結 12",
+            "value": "https://www.snowtomamu.jp/winter/cn/activity/10782"
+          },
+          {
+            "key": "winter_088",
+            "kind": "text",
+            "label": "按鈕文字 13",
+            "value": "https://www.snowtomamu.jp/winter/cn/activity/10782"
+          },
+          {
+            "key": "winter_089",
+            "kind": "text",
+            "label": "按鈕文字 14",
+            "value": "查看更多常見問題"
+          }
+        ]
+      },
+      {
+        "id": "section-10",
+        "label": "攝影作品 →",
+        "fields": [
+          {
+            "key": "winter_090",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/photography-gallery/gallery-009.jpg"
+          },
+          {
+            "key": "winter_091",
+            "kind": "text",
+            "label": "圖片說明 2",
+            "value": "攝影作品"
+          },
+          {
+            "key": "winter_092",
+            "kind": "text",
+            "label": "標題 3",
+            "value": "攝影作品 →"
+          },
+          {
+            "key": "winter_093",
+            "kind": "text",
+            "label": "圖片說明 4",
+            "value": "預約滑雪課程"
+          },
+          {
+            "key": "winter_094",
+            "kind": "text",
+            "label": "標題 5",
+            "value": "預約滑雪課程 →"
+          },
+          {
+            "key": "winter_095",
+            "kind": "image",
+            "label": "圖片網址 6",
+            "value": "/legacy/photography-summer/image-02.jpg"
+          },
+          {
+            "key": "winter_096",
+            "kind": "text",
+            "label": "圖片說明 7",
+            "value": "查看夏季旅拍攝影"
+          },
+          {
+            "key": "winter_097",
+            "kind": "text",
+            "label": "標題 8",
+            "value": "查看夏季旅拍攝影 →"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "season": "summer",
+    "title": "夏季旅拍攝影",
+    "version": 1,
+    "sections": [
+      {
+        "id": "page",
+        "label": "頁首與授權說明",
+        "fields": [
+          {
+            "key": "summer_015",
+            "kind": "text",
+            "label": "說明文字 1",
+            "value": "Summer Photography"
+          },
+          {
+            "key": "summer_016",
+            "kind": "text",
+            "label": "標題 2",
+            "value": "夏季旅拍攝影"
+          },
+          {
+            "key": "summer_134",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "※授權聲明："
+          },
+          {
+            "key": "summer_135",
+            "kind": "text",
+            "label": "說明文字 4",
+            "value": "購買攝影服務即視為同意我們將拍攝的畫面用於SnowLand滑雪學校的推廣，傳遞北海道旅遊的樂趣與喜悅！"
+          }
+        ]
+      },
+      {
+        "id": "photos-photos",
+        "label": "主視覺輪播",
+        "fields": [
+          {
+            "key": "summer_001",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/legacy/photography-summer/20240529-Z-F-王妍如-Dylan-122.jpg"
+          },
+          {
+            "key": "summer_002",
+            "kind": "image",
+            "label": "圖片網址 2",
+            "value": "/legacy/photography-summer/image-05.jpg"
+          },
+          {
+            "key": "summer_003",
+            "kind": "image",
+            "label": "圖片網址 3",
+            "value": "/legacy/photography-summer/2023-10-13-TheStage Martin&Gigi 婚紗拍樣-169.jpg"
+          }
+        ]
+      },
+      {
+        "id": "section-1",
+        "label": "主視覺輪播",
+        "fields": [
+          {
+            "key": "summer_017",
+            "kind": "text",
+            "label": "圖片說明 1",
+            "value": "Summer photography"
+          }
+        ]
+      },
+      {
+        "id": "section-2",
+        "label": "用光影記錄每段旅程",
+        "fields": [
+          {
+            "key": "summer_018",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "用光影記錄每段旅程"
+          },
+          {
+            "key": "summer_019",
+            "kind": "text",
+            "label": "說明文字 2",
+            "value": "為北海道夏季旅行打造最自在的影像記憶。"
+          },
+          {
+            "key": "summer_020",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "結合在地的專業攝影團隊，城市街拍、山林輕旅、薰衣草花海浪漫寫真或親子合影，我們以故事感的視角量身打造專屬於你的旅途亮點，留下珍貴的影像記憶。"
+          },
+          {
+            "key": "summer_021",
+            "kind": "text",
+            "label": "按鈕文字 4",
+            "value": "預約夏季旅拍"
+          }
+        ]
+      },
+      {
+        "id": "section-3",
+        "label": "場景圖片區塊 3",
+        "fields": [
+          {
+            "key": "summer_022",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/legacy/photography-summer/image-02.jpg"
+          },
+          {
+            "key": "summer_023",
+            "kind": "text",
+            "label": "圖片說明 2",
+            "value": "富良野花海背景"
+          },
+          {
+            "key": "summer_024",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "▸  富良野的浪漫花海之旅"
+          },
+          {
+            "key": "summer_025",
+            "kind": "text",
+            "label": "說明文字 4",
+            "value": "富良野以夏季盛開的薰衣草聞名，是戀人與家庭拍攝的首選。"
+          },
+          {
+            "key": "summer_026",
+            "kind": "text",
+            "label": "說明文字 5",
+            "value": "無論是手牽手漫步在紫色花田的情侶寫真，或是孩子奔跑在向日葵與波斯菊間的歡笑畫面，我們都將為您捕捉最自然、動人的瞬間。"
+          }
+        ]
+      },
+      {
+        "id": "section-4",
+        "label": "場景圖片區塊 4",
+        "fields": [
+          {
+            "key": "summer_027",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/legacy/photography-summer/image-03.jpg"
+          },
+          {
+            "key": "summer_028",
+            "kind": "text",
+            "label": "圖片說明 2",
+            "value": "星野Tomamu夏季背景"
+          },
+          {
+            "key": "summer_029",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "▸   星野Tomamu的山野秘境"
+          },
+          {
+            "key": "summer_030",
+            "kind": "text",
+            "label": "說明文字 4",
+            "value": "星野度假村不只有冬季滑雪魅力，夏季更是一片綠意與清新的天地。 山景草原、雲海露台、玻璃教堂與森林小徑，構成多元又唯美的拍攝背景。 特別推薦給想要拍攝自然系婚紗或文青風格形象照的你。"
+          }
+        ]
+      },
+      {
+        "id": "section-5",
+        "label": "服務方案",
+        "fields": [
+          {
+            "key": "summer_031",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "服務方案"
+          },
+          {
+            "key": "summer_032",
+            "kind": "text",
+            "label": "說明文字 2",
+            "value": "⚲ 地點：星野 Tomamu・富良野 Furano"
+          },
+          {
+            "key": "summer_033",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "客製化"
+          },
+          {
+            "key": "summer_034",
+            "kind": "text",
+            "label": "說明文字 4",
+            "value": "旅拍專案"
+          },
+          {
+            "key": "summer_035",
+            "kind": "text",
+            "label": "圖片說明 5",
+            "value": "旅拍照片"
+          },
+          {
+            "key": "summer_036",
+            "kind": "text",
+            "label": "項目說明 6",
+            "value": "1小時快閃回憶"
+          },
+          {
+            "key": "summer_037",
+            "kind": "text",
+            "label": "項目說明 7",
+            "value": "可選擇1個景點"
+          },
+          {
+            "key": "summer_038",
+            "kind": "text",
+            "label": "項目說明 8",
+            "value": "保障20張以上照片"
+          },
+          {
+            "key": "summer_136",
+            "kind": "text",
+            "label": "展示價格 9",
+            "value": "NT$23,800"
+          },
+          {
+            "key": "summer_039",
+            "kind": "text",
+            "label": "項目說明 9",
+            "value": "2小時經典旅行"
+          },
+          {
+            "key": "summer_040",
+            "kind": "text",
+            "label": "項目說明 10",
+            "value": "可選擇1～2個景點"
+          },
+          {
+            "key": "summer_041",
+            "kind": "text",
+            "label": "項目說明 11",
+            "value": "保障40張以上照片"
+          },
+          {
+            "key": "summer_137",
+            "kind": "text",
+            "label": "展示價格 13",
+            "value": "NT$32,800"
+          },
+          {
+            "key": "summer_042",
+            "kind": "text",
+            "label": "項目說明 12",
+            "value": "4小時半日樂活"
+          },
+          {
+            "key": "summer_043",
+            "kind": "text",
+            "label": "項目說明 13",
+            "value": "可選擇2～3個景點"
+          },
+          {
+            "key": "summer_044",
+            "kind": "text",
+            "label": "項目說明 14",
+            "value": "保障70張以上照片"
+          },
+          {
+            "key": "summer_138",
+            "kind": "text",
+            "label": "展示價格 17",
+            "value": "NT$42,800"
+          },
+          {
+            "key": "summer_045",
+            "kind": "text",
+            "label": "說明文字 15",
+            "value": "▸ 方案包含"
+          },
+          {
+            "key": "summer_046",
+            "kind": "text",
+            "label": "說明文字 16",
+            "value": "・照片全給"
+          },
+          {
+            "key": "summer_047",
+            "kind": "text",
+            "label": "說明文字 17",
+            "value": "・不限人數"
+          },
+          {
+            "key": "summer_048",
+            "kind": "text",
+            "label": "說明文字 18",
+            "value": "▸ 加購服務"
+          },
+          {
+            "key": "summer_049",
+            "kind": "text",
+            "label": "說明文字 19",
+            "value": "・精修照片1500$/張"
+          },
+          {
+            "key": "summer_050",
+            "kind": "text",
+            "label": "說明文字 20",
+            "value": "・女生妝髮5500$/位"
+          },
+          {
+            "key": "summer_051",
+            "kind": "text",
+            "label": "說明文字 21",
+            "value": "・男生妝髮3500$/位"
+          },
+          {
+            "key": "summer_052",
+            "kind": "text",
+            "label": "說明文字 22",
+            "value": "客製化"
+          },
+          {
+            "key": "summer_053",
+            "kind": "text",
+            "label": "說明文字 23",
+            "value": "旅拍輕婚紗專案"
+          },
+          {
+            "key": "summer_054",
+            "kind": "text",
+            "label": "圖片說明 24",
+            "value": ""
+          },
+          {
+            "key": "summer_055",
+            "kind": "text",
+            "label": "圖片說明 25",
+            "value": "旅拍婚紗照片"
+          },
+          {
+            "key": "summer_056",
+            "kind": "text",
+            "label": "說明文字 26",
+            "value": "2套6小時"
+          },
+          {
+            "key": "summer_057",
+            "kind": "text",
+            "label": "說明文字 27",
+            "value": "可選擇2個景點"
+          },
+          {
+            "key": "summer_058",
+            "kind": "text",
+            "label": "說明文字 28",
+            "value": "保障30張以上照片"
+          },
+          {
+            "key": "summer_059",
+            "kind": "text",
+            "label": "說明文字 29",
+            "value": "新娘一組妝髮"
+          },
+          {
+            "key": "summer_060",
+            "kind": "text",
+            "label": "說明文字 30",
+            "value": "新郎一組妝髮"
+          },
+          {
+            "key": "summer_061",
+            "kind": "text",
+            "label": "說明文字 31",
+            "value": "自備2套服裝"
+          },
+          {
+            "key": "summer_062",
+            "kind": "text",
+            "label": "說明文字 32",
+            "value": "精修10張"
+          },
+          {
+            "key": "summer_063",
+            "kind": "text",
+            "label": "展示價格／優惠文字 33",
+            "value": "NT$58,900"
+          },
+          {
+            "key": "summer_064",
+            "kind": "text",
+            "label": "說明文字 34",
+            "value": "▸方案內含"
+          },
+          {
+            "key": "summer_065",
+            "kind": "text",
+            "label": "說明文字 35",
+            "value": "・調光調色後原檔JPG全給"
+          },
+          {
+            "key": "summer_066",
+            "kind": "text",
+            "label": "說明文字 36",
+            "value": "・環保雲端交件"
+          },
+          {
+            "key": "summer_067",
+            "kind": "text",
+            "label": "說明文字 37",
+            "value": "▸加購內容"
+          },
+          {
+            "key": "summer_068",
+            "kind": "text",
+            "label": "展示價格／優惠文字 38",
+            "value": "・精修NT$1,500/張"
+          },
+          {
+            "key": "summer_069",
+            "kind": "text",
+            "label": "展示價格／優惠文字 39",
+            "value": "・精緻皮革相簿NT$5,500/本"
+          },
+          {
+            "key": "summer_070",
+            "kind": "text",
+            "label": "說明文字 40",
+            "value": "客製化"
+          },
+          {
+            "key": "summer_071",
+            "kind": "text",
+            "label": "說明文字 41",
+            "value": "旅拍婚紗專案"
+          },
+          {
+            "key": "summer_072",
+            "kind": "text",
+            "label": "圖片說明 42",
+            "value": ""
+          },
+          {
+            "key": "summer_073",
+            "kind": "text",
+            "label": "圖片說明 43",
+            "value": "旅拍婚紗照片"
+          },
+          {
+            "key": "summer_074",
+            "kind": "text",
+            "label": "項目說明 44",
+            "value": "1套4小時"
+          },
+          {
+            "key": "summer_075",
+            "kind": "text",
+            "label": "項目說明 45",
+            "value": "可選擇1個景點"
+          },
+          {
+            "key": "summer_076",
+            "kind": "text",
+            "label": "項目說明 46",
+            "value": "保障30張以上照片"
+          },
+          {
+            "key": "summer_077",
+            "kind": "text",
+            "label": "項目說明 47",
+            "value": "一套禮服(一白)"
+          },
+          {
+            "key": "summer_078",
+            "kind": "text",
+            "label": "項目說明 48",
+            "value": "新娘一組妝髮"
+          },
+          {
+            "key": "summer_079",
+            "kind": "text",
+            "label": "項目說明 49",
+            "value": "新郎一組妝髮"
+          },
+          {
+            "key": "summer_080",
+            "kind": "text",
+            "label": "項目說明 50",
+            "value": "精修10張"
+          },
+          {
+            "key": "summer_139",
+            "kind": "text",
+            "label": "展示價格 54",
+            "value": "NT$84,800"
+          },
+          {
+            "key": "summer_081",
+            "kind": "text",
+            "label": "項目說明 51",
+            "value": "2套6小時"
+          },
+          {
+            "key": "summer_082",
+            "kind": "text",
+            "label": "項目說明 52",
+            "value": "可選擇2個景點"
+          },
+          {
+            "key": "summer_083",
+            "kind": "text",
+            "label": "項目說明 53",
+            "value": "保障50張以上照片"
+          },
+          {
+            "key": "summer_084",
+            "kind": "text",
+            "label": "項目說明 54",
+            "value": "二套禮服(一白一晚)"
+          },
+          {
+            "key": "summer_085",
+            "kind": "text",
+            "label": "項目說明 55",
+            "value": "新娘兩組妝髮"
+          },
+          {
+            "key": "summer_086",
+            "kind": "text",
+            "label": "項目說明 56",
+            "value": "新郎一組妝髮"
+          },
+          {
+            "key": "summer_087",
+            "kind": "text",
+            "label": "項目說明 57",
+            "value": "精修15張"
+          },
+          {
+            "key": "summer_140",
+            "kind": "text",
+            "label": "展示價格 62",
+            "value": "NT$98,800"
+          },
+          {
+            "key": "summer_088",
+            "kind": "text",
+            "label": "項目說明 58",
+            "value": "3套8小時"
+          },
+          {
+            "key": "summer_089",
+            "kind": "text",
+            "label": "項目說明 59",
+            "value": "可選擇2~3個景點"
+          },
+          {
+            "key": "summer_090",
+            "kind": "text",
+            "label": "項目說明 60",
+            "value": "保障1000張以上照片"
+          },
+          {
+            "key": "summer_091",
+            "kind": "text",
+            "label": "項目說明 61",
+            "value": "三套禮服(一白一晚一和)"
+          },
+          {
+            "key": "summer_092",
+            "kind": "text",
+            "label": "項目說明 62",
+            "value": "新娘三組妝髮"
+          },
+          {
+            "key": "summer_093",
+            "kind": "text",
+            "label": "項目說明 63",
+            "value": "新郎一組妝髮"
+          },
+          {
+            "key": "summer_094",
+            "kind": "text",
+            "label": "項目說明 64",
+            "value": "精修25張"
+          },
+          {
+            "key": "summer_141",
+            "kind": "text",
+            "label": "展示價格 70",
+            "value": "NT$112,800"
+          },
+          {
+            "key": "summer_095",
+            "kind": "text",
+            "label": "說明文字 65",
+            "value": "方案內含"
+          },
+          {
+            "key": "summer_096",
+            "kind": "text",
+            "label": "說明文字 66",
+            "value": "・調光調色後原檔JPG全給"
+          },
+          {
+            "key": "summer_097",
+            "kind": "text",
+            "label": "說明文字 67",
+            "value": "・環保雲端交件"
+          },
+          {
+            "key": "summer_098",
+            "kind": "text",
+            "label": "說明文字 68",
+            "value": "・精緻皮革相簿"
+          },
+          {
+            "key": "summer_099",
+            "kind": "text",
+            "label": "說明文字 69",
+            "value": "加購內容"
+          },
+          {
+            "key": "summer_100",
+            "kind": "text",
+            "label": "展示價格／優惠文字 70",
+            "value": "・精修NT$1,500/張"
+          }
+        ]
+      },
+      {
+        "id": "section-6",
+        "label": "為什麼選擇 SnowLand",
+        "fields": [
+          {
+            "key": "summer_101",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "為什麼選擇 SnowLand"
+          },
+          {
+            "key": "summer_102",
+            "kind": "text",
+            "label": "項目說明 2",
+            "value": "✓ 旅拍節奏與行程整合"
+          },
+          {
+            "key": "summer_103",
+            "kind": "text",
+            "label": "項目說明 3",
+            "value": "✓ 專業引導・自然互動"
+          },
+          {
+            "key": "summer_104",
+            "kind": "text",
+            "label": "項目說明 4",
+            "value": "✓ 毛片全給不加價"
+          },
+          {
+            "key": "summer_105",
+            "kind": "text",
+            "label": "項目說明 5",
+            "value": "✓ 每小時至少 30 張以上"
+          },
+          {
+            "key": "summer_106",
+            "kind": "text",
+            "label": "項目說明 6",
+            "value": "✓ 7 日內雲端交件"
+          },
+          {
+            "key": "summer_107",
+            "kind": "text",
+            "label": "按鈕文字 7",
+            "value": "預約流程"
+          },
+          {
+            "key": "summer_108",
+            "kind": "text",
+            "label": "按鈕文字 8",
+            "value": "精選Q&A"
+          },
+          {
+            "key": "summer_109",
+            "kind": "text",
+            "label": "按鈕文字 9",
+            "value": "相關內容"
+          }
+        ]
+      },
+      {
+        "id": "photos-customTravelPhotos",
+        "label": "客製旅拍照片",
+        "fields": [
+          {
+            "key": "summer_004",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/legacy/photography-summer/image-02.jpg"
+          },
+          {
+            "key": "summer_005",
+            "kind": "image",
+            "label": "圖片網址 2",
+            "value": "/legacy/photography-summer/image-01.jpg"
+          },
+          {
+            "key": "summer_006",
+            "kind": "image",
+            "label": "圖片網址 3",
+            "value": "/legacy/photography-summer/2022-12-30-Tiffany 全家福-015.jpg"
+          }
+        ]
+      },
+      {
+        "id": "photos-lightWeddingPhotos",
+        "label": "輕婚紗照片",
+        "fields": [
+          {
+            "key": "summer_007",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/legacy/photography-summer/2021-12-15-The Stage 花蓮婚紗-Ron&Susie-130.jpg"
+          },
+          {
+            "key": "summer_008",
+            "kind": "image",
+            "label": "圖片網址 2",
+            "value": "/legacy/photography-summer/image-04.jpg"
+          },
+          {
+            "key": "summer_009",
+            "kind": "image",
+            "label": "圖片網址 3",
+            "value": "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (45 - 531).jpg"
+          },
+          {
+            "key": "summer_010",
+            "kind": "image",
+            "label": "圖片網址 4",
+            "value": "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (74 - 531).jpg"
+          }
+        ]
+      },
+      {
+        "id": "photos-weddingPhotos",
+        "label": "婚紗專案照片",
+        "fields": [
+          {
+            "key": "summer_011",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (230 - 531).jpg"
+          },
+          {
+            "key": "summer_012",
+            "kind": "image",
+            "label": "圖片網址 2",
+            "value": "/legacy/photography-summer/2023-05-28-TheStage Abbie&Gael婚紗拍樣 (264 - 531).jpg"
+          },
+          {
+            "key": "summer_013",
+            "kind": "image",
+            "label": "圖片網址 3",
+            "value": "/legacy/photography-summer/image-06.jpg"
+          },
+          {
+            "key": "summer_014",
+            "kind": "image",
+            "label": "圖片網址 4",
+            "value": "/legacy/photography-summer/2023-10-13-TheStage Martin&Gigi 婚紗拍樣-81.jpg"
+          }
+        ]
+      },
+      {
+        "id": "section-7",
+        "label": "預約流程",
+        "fields": [
+          {
+            "key": "summer_110",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "預約流程"
+          },
+          {
+            "key": "summer_111",
+            "kind": "text",
+            "label": "項目說明 2",
+            "value": "預約旅拍攝影"
+          },
+          {
+            "key": "summer_112",
+            "kind": "text",
+            "label": "項目說明 3",
+            "value": "選擇拍攝方案、地點及時間。"
+          },
+          {
+            "key": "summer_113",
+            "kind": "text",
+            "label": "項目說明 4",
+            "value": "預約確認"
+          },
+          {
+            "key": "summer_114",
+            "kind": "text",
+            "label": "項目說明 5",
+            "value": "收到預約後，我們的客服將會與您聯繫確認。"
+          },
+          {
+            "key": "summer_115",
+            "kind": "text",
+            "label": "項目說明 6",
+            "value": "線上付款"
+          },
+          {
+            "key": "summer_116",
+            "kind": "text",
+            "label": "項目說明 7",
+            "value": "銀行匯款轉帳支付"
+          },
+          {
+            "key": "summer_117",
+            "kind": "text",
+            "label": "項目說明 8",
+            "value": "預約成功"
+          },
+          {
+            "key": "summer_118",
+            "kind": "text",
+            "label": "項目說明 9",
+            "value": "與攝影師討論拍攝需求，並享受屬於您的旅行攝影。"
+          },
+          {
+            "key": "summer_119",
+            "kind": "text",
+            "label": "按鈕文字 10",
+            "value": "查看預約流程細節"
+          }
+        ]
+      },
+      {
+        "id": "section-8",
+        "label": "精選常見問題",
+        "fields": [
+          {
+            "key": "summer_120",
+            "kind": "text",
+            "label": "標題 1",
+            "value": "精選常見問題"
+          },
+          {
+            "key": "summer_121",
+            "kind": "text",
+            "label": "問題 2",
+            "value": "拍攝後多久可以收到照片？"
+          },
+          {
+            "key": "summer_122",
+            "kind": "text",
+            "label": "說明文字 3",
+            "value": "7 天內透過雲端交件。"
+          },
+          {
+            "key": "summer_123",
+            "kind": "text",
+            "label": "問題 4",
+            "value": "服務內容包括影片？"
+          },
+          {
+            "key": "summer_124",
+            "kind": "text",
+            "label": "說明文字 5",
+            "value": "目前僅提供靜態平面攝影，並不包含動態影片，側拍影片僅作為行銷用途，並不包含在旅拍攝影服務內。當您購買旅拍攝影服務即視為同意我們將拍攝的畫面用於 SnowLand 滑雪學校的推廣，傳遞北海道旅遊的樂趣與喜悅！"
+          },
+          {
+            "key": "summer_125",
+            "kind": "text",
+            "label": "問題 6",
+            "value": "拍攝地點在哪裡？"
+          },
+          {
+            "key": "summer_126",
+            "kind": "text",
+            "label": "說明文字 7",
+            "value": "拍攝地點在北海道星野Tomamu度假村內以及富良野周邊景點，會有數個優美景點提供挑選。"
+          },
+          {
+            "key": "summer_127",
+            "kind": "text",
+            "label": "按鈕文字 8",
+            "value": "查看更多常見問題"
+          }
+        ]
+      },
+      {
+        "id": "section-9",
+        "label": "攝影作品 →",
+        "fields": [
+          {
+            "key": "summer_128",
+            "kind": "image",
+            "label": "圖片網址 1",
+            "value": "/photography-gallery/gallery-023.jpg"
+          },
+          {
+            "key": "summer_129",
+            "kind": "text",
+            "label": "圖片說明 2",
+            "value": "攝影作品"
+          },
+          {
+            "key": "summer_130",
+            "kind": "text",
+            "label": "標題 3",
+            "value": "攝影作品 →"
+          },
+          {
+            "key": "summer_131",
+            "kind": "image",
+            "label": "圖片網址 4",
+            "value": "/photography-gallery/gallery-074.jpg"
+          },
+          {
+            "key": "summer_132",
+            "kind": "text",
+            "label": "圖片說明 5",
+            "value": "查看冬季雪地攝影"
+          },
+          {
+            "key": "summer_133",
+            "kind": "text",
+            "label": "標題 6",
+            "value": "查看冬季雪地攝影 →"
+          }
+        ]
+      }
+    ]
+  }
+]

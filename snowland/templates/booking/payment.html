@@ -6,12 +6,10 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>付款 - 滑雪預約系統</title>
     {% load socialaccount %}
-    {% load static %}
-    <link rel="stylesheet" href="{% static 'booking.css' %}">
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    {% include 'booking/payment_styles.html' %}
 </head>
 <body>
-    {% if not user.is_authenticated %}
+    {% if not user.is_authenticated and not payment_access_token %}
     <!-- 登入介面 -->
     <div id="loginContainer" class="login-container">
         <div class="login-card">
@@ -48,10 +46,15 @@
                             <div class="{{ status_type }}-icon"><i data-lucide="check-circle"></i></div>
                             <h2>付款成功！</h2>
                             <p>感謝您的付款，您的預約已完成。</p>
-                            <button class="cart-button {{ status_type }}-btn" style="margin-top: 24px;" onclick="checkOrdererAndShowInterface()">繼續</button>
+                            {% if member_order_url %}
+                            <a href="{{ member_order_url }}" class="cart-button {{ status_type }}-btn" style="margin-top: 24px;">查看會員訂單</a>
+                            {% else %}
+                            <p>此付款連結不會自動綁定會員；如需會員查詢，請聯絡客服協助。</p>
+                            <a href="{{ booking_home_url }}" class="cart-button {{ status_type }}-btn" style="margin-top: 24px;">回預約首頁</a>
+                            {% endif %}
                         </div>
                     {% endwith %}
-                {% elif payment_status == 'zero_amount' or payment_status == 'pending_coach_approval' or payment_status == 'processing' or payment_status == 'all_cancelled' %}
+                {% elif payment_status == 'zero_amount' or payment_status == 'pending_coach_approval' or payment_status == 'processing' or payment_status == 'all_cancelled' or payment_status == 'refunded' %}
                     {% with 'info' as status_type %}
                         <div class="{{ status_type }}-header">
                             <div class="{{ status_type }}-icon"><i data-lucide="info"></i></div>
@@ -60,10 +63,11 @@
                                 {% elif payment_status == 'pending_coach_approval' %}等待教練確認中
                                 {% elif payment_status == 'processing' %}預約處理中
                                 {% elif payment_status == 'all_cancelled' %}所有預約已取消
+                                {% elif payment_status == 'refunded' %}已退款
                                 {% endif %}
                             </h2>
                             <p>{{ message }}</p>
-                            <a href="/booking/" class="cart-button {{status_type}}-btn" style="margin-top: 24px;">回預約首頁</a>
+                            <a href="{{ booking_home_url }}" class="cart-button {{status_type}}-btn" style="margin-top: 24px;">回預約首頁</a>
                         </div>
                     {% endwith %}
                 {% else %}
@@ -80,6 +84,10 @@
                                 {% elif payment_status == 'not_found' %}找不到您的訂單
                                 {% elif payment_status == 'no_active_reservations' %}沒有有效的預約
                                 {% elif payment_status == 'assignment_failed' %}排課失敗
+                                {% elif payment_status == 'scheduling_failed' %}課程待重新安排
+                                {% elif payment_status == 'collecting_class' %}等待團體成班
+                                {% elif payment_status == 'payment_records_review' %}付款紀錄待核對
+                                {% else %}付款狀態待確認
                                 {% endif %}
                             </h2>
                             <p>
@@ -88,7 +96,7 @@
                                 {% elif payment_status == 'not_found' %}很抱歉，我們找不到您的訂單，請重新預約或聯絡客服協助處理。
                                 {% else %}{{ message }}{% endif %}
                             </p>
-                            <a href="/booking/" class="cart-button {{status_type}}-btn" style="margin-top: 24px;">回預約首頁</a>
+                            <a href="{{ booking_home_url }}" class="cart-button {{status_type}}-btn" style="margin-top: 24px;">回預約首頁</a>
                         </div>
                     {% endwith %}
                 {% endif %}
@@ -202,29 +210,6 @@
         </div>
     </div>
     {% endif %}
-    <!-- 成功後的重新綁定訂單介面 -->
-    <div id="rebindOrderSection" class="payment-section" style="display: none;">
-        <div class="success-header">
-            <div class="success-icon">
-                <i data-lucide="check-circle"></i>
-            </div>
-            <h2>您可以選擇將預約歸屬到的帳號</h2>
-        </div>
-        <div class="rebind-form">
-            <h3>歸屬設定</h3>
-            <div class="form-group">
-                <label for="accountSelector">選擇歸屬帳號</label>
-                <div class="custom-select">
-                    <select id="accountSelector">
-                        <option value="">請選擇帳號</option>
-                    </select>
-                </div>
-            </div>
-            <button class="cart-button" onclick="processRebind()" style="display: none;" id="rebindButton">
-                確認歸屬
-            </button>
-        </div>
-    </div>
 
     <!-- 載入動畫 -->
     <div id="loadingAnimation" class="loading-animation" style="display: none;">
@@ -232,40 +217,18 @@
     </div>
 
     <!-- 通知訊息 -->
-    <div id="notification" class="notification"></div>
+    <div id="notification" class="notification" role="status" aria-live="polite"></div>
 
+    {{ payment_data|json_script:"payment-data" }}
     <script>
-        // 從 Django 模板傳入的資料
-        const paymentData = {
-            paymentType: '{{ payment_type }}', // 'newebpay' 或 'bank_transfer'
-            reservation_group_pk: '{{ reservation_group_pk }}',
-            access_token: '{{ payment_access_token|default:""|escapejs }}',
-            amount: {{ total_amount|default:0 }},
-            orderDetails: {{ order_details|default:"[]"|safe }},
-            ordererUser: '{{ orderer_user|default:"" }}'
-        };
-        
-        let currentUser = null;
+        const paymentData = JSON.parse(document.getElementById('payment-data').textContent);
 
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
-            lucide.createIcons();
-            // 檢查是否已登入
-            checkLoginStatus();
+            if (window.lucide) window.lucide.createIcons();
+            if (paymentData.paymentStatus === 'unpaid') displayPaymentInterface();
         });
 
-        // 檢查登入狀態
-        function checkLoginStatus() {
-            {% if user.is_authenticated %}
-                currentUser = {
-                    id: {{ user.id }},
-                    name: '{{ user.get_full_name|default:user.username }}',
-                    email: '{{ user.email }}'
-                }; 
-                // 根據付款類型顯示對應介面
-                displayPaymentInterface();
-            {% endif %}
-        }
 
         // 顯示付款介面
         function displayPaymentInterface() {
@@ -286,7 +249,6 @@
                         'X-CSRFToken': getCSRFToken()
                     },
                     body: JSON.stringify({
-                        user: currentUser,
                         reservation_group_pk: paymentData.reservation_group_pk,
                         access_token: paymentData.access_token,
                         paymentType: paymentType,
@@ -352,78 +314,12 @@
         function confirmBankTransfer() {
             const senderAccount = document.getElementById('senderAccount').value;
             
-            if (!senderAccount || senderAccount.length !== 5) {
+            if (!/^[0-9]{5}$/.test(senderAccount)) {
                 showNotification('請輸入正確的匯款帳戶後五碼', 'error');
                 return;
             }
             
             processPayment('TT', { senderAccount });
-        }
-
-        // 檢查訂單用戶並顯示相應介面
-        function checkOrdererAndShowInterface() {
-            if (paymentData.ordererUser === currentUser.email) {
-                window.location.href = '/booking/';
-                return;
-            }
-            document.getElementById('paymentContainer').style.display = 'none';
-            document.getElementById('rebindOrderSection').style.display = 'block';
-            // 填入 option
-            var selector = document.getElementById('accountSelector');
-            if (selector) {
-                selector.innerHTML = `
-                    <option value="">請選擇帳號</option>
-                    <option value="${currentUser.id}">${currentUser.email}</option>
-                    <option value="original">${paymentData.ordererUser}</option>
-                `;
-            }
-            document.getElementById('rebindButton').style.display = 'block';
-            lucide.createIcons();
-        }
-
-        // 處理訂單歸屬
-        async function processRebind() {
-            const accountId = document.getElementById('accountSelector').value;
-            
-            if (!accountId) {
-                showNotification('請選擇歸屬帳號', 'error');
-                return;
-            }
-            
-            showLoading();
-            
-            try {
-                const response = await fetch('/api/rebind_order/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCSRFToken()
-                    },
-                    body: JSON.stringify({
-                        orderId: paymentData.orderId,
-                        accountId: accountId
-                    })
-                });
-                
-                if (!response.ok) throw new Error('綁定失敗');
-                
-                const result = await response.json();
-                hideLoading();
-                
-                if (result.success) {
-                    showNotification('訂單歸屬成功！', 'success');
-                    setTimeout(() => {
-                        window.location.href = '/booking/';
-                    }, 2000);
-                } else {
-                    showNotification(result.message || '綁定失敗', 'error');
-                }
-                
-            } catch (error) {
-                hideLoading();
-                console.error('綁定失敗:', error);
-                showNotification('綁定失敗，請稍後再試', 'error');
-            }
         }
 
         // 獲取 CSRF Token

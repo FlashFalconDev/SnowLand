@@ -413,9 +413,11 @@ class PricingModeApiTests(TestCase):
         coach_user = get_user_model().objects.create_user('lifecycle-coach@example.test', password='local-test-only')
         coach_user.userprofile.is_coach = True
         coach_user.userprofile.save(update_fields=['is_coach'])
-        coach = Coach.objects.create(client=self.client_record, user=coach_user, name='QA 教練')
+        coach = Coach.objects.create(client=self.client_record, user=coach_user, name='QA 教練', languages=['zh'])
         coach.campuses.add(campus)
         CoachResort.objects.create(coach=coach, resort=self.resort)
+        CoachCourseLevel.objects.create(coach=coach, course_type=self.private_template.course_type,
+                                       ability_levels=['level6'], price_level='Lv1')
         member = get_user_model().objects.create_user('lifecycle-member@example.test', password='local-test-only')
         self.api.force_authenticate(user=member)
         booking_date = date.today() + timedelta(days=1)

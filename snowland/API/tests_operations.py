@@ -284,8 +284,9 @@ class OperationsTests(TestCase):
         request.user = self.user
         request.tenant = self.client_tenant
         request.client_code = self.client_tenant.internal_code
-        with patch('booking.views.requests.get', side_effect=RuntimeError('offline')):
+        with patch('requests.get') as ip_lookup:
             legacy = legacy_payment(request, client_code=self.client_tenant.internal_code)
+        ip_lookup.assert_not_called()
         self.assertEqual(legacy.status_code, 200)
         self.assertIn('QA-ACCOUNT-001', legacy.content.decode())
         self.assertNotIn('123-456-789012', legacy.content.decode())
@@ -367,6 +368,8 @@ class OperationsTests(TestCase):
         self.assertEqual(self.client.post(old_url, old_body, content_type='application/json').status_code, 200)
 
     def test_legacy_payment_api_uses_authenticated_order_owner_not_body_user(self):
+        PaymentAccount.objects.create(client=self.client_tenant, name='QA合法收款設定', is_default=True,
+            bank_name='QA銀行', bank_branch='QA分行', account_number='QA-ONLY', account_holder='QA戶名')
         payment = Payment.objects.create(reservation_group=self.group, user=self.user, status='unpaid')
         stranger = User.objects.create_user('payment-api-stranger', email='stranger@example.test')
         url = '/booking/api/process_payment/'
@@ -1250,6 +1253,18 @@ class OperationsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data['cart']), 1)
         self.assertEqual(response.data['cart'][0]['campusId'], self.campus.id)
+        self.assertEqual(response.data['cart'][0]['serviceType'], 'ski')
+
+        self.category.service_type = 'photo'
+        self.category.name = '自訂影像方案'
+        self.category.save()
+        photo = api.post('/booking/snowland/api/member-center/', {
+            'quick_rebook_group_id': self.group.id,
+        }, format='json')
+        self.assertEqual(photo.data['cart'][0]['serviceType'], 'photo')
+        member = api.get('/booking/snowland/api/member-center/')
+        self.assertEqual(member.status_code, 200)
+        self.assertEqual(member.data['orders'][0]['reservations'][0]['service_type'], 'photo')
 
         stranger = User.objects.create_user('stranger')
         api.force_authenticate(stranger)
@@ -1840,12 +1855,14 @@ class OperationsTests(TestCase):
         self.assertIsNotNone(member.insurance_completed_at)
 
     def test_insurance_detail_returns_signed_record_without_exposing_it_in_list(self):
+        from booking.legal_documents import get_current_waiver
+        version = get_current_waiver(self.reservation.group.client)['version']
         member = MemberDetail.objects.create(
             reservation=self.reservation, user=self.user, age_range='7-12y',
             insurance_data={'full_name': 'QA 學員', 'id_number': 'QA-NOT-REAL',
                             'waiver_signer_role': 'guardian', 'guardian_name': 'QA 家長',
                             'guardian_relationship': '母親'},
-            waiver_signature='QA 家長', waiver_document_version='QA-V1',
+            waiver_signature='QA 家長', waiver_document_version=version,
             waiver_document_snapshot='QA 測試條款', media_consent='decline',
             insurance_completed_at=timezone.now(), waiver_completed_at=timezone.now(),
         )
@@ -1860,7 +1877,8 @@ class OperationsTests(TestCase):
         self.assertEqual(detail.data['insurance_data'], member.insurance_data)
         self.assertEqual(detail.data['waiver_signature'], 'QA 家長')
         self.assertEqual(detail.data['waiver_document_snapshot'], 'QA 測試條款')
-        self.assertEqual(detail.data['waiver_document_version'], 'QA-V1')
+        self.assertEqual(detail.data['waiver_document_version'], version)
+        self.assertFalse(detail.data['waiver_requires_resign'])
         self.assertEqual(detail.data['media_consent'], 'decline')
         self.assertEqual(api.get(url+'?status=missing').data['data']['total'], 0)
         self.assertEqual(api.get(url+'?status=completed').data['data']['total'], 1)

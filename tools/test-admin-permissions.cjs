@@ -16,4 +16,13 @@ assert.equal(allowed({ is_manager: true, permissions: ['orders'] }, 'notificatio
 assert.equal(allowed({ is_manager: true, permissions: ['orders'] }, 'orders'), true)
 assert.equal(allowed({ is_manager: true, permissions: ['notifications'] }, 'notifications'), true)
 assert.equal(allowed({ is_superuser: true }, 'notifications'), true)
+assert.equal(allowed({is_manager:true,role:'assistant',permissions:['contact_inbox'],can_view_all_campuses:true},'contact_inbox'),true)
+assert.equal(allowed({is_manager:true,role:'campus_manager',permissions:['contact_inbox'],can_view_all_campuses:false},'contact_inbox'),false)
+const React=Module.createRequire(path.join(frontend,'package.json'))('react')
+const guard=fs.readFileSync(path.join(frontend,'src/admin/components/RoleGuard.tsx'),'utf8')
+const guardCode=ts.transpileModule(guard.slice(guard.indexOf('function NoAccess(')),{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText
+const NoAccess=new Function('React','Lock','PRIMARY',guardCode+';return NoAccess')(React,()=>null,'#8b5cf6')
+const denied=NoAccess({title:'QA',message:'QA',onAction(){},actionLabel:'返回'})
+const button=denied.props.children.props.children.find(node=>node?.type==='button')
+assert.ok(button.props.className.includes('min-h-11'),'mobile access-denied recovery action needs a44px target')
 console.log('PASS 7 admin permission cases: anonymous/member/coach/limited manager/allowed manager/superuser')

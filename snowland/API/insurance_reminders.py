@@ -1,9 +1,31 @@
 """Document reminders use the existing audited order-email delivery, not a second mailer."""
+from urllib.parse import urlsplit, urlunsplit
+from django.conf import settings
 from django.core.validators import validate_email
+from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError as InvalidEmail
 from rest_framework import serializers
 from .manual_notifications import NotificationConflict
 from .order_email_notifications import mail_mode
+from booking.legal_documents import get_current_waiver, waiver_requires_resign
+
+
+def course_forms_url(member):
+    """The configured public site, never the request Host or a caller's redirect."""
+    value = settings.SNOWLAND_PUBLIC_PAYMENT_URL
+    try:
+        URLValidator(schemes=['http', 'https'])(value)
+        parts = urlsplit(value)
+        parts.port
+        local = parts.scheme == 'http' and parts.hostname in {'127.0.0.1','localhost','::1'}
+        if (not parts.hostname or (parts.scheme != 'https' and not local) or parts.username or parts.password
+                or parts.query or parts.fragment or parts.path.rstrip('/') != f'/{member.reservation.group.client.internal_code}/payment'):
+            return ''
+    except (ValueError, TypeError, InvalidEmail):
+        return ''
+    return urlunsplit((parts.scheme, parts.netloc,
+        f'/{member.reservation.group.client.internal_code}/membership/pre-course-forms',
+        f'reservation={member.reservation_id}', ''))
 
 
 class InsuranceReminderInput(serializers.Serializer):
@@ -22,9 +44,10 @@ def reminder_preview(member, field):
         raise serializers.ValidationError({'field':'請選擇保險資料或聲明書'})
     if member.reservation.status in {'cancelled','deleted'}:
         raise NotificationConflict('課程已取消或刪除，不發送課前資料提醒')
-    if getattr(member, f'{field}_completed_at'):
-        raise NotificationConflict('這份資料已完成，不需要再提醒')
     group = member.reservation.group
+    requires_resign = field == 'waiver' and waiver_requires_resign(member, get_current_waiver(group.client))
+    if getattr(member, f'{field}_completed_at') and not requires_resign:
+        raise NotificationConflict('這份資料已完成，不需要再提醒')
     data = member.insurance_data if isinstance(member.insurance_data, dict) else {}
     contact = group.booking_contact if isinstance(group.booking_contact, dict) else {}
     # Explicitly linked guardian/member takes priority. Never look up an arbitrary
@@ -43,6 +66,11 @@ def reminder_preview(member, field):
     if not recipient:
         raise serializers.ValidationError({'recipient_email':'此學員、家長及訂購人尚無可用信箱，請先確認聯絡資料'})
     label = '保險資料' if field == 'insurance' else '課前聲明書'
-    return {'field':field,'recipient_email':recipient,'subject':f'SnowLand {label}待完成提醒',
-        'message':f'您好，您的課程尚有{label}未完成。請登入 SnowLand 網站的會員專區，開啟「我的訂單」或「同行課程」的課前資料，完成填寫。若由家長協助，請使用已綁定的家長帳號。謝謝。',
+    opening = '您好，SnowLand課前聲明書已更新，請重新閱讀並簽署最新版本。' if requires_resign else f'您好，您的課程尚有{label}未完成。'
+    url = course_forms_url(member)
+    message = opening+'請登入 SnowLand 網站的會員專區，開啟「我的訂單」或「同行課程」的課前資料，完成填寫。若由家長協助，請使用已綁定的家長帳號。謝謝。'
+    if url:
+        message += '\n\n登入後填寫本次課前資料：\n'+url
+    return {'field':field,'recipient_email':recipient,'subject':f'SnowLand {label}' + ('更新提醒' if requires_resign else '待完成提醒'),
+        'message':message, 'action_url':url,
         **mail_mode()}

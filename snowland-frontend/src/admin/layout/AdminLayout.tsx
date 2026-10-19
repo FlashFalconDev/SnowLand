@@ -300,6 +300,7 @@ function SidebarItem({
           />
         </button>
         <div
+          hidden={!isExpanded}
           className={`ml-8 mt-1 space-y-1 overflow-hidden transition-all duration-200 ${
             isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
           }`}
@@ -386,7 +387,7 @@ function ThemeToggleButton() {
 function AdminLayoutContent() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, loading: authLoading, logout } = useAuth()
+  const { user, loading: authLoading, logout, logoutError, loggingOut } = useAuth()
   const basePath = useContext(SiteBasePathContext) // e.g. "/snowland"
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -401,11 +402,25 @@ function AdminLayoutContent() {
       setAdminCheck(null)
       return
     }
-    const refreshAdminScope = () => { void fetchAdminMe().then(setAdminCheck) }
+    let active = true
+    let revision = 0
+    setAdminCheck(null)
+    const refreshAdminScope = () => {
+      const current = ++revision
+      void fetchAdminMe().then(result => { if (active && current === revision) setAdminCheck(result) })
+    }
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshAdminScope() }
     refreshAdminScope()
     window.addEventListener('snowland:campuses-updated', refreshAdminScope)
-    return () => window.removeEventListener('snowland:campuses-updated', refreshAdminScope)
-  }, [user])
+    window.addEventListener('focus', refreshAdminScope)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener('snowland:campuses-updated', refreshAdminScope)
+      window.removeEventListener('focus', refreshAdminScope)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [user, location.pathname])
 
   useEffect(() => {
     const adminUser = adminCheck?.user
@@ -447,6 +462,7 @@ function AdminLayoutContent() {
   // 根據使用者角色組 NAV
   const isManager = !!(adminCheck?.user?.is_superuser || adminCheck?.user?.is_manager)
   const isCoach = !!(adminCheck?.user?.is_coach)
+  const isPersonalCoachPage = location.pathname.startsWith(`${basePath}/console/my/`)
   const displayUser = adminCheck?.user
     ? { ...user, ...adminCheck.user, picture: user?.picture }
     : user
@@ -476,6 +492,7 @@ function AdminLayoutContent() {
     'cms-guides': 'cms',
     'cms-news': 'cms',
     'cms-about': 'cms',
+    'cms-membership': 'cms',
     'cms-coaches': 'cms',
     'cms-resorts': 'cms',
     'cms-offers': 'cms',
@@ -509,6 +526,7 @@ function AdminLayoutContent() {
       icon: BarChart3,
       children: [
         { id: 'orders', label: '訂單管理', path: `${basePath}/console/orders` },
+        { id: 'contact-inbox', label: '聯絡收件', path: `${basePath}/console/contact-inbox`, permission: 'contact_inbox' },
         { id: 'scheduling', label: '排課管理', path: `${basePath}/console/scheduling` },
         { id: 'chat-support', label: 'AI 客服', path: `${basePath}/console/chat-support` },
         { id: 'notifications', label: '自動通知', path: `${basePath}/console/notifications` },
@@ -545,6 +563,7 @@ function AdminLayoutContent() {
         { id: 'cms-guides', label: '滑雪攻略', path: `${basePath}/console/cms/guides` },
         { id: 'cms-news', label: '最新消息', path: `${basePath}/console/cms/news` },
         { id: 'cms-about', label: '關於 Snowland', path: `${basePath}/console/cms/about` },
+        { id: 'cms-membership', label: '會員文件', path: `${basePath}/console/cms/membership` },
         { id: 'cms-coaches', label: '教練資料', path: `${basePath}/console/cms/coaches` },
       ],
     },
@@ -661,6 +680,8 @@ function AdminLayoutContent() {
       <NoManagerPermission
         user={user}
         onLogout={() => logout(`${basePath}/console`)}
+        logoutError={logoutError}
+        loggingOut={loggingOut}
         onRetry={() => { setAdminCheck(null); void fetchAdminMe().then(setAdminCheck) }}
         basePath={basePath}
         errorCode={adminCheck.errorCode}
@@ -769,7 +790,8 @@ function AdminLayoutContent() {
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
+              aria-label="開啟導覽選單"
+              className="min-h-11 min-w-11 p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
             >
               <Menu size={20} />
             </button>
@@ -779,7 +801,7 @@ function AdminLayoutContent() {
           </div>
 
           <div className="flex items-center gap-2">
-            {!!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+            {!isPersonalCoachPage && !!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
               <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title={adminCheck.user.can_view_all_campuses ? '切換日常資料的校區範圍；總部設定頁仍可管理全部校區' : '目前可查看的校區範圍'}>
                 <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">目前範圍</span>
                 <select
@@ -804,15 +826,17 @@ function AdminLayoutContent() {
             <ThemeToggleButton />
             <button
               onClick={() => logout(`${basePath}/console`)}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 rounded-lg"
-              title="登出"
+              disabled={loggingOut}
+              aria-busy={loggingOut}
+              className="min-h-11 min-w-11 p-2 text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 rounded-lg disabled:opacity-50"
+              title={loggingOut ? '登出中…' : '登出'}
             >
               <LogOut size={20} />
             </button>
           </div>
         </header>
 
-        {!!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+        {!isPersonalCoachPage && !!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
           <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 sm:hidden">
             <label className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
               <span className="shrink-0">目前範圍</span>
@@ -829,7 +853,14 @@ function AdminLayoutContent() {
           </div>
         )}
 
+        {isPersonalCoachPage && <div role="note" aria-label="個人教練視角" className="border-b border-violet-100 bg-violet-50 px-4 py-2 text-xs leading-5 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
+          <strong>個人教練視角</strong>：僅顯示您本人的課程、評量、請假與薪資，不套用管理校區篩選。
+        </div>}
         <main className="p-4 md:p-6">
+          {logoutError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+            <p>{logoutError}</p>
+            <button type="button" disabled={loggingOut} onClick={() => logout(`${basePath}/console`)} className="mt-2 min-h-11 rounded-lg border border-current px-4 py-2 disabled:opacity-50">{loggingOut ? '登出中…' : '重試登出'}</button>
+          </div>}
           <Outlet />
         </main>
       </div>
@@ -885,6 +916,8 @@ function NoManagerPermission({
   basePath,
   errorCode,
   errorMsg,
+  logoutError,
+  loggingOut,
 }: {
   user: { name?: string; email?: string; picture?: string }
   onLogout: () => Promise<void> | void
@@ -892,6 +925,8 @@ function NoManagerPermission({
   basePath: string
   errorCode: number | null
   errorMsg: string
+  logoutError?: string
+  loggingOut?: boolean
 }) {
   // 401: session 失效（已登入但 cookie 沒被後端認可）→ 直接登出讓他重新走 OAuth
   // 403: 登入了但不是 manager → 顯示「無權限」訊息
@@ -912,7 +947,7 @@ function NoManagerPermission({
     window.location.hostname === '127.0.0.1'
   )
 
-  if (is401) {
+  if (is401 && !logoutError) {
     // 等 onLogout 跳轉中
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -941,6 +976,7 @@ function NoManagerPermission({
         </div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-2">{title}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">{desc}</p>
+        {logoutError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">{logoutError}</p>}
 
         {/* 當前登入帳號 */}
         <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-6">
@@ -975,23 +1011,25 @@ function NoManagerPermission({
         <div className="flex flex-wrap gap-3">
           {!is403 && <button
             onClick={onRetry}
-            className="flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
             style={{ backgroundColor: PRIMARY }}
           >
             重新驗證
           </button>}
           <button
             onClick={() => window.location.href = basePath || '/'}
-            className="flex-1 min-w-[120px] px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
           >
             回首頁
           </button>
           <button
             onClick={() => onLogout()}
-            className="flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            disabled={loggingOut}
+            aria-busy={loggingOut}
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: PRIMARY }}
           >
-            切換帳號
+            {loggingOut ? '登出中…' : '切換帳號'}
           </button>
         </div>
       </div>

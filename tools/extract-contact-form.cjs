@@ -1,0 +1,10 @@
+// One-time replacement of the unavailable form; surrounding original page is untouched.
+const fs=require('node:fs'),path=require('node:path')
+const file=path.resolve(__dirname,'../snowland-frontend/src/pages/site/ContactPage.jsx')
+let source=fs.readFileSync(file,'utf8')
+if(source.includes('<ContactForm'))throw Error('Already replaced')
+const start=source.indexOf('            <fieldset disabled aria-describedby="contact-form-unavailable"'),end=source.indexOf('            </fieldset>',start)
+if(start<0||end<0)throw Error('Original unavailable form not found')
+source=source.slice(0,start)+'            <ContactForm emailLabel={emailLabel} subjectLabel={subjectLabel} messageLabel={messageLabel} />'+source.slice(end+'            </fieldset>'.length)
+source=source.replace("import React from 'react';","import React from 'react';\nimport ContactForm from '../../components/site/ContactForm';")
+fs.writeFileSync(file,source)
