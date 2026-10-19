@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSiteLocale } from '../contexts/SiteLocale'
 import CheckoutPolicyConsent from '../components/booking/CheckoutPolicyConsent'
 import CurrencySelection, { type PaymentCurrencyQuote } from '../components/booking/CurrencySelection'
 import SettlementSummary, { settlementAmount, type OrderSettlement } from '../components/booking/SettlementSummary'
@@ -732,6 +733,7 @@ const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []
 }
 
 export default function BookingFlowPage() {
+  const { t } = useSiteLocale()
   const navigate = useNavigate()
   const {clientCode='snowland'}=useParams<{clientCode:string}>()
   const { user, loading: authLoading } = useAuth()
@@ -2337,7 +2339,7 @@ export default function BookingFlowPage() {
           <div role={staffLinkStatus === 'invalid' ? 'alert' : 'status'} className="w-full rounded-sm border border-[#dbe3ec] bg-white p-8 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
             <h1 className="text-xl font-semibold">{staffLinkStatus === 'invalid' ? '代客訂課連結已失效' : '正在確認代客訂課連結'}</h1>
             <p className="mt-3 text-sm text-[#64748b]">{staffLinkStatus === 'invalid' ? '請向工作人員索取新連結，或改用一般訂課。' : '請稍候，確認校區後即可開始預約。'}</p>
-            {staffLinkStatus === 'invalid' && <a href={window.location.pathname} className="mt-6 min-h-11 inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">改用一般訂課</a>}
+            {staffLinkStatus === 'invalid' && <a href={window.location.pathname} className="mt-6 min-h-11 inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("改用一般訂課")}</a>}
           </div>
         </main>
         <SiteFooter />
@@ -2367,7 +2369,7 @@ export default function BookingFlowPage() {
                   Booking
                 </p>
                 <h1 className="mt-2 text-2xl md:text-3xl font-semibold text-[#1f2937] font-display">
-                  課程預約
+                  {t("課程預約")}
                 </h1>
               </div>
               {!staffSelectedCart && <button
@@ -2375,7 +2377,7 @@ export default function BookingFlowPage() {
                 className="relative inline-flex items-center justify-center rounded-full bg-white border border-[#e5e9f2] px-4 py-2.5 text-sm font-semibold text-[#1f2937] hover:border-[#2b5f8f] transition-colors"
               >
                 <ShoppingCart size={16} className="mr-2" />
-                購物車
+                {t('購物車')}
                 {cart.length > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand-orange text-xs font-bold text-white">
                     {cart.length}
@@ -2407,7 +2409,7 @@ export default function BookingFlowPage() {
                         currentStep >= (step.id as MainStep) ? 'text-[#1f2937]' : 'text-[#94a3b8]'
                       }`}
                     >
-                      {step.title}
+                      {t(step.title)}
                     </p>
                   </div>
                   {idx < mainSteps.length - 1 && (
@@ -2424,7 +2426,7 @@ export default function BookingFlowPage() {
 
           {/* Step Content */}
           {staffLinkInfo && <div className="mb-4 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>工作人員協助訂課</b> · {staffLinkInfo.created_by} · 訂單固定歸屬「{staffLinkInfo.campus.name}」{staffSelectedCart && ' · 課程已由工作人員選定，請確認資料後送出'}</div>}
-          {editingGroupId && currentStep === 2 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><p>正在修改這組課程。原課程已保留，完成新設定後才會替換。</p><button type="button" onClick={() => { resetDraftSelection(); setCurrentStep(3); }} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 font-semibold">取消修改，保留原課程</button></div>}
+          {editingGroupId && currentStep === 2 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><p>{t("正在修改這組課程。原課程已保留，完成新設定後才會替換。")}</p><button type="button" onClick={() => { resetDraftSelection(); setCurrentStep(3); }} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 font-semibold">{t("取消修改，保留原課程")}</button></div>}
           <AnimatePresence mode="wait">
             <motion.div
               key={`step-${currentStep}-${step2Index}-${submittedReservation ? 'payment' : 'details'}`}
@@ -2500,7 +2502,7 @@ export default function BookingFlowPage() {
                   <p className="mt-2 text-sm">預約編號：{createdReservationIds.join('、')}</p>
                   <div className="mt-5 flex flex-wrap gap-3">
                     <button type="button" onClick={retryPaymentInfo} disabled={isSubmitting} className="rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{isSubmitting ? '載入中…' : '重新取得付款資訊'}</button>
-                    <a href={membershipUrl} className="rounded-full border border-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">查看會員訂單</a>
+                    <a href={membershipUrl} className="rounded-full border border-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">{t("查看會員訂單")}</a>
                   </div>
                 </div>
               ) : currentStep === 3 && staffPrepareMode ? (
@@ -2508,7 +2510,7 @@ export default function BookingFlowPage() {
                   <h2 className="text-xl font-semibold text-[#1f2937]">確認替客人選的課程</h2>
                   <p className="text-sm text-[#64748b]">這裡只準備課程，不會替客人送單或扣款。確認後回後台建立連結，客人登入後再填資料及付款。</p>
                   {cart.map(group => <div key={group.id} className="rounded-sm border border-[#e2e8f0] p-4 text-sm text-[#1f2937]"><b>{group.resortName} · {group.peopleCount} 人</b>{group.courses.map(course => <p key={`${course.courseTemplateId}-${course.date}-${course.timeSlotStart}`} className="mt-1 text-[#64748b]">{course.courseTemplateName} · {course.date} {course.timeSlotStart}–{course.timeSlotEnd}</p>)}<p className="mt-2 font-semibold">小計 {formatCurrency(group.totalPrice)}</p><button type="button" onClick={() => handleEditCartGroup(group.id)} className="mt-2 text-sm font-semibold text-[#2b5f8f]">修改這組課程</button></div>)}
-                  <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">增加新組別課程</button><a href={staffConsoleUrl} className="rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">回後台建立連結</a></div>
+                  <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t("增加新組別課程")}</button><a href={staffConsoleUrl} className="rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">回後台建立連結</a></div>
                 </section>
               ) : currentStep === 3 && (
                 <Step3Confirmation
@@ -2562,7 +2564,7 @@ export default function BookingFlowPage() {
                   className="inline-flex items-center justify-center rounded-full border border-[#d4dbe4] bg-white px-6 py-3 text-sm font-semibold text-[#1f2937] hover:border-[#2b5f8f] transition-colors"
                 >
                   <ChevronLeft size={16} className="mr-1" />
-                  上一步
+                  {t("上一步")}
                 </button>
               ) : (
                 <div />
@@ -2577,7 +2579,7 @@ export default function BookingFlowPage() {
                     disabled={isSubmitting}
                     className="inline-flex items-center justify-center rounded-full border border-[#2b5f8f] bg-white px-6 py-3 text-sm font-semibold text-[#2b5f8f] transition-colors hover:bg-[#f0f6fb] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    稍後匯款
+                    {t("稍後匯款")}
                   </button>
                   <button
                     onClick={handleNext}
@@ -2588,7 +2590,7 @@ export default function BookingFlowPage() {
                         : 'bg-[#e5e9f2] text-[#94a3b8] cursor-not-allowed'
                     }`}
                   >
-                    確認已匯款
+                    {t("確認已匯款")}
                   </button>
                 </div>
               ) : (
@@ -2601,13 +2603,13 @@ export default function BookingFlowPage() {
                       : 'bg-[#e5e9f2] text-[#94a3b8] cursor-not-allowed'
                   }`}
                 >
-                  {currentStep === 3
+                  {t(currentStep === 3
                     ? (!submittedReservation
                       ? '送出訂單'
                       : !submittedReservation.payment_methods.length
                         ? '暫無可用付款方式'
                         : (paymentMethod === 'bank' ? '確認已匯款' : '前往藍新付款'))
-                    : '下一步'}
+                    : '下一步')}
                   {currentStep < 3 && <ChevronRight size={16} className="ml-1" />}
                 </button>
               )}
@@ -2756,7 +2758,7 @@ export default function BookingFlowPage() {
       />
 
       <Toast
-        message={toast.message}
+        message={t(toast.message)}
         type={toast.type}
         isOpen={toast.isOpen}
         onClose={() => setToast({ ...toast, isOpen: false })}
@@ -2780,6 +2782,7 @@ function Step1ServiceSelection({
   selected: ServiceType | ''
   onSelect: (s: ServiceType) => void
 }) {
+  const { t } = useSiteLocale()
   const options = [
     { id: 'ski' as ServiceType, title: '滑雪課程', desc: '專業私人教練小班制教學' },
     { id: 'photo' as ServiceType, title: '攝影服務', desc: '雪地與旅拍專業攝影' },
@@ -2789,10 +2792,10 @@ function Step1ServiceSelection({
     <div>
       <div className="text-center mb-10">
         <h2 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-          請選擇服務類型
+          {t("請選擇服務類型")}
         </h2>
         <p className="mt-3 text-sm text-[#6b7280]">
-          可預約滑雪課程與攝影服務
+          {t("可預約滑雪課程與攝影服務")}
         </p>
       </div>
 
@@ -2808,10 +2811,10 @@ function Step1ServiceSelection({
             }`}
           >
             <h3 className="text-lg font-semibold text-[#1f2937] font-display">
-              {opt.title}
+              {t(opt.title)}
             </h3>
             <p className="mt-3 text-sm text-[#6b7280] leading-relaxed">
-              {opt.desc}
+              {t(opt.desc)}
             </p>
             {selected === opt.id && (
               <div className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-full bg-[#2b5f8f] text-white">
@@ -2833,6 +2836,7 @@ function Step2SkiConfiguration({
   coachLevelFilter, setCoachLevelFilter, coachLevelOptions,
   state, actions,
 }: any) {
+  const { t, locale } = useSiteLocale()
   const selectedResortInfo = resorts.find((r: any) => r.name === state.selectedResort)
   const selectedCourseTypeInfo = courseTypes.find((courseType: any) => courseType.id === state.selectedCourseType)
   const selectedTemplateInfo = templates.find((t: any) => t.id === state.selectedCourseTemplate)
@@ -2882,7 +2886,7 @@ function Step2SkiConfiguration({
     <div>
       <div className="text-center mb-10">
         <h2 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-          {titles[field]}
+          {t(titles[field])}
         </h2>
       </div>
 
@@ -2905,7 +2909,7 @@ function Step2SkiConfiguration({
               }`}
             >
               <p className="font-semibold text-[#1f2937] font-display">{r.display_name}</p>
-              <p className="text-sm text-[#6b7280] mt-1">由 {campus.name} 服務</p>
+              <p className="text-sm text-[#6b7280] mt-1">{t('由 {campus} 服務', { campus: campus.name })}</p>
             </button> : null
           })}
           {resorts.length === 0 && (
@@ -2933,7 +2937,7 @@ function Step2SkiConfiguration({
           ))}
           {courseTypes.length === 0 && (
             <p className="col-span-2 text-center text-sm text-[#6b7280] py-8">
-              此大類在目前雪場尚未設定可預約課程
+              {t("此大類在目前雪場尚未設定可預約課程")}
             </p>
           )}
         </div>
@@ -2945,30 +2949,31 @@ function Step2SkiConfiguration({
             {Array.from({ length: maxPeople }, (_, index) => index + 1).map((n) => (
               <button
                 key={n}
+                aria-pressed={state.peopleCount === n}
                 onClick={() => actions.setPeopleCount(n)}
-                className={`py-4 rounded-sm border-2 text-lg font-semibold transition-colors ${
+                className={`min-h-14 whitespace-nowrap px-1 py-4 rounded-sm border-2 text-sm sm:text-lg font-semibold transition-colors ${
                   state.peopleCount === n
                     ? 'border-[#2b5f8f] bg-[#e9eef3] text-[#2b5f8f]'
                     : 'border-[#e5e9f2] bg-white text-[#1f2937] hover:border-[#2b5f8f]'
                 }`}
               >
-                {n} 人
+                {n === 1 ? t('1 位學員') : t('{count} 位學員', { count: n })}
               </button>
             ))}
           </div>
           {maxPeople > 6 && (
             <p className="mb-5 text-center text-xs text-[#64748b]">
-              野雪嚮導可選最多 8 人
+              {t("野雪嚮導可選最多 8 人")}
             </p>
           )}
           {state.peopleCount >= 5 && state.peopleCount <= 6 && (
             <div className="mb-5 rounded-sm border border-[#f5c16c] bg-[#fff7e6] p-4 text-sm leading-6 text-[#92400e]">
-              <p className="font-semibold">5-6 人團體提醒</p>
+              <p className="font-semibold">{t("5-6 人團體提醒")}</p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>採小班制教學，每位教練最多指導 6 人。</li>
-                <li>為維護教學品質，建議每團人數以 4 人內為佳。</li>
-                <li>若為 5-6 人團體，請事先與客服確認適合安排。</li>
-                <li>每一組請分開選擇並加入購物車。</li>
+                <li>{t("採小班制教學，每位教練最多指導 6 人。")}</li>
+                <li>{t("為維護教學品質，建議每團人數以 4 人內為佳。")}</li>
+                <li>{t("若為 5-6 人團體，請事先與客服確認適合安排。")}</li>
+                <li>{t("每一組請分開選擇並加入購物車。")}</li>
               </ul>
             </div>
           )}
@@ -2982,7 +2987,7 @@ function Step2SkiConfiguration({
                 className="h-5 w-5 rounded text-[#2b5f8f] focus:ring-[#2b5f8f]"
               />
               <span className="text-sm font-medium text-[#1f2937]">
-                有未滿 7 歲學員
+                {t("有未滿 7 歲學員")}
               </span>
             </label>
 
@@ -2996,32 +3001,32 @@ function Step2SkiConfiguration({
                     className="h-5 w-5 rounded text-[#2b5f8f] focus:ring-[#2b5f8f]"
                   />
                   <span className="text-sm text-[#1f2937]">
-                    學員已具備獨立滑行、煞車及基本安全控制能力
+                    {t("學員已具備獨立滑行、煞車及基本安全控制能力")}
                   </span>
                 </label>
 
                 {state.peopleCount > 1 && !state.under7CanSelfSki && (
                   <div className="rounded-sm border border-[#f59e0b] bg-[#fff7e6] p-3 text-sm text-[#92400e]">
-                    未滿 7 歲且尚無法自主滑行時，請安排 1 對 1 教練課程。
+                    {t("未滿 7 歲且尚無法自主滑行時，請安排 1 對 1 教練課程。")}
                   </div>
                 )}
 
                 <div className="rounded-sm border border-[#f5c16c] bg-[#fff7e6] p-4 text-sm leading-6 text-[#1f2937]">
-                  <p className="font-semibold text-[#92400e]">未滿 7 歲學員上課規範</p>
+                  <p className="font-semibold text-[#92400e]">{t("未滿 7 歲學員上課規範")}</p>
                   <p className="mt-2">
-                    為確保學員安全與教學品質，未滿 7 歲學員原則上需安排 1 對 1 教練授課。
+                    {t("為確保學員安全與教學品質，未滿 7 歲學員原則上需安排 1 對 1 教練授課。")}
                   </p>
                   <p className="mt-2">
-                    若小朋友已具備獨立滑行、煞車及基本安全控制能力，經評估後方可與較大兒童或成人共同上課。
+                    {t("若小朋友已具備獨立滑行、煞車及基本安全控制能力，經評估後方可與較大兒童或成人共同上課。")}
                   </p>
                   <p className="mt-2">
-                    如對課程安排有任何疑問，歡迎事先與客服聯繫，我們將協助評估最適合的上課方式。
+                    {t("如對課程安排有任何疑問，歡迎事先與客服聯繫，我們將協助評估最適合的上課方式。")}
                   </p>
                   <p className="mt-2">
-                    提醒您：訂單成立後，如經教學團隊評估未滿 7 歲學員尚不適合與其他學員共同上課，為維護學員安全，SnowLand 保留調整課程安排或取消訂單之權利。
+                    {t("提醒您：訂單成立後，如經教學團隊評估未滿 7 歲學員尚不適合與其他學員共同上課，為維護學員安全，SnowLand 保留調整課程安排或取消訂單之權利。")}
                   </p>
                   <p className="mt-2">
-                    感謝您的理解與配合，讓每位學員都能在安全、愉快的環境中享受滑雪樂趣。
+                    {t("感謝您的理解與配合，讓每位學員都能在安全、愉快的環境中享受滑雪樂趣。")}
                   </p>
                 </div>
               </div>
@@ -3036,7 +3041,7 @@ function Step2SkiConfiguration({
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#d4dbe4] bg-[#f8fafc] px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-[#1f2937]">
-                請分配每位學員的能力等級
+                {t("請分配每位學員的能力等級")}
               </p>
               <p className="mt-1 text-xs text-[#64748b]">
                 目前依{isSnowboardCourse ? '單板' : '雙板'}標準顯示說明
@@ -3045,7 +3050,7 @@ function Step2SkiConfiguration({
             <div className={`text-sm font-semibold ${
               assignedAbilityCount === state.peopleCount ? 'text-emerald-700' : 'text-[#92400e]'
             }`}>
-              已分配 {assignedAbilityCount} / {state.peopleCount} 人
+              {t('已分配 {assigned} / {total} 人', { assigned: assignedAbilityCount, total: state.peopleCount })}
             </div>
           </div>
 
@@ -3101,7 +3106,7 @@ function Step2SkiConfiguration({
         <div className="max-w-4xl mx-auto">
           {languageRequiresCoach(state.selectedLanguage) && (
             <div className="mb-4 rounded-sm border border-[#bfdbfe] bg-[#eff6ff] p-3 text-sm text-[#1e3a8a]">
-              English / 粵語需要指定一位符合語言的教練，指定費會依教練等級計算。
+              {t("English / 粵語需要指定一位符合語言的教練，指定費會依教練等級計算。")}
             </div>
           )}
           {/* Language filter + search */}
@@ -3116,14 +3121,14 @@ function Step2SkiConfiguration({
                     : 'bg-white border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]'
                 }`}
               >
-                {lang.name}
+                {t(lang.name)}
               </button>
             ))}
           </div>
 
           {coachLevelOptions?.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 mb-6">
-              <span className="text-xs font-semibold text-[#64748b]">教練等級</span>
+              <span className="text-xs font-semibold text-[#64748b]">{t("教練等級")}</span>
               <button
                 onClick={() => setCoachLevelFilter('all')}
                 className={`px-4 py-2 rounded-full text-xs font-semibold transition-colors ${
@@ -3132,7 +3137,7 @@ function Step2SkiConfiguration({
                     : 'bg-white border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]'
                 }`}
               >
-                全部
+                {t("全部")}
               </button>
               {coachLevelOptions.map((option: any) => (
                 <button
@@ -3154,7 +3159,7 @@ function Step2SkiConfiguration({
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
             <input
               type="text"
-              placeholder="搜尋教練姓名..."
+              placeholder={t("搜尋教練姓名...")}
               value={coachSearchTerm}
               onChange={(e) => setCoachSearchTerm(e.target.value)}
               className="w-full pl-11 pr-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
@@ -3174,7 +3179,7 @@ function Step2SkiConfiguration({
                 : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
             }`}
           >
-            <p className="font-semibold text-[#1f2937] font-display">不指定教練</p>
+            <p className="font-semibold text-[#1f2937] font-display">{t("不指定教練")}</p>
             <p className="mt-1 text-xs text-[#6b7280]">
               {!canSelectAnyCoach
                 ? '指定 English / 粵語時不可選擇不指定教練'
@@ -3189,8 +3194,8 @@ function Step2SkiConfiguration({
               <div className="flex items-center gap-3">
                 <Loader2 size={18} className="animate-spin text-[#2b5f8f]" />
                 <div>
-                  <p className="text-sm font-semibold text-[#1e3a8a]">正在查詢可接課教練</p>
-                  <p className="mt-1 text-xs text-[#3b638d]">系統正在依照日期、時段、雪場與課程條件比對教練。</p>
+                  <p className="text-sm font-semibold text-[#1e3a8a]">{t("正在查詢可接課教練")}</p>
+                  <p className="mt-1 text-xs text-[#3b638d]">{t("系統正在依照日期、時段、雪場與課程條件比對教練。")}</p>
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -3233,18 +3238,18 @@ function Step2SkiConfiguration({
                       <p className="font-semibold text-[#1f2937] font-lora">{coach.name}</p>
                       {coach.requires_confirmation && (
                         <span className="shrink-0 rounded-full bg-[#fff7ed] px-2 py-0.5 text-[11px] font-semibold text-[#c2410c]">
-                          需確認
+                          {t("需確認")}
                         </span>
                       )}
                     </div>
                     {coach.requires_confirmation && (
                       <p className="mt-2 rounded-sm border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-xs leading-5 text-[#9a3412]">
-                        指定此教練需經客服確認後才成立，可能依實際行程調整。
+                        {t("指定此教練需經客服確認後才成立，可能依實際行程調整。")}
                       </p>
                     )}
                     <div className="mt-3 rounded-sm border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-[#2b5f8f]">
-                        搭配學生等級
+                        {t("搭配學生等級")}
                       </p>
                       <p className="mt-1 text-sm font-semibold leading-6 text-[#1e3a8a]">
                         {matchedStudentAbilityText || selectedStudentAbilityText || '尚未分配能力等級'}
@@ -3252,16 +3257,16 @@ function Step2SkiConfiguration({
                     </div>
                     <div className="mt-3 space-y-2 text-xs leading-5 text-[#64748b]">
                       <p>
-                        <span className="font-semibold text-[#334155]">語言：</span>
+                        <span className="font-semibold text-[#334155]">{t("語言：")}</span>
                         {getCoachLanguageCodes(coach).map(getLanguageLabel).join(' / ') || '未設定'}
                       </p>
                       <p>
-                        <span className="font-semibold text-[#334155]">教練等級：</span>
+                        <span className="font-semibold text-[#334155]">{t("教練等級：")}</span>
                         {priceLevelLabel}
                       </p>
                       {certificationText && (
                         <p>
-                          <span className="font-semibold text-[#334155]">證照等級：</span>
+                          <span className="font-semibold text-[#334155]">{t("證照等級：")}</span>
                           {certificationText}
                         </p>
                       )}
@@ -3288,51 +3293,51 @@ function Step2SkiConfiguration({
               <div className="flex items-center gap-3">
                 <Loader2 size={18} className="animate-spin text-[#2b5f8f]" />
                 <div>
-                  <p className="text-sm font-semibold text-[#1e3a8a]">正在載入開放課程</p>
-                  <p className="mt-1 text-xs text-[#3b638d]">系統正在確認這個雪場目前可預約的課程。</p>
+                  <p className="text-sm font-semibold text-[#1e3a8a]">{t("正在載入開放課程")}</p>
+                  <p className="mt-1 text-xs text-[#3b638d]">{t("系統正在確認這個雪場目前可預約的課程。")}</p>
                 </div>
               </div>
             </div>
           ) : (
             <>
-              {templates.map((t: any) => {
-                const minimumGroupSize = t.shared_class_enabled ? 1 : Number(t.minimum_group_size || 1)
+{templates.map((template: any) => {
+                const minimumGroupSize = template.shared_class_enabled ? 1 : Number(template.minimum_group_size || 1)
                 const studentLevelRule = getTemplateStudentLevelRule(
-                  t, state.abilityLevelCounts || {}, state.selectedAbilityLevel,
+                  template, state.abilityLevelCounts || {}, state.selectedAbilityLevel,
                 )
                 const unavailable = state.peopleCount < minimumGroupSize || studentLevelRule.insufficient
                 return (
                 <button
-                  key={t.id}
-                  onClick={() => actions.setSelectedCourseTemplate(t.id)}
+                  key={template.id}
+                  onClick={() => actions.setSelectedCourseTemplate(template.id)}
                   disabled={unavailable}
                   className={`p-5 rounded-sm border-2 text-left transition-colors ${
-                    state.selectedCourseTemplate === t.id
+                    state.selectedCourseTemplate === template.id
                       ? 'border-[#2b5f8f] bg-[#e9eef3]'
                       : unavailable
                       ? 'cursor-not-allowed border-[#e5e9f2] bg-[#f8fafc] opacity-60'
                       : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
                   }`}
                 >
-                  <p className="font-semibold text-[#1f2937] font-display">{t.name}</p>
+                  <p className="font-semibold text-[#1f2937] font-display">{template.name}</p>
                   <p className="mt-2 text-xs text-[#64748b]">
-                    {[t.course_type_name, `${t.duration_hours} 小時`].filter(Boolean).join(' · ')}
+                    {[template.course_type_name, t('{hours} 小時', { hours: template.duration_hours })].filter(Boolean).join(' · ')}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium">
                     <span className="rounded-sm bg-[#e9eef3] px-2 py-1 text-[#2b5f8f]">
-                      {t.billing_mode === 'per_person' ? '每人計價' : '包班計價'}
+                      {t(template.billing_mode === 'per_person' ? '每人計價' : '包班計價')}
                     </span>
-                    {t.shared_class_enabled ? (
+                    {template.shared_class_enabled ? (
                       <span className="rounded-sm bg-sky-50 px-2 py-1 text-sky-800">
-                        可單人報名・滿 {t.shared_class_minimum_students || 3} 人成班後付款・教練由學校安排
+                        {t('可單人報名，滿 {count} 人成班後付款，教練由學校安排', { count: template.shared_class_minimum_students || 3 })}
                       </span>
-                    ) : Number(t.minimum_group_size || 1) > 1 && (
+                    ) : Number(template.minimum_group_size || 1) > 1 && (
                       <span className={`rounded-sm px-2 py-1 ${
-                        state.peopleCount < Number(t.minimum_group_size || 1)
+                        state.peopleCount < Number(template.minimum_group_size || 1)
                           ? 'bg-red-50 text-red-700'
                           : 'bg-emerald-50 text-emerald-700'
                       }`}>
-                        單筆至少 {t.minimum_group_size} 人
+                        {t('單筆至少 {count} 人', { count: template.minimum_group_size })}
                       </span>
                     )}
                     {studentLevelRule.requiredRank > 0 && (
@@ -3341,7 +3346,7 @@ function Step2SkiConfiguration({
                           ? 'bg-red-50 text-red-700'
                           : 'bg-emerald-50 text-emerald-700'
                       }`}>
-                        學員需等級 {studentLevelRule.requiredRank} 以上
+                        {t('學員需等級 {level} 以上', { level: studentLevelRule.requiredRank })}
                       </span>
                     )}
                   </div>
@@ -3350,7 +3355,7 @@ function Step2SkiConfiguration({
               })}
               {templates.length === 0 && (
                 <p className="col-span-2 text-center text-sm text-[#6b7280] py-8">
-                  目前沒有開放預約的課程，請返回選擇其他雪場或課程類型。
+                  {t("目前沒有開放預約的課程，請返回選擇其他雪場或課程類型。")}
                 </p>
               )}
             </>
@@ -3391,7 +3396,7 @@ function Step2SkiConfiguration({
                 <ChevronLeft size={18} />
               </button>
               <p className="font-semibold text-[#1f2937] font-display">
-                {formatCalendarMonth(state.calendarMonth)}
+                {new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long' }).format(state.calendarMonth)}
               </p>
               <button
                 type="button"
@@ -3404,7 +3409,7 @@ function Step2SkiConfiguration({
             </div>
 
             <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-[#64748b]">
-              {['日', '一', '二', '三', '四', '五', '六'].map((day) => (
+              {(locale === 'en' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : locale === 'ja' ? ['日', '月', '火', '水', '木', '金', '土'] : ['日', '一', '二', '三', '四', '五', '六']).map((day) => (
                 <div key={day} className="py-2">{day}</div>
               ))}
             </div>
@@ -3453,7 +3458,7 @@ function Step2SkiConfiguration({
 
           {state.selectedCourseDates?.length > 0 && (
             <div className="mt-4 rounded-sm border border-[#e2e8f0] bg-[#f8fafc] p-3">
-              <p className="text-xs font-semibold text-[#1f2937]">將加入的日期</p>
+              <p className="text-xs font-semibold text-[#1f2937]">{t("將加入的日期")}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {state.selectedCourseDates.map((dateKey: string) => {
                   const blocked = state.unavailableSelectedDates?.includes(dateKey)
@@ -3473,7 +3478,7 @@ function Step2SkiConfiguration({
               </div>
               {state.unavailableSelectedDates?.length > 0 && (
                 <p className="mt-3 text-xs text-red-600">
-                  有日期不在可預約範圍內，請取消該日期。
+                  {t("有日期不在可預約範圍內，請取消該日期。")}
                 </p>
               )}
             </div>
@@ -3532,7 +3537,7 @@ function Step2SkiConfiguration({
               </p>}
               {s.is_full && (
                 <span className="absolute top-1 right-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
-                  已滿
+                  {t("已滿")}
                 </span>
               )}
             </button>
@@ -3567,19 +3572,19 @@ function Step2SkiConfiguration({
                   : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
               }`}
             >
-              <p className="font-semibold text-[#1f2937] font-display">{opt.title}</p>
-              <p className="mt-2 text-xs text-[#64748b]">{opt.desc}</p>
+              <p className="font-semibold text-[#1f2937] font-display">{t(opt.title)}</p>
+              <p className="mt-2 text-xs text-[#64748b]">{t(opt.desc)}</p>
             </button>
           ))}
           </div>
           {state.equipmentOption === 'extra_time_help' && (
             <div className="rounded-sm border border-[#d4dbe4] bg-white p-4">
-              <p className="mb-1 text-sm font-semibold text-[#1f2937]">加購半小時協助時段</p>
+              <p className="mb-1 text-sm font-semibold text-[#1f2937]">{t("加購半小時協助時段")}</p>
               <p className="mb-3 text-xs leading-5 text-[#64748b]">
-                多天課程只會把加購協助費加在第一天，其他日期仍保留原課程時間。
+                {t("多天課程只會把加購協助費加在第一天，其他日期仍保留原課程時間。")}
               </p>
               {equipmentTimeSlots.length === 0 ? (
-                <p className="text-sm text-red-600">後台尚未設定裝備協助時段。</p>
+                <p className="text-sm text-red-600">{t("後台尚未設定裝備協助時段。")}</p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {equipmentTimeSlots.map((slot) => {
@@ -3625,6 +3630,7 @@ function Step3Confirmation({
   staffSelectedCart,
   onRemoveGroup, onRemoveCourse, onEditGroup, onAddGroup, onAddCourseToGroup,
 }: any) {
+  const { t, locale } = useSiteLocale()
   const cartSubtotal = submittedReservation?.total_amount ?? discountPreview?.subtotal ?? cart.reduce((sum: number, g: any) => sum + (g.totalPrice || 0), 0)
   const pricePending = !submittedReservation && !discountPreview && cart.some((group: CartItem) => group.totalPrice == null)
   const totalCourses = cart.reduce((sum: number, g: any) => sum + (g.courses?.length || 0), 0)
@@ -3649,7 +3655,7 @@ function Step3Confirmation({
       <div>
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-xl font-semibold text-[#1f2937] font-display">
-            訂單明細
+            {t("訂單明細")}
           </h2>
           {canEditCart && !isSharedClassCart && (
             <button
@@ -3658,13 +3664,13 @@ function Step3Confirmation({
               className="inline-flex items-center justify-center gap-2 rounded-full border border-[#2b5f8f] bg-white px-4 py-2 text-sm font-semibold text-[#2b5f8f] hover:bg-[#f0f6fb]"
             >
               <Plus size={16} />
-              增加新組別課程
+              {t("增加新組別課程")}
             </button>
           )}
         </div>
 
         {cart.length === 0 ? (
-          <p className="text-sm text-[#6b7280] py-8 text-center">購物車是空的</p>
+          <p className="text-sm text-[#6b7280] py-8 text-center">{t("購物車是空的")}</p>
         ) : (
           <div className="space-y-4 mb-8">
             <div className={`rounded-sm border px-4 py-3 ${isSharedClassCart ? 'border-[#b6d6ec] bg-[#eaf4fb] text-sm font-semibold text-[#1e4e73]' : 'border-[#dbe3ec] bg-[#f8fafc] text-xs text-[#64748b]'}`}>
@@ -3717,7 +3723,7 @@ function Step3Confirmation({
                           className="inline-flex items-center gap-1 rounded-full border border-[#2b5f8f] bg-[#2b5f8f] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#8ec8f0]"
                         >
                           <Plus size={13} />
-                          新增同組其他課程
+                          {t("新增同組其他課程")}
                         </button>
                       )}
                       <button
@@ -3726,7 +3732,7 @@ function Step3Confirmation({
                         className="inline-flex items-center gap-1 rounded-full border border-[#d4dbe4] px-3 py-1.5 text-xs font-semibold text-[#2b5f8f] hover:border-[#2b5f8f]"
                       >
                         <Pencil size={13} />
-                        修改
+                        {t("修改")}
                       </button>
                       <button
                         type="button"
@@ -3734,7 +3740,7 @@ function Step3Confirmation({
                         className="inline-flex items-center gap-1 rounded-full border border-[#f1c7c7] px-3 py-1.5 text-xs font-semibold text-[#b42318] hover:bg-[#fff1f1]"
                       >
                         <Trash2 size={13} />
-                        刪除
+                        {t("刪除")}
                       </button>
                     </div>
                   )}
@@ -3750,7 +3756,7 @@ function Step3Confirmation({
                     <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.peopleCount || 1} {isPhotoCartGroup(group) ? '組' : '人'}</p>
                   </div>
                   {!isPhotoCartGroup(group) && <><div className="rounded-sm bg-[#f8fafc] px-3 py-2">
-                    <p className="text-[11px] font-semibold text-[#94a3b8]">程度</p>
+                    <p className="text-[11px] font-semibold text-[#94a3b8]">{t("程度")}</p>
                     <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.abilityLevelName || getCoachAbilityLabel(group.abilityLevel) || '未指定'}</p>
                   </div>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
@@ -3776,8 +3782,8 @@ function Step3Confirmation({
                     </p>
                   </div></>}
                   {isPhotoCartGroup(group) && <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
-                    <p className="text-[11px] font-semibold text-[#94a3b8]">攝影師</p>
-                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">由學校安排</p>
+                    <p className="text-[11px] font-semibold text-[#94a3b8]">{t("攝影師")}</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{t("由學校安排")}</p>
                   </div>}
                 </div>
 
@@ -3847,9 +3853,9 @@ function Step3Confirmation({
 
                   {(group.coachFee || group.languageFee || group.equipmentRentalFee) ? (
                     <div className="space-y-1 border-t border-[#edf1f6] pt-3">
-                      {group.coachFee > 0 && <div className="flex justify-between text-xs text-[#64748b]"><span>教練指定費</span><span>{formatCurrency(group.coachFee)}</span></div>}
-                      {group.languageFee > 0 && <div className="flex justify-between text-xs text-[#64748b]"><span>語言加價</span><span>{formatCurrency(group.languageFee)}</span></div>}
-                      {group.equipmentRentalFee > 0 && <div className="flex justify-between text-xs text-[#64748b]"><span>加購協助費</span><span>{formatCurrency(group.equipmentRentalFee)}</span></div>}
+                      {group.coachFee > 0 && <div className="flex justify-between text-xs text-[#64748b]"><span>{t("教練指定費")}</span><span>{formatCurrency(group.coachFee)}</span></div>}
+                      {group.languageFee > 0 && <div className="flex justify-between text-xs text-[#64748b]"><span>{t("語言加價")}</span><span>{formatCurrency(group.languageFee)}</span></div>}
+                      {group.equipmentRentalFee > 0 && <div className="flex justify-between text-xs text-[#64748b]"><span>{t("加購協助費")}</span><span>{formatCurrency(group.equipmentRentalFee)}</span></div>}
                     </div>
                   ) : null}
 
@@ -3865,7 +3871,7 @@ function Step3Confirmation({
         )}
 
         <h3 className="text-lg font-semibold text-[#1f2937] font-display mb-4">
-          聯絡資訊
+          {t("聯絡資訊")}
         </h3>
         <div className="space-y-3">
           <div>
@@ -3879,7 +3885,7 @@ function Step3Confirmation({
               required
               readOnly={isPaid}
               onChange={(e) => setContactInfo({ ...contactInfo, name: e.target.value })}
-              placeholder="請填寫實際聯絡人姓名"
+              placeholder={t("請填寫實際聯絡人姓名")}
               className="w-full px-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
             />
           </div>
@@ -3925,7 +3931,7 @@ function Step3Confirmation({
               }}
               className="w-full px-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
             >
-              <option value="">請選擇通訊軟體</option>
+              <option value="">{t("請選擇通訊軟體")}</option>
               {messengerOptions.map((option: SelectOption) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -3942,7 +3948,7 @@ function Step3Confirmation({
               onChange={(e) => setContactInfo({ ...contactInfo, messengerId: e.target.value })}
               disabled={!contactInfo.messengerType}
               className="w-full px-4 py-3 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
-              placeholder={contactInfo.messengerType ? `請輸入 ${contactInfo.messengerType} ID` : '請先選擇通訊軟體'}
+              placeholder={contactInfo.messengerType ? t('請輸入 {app} ID', { app: contactInfo.messengerType }) : t('請先選擇通訊軟體')}
             />
           </div>
         </div>
@@ -3951,7 +3957,7 @@ function Step3Confirmation({
       {/* Right - 金額與政策 */}
       <div className="bg-[#f7f8fa] p-6 rounded-sm">
         <h3 className="text-lg font-semibold text-[#1f2937] font-display mb-6">
-          金額明細
+          {t("金額明細")}
         </h3>
 
         <div className="space-y-3 mb-6">
@@ -3962,7 +3968,7 @@ function Step3Confirmation({
 
           {!isPaid && <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              折扣碼
+              {t("折扣碼")}
             </label>
             <input
               type="text"
@@ -3972,7 +3978,7 @@ function Step3Confirmation({
               className="w-full px-3 py-2 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
             />
             {!isPaid && isDiscountPreviewLoading && (
-              <p className="mt-1 text-xs text-[#64748b]">折扣試算中...</p>
+              <p className="mt-1 text-xs text-[#64748b]">{t("折扣試算中...")}</p>
             )}
             {!isPaid && discountPreview?.discount_code_error && discountCode.trim() && (
               <p className="mt-1 text-xs text-red-600">{discountPreview.discount_code_error}</p>
@@ -3981,7 +3987,7 @@ function Step3Confirmation({
 
           <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              從哪裡得知 / 活動來源 <span className="text-red-500">*</span>
+              {t('從哪裡得知 / 活動來源')} <span className="text-red-500">*</span>
             </label>
             <select
               value={referrer}
@@ -3992,9 +3998,9 @@ function Step3Confirmation({
               }}
               className="w-full px-3 py-2 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
             >
-              <option value="">請選擇來源</option>
+              <option value="">{t("請選擇來源")}</option>
               {referralSourceOptions.map((option: SelectOption) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
+                <option key={option.value} value={option.value}>{t(option.label)}</option>
               ))}
             </select>
             {referrer && (
@@ -4017,7 +4023,7 @@ function Step3Confirmation({
           ))}
           {!isPaid && discountTotal > 0 && (
             <div className="flex justify-between text-sm font-semibold text-emerald-700">
-              <span>折扣合計</span>
+              <span>{t("折扣合計")}</span>
               <span>-NT$ {discountTotal.toLocaleString()}</span>
             </div>
           )}
@@ -4026,7 +4032,7 @@ function Step3Confirmation({
         {!isPaid && <CurrencySelection clientCode={clientCode} value={currencyQuote} onChange={setCurrencyQuote} onReadyChange={onCurrencyReady} reloadKey={currencyReloadKey} />}
         <div className="border-t border-[#d4dbe4] pt-4 mb-6">
           <div className="flex justify-between items-baseline">
-            <span className="text-sm font-semibold text-[#1f2937]">{currencyIsJpy ? (isPaid?'日幣應付合計':'預估日幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額'}</span>
+            <span className="text-sm font-semibold text-[#1f2937]">{t(currencyIsJpy ? (isPaid?'日幣應付合計':'預估日幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額')}</span>
             <span className="text-2xl font-bold text-[#2b5f8f]">
               {pricePending ? '價格待確認' : currencyIsJpy
                 ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`JPY ¥ ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:'日幣金額待確認'
@@ -4037,17 +4043,17 @@ function Step3Confirmation({
         </div>
 
         {pricePending && <p role="status" className="mb-4 text-sm text-amber-800">{isDiscountPreviewLoading ? '正在確認最新價格…' : '尚未取得最新價格，請按課程「修改」重新確認日期、時段與價格後再送出。'}</p>}
-        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">日幣金額尚未確認，暫不能送出訂單。<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?'正在確認價格…':'重新確認價格'}</button></p>}
+        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">{t("日幣金額尚未確認，暫不能送出訂單。")}<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?'正在確認價格…':'重新確認價格'}</button></p>}
 
-        <h4 className="text-sm font-semibold text-[#1f2937] mb-3">付款方式</h4>
+        <h4 className="text-sm font-semibold text-[#1f2937] mb-3">{t("付款方式")}</h4>
         {isSharedClassCart && !isPaid && (
-          <p className="mb-3 text-xs leading-5 text-[#64748b]">目前只需報名，不必先付款；滿成班人數後才會提供付款資訊。若排課尚待確認，會先暫停付款。</p>
+          <p className="mb-3 text-xs leading-5 text-[#64748b]">{t("目前只需報名，不必先付款；滿成班人數後才會提供付款資訊。若排課尚待確認，會先暫停付款。")}</p>
         )}
         {!isPaid && !isSharedClassCart && (
-          <p className="mb-6 text-xs leading-5 text-[#64748b]">送出訂單後，系統會依訂單所在地與已開通的付款服務，顯示可用付款方式及收款帳戶。</p>
+          <p className="mb-6 text-xs leading-5 text-[#64748b]">{t("送出訂單後，系統會依訂單所在地與已開通的付款服務，顯示可用付款方式及收款帳戶。")}</p>
         )}
         {isPaid && submittedReservation.payment_methods.length === 0 && (
-          <p className="mb-6 rounded-sm border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">此訂單目前沒有可用的付款方式，請聯絡客服確認收款資訊；請勿自行匯款。</p>
+          <p className="mb-6 rounded-sm border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{t("此訂單目前沒有可用的付款方式，請聯絡客服確認收款資訊；請勿自行匯款。")}</p>
         )}
         {isPaid && submittedReservation.payment_methods.length > 0 && <div className="space-y-2 mb-6">
           {[
@@ -4076,41 +4082,41 @@ function Step3Confirmation({
         {/* 階段 3b：已送出訂單 → 顯示付款資訊 */}
         {isPaid && paymentMethod === 'bank' && submittedReservation.payment_methods.includes('bank_transfer') && (
           <div className="mt-2 p-4 bg-white border border-[#2b5f8f]/30 rounded-sm">
-            <h4 className="text-sm font-semibold text-[#2b5f8f] mb-3">匯款資訊</h4>
+            <h4 className="text-sm font-semibold text-[#2b5f8f] mb-3">{t("匯款資訊")}</h4>
             <div className="mb-4 rounded-sm border border-[#f5c16c] bg-[#fff7e6] p-3 text-xs leading-5 text-[#92400e]">
               {submittedReservation.payment_expires_at
                 ? `請於 ${new Date(submittedReservation.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })} 前完成匯款。`
                 : '請於訂單付款期限內完成匯款。'}若尚未匯款，可按「稍後匯款」；若已匯款，請填寫匯款帳戶後五碼並按「確認已匯款」。
             </div>
-            {submittedReservation.payment_infos.length > 1 && <p className="mb-3 text-sm font-semibold text-[#92400e]">每筆預約請分別匯至下方對應帳戶，不要將總金額匯入單一帳戶。</p>}
+            {submittedReservation.payment_infos.length > 1 && <p className="mb-3 text-sm font-semibold text-[#92400e]">{t("每筆預約請分別匯至下方對應帳戶，不要將總金額匯入單一帳戶。")}</p>}
             <div className="space-y-4 text-sm">
               {submittedReservation.payment_infos.map((info: SubmittedReservation['payment_infos'][number]) => (
                 <div key={info.reservation_group_id} className="space-y-2 border-t border-[#e5e9f2] pt-3">
                   {submittedReservation.payment_infos.length > 1 && <p className="font-semibold text-[#1f2937]">預約 #{info.reservation_group_id}</p>}
                   <SettlementSummary settlement={info.settlement} paymentInstructions />
-                  <div className="flex justify-between"><span className="text-[#6b7280]">銀行</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_name || '—'}</span></div>
-                  <div className="flex justify-between"><span className="text-[#6b7280]">分行</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_branch || '—'}</span></div>
-                  <div className="flex justify-between"><span className="text-[#6b7280]">帳號</span><span className="text-[#1f2937] font-mono font-semibold">{info.bank_info.bank_account_number || '—'}</span></div>
-                  <div className="flex justify-between"><span className="text-[#6b7280]">戶名</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_account_holder || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#6b7280]">{t("銀行")}</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_name || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#6b7280]">{t("分行")}</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_branch || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#6b7280]">{t("帳號")}</span><span className="text-[#1f2937] font-mono font-semibold">{info.bank_info.bank_account_number || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-[#6b7280]">{t("戶名")}</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_account_holder || '—'}</span></div>
                   {info.bank_info.overseas_details && <p className="whitespace-pre-wrap break-words text-[#1f2937]">{info.bank_info.overseas_details}</p>}
-                  <div className="flex flex-wrap justify-between gap-2"><span className="text-[#1f2937] font-semibold">匯款金額</span><span className="text-[#2b5f8f] text-base font-bold">{settlementAmount(info.settlement,info.total_amount)}</span></div>
+                  <div className="flex flex-wrap justify-between gap-2"><span className="text-[#1f2937] font-semibold">{t("匯款金額")}</span><span className="text-[#2b5f8f] text-base font-bold">{settlementAmount(info.settlement,info.total_amount,locale)}</span></div>
                 </div>
               ))}
             </div>
 
             <div className="mt-4">
               <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-                匯款帳戶後五碼（已匯款再填）
+                {t("匯款帳戶後五碼（已匯款再填）")}
               </label>
               <input
                 type="text"
                 value={senderAccount}
                 onChange={(e) => setSenderAccount(e.target.value.replace(/\D/g, '').slice(0, 5))}
                 maxLength={5}
-                placeholder="請輸入您匯款帳戶的後五碼"
+                placeholder={t("請輸入您匯款帳戶的後五碼")}
                 className="w-full px-3 py-2 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
               />
-              <p className="mt-1 text-xs text-[#6b7280]">只有按「確認已匯款」時需要填寫，用於客服對帳。</p>
+              <p className="mt-1 text-xs text-[#6b7280]">{t("只有按「確認已匯款」時需要填寫，用於客服對帳。")}</p>
             </div>
           </div>
         )}
@@ -4132,6 +4138,7 @@ function Step3Confirmation({
 
 // ============== Step 4: 完成 ==============
 function Step4Complete({ notice = '', flow = 'payment' }: { notice?: string; flow?: CompletionFlow }) {
+  const { t } = useSiteLocale()
   const navigate = useNavigate()
   const ordersUrl = useSiteLink('/membership/orders')
   return (
@@ -4140,52 +4147,52 @@ function Step4Complete({ notice = '', flow = 'payment' }: { notice?: string; flo
         <Check size={40} />
       </div>
       <h2 className="text-2xl md:text-3xl font-semibold text-[#1f2937] font-display mb-4">
-        {flow === 'collecting_class' ? '報名已保留，等待成班' : flow === 'staff' ? '訂單已保留，待課服安排' : flow === 'coach' ? '訂單已建立，待教練確認' : '預約送出成功'}
+        {t(flow === 'collecting_class' ? '報名已保留，等待成班' : flow === 'staff' ? '訂單已保留，待課服安排' : flow === 'coach' ? '訂單已建立，待教練確認' : '預約送出成功')}
       </h2>
       <div className="max-w-md mx-auto mb-8 space-y-3 text-left text-sm text-[#6b7280] leading-relaxed">
         <p className="text-center">
-          {notice || '感謝您的預約，系統已收到您的訂單。'}
+          {t(notice || '感謝您的預約，系統已收到您的訂單。')}
         </p>
         <div className="rounded-sm border border-[#e2e8f0] bg-[#f8fafc] p-4">
-          <p className="font-semibold text-[#1f2937] mb-2">接下來請留意：</p>
+          <p className="font-semibold text-[#1f2937] mb-2">{t("接下來請留意：")}</p>
           <ul className="space-y-1.5 list-disc pl-5">
             {flow === 'collecting_class' ? (
               <>
-                <li>目前正在湊班，尚未達到成班人數。</li>
-                <li>成班且課程安排確認後，會通知您付款；現在不需要匯款。</li>
-                <li>可在會員訂單查看最新報名狀態。</li>
+                <li>{t("目前正在湊班，尚未達到成班人數。")}</li>
+                <li>{t("成班且課程安排確認後，會通知您付款；現在不需要匯款。")}</li>
+                <li>{t("可在會員訂單查看最新報名狀態。")}</li>
               </>
             ) : flow === 'staff' ? (
               <>
-                <li>課服會協助確認可用教練或與您討論其他日期。</li>
-                <li>課程安排確認前不需要付款，請留意課服通知。</li>
+                <li>{t("課服會協助確認可用教練或與您討論其他日期。")}</li>
+                <li>{t("課程安排確認前不需要付款，請留意課服通知。")}</li>
               </>
             ) : flow === 'coach' ? (
               <>
-                <li>此訂單目前需等待教練確認接課。</li>
-                <li>確認完成前不需要付款，客服會再通知後續付款與安排。</li>
+                <li>{t("此訂單目前需等待教練確認接課。")}</li>
+                <li>{t("確認完成前不需要付款，客服會再通知後續付款與安排。")}</li>
               </>
             ) : flow === 'bank_submitted' ? (
               <>
-                <li>客服核對匯款後，會更新訂單的付款狀態。</li>
-                <li>請在會員訂單查看最新狀態；無須再次填寫匯款後五碼。</li>
+                <li>{t("客服核對匯款後，會更新訂單的付款狀態。")}</li>
+                <li>{t("請在會員訂單查看最新狀態；無須再次填寫匯款後五碼。")}</li>
               </>
             ) : flow === 'bank_later' ? (
               <>
-                <li>匯款後，請提供匯款帳戶後五碼給客服對帳。</li>
-                <li>客服確認付款後，會再與您確認課程安排。</li>
+                <li>{t("匯款後，請提供匯款帳戶後五碼給客服對帳。")}</li>
+                <li>{t("客服確認付款後，會再與您確認課程安排。")}</li>
               </>
             ) : (
               <>
-                <li>請確認 Email 是否收到預約確認信。</li>
-                <li>請在付款視窗完成信用卡付款，並於會員訂單確認付款狀態。</li>
-                <li>客服確認訂單後，會再與您確認後續安排。</li>
+                <li>{t("請確認 Email 是否收到預約確認信。")}</li>
+                <li>{t("請在付款視窗完成信用卡付款，並於會員訂單確認付款狀態。")}</li>
+                <li>{t("客服確認訂單後，會再與您確認後續安排。")}</li>
               </>
             )}
           </ul>
         </div>
         <p className="text-center">
-          如有任何問題，歡迎加入 SnowLand 官方客服聯繫。
+          {t("如有任何問題，歡迎加入 SnowLand 官方客服聯繫。")}
         </p>
       </div>
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -4193,7 +4200,7 @@ function Step4Complete({ notice = '', flow = 'payment' }: { notice?: string; flo
           href={ordersUrl}
           className="inline-flex items-center justify-center rounded-full border border-[#2b5f8f] bg-white px-8 py-3 text-sm font-semibold text-[#2b5f8f] hover:bg-[#f0f6fb] transition-colors"
         >
-          查看我的訂單
+          {t("查看我的訂單")}
         </a>
         <a
           href="https://line.me/R/ti/p/@snowlandcz?from=page&searchId=snowlandcz"
@@ -4201,13 +4208,13 @@ function Step4Complete({ notice = '', flow = 'payment' }: { notice?: string; flo
           rel="noreferrer"
           className="inline-flex items-center justify-center rounded-full border border-[#2b5f8f] bg-white px-8 py-3 text-sm font-semibold text-[#2b5f8f] hover:bg-[#f0f6fb] transition-colors"
         >
-          加入官方客服
+          {t("加入官方客服")}
         </a>
         <button
           onClick={() => navigate('..')}
           className="inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-8 py-3 text-sm font-semibold text-white hover:bg-[#8ec8f0] transition-colors"
         >
-          返回首頁
+          {t("返回首頁")}
         </button>
       </div>
     </div>
