@@ -645,6 +645,11 @@ class SiteContentAdminViewSet(ModelViewSet):
         return Response({'code':200,'data':{'list':rows}})
 
     def _check_content_scope(self, serializer):
+        if 'site.tracking' in (
+            serializer.validated_data.get('location_key'),
+            getattr(serializer.instance, 'location_key', None),
+        ):
+            self._require_tracking_headquarters()
         if user_has_admin_permission(self.request.user, 'cms'):
             return
         pair = tuple(serializer.validated_data.get(field, getattr(serializer.instance, field, None))
@@ -659,6 +664,17 @@ class SiteContentAdminViewSet(ModelViewSet):
     def perform_update(self, serializer):
         self._check_content_scope(serializer)
         super().perform_update(serializer)
+
+    def _require_tracking_headquarters(self):
+        user = self.request.user
+        if user.is_superuser or getattr(getattr(user, 'userprofile', None), 'role', None) == 'hq_admin':
+            return
+        raise PermissionDenied('只有總部管理員可以變更分析追蹤設定')
+
+    def perform_destroy(self, instance):
+        if instance.location_key == 'site.tracking':
+            self._require_tracking_headquarters()
+        super().perform_destroy(instance)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)

@@ -1,5 +1,6 @@
 import React, { createContext, useContext } from 'react';
 import { Link } from 'react-router-dom';
+import { siteTracking, trackingButton } from '../../utils/siteTracking';
 
 // Context to hold the client code base path
 export const SiteBasePathContext = createContext('');
@@ -11,7 +12,7 @@ export const SiteBasePathContext = createContext('');
  * Usage: <SiteLink to="/course/tomamu">星野課程</SiteLink>
  * Renders: <Link to="/snowland/course/tomamu">星野課程</Link>
  */
-const SiteLink = React.forwardRef(function SiteLink({ to, children, ...props }, ref) {
+const SiteLink = React.forwardRef(function SiteLink({ to, children, onClick, ...props }, ref) {
   const basePath = useContext(SiteBasePathContext);
 
   let resolvedTo = to;
@@ -20,7 +21,12 @@ const SiteLink = React.forwardRef(function SiteLink({ to, children, ...props }, 
   }
 
   return (
-    <Link ref={ref} to={resolvedTo} {...props}>
+    <Link ref={ref} to={resolvedTo} {...props} onClick={event => {
+      onClick?.(event);
+      if (!event.defaultPrevented && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+        siteTracking?.button(trackingButton(to));
+      }
+    }}>
       {children}
     </Link>
   );
