@@ -313,7 +313,7 @@ export async function saveClassGroupQR(orderId: number, file: File | null, onPro
   }) as any
 }
 
-export interface CancellationSettlement { currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null;original_amount:number;refund_amount:number|null }
+export interface CancellationSettlement { currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null;original_amount:number;refund_amount:number|null;actual_received_amount?:number;cash_review?:{accounting_mode:'original_receipt_ratio';actual_received_amount:number;refund_amount:number;actual_received_base_amount:number;refund_base_amount:number} }
 export interface RefundPreview { settlement?:CancellationSettlement;original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
 export async function previewOrderRefund(id: number): Promise<RefundPreview> {
   const res = await adminApi.get(`/orders/${id}/refund-preview/`) as any
@@ -325,7 +325,7 @@ export async function requestOrderCancellation(id: number, payload: { reason: st
 }
 
 export interface CancellationCashReview { actual_received_amount:number;refund_amount:number;cash_review_note:string;confirmed_received:boolean }
-export type CancellationReviewPayload=Partial<CancellationCashReview>&{currency?:'JPY';expected_refund_amount?:number|null;confirmed_refund?:boolean}
+export type CancellationReviewPayload=Partial<CancellationCashReview>&{currency?:'JPY';expected_refund_amount?:number|null;confirmed_refund?:boolean;actual_received_currency_amount?:number;refund_currency_amount?:number}
 export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded', review?:CancellationReviewPayload): Promise<void> {
   await adminApi.post(`/cancellations/${cancellationId}/process/`, { status, ...review })
 }

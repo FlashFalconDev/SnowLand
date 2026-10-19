@@ -2291,22 +2291,25 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             'refunded': set(),
         }
         from booking.operations import outstanding_amendments
-        pending=list(outstanding_amendments(group).values('id','balance_amount','status'))
+        pending=list(outstanding_amendments(group).values('id','balance_amount','status','currency_snapshot'))
         requires_review=cancellation.requires_cash_review or bool(pending)
         review_pending=requires_review and cancellation.actual_received_amount is None
         legacy_review=next_status=='approved' and cancellation.status=='approved' and review_pending
         if next_status not in allowed.get(cancellation.status, set()) and not legacy_review:
             return Response({'code': 400, 'msg': f'「{cancellation.get_status_display()}」不能改為這個狀態'}, status=400)
         review_fields={'actual_received_amount','refund_amount','cash_review_note','confirmed_received'}
+        native_review_fields={'actual_received_currency_amount','refund_currency_amount'} if (cancellation.currency_snapshot or {}).get('currency')=='JPY' else set()
         native_fields={'currency','expected_refund_amount','confirmed_refund'} if cancellation.currency_snapshot else set()
-        if set(request.data)-({'status'}|review_fields|native_fields):
+        if set(request.data)-({'status'}|review_fields|native_fields|native_review_fields):
             return Response({'code':400,'msg':'取消處理包含不支援的欄位'},status=400)
+        if set(request.data)&native_review_fields and not (next_status=='approved' and review_pending):
+            return Response({'code':400,'msg':'只有待實收款核對的取消申請可填寫原幣實收及退款金額'},status=400)
         native=cancellation.currency_snapshot or {}
         if native.get('currency')=='JPY' and next_status in {'approved','refunded'}:
-            if review_pending:
+            if review_pending and next_status!='approved':
                 return Response({'code':400,'msg':'日幣實收款尚待核對，請先確認原款及補退差額，不能直接核准退款'},status=400)
             expected=request.data.get('expected_refund_amount')
-            if request.data.get('currency')!='JPY' or type(expected) is not int or expected!=native['refund_amount']:
+            if request.data.get('currency')!='JPY' or (not review_pending and (type(expected) is not int or expected!=native['refund_amount'])):
                 return Response({'code':400,'msg':'請重新核對本筆日幣退款幣別與金額'},status=400)
             if next_status=='refunded' and request.data.get('confirmed_refund') is not True:
                 return Response({'code':400,'msg':'請先核對日幣金額，確認已在系統外完成退款'},status=400)
@@ -2321,11 +2324,30 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
                 refund_amount=WholeNumber(min_value=0,max_value=2147483647)
                 cash_review_note=serializers.CharField(max_length=1000)
                 confirmed_received=serializers.BooleanField()
-            review=CashReviewInput(data={key:request.data[key] for key in review_fields if key in request.data})
+                if native.get('currency')=='JPY':
+                    actual_received_currency_amount=WholeNumber(min_value=0,max_value=9007199254740991)
+                    refund_currency_amount=WholeNumber(min_value=0,max_value=9007199254740991)
+            review=CashReviewInput(data={key:request.data[key] for key in review_fields|native_review_fields if key in request.data})
             review.is_valid(raise_exception=True)
             values=review.validated_data
             if not values['confirmed_received'] or values['refund_amount']>values['actual_received_amount']:
                 return Response({'code':400,'msg':'請確認銀行實收紀錄；退款不可超過核對後的實收款'},status=400)
+            if native.get('currency')=='JPY':
+                native_received=values['actual_received_currency_amount']
+                native_refund=values['refund_currency_amount']
+                if native_refund>native_received or type(request.data.get('expected_refund_amount')) is not int or request.data['expected_refund_amount']!=native_refund:
+                    return Response({'code':400,'msg':'請確認日幣實收與退款金額；日幣退款不可超過實收款，確認金額須一致'},status=400)
+                if native_received == 0 and values['actual_received_amount'] != 0:
+                    return Response({'code':400,'msg':'日幣實收為0但台幣帳務不為0，請先交行政核對帳外差異'},status=400)
+                # Integer HALF_UP: use the reviewed original receipts, never today's FX.
+                proportional_refund = ((2 * values['actual_received_amount'] * native_refund + native_received) // (2 * native_received)) if native_received else 0
+                if values['refund_amount'] != proportional_refund:
+                    return Response({'code':400,'msg':'台幣退款帳務須按原實收比例計算，請重新核對；帳外差異請交行政處理'},status=400)
+                native={**native,'actual_received_amount':native_received,'refund_amount':native_refund,
+                    'cash_review':{'accounting_mode':'original_receipt_ratio','currency':'JPY','base_currency':'TWD',
+                        'actual_received_amount':native_received,'refund_amount':native_refund,
+                        'actual_received_base_amount':values['actual_received_amount'],'refund_base_amount':values['refund_amount'],
+                        'note':values['cash_review_note'],'reviewed_by':request.user.pk,'reviewed_at':timezone.now().isoformat()}}
             cancellation.requires_cash_review=True
             cancellation.actual_received_amount=values['actual_received_amount']
             cancellation.refund_amount=values['refund_amount']

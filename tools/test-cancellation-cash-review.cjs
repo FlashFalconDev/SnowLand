@@ -26,6 +26,19 @@ async function main(){
   for(const bankValue of ['QA銀行','QA-REFUND-NOT-REAL','QA會員'])assert.ok(JSON.stringify(jpy.render()).includes(bankValue),'Refund reviewer must see the submitted destination account')
   await jpy.button('確定記錄退款完成').props.onClick()
   assert.equal(jpy.calls[0][2].currency,'JPY');assert.equal(jpy.calls[0][2].expected_refund_amount,32063);assert.equal(jpy.calls[0][2].confirmed_refund,true)
+  const pendingNative={...native,status:'requested',requires_cash_review:true,refund_amount:null,currency_snapshot:{currency:'JPY',refund_amount:null,rate:'4.50000000'}}
+  const manual=harness(['approved',true,'','9500','4001','QA人工帳務','42750','21000'],pendingNative)
+  assert.equal(manual.button('確定核准取消').props.disabled,false)
+  assert.ok(JSON.stringify(manual.render()).includes('本次日幣退款金額'))
+  assert.ok(JSON.stringify(manual.render()).includes('台幣帳務金額'))
+  await manual.button('確定核准取消').props.onClick()
+  assert.equal(manual.calls[0][2].actual_received_currency_amount,42750)
+  assert.equal(manual.calls[0][2].refund_currency_amount,21000)
+  assert.equal(manual.calls[0][2].expected_refund_amount,21000)
+  assert.equal(manual.calls[0][2].refund_amount,4667,'Calculate original receipt ratio, ignore stale manually entered refund')
+  for(const [received,refund] of [['','21000'],['42750','42751'],['42750','1.5'],['9007199254740992','1']]){
+    assert.equal(harness(['approved',true,'','9500','4001','QA人工帳務',received,refund],pendingNative).button('確定核准取消').props.disabled,true)
+  }
   const memberSource=fs.readFileSync(path.join(root,'src/pages/site/MembershipPage.jsx'),'utf8')
   const memberCode=memberSource.slice(memberSource.indexOf('const formatDate ='),memberSource.indexOf('const ageOptions ='))+memberSource.slice(memberSource.indexOf('function CancellationForm('),memberSource.indexOf('function SharedClassSummary('))
   const preview={requires_bank_account:true,requires_cash_review:false,refund_amount:7500,settlement:{currency:'JPY',refund_amount:33750,original_amount:45000,rate:'4.50000000'}}

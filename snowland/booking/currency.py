@@ -121,9 +121,15 @@ def cancellation_settlement(group,original_amount,refund_amount):
     snapshot=group.currency_snapshot or {}
     if snapshot.get('currency')!='JPY':return {}
     rate=Decimal(snapshot['rate'])
-    return {'currency':'JPY','base_currency':'TWD','rate':snapshot['rate'],'locked_at':snapshot.get('locked_at'),
+    result = {'currency':'JPY','base_currency':'TWD','rate':snapshot['rate'],'locked_at':snapshot.get('locked_at'),
         'original_amount':convert_twd_amount(original_amount,rate),
         'refund_amount':None if refund_amount is None else convert_twd_amount(refund_amount,rate)}
+    receipt = received_settlement_summary(group)
+    if refund_amount is not None and receipt and receipt['base_amount'] == original_amount and receipt['amount'] > 0:
+        native_refund = result['refund_amount']
+        result['refund_base_amount'] = (2 * receipt['base_amount'] * native_refund + receipt['amount']) // (2 * receipt['amount'])
+        result['accounting_mode'] = 'original_receipt_ratio'
+    return result
 
 
 def public_cancellation_settlement(cancellation):

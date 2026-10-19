@@ -147,7 +147,8 @@ def calculate_refund(group):
     requires_cash_review = outstanding_amendments(group).exists()
     if (group.currency_snapshot or {}).get('currency')=='JPY':
         from .currency import received_settlement_summary
-        requires_cash_review=requires_cash_review or received_settlement_summary(group) is None
+        receipt=received_settlement_summary(group)
+        requires_cash_review=requires_cash_review or receipt is None or receipt['base_amount'] != original_amount
     result = {
         'original_amount': original_amount,
         'days_before': days_before,
@@ -159,6 +160,8 @@ def calculate_refund(group):
     }
     from .currency import cancellation_settlement
     settlement=cancellation_settlement(group,original_amount,result['refund_amount'])
+    if settlement and 'refund_base_amount' in settlement:
+        result['refund_amount']=settlement['refund_base_amount']
     if settlement:result['settlement']=settlement
     return result
 
@@ -206,7 +209,7 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         # Zero is only a storage placeholder, never a quoted or approved refund.
         values['refund_amount'] = 0
         values['cash_review_snapshot'] = {'outstanding_amendments': list(
-            outstanding_amendments(group).values('id','balance_amount','status'))}
+            outstanding_amendments(group).values('id','balance_amount','status','currency_snapshot'))}
     calculation_mode = 'auto'
     if manual_refund_amount is not None and selected_rule_days_before is not None:
         raise ValueError('指定方案與手動金額只能選一種')
@@ -242,7 +245,12 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         if not all(bank.get(key) for key in ('bank_name', 'account_number', 'account_holder')):
             raise ValueError('匯款訂單必須填寫退款銀行、帳號與戶名')
     from .currency import cancellation_settlement
-    settlement=cancellation_settlement(group,values['original_amount'],None if values['requires_cash_review'] else values['refund_amount'])
+    # Keep the quoted native amount; converting the rounded proportional TWD
+    # reversal back to JPY could change a yen on low-rate orders.
+    settlement=(preview['settlement'] if preview.get('settlement') and manual_refund_amount is None and selected_rule_days_before is None
+        else cancellation_settlement(group,values['original_amount'],None if values['requires_cash_review'] else values['refund_amount']))
+    if settlement and 'refund_base_amount' in settlement:
+        values['refund_amount']=settlement['refund_base_amount']
     if settlement:
         native_refund=settlement['refund_amount']
         if currency!='JPY' or expected_refund_amount!=native_refund or (native_refund is not None and type(expected_refund_amount) is not int):
