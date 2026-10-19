@@ -975,11 +975,21 @@ class PaymentAccountAdminViewSet(ModelViewSet):
     permission_classes = [IsTenantManager]
     permission_key = 'payment_settings'
 
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
+
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
             return PaymentAccount.objects.none()
         qs = PaymentAccount.objects.filter(client=tenant).prefetch_related('campuses', 'resorts')
+        if self.request.method in {'PUT','PATCH','DELETE'}:
+            qs = qs.select_for_update()
         if not getattr(self.request, 'can_view_all_campuses', False):
             qs = qs.filter(campuses__id__in=_campus_ids(self.request)).distinct()
         return qs.order_by('display_order', 'id')
@@ -4813,6 +4823,7 @@ def _save_booking_form_options(tenant, payload):
 
 @api_view(['GET', 'PUT'])
 @permission_classes([IsTenantManager])
+@transaction.atomic
 def payment_settings_view(request, client_code=None):
     denied = _require_admin_permission(request, 'payment_settings')
     if denied:
@@ -4829,6 +4840,7 @@ def payment_settings_view(request, client_code=None):
 
     if request.method == 'GET':
         form_options = _get_booking_form_options(tenant)
+        from booking.currency import currency_settings_payload
         return Response({
             'code': 200, 'msg': 'OK',
             'data': {
@@ -4836,17 +4848,28 @@ def payment_settings_view(request, client_code=None):
                 'bank_branch': tenant.bank_branch,
                 'bank_account_number': tenant.bank_account_number,
                 'bank_account_holder': tenant.bank_account_holder,
+                'currency_settings': currency_settings_payload(tenant),
                 **form_options,
             },
         })
 
     # PUT
     payload = request.data or {}
+    from booking.currency import currency_settings_payload, validate_currency_settings
+    currency_values = None
+    if 'currency_settings' in payload:
+        try:
+            currency_values = validate_currency_settings(payload['currency_settings'])
+        except ValueError as exc:
+            return Response({'code': 400, 'msg': str(exc)}, status=400)
     for f in ('bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder'):
         if f in payload:
             setattr(tenant, f, (payload[f] or '').strip())
     tenant.save()
     form_options = _save_booking_form_options(tenant, payload)
+    if currency_values is not None:
+        from Resorts.models import PaymentCurrencySettings
+        PaymentCurrencySettings.objects.update_or_create(client=tenant, defaults=currency_values)
     return Response({
         'code': 200, 'msg': '已更新',
         'data': {
@@ -4854,6 +4877,7 @@ def payment_settings_view(request, client_code=None):
             'bank_branch': tenant.bank_branch,
             'bank_account_number': tenant.bank_account_number,
             'bank_account_holder': tenant.bank_account_holder,
+            'currency_settings': currency_settings_payload(tenant),
             **form_options,
         },
     })

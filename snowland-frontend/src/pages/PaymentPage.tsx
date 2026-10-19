@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CheckCircle, CreditCard, Building2, Copy, Check, ArrowLeft } from 'lucide-react'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import Toast, { ToastType } from '@/components/ui/Toast'
+import SettlementSummary, { settlementAmount, type OrderSettlement } from '@/components/booking/SettlementSummary'
 
 const paymentHeaders = (): Record<string,string> => {
   const token=document.cookie.split(';').map(value=>value.trim()).find(value=>value.startsWith('csrftoken='))
@@ -28,6 +29,7 @@ interface OrderDetail {
 }
 
 interface PaymentData {
+  settlement?: OrderSettlement
   reservation_group_id: number
   total_amount: number
   order_details: OrderDetail[]
@@ -39,6 +41,7 @@ interface PaymentData {
     bank_branch?: string
     bank_account_number?: string
     bank_account_holder?: string
+    overseas_details?: string
   }
 }
 
@@ -82,7 +85,7 @@ export default function PaymentPage() {
     const fetchPaymentData = async () => {
       try {
         const response = await fetch(
-          `/booking/snowland/api/payment-info/?${new URLSearchParams({ reservation_group: reservationGroupId, ...(accessToken ? { access_token: accessToken } : {}) })}`,
+          `/booking/${encodeURIComponent(clientCode)}/api/payment-info/?${new URLSearchParams({ reservation_group: reservationGroupId, ...(accessToken ? { access_token: accessToken } : {}) })}`,
           {
             credentials: 'include', // 包含 session cookies
           }
@@ -109,7 +112,7 @@ export default function PaymentPage() {
     }
 
     fetchPaymentData()
-  }, [reservationGroupId, accessToken, navigate])
+  }, [reservationGroupId, accessToken, clientCode, navigate])
 
   const handleCopyAccount = () => {
     navigator.clipboard.writeText(paymentData?.bank_info?.bank_account_number || '')
@@ -136,7 +139,7 @@ export default function PaymentPage() {
     try {
       setLoadingMessage('提交匯款資訊中...')
 
-      const response = await fetch(`/booking/snowland/api/process-payment/`, {
+      const response = await fetch(`/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
         method: 'POST',
         headers: paymentHeaders(),
         credentials: 'include',
@@ -144,6 +147,8 @@ export default function PaymentPage() {
           reservation_group_id: reservationGroupId,
           payment_type: 'bank_transfer',
           sender_account: senderAccount,
+            currency: paymentData?.settlement?.currency || 'TWD',
+            expected_amount: paymentData?.settlement?.amount ?? paymentData?.total_amount,
           access_token: accessToken,
         })
       })
@@ -170,7 +175,7 @@ export default function PaymentPage() {
     try {
       setLoadingMessage('跳轉到付款頁面...')
 
-      const response = await fetch(`/booking/snowland/api/process-payment/`, {
+      const response = await fetch(`/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
         method: 'POST',
         headers: paymentHeaders(),
         credentials: 'include', // 包含 session cookies
@@ -310,10 +315,11 @@ export default function PaymentPage() {
             ))}
           </div>
 
+          <SettlementSummary settlement={paymentData.settlement} />
           <div className="mt-6 flex items-center justify-between border-t-2 border-gray-200 pt-6">
             <span className="text-xl font-semibold text-gray-700">總金額</span>
             <span className="text-3xl font-bold text-[#2b5f8f]">
-              NT$ {money(paymentData.total_amount)}
+              {settlementAmount(paymentData.settlement,paymentData.total_amount)}
             </span>
           </div>
         </div>
@@ -422,10 +428,11 @@ export default function PaymentPage() {
                 <span className="shrink-0 text-gray-700">付款期限</span>
                 <span className="text-right font-semibold text-gray-900">{new Date(paymentData.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}</span>
               </div>}
+              {paymentData.bank_info?.overseas_details && <p className="whitespace-pre-wrap break-words text-sm text-gray-800">{paymentData.bank_info.overseas_details}</p>}
               <div className="flex justify-between border-t-2 border-blue-200 pt-4">
                 <span className="text-lg font-bold text-gray-700">匯款金額</span>
                 <span className="text-2xl font-bold text-[#2b5f8f]">
-                  NT$ {money(paymentData.total_amount)}
+                  {settlementAmount(paymentData.settlement,paymentData.total_amount)}
                 </span>
               </div>
             </div>
@@ -476,7 +483,7 @@ export default function PaymentPage() {
                 點擊下方按鈕將跳轉到藍新金流付款頁面
               </p>
               <p className="text-lg font-bold text-[#2b5f8f]">
-                付款金額：NT$ {money(paymentData.total_amount)}
+                付款金額：{settlementAmount(paymentData.settlement,paymentData.total_amount)}
               </p>
             </div>
 

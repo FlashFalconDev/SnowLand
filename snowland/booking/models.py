@@ -56,6 +56,7 @@ class ReservationGroup(models.Model):
     source_country = models.CharField(max_length=2, blank=True, default='', verbose_name='下單國家')
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, verbose_name='使用者')
     booking_contact = models.JSONField(default=dict, blank=True, verbose_name='訂課聯絡資料')
+    currency_snapshot = models.JSONField(default=dict, blank=True, editable=False, verbose_name='成立時收款幣別與匯率')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='建立時間')
 
     def __str__(self):

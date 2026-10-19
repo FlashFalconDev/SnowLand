@@ -36,9 +36,12 @@ def get_operating_policy(group):
     return OperatingPolicy.objects.filter(client=group.client, campus__isnull=True).first() or OperatingPolicy.objects.create(client=group.client)
 
 
-def resolve_payment_account(group):
+def resolve_payment_account(group, *, currency=None, lock=False):
+    currency = currency or (group.currency_snapshot or {}).get('currency', 'TWD')
     resort_ids = list(group.reservations.exclude(resort_id=None).values_list('resort_id', flat=True))
-    candidates = PaymentAccount.objects.filter(client=group.client, is_active=True)
+    candidates = PaymentAccount.objects.filter(client=group.client, is_active=True, currency=currency)
+    if lock:
+        candidates = candidates.select_for_update()
     pools = (
         (candidates.filter(campuses=group.campus), candidates.filter(campuses__isnull=True))
         if group.campus_id else (candidates,)

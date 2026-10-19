@@ -165,6 +165,8 @@ export const calculatePrice = async (params: CalculatePriceParams): Promise<Calc
 
 // 創建預約
 export interface CreateReservationParams {
+  currency?: 'TWD' | 'JPY'
+  currency_rate?: string
   staff_link?: string
   accepted_policy?: boolean
   policy_acceptance?: CheckoutPolicyAcceptance | null

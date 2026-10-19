@@ -162,9 +162,13 @@ def payment(request, client_code):
     ).exists():
         context.update(payment_status='processing', message='您的預約正在處理中，確認排課前不需要付款。')
     context['payment_data'] = {
+        'currency': data.get('settlement', {}).get('currency', 'TWD'),
+        'expected_amount': data.get('settlement', {}).get('amount', data.get('total_amount', 0)),
         'paymentType': context['payment_type'], 'paymentStatus': context['payment_status'],
         'reservation_group_pk': str(group.pk), 'access_token': context['payment_access_token'],
     }
+    context['settlement_amount'] = context['payment_data']['expected_amount']
+    context['settlement_label'] = '日幣 JPY ¥' if context['payment_data']['currency'] == 'JPY' else '台幣 NT$'
     return render(request, 'booking/payment.html', context)
 
 @api_view(['GET'])

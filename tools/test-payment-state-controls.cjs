@@ -2,14 +2,17 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequire(path.join(root,'package.json'))
 const React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
 const source=fs.readFileSync(path.join(root,'src/pages/PaymentPage.tsx'),'utf8')
-function render(status,inspect=false){
+const settlementExports={}
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/components/booking/SettlementSummary.tsx'),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{React,exports:settlementExports})
+function render(status,inspect=false,overrides={}){
  let cursor=0;const calls=[]
- const data={reservation_group_id:42,total_amount:1000,order_details:[],payment_status:status,payment_methods:['bank_transfer','newebpay'],bank_info:{bank_name:'QA',bank_branch:'QA',bank_account_number:'QA',bank_account_holder:'QA'}}
+ const data={reservation_group_id:42,total_amount:1000,order_details:[],payment_status:status,payment_methods:['bank_transfer','newebpay'],bank_info:{bank_name:'QA',bank_branch:'QA',bank_account_number:'QA',bank_account_holder:'QA'},...overrides}
  const context=vm.createContext({React,exports:{},URLSearchParams,document:{cookie:'other=1; csrftoken=qa-csrf-only'},setTimeout(){},fetch:async(url,options)=>{calls.push({url,options});return{ok:true,json:async()=>({})}},require:name=>{
   if(name==='react')return{...React,useEffect(){},useState:initial=>{const slot=cursor++;return[slot===0?data:slot===1?false:slot===4?'12345':initial,()=>{}]}}
   if(name==='react-router-dom')return{useNavigate:()=>()=>{},useParams:()=>({clientCode:'snowland'}),useSearchParams:()=>[new URLSearchParams('reservation_group=42')]}
   if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
   if(name.startsWith('@/components/ui/'))return{default:()=>null}
+  if(name==='@/components/booking/SettlementSummary')return settlementExports
   throw Error(name)
  }})
  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context)
@@ -29,6 +32,15 @@ async function checkSubmission(){
  await find(tree,n=>n.type==='button'&&n.props.children==='確認已匯款').props.onClick()
  assert.equal(calls.length,1);assert.equal(calls[0].options.headers['X-CSRFToken'],'qa-csrf-only')
  assert.equal(calls[0].options.credentials,'include');assert.equal(JSON.parse(calls[0].options.body).sender_account,'12345')
+ const jpy={currency:'JPY',base_currency:'TWD',base_amount:10000,amount:45000,rate:'4.50000000',locked_at:'2026-10-19T03:00:00Z'}
+ const jpyHtml=render('unpaid',false,{total_amount:10000,settlement:jpy,payment_methods:['bank_transfer']})
+ assert.ok(jpyHtml.includes('日幣 JPY ¥ 45,000'))
+ assert.ok(jpyHtml.includes('台幣計價基準 NT$ 10,000'))
+ assert.ok(!jpyHtml.includes('NT$ 45,000'))
+ const jpyApp=render('unpaid',true,{total_amount:10000,settlement:jpy,payment_methods:['bank_transfer']})
+ await find(jpyApp.tree,n=>n.type==='button'&&n.props.children==='確認已匯款').props.onClick()
+ assert.equal(JSON.parse(jpyApp.calls[0].options.body).currency,'JPY')
+ assert.equal(JSON.parse(jpyApp.calls[0].options.body).expected_amount,45000)
  console.log('PASS actual payment page: unpaid only; terminal states cannot resubmit; real transfer handler sends CSRF')
 }
 checkSubmission().catch(error=>{console.error(error);process.exitCode=1})

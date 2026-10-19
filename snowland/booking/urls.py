@@ -20,6 +20,7 @@ from .api_views import (
     CreateReservationAPI,
     SuperScheduleAPI,
     PaymentInfoAPI,
+    CurrencyOptionsAPI,
     ProcessPaymentAPI,
     ReservationHistoryAPI,
     GoogleLoginAPI,
@@ -39,6 +40,7 @@ app_name = 'booking'
 
 
 urlpatterns = [
+    path('<str:client_code>/api/currency-options/', CurrencyOptionsAPI.as_view(), name='api_currency_options_client'),
     path('<str:client_code>/api/contact/', PublicContactAPI.as_view(), name='api_contact_client'),
     # ========== 指定 client_code 的路由 ==========
     path('<str:client_code>/', views.home, name='home'),

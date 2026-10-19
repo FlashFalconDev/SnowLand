@@ -2339,6 +2339,10 @@ class CreateReservationAPI(APIView):
                 created_reservations.append(reservation)
                 reservation_groups.append(group)
 
+            from .currency import initialize_order_currency
+            for created_group in reservation_groups:
+                initialize_order_currency(created_group, request.data.get('currency', 'TWD'), expected_rate=request.data.get('currency_rate'))
+
             shared_classes = {
                 reservation.shared_course_class_id: reservation.shared_course_class
                 for reservation in created_reservations if reservation.shared_course_class_id
@@ -3799,6 +3803,10 @@ class SuperScheduleAPI(APIView):
                     )
                     created_reservations.append(reservation)
 
+            from .currency import initialize_order_currency
+            for created_group in created_groups:
+                initialize_order_currency(created_group, request.data.get('currency', 'TWD'), expected_rate=request.data.get('currency_rate'))
+
             # 檢查哪些預約需要排課
             reservations_need_scheduling = []
             for resv in created_reservations:
@@ -4034,6 +4042,29 @@ class SuperScheduleAPI(APIView):
         return reservation
 
 
+class CurrencyOptionsAPI(APIView):
+    permission_classes = []
+
+    def get(self, request, client_code=None):
+        from decimal import Decimal
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error':str(exc)},status=404)
+        from .currency import currency_settings_payload
+        from Resorts.models import PaymentAccount
+        config = currency_settings_payload(tenant)
+        currencies = [{'code':'TWD','rate':'1.00000000'}]
+        complete_accounts = PaymentAccount.objects.filter(client=tenant,is_active=True,currency='JPY')
+        for field in ('bank_name','bank_branch','account_number','account_holder'):
+            complete_accounts = complete_accounts.exclude(**{field:''})
+        if config['jpy_enabled'] and config['jpy_per_twd'] and Decimal(config['jpy_per_twd']) > 0 and complete_accounts.exists():
+            currencies.append({'code':'JPY','rate':config['jpy_per_twd']})
+        response = Response({'base_currency':'TWD','currencies':currencies})
+        response['Cache-Control']='no-store'
+        return response
+
+
 class PaymentInfoAPI(APIView):
     """
     GET /api/payment-info/
@@ -4166,16 +4197,21 @@ class PaymentInfoAPI(APIView):
                         'bank_account_number': c.bank_account_number,
                         'bank_account_holder': c.bank_account_holder,
                     }
+            from .currency import order_settlement
+            settlement = order_settlement(group, base_amount=total_amount)
+            if settlement['currency'] == 'JPY':
+                bank_info = settlement['bank_info']
             is_taiwan = (group.source_country or 'TW') == 'TW'
             payment_methods = []
             if all(bank_info.get(field) for field in ('bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder')):
                 payment_methods.append('bank_transfer')
-            if not is_taiwan and all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
+            if settlement['currency'] == 'TWD' and not is_taiwan and all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
                 payment_methods.append('newebpay')
 
             return Response({
                 'reservation_group_id': int(reservation_group_id),
                 'total_amount': total_amount,
+                'settlement': settlement,
                 'payment_status': payment_status,
                 'order_details': order_details,
                 'bank_info': bank_info,
@@ -4406,6 +4442,14 @@ class ProcessPaymentAPI(APIView):
                 message = {'paid':'此訂單已付款，請勿重複提交','expired':'付款期限已結束，請聯絡客服','refunded':'此訂單已退款，不能重新回報付款'}.get(current_payment.status,'付款狀態不允許回報，請聯繫客服')
                 return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
 
+            from .currency import order_settlement
+            settlement = order_settlement(group)
+            if settlement['currency'] == 'JPY':
+                if payment_type != 'bank_transfer':
+                    return Response({'error':'日幣訂單僅提供日幣銀行匯款'}, status=400)
+                if request.data.get('currency') != 'JPY' or type(request.data.get('expected_amount')) is not int or request.data['expected_amount'] != settlement['amount']:
+                    return Response({'error':'請重新載入並確認日幣應付金額後回報匯款'}, status=409)
+
             if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
                 return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4421,6 +4465,9 @@ class ProcessPaymentAPI(APIView):
                     if account else
                     (tenant.bank_name, tenant.bank_branch, tenant.bank_account_number, tenant.bank_account_holder)
                 )
+                if settlement['currency'] == 'JPY':
+                    snapshot_bank = settlement['bank_info']
+                    bank_fields = tuple(snapshot_bank.get(key) for key in ('bank_name','bank_branch','bank_account_number','bank_account_holder'))
                 if not all(bank_fields):
                     return Response({'error': '收款帳戶尚未設定完整，請聯繫客服'}, status=status.HTTP_400_BAD_REQUEST)
                 return self._process_bank_transfer(request, group)
@@ -4509,6 +4556,8 @@ class ProcessPaymentAPI(APIView):
         payment.bank_account = sender_account
         payment.user = user
         payment.payment_method = 'TT'
+        from .currency import order_settlement
+        payment.DataJSON = {**(payment.DataJSON if isinstance(payment.DataJSON, dict) else {}), 'settlement':order_settlement(group)}
         payment.save()
 
         return Response({

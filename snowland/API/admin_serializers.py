@@ -96,6 +96,16 @@ class CampusAdminSerializer(TenantRelationValidationMixin, serializers.ModelSeri
 
 
 class PaymentAccountAdminSerializer(TenantRelationValidationMixin, serializers.ModelSerializer):
+    def validate_currency(self, value):
+        if self.instance and self.instance.currency != value:
+            used = self.instance.payments.exists() or ReservationGroup.objects.filter(
+                client=self.instance.client,
+                currency_snapshot__bank_info__account_id=self.instance.pk,
+            ).exists()
+            if used:
+                raise serializers.ValidationError('此帳戶已有訂單使用，不能更改幣別；請新增另一幣別的帳戶')
+        return value
+
     campus_ids = serializers.PrimaryKeyRelatedField(
         source='campuses', many=True, queryset=Campus.objects.all(), required=False
     )
@@ -107,7 +117,7 @@ class PaymentAccountAdminSerializer(TenantRelationValidationMixin, serializers.M
         model = PaymentAccount
         fields = [
             'id', 'name', 'bank_name', 'bank_branch', 'account_number', 'account_holder',
-            'overseas_details', 'campus_ids', 'resort_ids', 'is_default', 'is_active',
+            'overseas_details', 'currency', 'campus_ids', 'resort_ids', 'is_default', 'is_active',
             'display_order', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
