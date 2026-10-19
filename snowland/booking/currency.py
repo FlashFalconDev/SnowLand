@@ -98,3 +98,20 @@ def received_settlement_summary(group):
         return None
     keys=('currency','base_currency','base_amount','amount','rate','locked_at')
     return {key:snapshot[key] for key in keys} if all(key in snapshot for key in keys) else None
+
+
+def amendment_settlement(group,previous_total,new_total,*,pending=()):
+    """Subtract rounded order totals, not a rounded TWD difference, at the locked rate."""
+    snapshot=group.currency_snapshot or {}
+    if snapshot.get('currency')!='JPY':return {}
+    rate=Decimal(snapshot['rate'])
+    old=convert_twd_amount(previous_total,rate);new=convert_twd_amount(new_total,rate)
+    balance=new-old
+    for row in pending:
+        previous=row.currency_snapshot
+        if previous.get('currency')!='JPY' or previous.get('rate')!=snapshot['rate']:
+            raise ValueError('舊差額缺少一致的日幣紀錄，請先核對後再修改')
+        balance+=previous['balance_amount']
+    if abs(balance)>9007199254740991:raise ValueError('日幣差額超過可處理範圍，請聯絡行政')
+    return {'currency':'JPY','base_currency':'TWD','rate':snapshot['rate'],'locked_at':snapshot.get('locked_at'),
+        'previous_total':old,'new_total':new,'difference_amount':new-old,'balance_amount':balance}

@@ -1723,7 +1723,10 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     def get_amendment_balance(self, obj):
         pending=list(obj.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
         if not pending:return None
-        return {'amount':sum(row.balance_amount for row in pending),'statuses':sorted({row.status for row in pending})}
+        result={'amount':sum(row.balance_amount for row in pending),'statuses':sorted({row.status for row in pending})}
+        if (obj.currency_snapshot or {}).get('currency')=='JPY':
+            result['settlement']={'currency':'JPY','amount':sum(row.currency_snapshot['balance_amount'] for row in pending)}
+        return result
 
     def get_user_name(self, obj):
         return (obj.user.get_full_name() or obj.user.username) if obj.user else (obj.name or '訪客')

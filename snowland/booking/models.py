@@ -656,6 +656,7 @@ class OrderAmendment(models.Model):
     new_total=models.PositiveIntegerField()
     difference_amount=models.IntegerField()
     balance_amount=models.IntegerField(default=0)
+    currency_snapshot=models.JSONField(default=dict,blank=True,editable=False,verbose_name='修改時原幣金額與待收退差額')
     status=models.CharField(max_length=24,choices=STATUS_CHOICES,default='no_difference')
     before_snapshot=models.JSONField(default=dict)
     participant_changes=models.JSONField(default=dict)

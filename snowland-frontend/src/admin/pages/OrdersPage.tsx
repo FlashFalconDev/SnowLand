@@ -311,7 +311,7 @@ function FullOrdersPage() {
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
-                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} NT$ {Math.abs(order.amendment_balance.amount).toLocaleString()}</span>}
+                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString()}</span>}
                   <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
                 </div>
               </div>
@@ -366,7 +366,7 @@ function FullOrdersPage() {
                       </td>
                       <td className="px-5 py-3 hidden md:table-cell whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
-                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} NT$ {Math.abs(order.amendment_balance.amount).toLocaleString()}</div>}
+                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString()}</div>}
                       </td>
                       <td className="px-5 py-2 text-right">
                         <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"><Eye size={16} /></button>
@@ -785,7 +785,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
           </div>
-          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} NT$ {Math.abs(order.amendment_balance.amount).toLocaleString('zh-TW')}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
+          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString('zh-TW')}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
           {!readOnly&&<AmendmentBalancesPanel orderId={order.id} cancellationStatus={order.cancellation?.status}/>}
 
           <section>

@@ -45,6 +45,16 @@ async function main(){
   await ui.button('確認核對並留底').props.onClick()
   assert.equal(actionCalls[0].confirmed,true);assert.equal(actionCalls[0].action,'confirm_refund')
   assert.equal(actionCalls[0].expected_updated_at,row.updated_at)
+  const native={...row,settlement:{currency:'JPY',rate:'4.50000000',balance_amount:9000}}
+  calls.length=0
+  ui=harness('src/components/OrderAmendmentBalance.jsx','BalanceRow',['12345',{},false,'',false],{...props,row:native},{})
+  assert.match(JSON.stringify(ui.render()),/9,000/,'Member sees the native amount, not only TWD 2,000')
+  await ui.find(ui.render(),node=>node.type==='form').props.onSubmit({preventDefault(){}})
+  assert.equal(calls[0].currency,'JPY');assert.equal(calls[0].expected_amount,9000)
+  ui=harness('src/admin/components/AmendmentBalancesPanel.tsx','BalanceReviewDialog',['QA日幣依據',true,false,false,''],{...reviewProps,row:native},api)
+  assert.match(JSON.stringify(ui.render()),/9,000/,'Reviewer confirms the same native amount')
+  await ui.button('確認核對並留底').props.onClick()
+  assert.equal(actionCalls[1].currency,'JPY');assert.equal(actionCalls[1].expected_amount,9000)
   console.log('PASS actual member/staff balance controls: required fields, no paid claim on report, same retry key, acknowledged refresh error, explicit staff confirmation')
 }
 main().catch(error=>{console.error(error);process.exitCode=1})

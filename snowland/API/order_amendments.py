@@ -218,6 +218,10 @@ def quote_order_amendment(group,data,actor):
     difference=sum(item['new_amount']-item['previous_amount'] for item in items)
     result={'previous_total':previous,'new_total':previous+difference,'difference_amount':difference,'items':items,
         'status':'preview_only','notice':'只預覽價格；尚未修改訂單、重排教練、寄信、收款或退款。原折抵金額保留，不會重新兌換優惠碼。'}
+    from booking.currency import amendment_settlement
+    try:settlement=amendment_settlement(group,previous,previous+difference)
+    except ValueError as error:_fail(str(error))
+    if settlement:result['settlement']=settlement
     result['quote_token']=signing.dumps({'actor':actor.pk,'group':group.pk,'state':amendment_state(group),
         'quote':amendment_digest(result),'draft':amendment_digest(data)},salt='snowland.order-amendment',compress=True)
     return result

@@ -76,7 +76,7 @@ export interface Order {
   reservations: OrderReservation[]
   total_fee: number
   payment_status: PaymentStatus
-  amendment_balance?: { amount: number; statuses: string[] } | null
+  amendment_balance?: { amount: number; statuses: string[];settlement?:{currency:'JPY';amount:number} } | null
   payment_method: string
   bank_account?: string | null
   created_at: string
@@ -216,6 +216,7 @@ export interface OrderAmendmentItem {
   courses: OrderAmendmentCourse[]
 }
 export interface OrderAmendmentQuote {
+  settlement?: AmendmentSettlement
   previous_total: number; new_total: number; difference_amount: number
   status: 'preview_only'; notice: string; quote_token: string
   items: {
@@ -255,6 +256,7 @@ export async function fetchOrderAmendmentOptions(orderId: number): Promise<{ ite
   return result.data
 }
 export interface OrderAmendmentResult {
+  settlement?: AmendmentSettlement
   id: number; version: number; previous_total: number; new_total: number
   difference_amount: number; balance_amount: number
   status: 'included_in_order' | 'no_difference' | 'topup_due' | 'topup_reported' | 'refund_account_due' | 'refund_due' | 'settled' | 'superseded' | 'cancelled'
@@ -269,7 +271,12 @@ export async function confirmOrderAmendment(orderId: number, payload: OrderAmend
   return result.data
 }
 
+export interface AmendmentSettlement {
+  currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null
+  previous_total:number;new_total:number;difference_amount:number;balance_amount:number
+}
 export interface AmendmentBalance {
+  settlement?: AmendmentSettlement
   id: number; version: number; previous_total: number; new_total: number; difference_amount: number; balance_amount: number
   status: OrderAmendmentResult['status']; updated_at: string; settled_at: string | null
   bank_snapshot: Record<string,string>; refund_bank: Record<string,string>; topup_reference: string; review_message: string
@@ -277,6 +284,7 @@ export interface AmendmentBalance {
   events: { action: string; previous_status: string; status: string; note: string; reference: string; created_at: string; actor: string }[]
 }
 export interface AmendmentBalanceAction {
+  currency?:'TWD'|'JPY';expected_amount?:number
   amendment_id: number; expected_updated_at: string; request_key: string
   action: 'confirm_topup' | 'reject_topup' | 'confirm_refund'; note: string; confirmed?: boolean
 }
