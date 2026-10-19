@@ -4,6 +4,8 @@ import { CheckCircle, CreditCard, Building2, Copy, Check, ArrowLeft } from 'luci
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import Toast, { ToastType } from '@/components/ui/Toast'
 import SettlementSummary, { settlementAmount, type OrderSettlement } from '@/components/booking/SettlementSummary'
+import { useSiteLocale } from '@/contexts/SiteLocale'
+import SiteLanguageSelect from '@/components/site/SiteLanguageSelect'
 
 const paymentHeaders = (): Record<string,string> => {
   const token=document.cookie.split(';').map(value=>value.trim()).find(value=>value.startsWith('csrftoken='))
@@ -46,6 +48,7 @@ interface PaymentData {
 }
 
 export default function PaymentPage() {
+  const {locale,t}=useSiteLocale()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { clientCode = 'snowland' } = useParams<{ clientCode: string }>()
@@ -56,7 +59,7 @@ export default function PaymentPage() {
   const [senderAccount, setSenderAccount] = useState('')
   const [copied, setCopied] = useState(false)
   const [showLaterReminder, setShowLaterReminder] = useState(false)
-  const [toast, setToast] = useState<{ message: string; type: ToastType; isOpen: boolean }>({
+  const [toast, setToast] = useState<{ message: string; values?:Record<string,string|number>; type: ToastType; isOpen: boolean }>({
     message: '',
     type: 'info',
     isOpen: false
@@ -70,8 +73,8 @@ export default function PaymentPage() {
   const leaveLabel = accessToken ? '返回官網' : '返回我的訂單'
   const money = (amount: number) => amount.toLocaleString('zh-TW')
 
-  const showToast = (message: string, type: ToastType = 'info') => {
-    setToast({ message, type, isOpen: true })
+  const showToast = (message: string, type: ToastType = 'info', values?:Record<string,string|number>) => {
+    setToast({ message, values, type, isOpen: true })
   }
 
   useEffect(() => {
@@ -114,18 +117,25 @@ export default function PaymentPage() {
     fetchPaymentData()
   }, [reservationGroupId, accessToken, clientCode, navigate])
 
-  const handleCopyAccount = () => {
-    navigator.clipboard.writeText(paymentData?.bank_info?.bank_account_number || '')
-    setCopied(true)
-    showToast('已複製帳號', 'success')
-    setTimeout(() => setCopied(false), 2000)
+  const handleCopyAccount = async () => {
+    const account=paymentData?.bank_info?.bank_account_number
+    if(!account)return
+    try {
+      await navigator.clipboard.writeText(account)
+      setCopied(true)
+      showToast('已複製帳號', 'success')
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+      showToast('無法複製帳號，請手動選取帳號複製。', 'error')
+    }
   }
 
   const handleBankTransferLater = () => {
     const deadline = paymentData?.payment_expires_at
-      ? new Date(paymentData.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
-      : '訂單付款期限'
-    showToast(`請於 ${deadline} 前完成匯款；匯款後再回付款連結補後五碼。`, 'success')
+      ? new Date(paymentData.payment_expires_at).toLocaleString(locale==='zh-Hant'?'zh-TW':locale, { timeZone: 'Asia/Taipei' })
+      : t('訂單付款期限')
+    showToast('請於 {deadline} 前完成匯款；匯款後再回付款連結補後五碼。', 'success',{deadline})
     if (accessToken) setShowLaterReminder(true)
     else setTimeout(returnToOrders, 800)
   }
@@ -218,7 +228,7 @@ export default function PaymentPage() {
       <div className="min-h-screen bg-[#f7f8fa] flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-[#2b5f8f] border-r-transparent mb-4"></div>
-          <p className="text-gray-600">載入付款資訊中...</p>
+          <p className="text-gray-600">{t('載入付款資訊中...')}</p>
         </div>
       </div>
     )
@@ -227,9 +237,10 @@ export default function PaymentPage() {
   if (!paymentData) {
     return <main className="flex min-h-screen items-center justify-center bg-[#f7f8fa] p-6">
       <div role="alert" className="w-full max-w-md rounded-sm border border-red-200 bg-white p-6 text-center shadow-sm">
-        <h1 className="text-xl font-bold text-gray-900">無法顯示付款資訊</h1>
-        <p className="mt-3 text-sm text-red-700">{loadError || '請確認訂單連結是否正確。'}</p>
-        <button onClick={leavePayment} className="mt-5 rounded-full bg-[#2b5f8f] px-5 py-2 font-semibold text-white">{leaveLabel}</button>
+        <SiteLanguageSelect/>
+        <h1 className="mt-4 text-xl font-bold text-gray-900">{t('無法顯示付款資訊')}</h1>
+        <p className="mt-3 text-sm text-red-700">{t(loadError || '請確認訂單連結是否正確。')}</p>
+        <button onClick={leavePayment} className="mt-5 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2 font-semibold text-white">{t(leaveLabel)}</button>
       </div>
     </main>
   }
@@ -246,16 +257,17 @@ export default function PaymentPage() {
       {/* 頂部導航 */}
       <nav className="border-b border-[#dbe3ec] bg-white">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-xl font-bold text-[#1f2937] sm:text-2xl">
-              課程付款
+              {t('課程付款')}
             </h1>
+            <SiteLanguageSelect/>
             <button
               onClick={leavePayment}
-              className="flex items-center gap-2 whitespace-nowrap rounded-full border border-[#dbe3ec] bg-white px-4 py-2 text-sm font-semibold text-[#2b5f8f] transition-colors hover:bg-[#eef4fa]"
+              className="flex min-h-11 items-center gap-2 whitespace-nowrap rounded-full border border-[#dbe3ec] bg-white px-4 py-2 text-sm font-semibold text-[#2b5f8f] transition-colors hover:bg-[#eef4fa]"
             >
               <ArrowLeft size={18} />
-              <span>{leaveLabel}</span>
+              <span>{t(leaveLabel)}</span>
             </button>
           </div>
         </div>
@@ -265,48 +277,48 @@ export default function PaymentPage() {
       <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         {/* 訂單摘要 */}
         <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
-          <h2 className="mb-6 text-2xl font-bold text-gray-800">訂單摘要</h2>
+          <h2 className="mb-6 text-2xl font-bold text-gray-800">{t('訂單摘要')}</h2>
 
           <div className="space-y-4">
             {paymentData.order_details.map((item) => (
               <div key={item.pk} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
                 <div className="mb-3 font-semibold text-gray-800">
-                  {item.course_label || `預約課程 #${item.pk}`}
+                  {item.course_label || `${t('預約課程')} #${item.pk}`}
                 </div>
                 <div className="space-y-2 text-sm">
                   {item.course_fee > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">課程費</span>
+                      <span className="text-gray-600">{t('課程費')}</span>
                       <span className="font-medium">NT$ {money(item.course_fee)}</span>
                     </div>
                   )}
                   {item.coach_fee > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">教練費</span>
+                      <span className="text-gray-600">{t('教練費')}</span>
                       <span className="font-medium">NT$ {money(item.coach_fee)}</span>
                     </div>
                   )}
                   {item.equipment_rental_fee > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">器材租借費</span>
+                      <span className="text-gray-600">{t('器材租借費')}</span>
                       <span className="font-medium">NT$ {money(item.equipment_rental_fee)}</span>
                     </div>
                   )}
                   {item.equipment_assistance_time_label && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">裝備協助時段</span>
+                      <span className="text-gray-600">{t('裝備協助時段')}</span>
                       <span className="font-medium">{item.equipment_assistance_time_label}</span>
                     </div>
                   )}
                   {item.language_fee > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">語言服務費</span>
+                      <span className="text-gray-600">{t('語言服務費')}</span>
                       <span className="font-medium">NT$ {money(item.language_fee)}</span>
                     </div>
                   )}
                   {(item.discount_amount || 0) > 0 && (
                     <div className="flex justify-between text-emerald-700">
-                      <span>{item.discount_name || '優惠折扣'}</span>
+                      <span>{item.discount_name || t('優惠折扣')}</span>
                       <span className="font-medium">− NT$ {money(item.discount_amount || 0)}</span>
                     </div>
                   )}
@@ -316,23 +328,23 @@ export default function PaymentPage() {
           </div>
 
           <SettlementSummary settlement={paymentData.settlement} paymentInstructions={paymentData.payment_status==='unpaid'} />
-          <div className="mt-6 flex items-center justify-between border-t-2 border-gray-200 pt-6">
-            <span className="text-xl font-semibold text-gray-700">總金額</span>
+          <div className="mt-6 flex flex-col gap-2 border-t-2 border-gray-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <span className="shrink-0 text-xl font-semibold text-gray-700">{t('總金額')}</span>
             <span className="text-3xl font-bold text-[#2b5f8f]">
-              {settlementAmount(paymentData.settlement,paymentData.total_amount)}
+              {settlementAmount(paymentData.settlement,paymentData.total_amount,locale)}
             </span>
           </div>
         </div>
 
-        {isPaid && <div role="status" className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 font-semibold text-emerald-800">此訂單已付款，無需再次提交匯款資料。</div>}
-        {isRefunded && <div role="status" className="mb-8 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 font-semibold text-[#1e4e73]">系統已記錄退款，不需再次付款。實際退款入帳請以銀行或金流紀錄為準。</div>}
-        {!canSubmitPayment && !isPaid && !isPending && !isRefunded && <div role="status" className="mb-8 rounded-sm border border-amber-200 bg-amber-50 p-5 font-semibold text-amber-900">付款狀態已更新，請返回會員訂單確認；請勿再次匯款。</div>}
-        {isPending && <div role="status" className="mb-8 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 font-semibold text-[#1e4e73]">匯款資料已送出，正在等待 SnowLand 確認付款；請勿重複匯款。如需更正匯款資料，請聯繫客服。{accessToken && <p className="mt-2 text-sm font-normal">請保留這個付款連結，之後可回來查看付款狀態。</p>}</div>}
-        {showLaterReminder && canSubmitPayment && <div role="status" className="mb-8 rounded-sm border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">目前尚未回報匯款。請保留這個付款連結，在付款期限內完成匯款後，再回來填寫匯款帳戶後五碼。</div>}
+        {isPaid && <div role="status" className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 font-semibold text-emerald-800">{t('此訂單已付款，無需再次提交匯款資料。')}</div>}
+        {isRefunded && <div role="status" className="mb-8 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 font-semibold text-[#1e4e73]">{t('系統已記錄退款，不需再次付款。實際退款入帳請以銀行或金流紀錄為準。')}</div>}
+        {!canSubmitPayment && !isPaid && !isPending && !isRefunded && <div role="status" className="mb-8 rounded-sm border border-amber-200 bg-amber-50 p-5 font-semibold text-amber-900">{t('付款狀態已更新，請返回會員訂單確認；請勿再次匯款。')}</div>}
+        {isPending && <div role="status" className="mb-8 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 font-semibold text-[#1e4e73]">{t('匯款資料已送出，正在等待 SnowLand 確認付款；請勿重複匯款。如需更正匯款資料，請聯繫客服。')}{accessToken && <p className="mt-2 text-sm font-normal">{t('請保留這個付款連結，之後可回來查看付款狀態。')}</p>}</div>}
+        {showLaterReminder && canSubmitPayment && <div role="status" className="mb-8 rounded-sm border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">{t('目前尚未回報匯款。請保留這個付款連結，在付款期限內完成匯款後，再回來填寫匯款帳戶後五碼。')}</div>}
 
         {/* 付款方式選擇 */}
         {canSubmitPayment && <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
-          <h2 className="mb-6 text-2xl font-bold text-gray-800">選擇付款方式</h2>
+          <h2 className="mb-6 text-2xl font-bold text-gray-800">{t('選擇付款方式')}</h2>
 
           <div className="grid gap-4 md:grid-cols-2">
             {/* 銀行匯款 */}
@@ -351,8 +363,8 @@ export default function PaymentPage() {
                   <Building2 size={24} className={selectedMethod === 'bank_transfer' ? 'text-[#2b5f8f]' : 'text-gray-600'} />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-bold text-gray-800">銀行匯款</h3>
-                  <p className="text-sm text-gray-600">匯款後等待確認</p>
+                  <h3 className="font-bold text-gray-800">{t('銀行匯款')}</h3>
+                  <p className="text-sm text-gray-600">{t('匯款後等待確認')}</p>
                 </div>
                 {selectedMethod === 'bank_transfer' && (
                   <CheckCircle className="text-[#2b5f8f]" size={24} />
@@ -376,8 +388,8 @@ export default function PaymentPage() {
                   <CreditCard size={24} className={selectedMethod === 'newebpay' ? 'text-[#2b5f8f]' : 'text-gray-600'} />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-bold text-gray-800">藍新支付</h3>
-                  <p className="text-sm text-gray-600">信用卡/ATM/超商</p>
+                  <h3 className="font-bold text-gray-800">{t('藍新支付')}</h3>
+                  <p className="text-sm text-gray-600">{t('信用卡/ATM/超商')}</p>
                 </div>
                 {selectedMethod === 'newebpay' && (
                   <CheckCircle className="text-[#2b5f8f]" size={24} />
@@ -387,7 +399,7 @@ export default function PaymentPage() {
           </div>
           {!canUseBankTransfer && !canUseNewebpay && (
             <p role="alert" className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
-              付款方式尚未設定完成，請聯繫客服協助，暫時不要匯款。
+              {t('付款方式尚未設定完成，請聯繫客服協助，暫時不要匯款。')}
             </p>
           )}
         </div>}
@@ -395,63 +407,63 @@ export default function PaymentPage() {
         {/* 銀行匯款資訊 */}
         {canSubmitPayment && canUseBankTransfer && selectedMethod === 'bank_transfer' && (
           <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
-            <h2 className="mb-6 text-2xl font-bold text-gray-800">銀行匯款資訊</h2>
+            <h2 className="mb-6 text-2xl font-bold text-gray-800">{t('銀行匯款資訊')}</h2>
 
             <div className="mb-6 space-y-4 rounded-lg bg-blue-50 p-6">
-              <div className="flex justify-between">
-                <span className="text-gray-700">銀行名稱</span>
-                <span className="font-semibold text-gray-900">{paymentData.bank_info?.bank_name || '—'}</span>
+              <div className="flex justify-between gap-3">
+                <span className="shrink-0 text-gray-700">{t('銀行名稱')}</span>
+                <span className="min-w-0 break-words text-right font-semibold text-gray-900">{paymentData.bank_info?.bank_name || '—'}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-700">分行名稱</span>
-                <span className="font-semibold text-gray-900">{paymentData.bank_info?.bank_branch || '—'}</span>
+              <div className="flex justify-between gap-3">
+                <span className="shrink-0 text-gray-700">{t('分行名稱')}</span>
+                <span className="min-w-0 break-words text-right font-semibold text-gray-900">{paymentData.bank_info?.bank_branch || '—'}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-700">帳戶號碼</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900">{paymentData.bank_info?.bank_account_number || '—'}</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="shrink-0 text-gray-700">{t('帳戶號碼')}</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 break-all text-right font-semibold text-gray-900">{paymentData.bank_info?.bank_account_number || '—'}</span>
                   <button
                     onClick={handleCopyAccount}
                     disabled={!paymentData.bank_info?.bank_account_number}
-                    className="rounded-lg bg-blue-100 p-2 transition-colors hover:bg-blue-200"
-                    title="複製帳號"
+                    className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg bg-blue-100 p-2 transition-colors hover:bg-blue-200"
+                    title={t('複製帳號')}
                   >
                     {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-blue-600" />}
                   </button>
                 </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-700">戶名</span>
-                <span className="font-semibold text-gray-900">{paymentData.bank_info?.bank_account_holder || '—'}</span>
+              <div className="flex justify-between gap-3">
+                <span className="shrink-0 text-gray-700">{t('戶名')}</span>
+                <span className="min-w-0 break-words text-right font-semibold text-gray-900">{paymentData.bank_info?.bank_account_holder || '—'}</span>
               </div>
               {paymentData.payment_expires_at && <div className="flex justify-between gap-3">
-                <span className="shrink-0 text-gray-700">付款期限</span>
-                <span className="text-right font-semibold text-gray-900">{new Date(paymentData.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}</span>
+                <span className="shrink-0 text-gray-700">{t('付款期限')}</span>
+                <span className="min-w-0 text-right font-semibold text-gray-900">{new Date(paymentData.payment_expires_at).toLocaleString(locale==='zh-Hant'?'zh-TW':locale, { timeZone: 'Asia/Taipei', hour12: false })} (UTC+8)</span>
               </div>}
               {paymentData.bank_info?.overseas_details && <p className="whitespace-pre-wrap break-words text-sm text-gray-800">{paymentData.bank_info.overseas_details}</p>}
-              <div className="flex justify-between border-t-2 border-blue-200 pt-4">
-                <span className="text-lg font-bold text-gray-700">匯款金額</span>
+              <div className="flex flex-col gap-2 border-t-2 border-blue-200 pt-4 sm:flex-row sm:justify-between">
+                <span className="shrink-0 text-lg font-bold text-gray-700">{t('匯款金額')}</span>
                 <span className="text-2xl font-bold text-[#2b5f8f]">
-                  {settlementAmount(paymentData.settlement,paymentData.total_amount)}
+                  {settlementAmount(paymentData.settlement,paymentData.total_amount,locale)}
                 </span>
               </div>
             </div>
 
             <div className="mb-6">
               <label htmlFor="senderAccount" className="mb-2 block font-semibold text-gray-700">
-                匯款帳戶後五碼（已匯款再填）
+                {t('匯款帳戶後五碼（已匯款再填）')}
               </label>
               <input
                 type="text"
                 id="senderAccount"
                 value={senderAccount}
                 onChange={(e) => setSenderAccount(e.target.value.replace(/\D/g, '').slice(0, 5))}
-                placeholder="請輸入您的匯款帳戶後五碼"
+                placeholder={t('請輸入您的匯款帳戶後五碼')}
                 maxLength={5}
                 className="w-full rounded-sm border border-[#cbd5e1] px-4 py-3 focus:border-[#2b5f8f] focus:outline-none focus:ring-2 focus:ring-[#d7e9f5]"
               />
               <p className="mt-2 text-sm text-gray-600">
-                若尚未匯款，可先按「稍後匯款」離開；完成匯款後再回付款連結填寫後五碼。
+                {t('若尚未匯款，可先按「稍後匯款」離開；完成匯款後再回付款連結填寫後五碼。')}
               </p>
             </div>
 
@@ -460,14 +472,14 @@ export default function PaymentPage() {
                 onClick={handleBankTransferLater}
                 className="rounded-full border border-[#2b5f8f] bg-white px-8 py-4 text-lg font-bold text-[#2b5f8f] transition-colors hover:bg-[#eaf4fb]"
               >
-                稍後匯款
+                {t('稍後匯款')}
               </button>
               <button
                 onClick={handleConfirmBankTransfer}
                 disabled={senderAccount.length !== 5}
                 className="rounded-full bg-[#2b5f8f] px-8 py-4 text-lg font-bold text-white transition-colors hover:bg-[#1e4e73] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                確認已匯款
+                {t('確認已匯款')}
               </button>
             </div>
           </div>
@@ -476,14 +488,14 @@ export default function PaymentPage() {
         {/* 藍新支付 */}
         {canSubmitPayment && canUseNewebpay && selectedMethod === 'newebpay' && (
           <div className="mb-8 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm sm:p-8">
-            <h2 className="mb-6 text-2xl font-bold text-gray-800">藍新支付</h2>
+            <h2 className="mb-6 text-2xl font-bold text-gray-800">{t('藍新支付')}</h2>
 
             <div className="mb-6 rounded-sm bg-[#eaf4fb] p-6 text-center">
               <p className="mb-4 text-gray-700">
-                點擊下方按鈕將跳轉到藍新金流付款頁面
+                {t('點擊下方按鈕將跳轉到藍新金流付款頁面')}
               </p>
               <p className="text-lg font-bold text-[#2b5f8f]">
-                付款金額：{settlementAmount(paymentData.settlement,paymentData.total_amount)}
+                {t('付款金額')}：{settlementAmount(paymentData.settlement,paymentData.total_amount,locale)}
               </p>
             </div>
 
@@ -491,7 +503,7 @@ export default function PaymentPage() {
               onClick={handleNewebpayPayment}
               className="w-full rounded-full bg-[#2b5f8f] px-8 py-4 text-lg font-bold text-white transition-colors hover:bg-[#1e4e73]"
             >
-              前往付款
+              {t('前往付款')}
             </button>
           </div>
         )}
@@ -499,14 +511,14 @@ export default function PaymentPage() {
 
       {/* Toast 通知 */}
       <Toast
-        message={toast.message}
+        message={t(toast.message,toast.values)}
         type={toast.type}
         isOpen={toast.isOpen}
         onClose={() => setToast({ ...toast, isOpen: false })}
       />
 
       {/* 載入動畫 */}
-      <LoadingOverlay isLoading={!!loadingMessage} message={loadingMessage} />
+      <LoadingOverlay isLoading={!!loadingMessage} message={t(loadingMessage)} />
     </div>
   )
 }

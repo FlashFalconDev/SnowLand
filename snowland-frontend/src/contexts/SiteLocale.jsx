@@ -4,7 +4,7 @@ import { readSiteLanguagePreference, resolveSiteLocale, siteLanguages, siteLangu
 
 const browserLanguages=()=>typeof navigator==='undefined'?[]:navigator.languages?.length?navigator.languages:[navigator.language];
 const readPreference=()=>{try{return readSiteLanguagePreference(window.localStorage);}catch{return 'auto';}};
-const SiteLocaleContext=createContext({locale:'zh-Hant',preference:'auto',storageError:false,setPreference:()=>{},t:source=>source});
+const SiteLocaleContext=createContext({locale:/** @type {import('../utils/siteLocale').SiteLocale} */ ('zh-Hant'),preference:'auto',storageError:false,setPreference:()=>{},t:(source,values={})=>translateSiteText('zh-Hant',source,values)});
 
 export function SiteLocaleProvider({children}) {
   const {pathname}=useLocation();
@@ -30,7 +30,7 @@ export function SiteLocaleProvider({children}) {
     try{window.localStorage.setItem(siteLanguageStorageKey,next);setStorageError(false);}
     catch{setStorageError(true);}
   };
-  return <SiteLocaleContext.Provider value={{locale,preference,setPreference,storageError,t:source=>translateSiteText(locale,source)}}>{children}</SiteLocaleContext.Provider>;
+  return <SiteLocaleContext.Provider value={{locale,preference,setPreference,storageError,t:(source,values={})=>translateSiteText(locale,source,values)}}>{children}</SiteLocaleContext.Provider>;
 }
 
 export const useSiteLocale=()=>useContext(SiteLocaleContext);
