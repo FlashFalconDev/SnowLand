@@ -91,9 +91,10 @@ export default function MyCoursesPage() {
           </div>
           <input
             type="month"
+            aria-label="統計月份"
             value={statsMonth}
             onChange={(e) => setStatsMonth(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-auto"
+            className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-auto"
           />
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -198,7 +199,7 @@ export default function MyCoursesPage() {
                     <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
                       <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" />{item.resort}</div>
                       <div className="flex items-center gap-1"><User size={12} className="text-gray-400" />{item.user_name} · {item.number_of_people} 人</div>
-                      <div className="text-xs text-gray-500">能力：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.join('、') || '未填'} · 教學語言：{item.language_label || '未填'}</div>
+                      <div className="text-xs text-gray-500">能力：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.filter(Boolean).join('、') || '未填'} · 教學語言：{item.language_label || '未填'}</div>
                     </div>
                   </div>
                 </div>

@@ -32,11 +32,11 @@ assert.equal(changes.at(-1).metadata.enabled,true)
 const page=fs.readFileSync(path.join(root,'src/admin/pages/cms/SiteContentPage.tsx'),'utf8')
 assert.match(page,/key: 'site.tracking'/)
 assert.match(page,/isTracking \? <SiteTrackingFields/)
-assert.match(page,/isWaiver \|\| isTracking \? null/)
+assert.match(page,/isWaiver \|\| isTracking \|\| isCheckoutPolicy \? null/)
 const submitSource=page.slice(page.indexOf('  const handleSubmit = (event: FormEvent) => {'),page.indexOf('\n  return (',page.indexOf('  const handleSubmit = (event: FormEvent) => {')))
 const form={...value,content_type:'setting',location_key:'site.tracking',metadata:{ga4_id:'G-QA12345678'},tags:[]}
 let submitted
-const submitContext=vm.createContext({form,onSubmit:data=>submitted=data,cannotPublishEmptyPricing:false,normalizeContentBlocks:()=>[],pricingMetadata:{},isTracking:true,isWaiver:false,isArticlePage:false,isGuideListing:false,resortPageSlug:'',blocksToPlainText:()=>'',getFirstBlockImage:()=>'',fromDateTimeInput:x=>x,toDateTimeInput:x=>x})
+const submitContext=vm.createContext({form,onSubmit:data=>submitted=data,cannotPublishEmptyPricing:false,normalizeContentBlocks:()=>[],pricingMetadata:{},isCheckoutPolicy:false,isTracking:true,isWaiver:false,isArticlePage:false,isGuideListing:false,resortPageSlug:'',blocksToPlainText:()=>'',getFirstBlockImage:()=>'',fromDateTimeInput:x=>x,toDateTimeInput:x=>x})
 vm.runInContext(ts.transpileModule(submitSource+'\nhandleSubmit({preventDefault(){}})',{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,submitContext)
 assert.equal(submitted.metadata.ga4_id,'G-QA12345678')
 assert.equal(Object.hasOwn(submitted.metadata,'blocks'),false,'Tracking must not receive generic CMS blocks metadata')

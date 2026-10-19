@@ -16,6 +16,7 @@ function harness({pending=false,confirm=true,query={data:[item],isLoading:false,
   return{render,calls,invalidations,messages,get mutation(){return mutation},get retries(){return retries},get confirmations(){return confirmations},button:label=>find(render(),n=>n.type==='button'&&text(n)===label)}
 }
 for(const label of ['接受課程','拒絕'])assert.match(harness().button(label).props.className,/min-h-11/,'coach actions need44px touch targets')
+assert.ok(text(harness({query:{data:[{...item,age_ranges:['','']}],isLoading:false}}).render()).includes('年齡：未填'),'Blank learner ages must not render as punctuation alone')
 const accept=harness();accept.button('接受課程').props.onClick();assert.equal(accept.calls[0].action,'accept')
 const cancel=harness({confirm:false});cancel.button('拒絕').props.onClick();assert.equal(cancel.confirmations,1);assert.equal(cancel.calls.length,0)
 const reject=harness();reject.button('拒絕').props.onClick();assert.equal(reject.calls[0].action,'reject')

@@ -15,7 +15,7 @@ def documents_missing(member, version):
     insurance = member.insurance_data if isinstance(member.insurance_data, dict) else {}
     return not (
         member.insurance_completed_at and insurance_details_complete(insurance)
-        and member.waiver_completed_at and member.waiver_signature
+        and member.waiver_completed_at and member.waiver_signature and not member.waiver_resign_required
         and member.waiver_document_version == version and signer_details_complete(insurance)
     )
 

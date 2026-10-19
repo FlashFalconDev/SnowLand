@@ -1364,8 +1364,9 @@ class OperationsTests(TestCase):
         self.assertEqual(api.get('/booking/snowland/api/member-center/').data['learning_records'], [])
 
     def test_member_can_complete_pre_course_form_and_waiver(self):
-        member = MemberDetail.objects.create(reservation=self.reservation, user=self.user)
+        member = MemberDetail.objects.create(reservation=self.reservation, user=self.user, waiver_resign_required=True)
         api = APIClient(); api.force_authenticate(self.user)
+        self.assertFalse(api.get('/booking/snowland/api/member-center/').data['pre_course_forms'][0]['waiver_completed'])
         response = api.post('/booking/snowland/api/member-center/', {
             'action': 'update_pre_course_form',
             'member_id': member.id,
@@ -1379,6 +1380,7 @@ class OperationsTests(TestCase):
             'waiver_agreed': True,
             'waiver_signature': '測試學員',
             'waiver_document_version': 'V0-2026-10-08',
+            'waiver_course_revision': 0,
             'media_consent': 'decline',
         }, format='json')
         self.assertEqual(response.status_code, 200)
@@ -1388,6 +1390,7 @@ class OperationsTests(TestCase):
         self.assertEqual(member.waiver_signature, '測試學員')
         self.assertEqual(member.waiver_document_version, 'V0-2026-10-08')
         self.assertEqual(member.media_consent, 'decline')
+        self.assertFalse(member.waiver_resign_required)
         self.assertIn('SnowLand 滑雪運動安全聲明書', member.waiver_document_snapshot)
 
     def test_member_old_insurance_completion_without_details_is_not_complete(self):

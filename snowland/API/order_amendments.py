@@ -151,13 +151,18 @@ def _quote_item(group,reservation,change):
             language=language,equipment_value=equipment,people_count=people,bookings_count=len(courses),course_template=representative)
     subtotal=course_fee+coach_fee+language_fee+equipment_fee
     if discount>subtotal:_fail('原折抵金額超過修改後總價，請先核對並調整折抵金額')
+    changed_documents=any(course['date']!=existing[course['booking_id']].date or course['template_id']!=(existing[course['booking_id']].course_template_id or reservation.course_template_id) for course in courses)
+    retained=change.get('retained_member_ids')
+    reviewed_members=[member for member in reservation.members.all() if retained is None or member.pk in retained] if changed_documents else []
     return {'reservation_id':reservation.pk,'number_of_people':people,'language':language,'equipment':equipment,
         'is_preferred_coach':specified,'preferred_coach_id':coach_id,'courses':courses,'course_fee':course_fee,'coach_fee':coach_fee,
         'language_fee':language_fee,'equipment_fee':equipment_fee,'discount_amount':discount,'previous_amount':reservation.payment_amount,
         'new_amount':subtotal-discount,'price_basis_changed':not same_price_basis,
         'participant_review_required':people!=reservation.number_of_people,
         'discount_changed':discount!=old_discount,'ability_level_counts':change.get('ability_level_counts'),
-        'retained_member_ids':change.get('retained_member_ids')}
+        'retained_member_ids':change.get('retained_member_ids'),
+        'waiver_resign_count':sum(bool(member.waiver_signature or member.waiver_completed_at) for member in reviewed_members),
+        'insurance_recheck_count':sum(member.insurance_processing_status=='insured' for member in reviewed_members)}
 
 
 def amendment_digest(value):

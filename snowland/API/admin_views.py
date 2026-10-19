@@ -645,6 +645,9 @@ class SiteContentAdminViewSet(ModelViewSet):
         return Response({'code':200,'data':{'list':rows}})
 
     def _check_content_scope(self, serializer):
+        from booking.checkout_policies import POLICY_PAGES
+        if any(location in POLICY_PAGES.values() for location in (serializer.validated_data.get('location_key'), getattr(serializer.instance, 'location_key', None))):
+            self._require_policy_headquarters()
         if 'site.tracking' in (
             serializer.validated_data.get('location_key'),
             getattr(serializer.instance, 'location_key', None),
@@ -671,7 +674,16 @@ class SiteContentAdminViewSet(ModelViewSet):
             return
         raise PermissionDenied('只有總部管理員可以變更分析追蹤設定')
 
+    def _require_policy_headquarters(self):
+        user = self.request.user
+        if user.is_superuser or getattr(getattr(user, 'userprofile', None), 'role', None) == 'hq_admin':
+            return
+        raise PermissionDenied('只有總部管理員可以變更訂課條款')
+
     def perform_destroy(self, instance):
+        from booking.checkout_policies import POLICY_PAGES
+        if instance.location_key in POLICY_PAGES.values():
+            self._require_policy_headquarters()
         if instance.location_key == 'site.tracking':
             self._require_tracking_headquarters()
         super().perform_destroy(instance)
@@ -2499,7 +2511,7 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
         status_filter = self.request.query_params.get('status')
         from booking.legal_documents import get_current_waiver
         current_version = get_current_waiver(self.request.tenant)['version']
-        stale_signature = Q(waiver_signature__isnull=False) & ~Q(waiver_signature='') & ~Q(waiver_document_version=current_version)
+        stale_signature = Q(waiver_resign_required=True) | (Q(waiver_signature__isnull=False) & ~Q(waiver_signature='') & ~Q(waiver_document_version=current_version))
         if status_filter == 'missing':
             qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True) | stale_signature)
         elif status_filter == 'completed':
@@ -2566,11 +2578,18 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
         return Response({'code': 200, 'msg': '投保作業紀錄已儲存（不會自動投保）', 'data': self.get_serializer(member).data})
 
     @action(detail=True, methods=['post'], url_path='complete')
+    @transaction.atomic
     def complete(self, request, *args, **kwargs):
         member = self.get_object()
+        ReservationGroup.objects.select_for_update().get(pk=member.reservation.group_id)
+        member = get_object_or_404(self.get_queryset().select_for_update(), pk=member.pk)
         field = request.data.get('field')
         if field not in ('insurance', 'waiver'):
             return Response({'code': 400, 'msg': '完成項目不正確'}, status=400)
+        if field == 'waiver':
+            from booking.legal_documents import get_current_waiver, waiver_requires_resign
+            if waiver_requires_resign(member, get_current_waiver(request.tenant)):
+                return Response({'code': 409, 'msg': '課程或文件已更新，須由會員重新簽署，不能人工標記略過'}, status=409)
         target = 'insurance_completed_at' if field == 'insurance' else 'waiver_completed_at'
         setattr(member, target, timezone.now())
         member.save(update_fields=[target])
@@ -3429,9 +3448,14 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                 if shared_class is None:
                     return Response({'code': 404, 'msg': '找不到此校區的團體班'}, status=404)
 
+                # Match form/insurance writes: lock order rows before learner rows.
+                list(ReservationGroup.objects.select_for_update().filter(
+                    reservations__shared_course_class=shared_class).order_by('pk').distinct())
                 reservations = list(Reservation.objects.select_for_update().filter(
                     shared_course_class=shared_class,
-                ).exclude(status__in=['cancelled', 'deleted']).order_by('id'))
+                ).exclude(status__in=['cancelled', 'deleted']).select_related('group').order_by('id'))
+                if any(reservation.group.client_id!=request.tenant.pk for reservation in reservations):
+                    return Response({'code':409,'msg':'班級與訂單公司不一致，請由總部核對；原資料未變更'},status=409)
                 bookings = list(Booking.objects.select_for_update().filter(
                     reservation_id__in=[reservation.id for reservation in reservations],
                 ))
@@ -3464,6 +3488,9 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                         for row in sessions
                     ],
                     'affected_orders': len({reservation.group_id for reservation in reservations}),
+                    'waiver_resign_count': MemberDetail.objects.filter(reservation__in=reservations).filter(
+                        Q(waiver_completed_at__isnull=False) | (~Q(waiver_signature='') & Q(waiver_signature__isnull=False))).count(),
+                    'insurance_recheck_count': MemberDetail.objects.filter(reservation__in=reservations,insurance_processing_status='insured').count(),
                 }
                 if request.method == 'GET':
                     return Response({'code': 200, 'msg': 'OK', 'data': data})
@@ -3539,6 +3566,17 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                     ).exists():
                         return Response({'code': 409, 'msg': '教練在新時段已有課程或請假，請先選其他時段'}, status=409)
 
+                document_archives=[]
+                if new_date != shared_class.date:
+                    from booking.course_documents import capture_course_documents
+                    members=list(MemberDetail.objects.select_for_update().filter(
+                        reservation_id__in=[reservation.pk for reservation in reservations]).select_related('reservation').order_by('pk'))
+                    for reservation in reservations:
+                        previous_courses=[{'id':row.pk,'date':row.date,'start_time':row.start_time,'end_time':row.end_time,
+                            'template_id':row.course_template_id or reservation.course_template_id} for row in bookings if row.reservation_id==reservation.pk]
+                        new_courses=[{**course,'date':new_date,'start_time':new_start,'end_time':new_end} for course in previous_courses]
+                        document_archives.extend(capture_course_documents(
+                            [member for member in members if member.reservation_id==reservation.pk],previous_courses,new_courses))
                 old_slot = f'{shared_class.date} {shared_class.start_time:%H:%M}–{shared_class.end_time:%H:%M}'
                 shared_class.date = new_date
                 shared_class.start_time = new_start
@@ -3554,15 +3592,19 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                 from booking.operations import record_order_revision, schedule_group_notifications
                 for group_id in {reservation.group_id for reservation in reservations}:
                     group = ReservationGroup.objects.get(pk=group_id)
-                    record_order_revision(
+                    revision=record_order_revision(
                         group, user=request.user,
                         reason=f'跨訂單團體班整班改期：{old_slot} → {new_date} {new_start:%H:%M}–{new_end:%H:%M}',
                     )
+                    from booking.course_documents import save_course_documents
+                    save_course_documents([entry for entry in document_archives if entry[0].reservation.group_id==group_id],revision,request.user)
                     schedule_group_notifications(group, 'pre_course')
                     schedule_group_notifications(group, 'missing_documents')
                 data.update(date=new_date.isoformat(), start_time=new_start.strftime('%H:%M'),
                             end_time=new_end.strftime('%H:%M'))
                 message = '整班時段已更新；請通知受影響客人確認新時間'
+                if document_archives:
+                    message += '。舊文件已留底，已簽學員須重新簽署，已投保者轉行政重核'
                 if coach_id and coach_status == 'passive':
                     message += '，並請教練重新確認接課'
                 return Response({'code': 200, 'msg': message, 'data': data})

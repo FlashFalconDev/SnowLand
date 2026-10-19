@@ -48,7 +48,11 @@ def waiver_requires_resign(member, document):
     A timestamp-only administrative/paper acknowledgement is a separate legacy
     workflow and is not silently converted into an online signature here.
     """
-    return bool(member.waiver_signature and member.waiver_document_version != document['version'])
+    return bool(member.waiver_resign_required or (member.waiver_signature and member.waiver_document_version != document['version']))
+
+
+def course_waiver_revision(member):
+    return member.course_document_revisions.order_by('-pk').values_list('pk', flat=True).first() or 0
 
 
 @lru_cache(maxsize=1)

@@ -46,6 +46,8 @@ def _content(row,event=None):
             for booking in reservation.get('bookings',[]):
                 text+=f'\n{booking["date"]} {booking["start_time"]}–{booking["end_time"]} · {reservation.get("resort_name","")} · {booking.get("course_name","")}'
         if any(change.get('created_ids') for change in row.participant_changes.values()):text+='\n新增學員欄位尚待填寫，請至會員區補齊課前資料；不會代簽聲明書。'
+        if row.revision.member_document_revisions.exists():
+            text+='\n本次改期／換課的舊簽署與投保紀錄已留底。已簽學員請登入自己的會員區重新簽署；已投保者由行政重新核對，不會直接沿用原投保狀態或保費。'
     subject=f'SnowLand {title}｜第 {row.revision.version} 版'
     body=f'訂單：{row.group.order_number}\n第 {row.revision.version} 版\n{text}\n\n請使用訂購會員帳號登入「我的訂單」，查看最新課程與差額狀態。'
     url=_order_url(row.group)

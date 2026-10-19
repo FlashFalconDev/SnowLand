@@ -80,7 +80,7 @@ export default function PendingConfirmationsPage() {
                     <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" />{item.resort}</div>
                     <div className="flex items-center gap-1"><User size={12} className="text-gray-400" />{item.user_name} · {item.number_of_people} 人</div>
                   </div>
-                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">程度：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.join('、') || '未填'}</div>
+                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">程度：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.filter(Boolean).join('、') || '未填'}</div>
                 </div>
               </div>
 

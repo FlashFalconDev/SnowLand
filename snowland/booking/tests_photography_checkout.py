@@ -1,3 +1,4 @@
+from booking.tests_policy_support import checkout_policy_acknowledgement
 from datetime import timedelta
 from copy import deepcopy
 
@@ -27,7 +28,7 @@ class PhotographyCheckoutTests(TestCase):
     def test_member_photo_checkout_admin_payment_and_rebook_keep_type_price_and_owner(self):
         date = (timezone.localdate() + timedelta(days=20)).isoformat()
         payload = {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {'name': 'QA影像客人', 'email': self.owner.email, 'phone': '0900000000',
                         'messengerType': 'LINE', 'messengerId': 'qa-only', 'referralSource': 'Instagram'},
             'cart': [{'serviceType': 'photo', 'courseCategory': '自訂影像方案',

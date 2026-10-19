@@ -92,7 +92,7 @@ export default function MyCalendarPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">我的月曆</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">您本月的課程行事曆</p>
-        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">過往課程都能查看；未來課程依教練設定顯示（一般教練為未來 10 天）。</p>
+        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">僅列已回報付款或已付款課程；尚未回報付款的不顯示。可查過往課程；未來依教練設定（一般為10天）。</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
@@ -101,9 +101,9 @@ export default function MyCalendarPage() {
             <h3 className="font-semibold text-gray-900 dark:text-white text-lg">{year} 年 {month + 1} 月</h3>
             <div className="flex items-center gap-2">
               <button onClick={() => { setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelectedDate(todayStr) }}
-                className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
-              <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
-              <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
+                className="min-h-11 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
+              <button aria-label="月曆上一個月" onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="min-h-11 min-w-11 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
+              <button aria-label="月曆下一個月" onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="min-h-11 min-w-11 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
             </div>
           </div>
 

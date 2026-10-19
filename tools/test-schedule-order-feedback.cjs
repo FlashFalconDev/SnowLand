@@ -2,8 +2,9 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequire(path.join(root,'package.json')),ts=req('typescript'),React=req('react'),{renderToStaticMarkup}=req('react-dom/server')
 const read=name=>{const source=fs.readFileSync(path.join(root,'src/admin/pages',name),'utf8');return ts.createSourceFile(name,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX)}
 const schedule=read('SchedulingPage.tsx'),orders=read('OrdersPage.tsx')
-let statusGuard,dataGuard,query,dayOrderButton
+let statusGuard,dataGuard,query,dayOrderButton,documentReview
 function walk(node){
+ if(ts.isJsxExpression(node)&&node.expression?.getText(schedule).startsWith('rescheduleDate!==candidate.date'))documentReview=node.expression
  if(ts.isJsxExpression(node)&&node.expression?.getText(schedule).startsWith('selectedOrderId !== null && (isOrderLoading || orderError)'))statusGuard=node.expression
  if(ts.isJsxExpression(node)&&node.expression?.getText(schedule).startsWith('selectedOrderId !== null && selectedOrder &&'))dataGuard=node.expression
  if(ts.isVariableDeclaration(node)&&node.name.getText(schedule).includes('data: selectedOrder'))query=node.initializer
@@ -12,6 +13,7 @@ function walk(node){
 }
 walk(schedule)
 assert.ok(statusGuard,'A calendar order lookup failure must render a status drawer, not silently disappear')
+assert.ok(documentReview,'Whole-class date changes must explain resigning and insurance recheck')
 assert.ok(dataGuard,'Keep previously loaded editor state hidden while access is revalidated')
 assert.ok(dayOrderButton.attributes.getText(schedule).includes('min-h-11'),'Mobile day-details order button must be at least 44px')
 const component=orders.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='OrderDetailStatusDrawer')
@@ -21,6 +23,11 @@ let closed=0,retried=0
 const ctx=vm.createContext({React,exports:{},useRef:()=>({current:null}),useEffect(){},PRIMARY:'#8b5cf6',Loader2:()=>null,AlertCircle:()=>null,X:()=>null,selectedOrderId:213,selectedOrder:null,isOrderLoading:false,orderError:null,setSelectedOrderId(){closed++},refetchOrder(){retried++},OrderDetailDrawer:()=>React.createElement('section',{'data-order':'private'})})
 function run(source){return vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS}}).outputText,ctx)}
 run(message.getText(orders)+'\n'+component.getText(orders))
+ctx.rescheduleDate='2026-10-30';ctx.candidate={date:'2026-10-29'};ctx.scheduleOptions={waiver_resign_count:2,insurance_recheck_count:1}
+run('exports.documentReview=()=> <>{'+documentReview.getText(schedule)+'}</>')
+assert.match(renderToStaticMarkup(ctx.exports.documentReview()),/改期須重新簽署：2 位；已投保重核：1 位/)
+ctx.rescheduleDate='2026-10-29'
+assert.equal(renderToStaticMarkup(ctx.exports.documentReview()),'','A time-only change must not claim date-based invalidation')
 run('exports.preview=()=> <>{'+statusGuard.getText(schedule)+'}{'+dataGuard.getText(schedule)+'}</>')
 for(const state of ['loading','error','cached-error','success','closed']){
  ctx.selectedOrderId=state==='closed'?null:213

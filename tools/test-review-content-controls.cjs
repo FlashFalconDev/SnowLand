@@ -23,6 +23,7 @@ function harness({rulesError=false}={}){
     if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
     if(name==='../../context')return{useNotification:()=>({success(){},error(){}})}
     if(name==='../../api/siteContent')return api
+    if(name==='../../../api/booking')return{fetchCheckoutPolicies(){}}
     if(name==='../../components/ReviewPlacementFields')return{default:function ReviewPlacementFields(){return null}}
     if(name==='../../components/GalleryFields')return{default:function GalleryFields(){return null}}
     if(name==='../../components/PhotographyPageEditor')return{default:function PhotographyPageEditor(){return null}}
@@ -44,6 +45,7 @@ function harness({rulesError=false}={}){
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='homepage.courses')),'custom CMS structure must still offer homepage course management')
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='course.areas')),'custom CMS structure must retain course area management')
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='membership.waiver')),'custom CMS structure must retain waiver management')
+  for(const key of ['policy.membership-terms','policy.privacy-policy','policy.cancellation-policy'])assert.ok(normalized.some(g=>g.locations.some(l=>l.key===key)),'custom CMS must retain checkout policy management')
   assert.equal(normalized[0].locations[0].key,'custom.page');assert.equal(custom.groups.length,1)
   return{block:ctx.exports.DraftBlock,preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},drawerAgain:props=>{cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
 }
@@ -117,4 +119,18 @@ for(const manualThumbnail of ['', '/custom-thumbnail.jpg']){
 const failed=harness({rulesError:true}),tree=failed.render({contentTypes:['review']})
 const retry=find(tree,node=>node.type==='button'&&node.props.children==='重新載入')
 assert.ok(retry);retry.props.onClick();assert.equal(failed.refetched(),2)
-console.log('PASS actual review/gallery workspace and drawer restrictions, custom review sections, CMS compatibility, explicit sync notice and retry')
+for(const key of ['policy.membership-terms','policy.privacy-policy','policy.cancellation-policy']){
+ let saved
+ const app=harness(),props={groups:[{id:'membership',label:'會員文件',locations:[{key,label:'條款',type:'page'}]}],group:'membership',item:{id:21,location_key:key,content_type:'page',title:'QA條款',body:'原正文',tags:[],metadata:{}},galleryItems:[],resortOptions:[],onClose(){},onSubmit:data=>saved=data,isSaving:false}
+ let tree=app.drawer(props)
+ const area=find(tree,n=>n.type==='textarea'&&n.props.value==='原正文')
+ const title=find(tree,n=>n.type==='input'&&n.props.value==='QA條款')
+ assert.ok(title);title.props.onChange({target:{value:'QA修改標題'}})
+ assert.ok(area,'Each policy has a named plain text editor')
+ area.props.onChange({target:{value:'修改後完整正文\n第二段'}})
+ tree=app.drawerAgain(props);find(tree,n=>n.type==='form').props.onSubmit({preventDefault(){}})
+ assert.equal(saved.body,'修改後完整正文\n第二段');assert.equal(saved.location_key,key)
+ assert.equal(saved.title,'QA修改標題')
+ assert.equal(Object.hasOwn(saved.metadata,'blocks'),false,'Policy must not acquire generic blocks')
+}
+console.log('PASS actual review/gallery workspace, CMS policy text save/preservation, explicit sync notice and retry')

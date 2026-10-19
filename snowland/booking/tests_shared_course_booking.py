@@ -1,3 +1,4 @@
+from booking.tests_policy_support import checkout_policy_acknowledgement
 from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -13,7 +14,7 @@ from Coach.models import Coach, CoachCourseLevel, CoachLeaveRequest, CoachPayRul
 from Coach.payroll import calculate_payroll_statement
 from Coursekit.models import CourseCategory, CoursePricing, CourseSession, CourseTemplate, CourseType
 from Resorts.models import Campus, EquipmentAssistanceTimeSlot, Resorts
-from booking.models import Booking, CancellationRequest, NotificationDelivery, NotificationTemplate, Payment, Reservation, ReservationGroup, SharedCourseClass
+from booking.models import Booking, CancellationRequest, MemberDetail, MemberCourseDocumentRevision, NotificationDelivery, NotificationTemplate, Payment, Reservation, ReservationGroup, SharedCourseClass
 from booking.payment_access import payment_access_token
 from booking.tasks import auto_cancel_unpaid_reservations
 
@@ -48,7 +49,7 @@ class SharedCourseBookingTests(TestCase):
 
     def payload(self, *, campus=None, level='level1', people=1):
         return {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': '測試客人', 'email': 'member@example.test', 'phone': '0900000000',
                 'messengerType': 'line', 'messengerId': 'test-id', 'referralSource': '其他',
@@ -541,8 +542,18 @@ class SharedCourseBookingTests(TestCase):
         for group in groups:
             Payment.objects.filter(reservation_group=group).update(status='paid')
         old_amounts = list(shared_class.reservations.order_by('id').values_list('payment_amount', flat=True))
+        learners=[]
+        for index,reservation in enumerate(shared_class.reservations.order_by('pk')):
+            member=reservation.members.first() or MemberDetail.objects.create(reservation=reservation)
+            member.waiver_signature=f'QA整班舊簽名{index}'
+            member.insurance_processing_status='insured' if index==0 else 'pending'
+            member.insurance_premium_amount=100 if index==0 else None
+            member.insurance_premium_currency='JPY' if index==0 else ''
+            member.save();learners.append(member)
         url = f'/api/admin/snowland/bookings/shared-classes/{shared_class.id}/schedule/'
-        self.assertEqual(admin.get(url).status_code, 200)
+        options=admin.get(url)
+        self.assertEqual(options.status_code, 200)
+        self.assertEqual((options.data['data']['waiver_resign_count'],options.data['data']['insurance_recheck_count']),(3,1))
         new_date = (shared_class.date + timedelta(days=2)).isoformat()
         response = admin.post(url, {
             'date': new_date, 'start_time': '09:00', 'end_time': '13:00',
@@ -557,6 +568,45 @@ class SharedCourseBookingTests(TestCase):
         self.assertEqual({timezone.localtime(row.scheduled_at).date() for row in NotificationDelivery.objects.filter(template=template)},
                          {shared_class.date - timedelta(days=2)})
         self.assertTrue(all(group.revisions.count() >= 3 for group in groups))
+        self.assertEqual(MemberCourseDocumentRevision.objects.count(),3)
+        for member in learners:
+            member.refresh_from_db();self.assertTrue(member.waiver_resign_required)
+            history=member.course_document_revisions.get()
+            self.assertEqual(history.revision.group_id,member.reservation.group_id)
+            self.assertEqual(history.snapshot['previous_courses'][0]['date'],self.date)
+        learners[0].refresh_from_db()
+        self.assertEqual(learners[0].insurance_processing_status,'checking')
+        self.assertIsNone(learners[0].insurance_premium_amount)
+
+    def test_shared_class_time_only_change_preserves_signed_document_state(self):
+        for _ in range(3):
+            self.assertEqual(self.book().status_code,200)
+        shared=SharedCourseClass.objects.get()
+        reservation=shared.reservations.first()
+        member=reservation.members.first() or MemberDetail.objects.create(reservation=reservation)
+        member.waiver_signature='QA整班時間調整';member.insurance_processing_status='insured';member.save()
+        CourseSession.objects.create(template=self.template,start_time='14:00',end_time='18:00')
+        admin=APIClient();admin.force_authenticate(User.objects.create_superuser('time-hq','time@example.test','test-password'))
+        response=admin.post(f'/api/admin/snowland/bookings/shared-classes/{shared.pk}/schedule/',
+            {'date':str(shared.date),'start_time':'14:00','end_time':'18:00'},format='json')
+        self.assertEqual(response.status_code,200,response.data)
+        member.refresh_from_db()
+        self.assertFalse(member.waiver_resign_required)
+        self.assertEqual(member.insurance_processing_status,'insured')
+        self.assertFalse(member.course_document_revisions.exists())
+
+    def test_shared_class_date_change_rejects_inconsistent_foreign_company_order(self):
+        for _ in range(3):
+            self.assertEqual(self.book().status_code,200)
+        shared=SharedCourseClass.objects.get()
+        group=shared.reservations.first().group
+        group.client=Client.objects.create(name='Other',internal_code='other');group.save(update_fields=['client'])
+        admin=APIClient();admin.force_authenticate(User.objects.create_superuser('scope-hq','scope@example.test','test-password'))
+        response=admin.post(f'/api/admin/snowland/bookings/shared-classes/{shared.pk}/schedule/',
+            {'date':str(shared.date+timedelta(days=1)),'start_time':'09:00','end_time':'13:00'},format='json')
+        self.assertEqual(response.status_code,409,response.data)
+        shared.refresh_from_db();self.assertEqual(str(shared.date),self.date)
+        self.assertFalse(MemberCourseDocumentRevision.objects.exists())
 
     def test_shared_class_reschedule_rejects_conflict_invalid_slot_and_campus_staff(self):
         for _ in range(3):

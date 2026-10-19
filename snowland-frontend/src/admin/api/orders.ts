@@ -220,6 +220,7 @@ export interface OrderAmendmentQuote {
     course_fee: number; coach_fee: number; language_fee: number; equipment_fee: number; discount_amount: number
     previous_amount: number; new_amount: number; price_basis_changed: boolean
     participant_review_required: boolean; discount_changed: boolean
+    waiver_resign_count: number; insurance_recheck_count: number
     retained_member_ids: number[] | null; ability_level_counts: Record<string, number> | null
   }[]
 }

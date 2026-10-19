@@ -476,6 +476,7 @@ class MemberDetail(models.Model):
     )
     insurance_completed_at = models.DateTimeField(null=True, blank=True, verbose_name='保險資料完成時間')
     waiver_completed_at = models.DateTimeField(null=True, blank=True, verbose_name='聲明書完成時間')
+    waiver_resign_required = models.BooleanField(default=False, verbose_name='課程變更須重新簽署')
 
     @property
     def display_name(self):
@@ -498,6 +499,14 @@ class MemberDetail(models.Model):
         verbose_name_plural = '2-3.學員程度表單'
         default_manager_name = 'objects'
         base_manager_name = 'all_objects'
+
+class MemberCourseDocumentRevision(models.Model):
+    """Private course-change evidence; never included in public order snapshots."""
+    member = models.ForeignKey(MemberDetail, on_delete=models.CASCADE, related_name='course_document_revisions')
+    revision = models.ForeignKey('OrderRevision', on_delete=models.CASCADE, related_name='member_document_revisions')
+    snapshot = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
 
 class ParticipantInvitation(models.Model):
     member = models.OneToOneField(MemberDetail, on_delete=models.CASCADE, related_name='invitation')

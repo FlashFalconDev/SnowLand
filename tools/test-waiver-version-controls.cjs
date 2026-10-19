@@ -22,7 +22,7 @@ function harness(patch={}){
  return{render,Dialog}
 }
 let app=harness(),tree=app.render(),html=renderToStaticMarkup(tree)
-assert.ok(html.includes('需重新簽署（文件已更新）'))
+assert.ok(html.includes('需重新簽署（課程或文件已更新）'))
 assert.ok(!html.includes('標記聲明書完成'),'Old signed versions must not offer a misleading manual completion button')
 const remind=find(tree,node=>node.type==='button'&&node.props.children==='提醒重新簽署')
 assert.ok(remind);assert.ok(remind.props.className.includes('min-h-11'));remind.props.onClick()

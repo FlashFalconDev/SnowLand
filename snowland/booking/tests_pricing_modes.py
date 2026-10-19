@@ -1,3 +1,4 @@
+from booking.tests_policy_support import checkout_policy_acknowledgement
 from datetime import date, time, timedelta
 
 from django.contrib.auth import get_user_model
@@ -113,7 +114,7 @@ class PricingModeApiTests(TestCase):
         )
         request_body = {
             'staff_link': str(link.token), 'cart': selected_cart,
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': 'QA 測試會員', 'email': member.email,
                 'phone': '0900000000', 'messengerType': 'line',
@@ -211,7 +212,7 @@ class PricingModeApiTests(TestCase):
                 'timeSlotStart': '09:00', 'timeSlotEnd': '13:00',
             })
         payload = {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': 'QA 測試會員', 'email': 'qa@example.test',
                 'phone': '0900000000', 'messengerType': 'line',
@@ -323,7 +324,7 @@ class PricingModeApiTests(TestCase):
         self.assertEqual(price.status_code, 200, price.data)
         course_fee = price.data['course_fee']
         request_body = {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': '王小雪', 'email': member.email, 'phone': '0900000000',
                 'messengerType': 'line', 'messengerId': 'qa-test', 'referralSource': '其他',
@@ -430,7 +431,7 @@ class PricingModeApiTests(TestCase):
         self.resort.auto_scheduling_enabled = False
         self.resort.save(update_fields=['auto_scheduling_enabled'])
         created = self.api.post('/booking/snowland/api/create-reservation/', {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': 'QA 會員', 'email': member.username, 'phone': '0900000000',
                 'messengerType': 'line', 'messengerId': 'qa-test', 'referralSource': '其他',
@@ -541,7 +542,7 @@ class PricingModeApiTests(TestCase):
         declined_consent = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
         self.assertEqual(declined_consent.status_code, 400, declined_consent.data)
         self.assertFalse(ReservationGroup.objects.exists())
-        request_body['accepted_policy'] = True
+        request_body.update(checkout_policy_acknowledgement())
         response = self.api.post('/booking/snowland/api/create-reservation/', request_body, format='json')
         self.assertEqual(response.status_code, 200, response.data)
         self.assertTrue(response.data.get('requires_payment'), response.data)
@@ -718,7 +719,7 @@ class PricingModeApiTests(TestCase):
             'timeSlotEnd': '13:00',
         } for date in ('2026-11-20', '2026-11-21')]
         payload = {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': 'QA 測試會員', 'email': 'qa@example.test',
                 'phone': '0900000000', 'messengerType': 'line',
@@ -786,7 +787,7 @@ class PricingModeApiTests(TestCase):
             'totalPrice': price,
         }
         payload = {
-            'accepted_policy': True,
+            **checkout_policy_acknowledgement(),
             'contact': {
                 'name': 'QA 測試會員', 'email': 'qa@example.test',
                 'phone': '0900000000', 'messengerType': 'line',
@@ -824,7 +825,7 @@ class PricingModeApiTests(TestCase):
                                        ability_levels=['no_exp'], price_level='Lv1')
         self.private_template.resorts.add(self.resort)
         CourseSession.objects.create(template=self.private_template, start_time='09:00', end_time='13:00')
-        payload = {'accepted_policy': True, 'contact': {
+        payload = {**checkout_policy_acknowledgement(), 'contact': {
             'name': 'QA 會員', 'email': 'qa@example.test', 'phone': 'QA-PHONE',
             'messengerType': 'line', 'messengerId': 'qa', 'referralSource': '其他',
         }, 'cart': [{'coach': coach.id, 'peopleCount': 1, 'abilityLevel': 'no_exp',

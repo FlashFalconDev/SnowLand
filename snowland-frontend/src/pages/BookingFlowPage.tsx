@@ -12,6 +12,8 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import CheckoutPolicyConsent from '../components/booking/CheckoutPolicyConsent'
+import type { CheckoutPolicyAcceptance } from '../api/booking'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -843,6 +845,7 @@ export default function BookingFlowPage() {
   const staffSelectedCart = Boolean(staffLinkInfo?.cart_snapshot?.length)
   const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card'>('bank')
   const [acceptedPolicy, setAcceptedPolicy] = useState(false)
+  const [policyAcceptance, setPolicyAcceptance] = useState<CheckoutPolicyAcceptance | null>(null)
 
   // 預約送出後的付款階段資訊
   const [submittedReservation, setSubmittedReservation] = useState<SubmittedReservation | null>(null)
@@ -1936,6 +1939,7 @@ export default function BookingFlowPage() {
       const response = await createReservation({
         cart,
         accepted_policy: acceptedPolicy,
+        policy_acceptance: policyAcceptance,
         contact: { ...contactInfo, referralSource: referralSourceValue },
         discount_code: discountCode.trim() || undefined,
         staff_link: staffLinkToken || undefined,
@@ -2505,6 +2509,7 @@ export default function BookingFlowPage() {
                   setPaymentMethod={setPaymentMethod}
                   acceptedPolicy={acceptedPolicy}
                   setAcceptedPolicy={setAcceptedPolicy}
+                  setPolicyAcceptance={setPolicyAcceptance}
                   submittedReservation={submittedReservation}
                   staffSelectedCart={staffSelectedCart}
                   senderAccount={senderAccount}
@@ -2667,6 +2672,7 @@ export default function BookingFlowPage() {
             const response = await superSchedule({
               cart,
               accepted_policy: acceptedPolicy,
+              policy_acceptance: policyAcceptance,
               contact: { ...contactInfo, referralSource: referralSourceValue },
               discount_code: discountCode.trim() || undefined,
             })
@@ -3038,9 +3044,10 @@ function Step2SkiConfiguration({
                     {level[abilityDescriptionKey]}
                   </p>
                   <select
+                    aria-label={`${level.name}學員人數`}
                     value={count}
                     onChange={(e) => actions.setAbilityLevelCount(level.id, Number(e.target.value))}
-                    className="h-10 rounded-sm border border-[#d4dbe4] bg-white px-3 text-sm text-[#1f2937] focus:border-[#2b5f8f] focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/20"
+                    className="min-h-11 rounded-sm border border-[#d4dbe4] bg-white px-3 text-sm text-[#1f2937] focus:border-[#2b5f8f] focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/20"
                   >
                     {Array.from({ length: maxSelectable + 1 }, (_, index) => (
                       <option key={index} value={index}>{index} 人</option>
@@ -3326,7 +3333,7 @@ function Step2SkiConfiguration({
         <div className="max-w-2xl mx-auto">
           {/* 日期限制提示（顯示「實際可預約範圍」，會考慮今天）*/}
           {dateInfo && (dateInfo.course_start_date || dateInfo.course_end_date) && (() => {
-            const today = new Date().toISOString().split('T')[0]
+            const today = toDateKey(new Date())
             // 開始日期：取「課程開始」和「今天」之中比較晚的
             const effectiveStart = dateInfo.course_start_date && dateInfo.course_start_date > today
               ? dateInfo.course_start_date
@@ -3348,8 +3355,9 @@ function Step2SkiConfiguration({
             <div className="flex items-center justify-between">
               <button
                 type="button"
+                aria-label="月曆上一個月"
                 onClick={() => actions.setCalendarMonth(addMonthsToDate(state.calendarMonth, -1))}
-                className="flex h-9 w-9 items-center justify-center rounded-sm border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-sm border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]"
               >
                 <ChevronLeft size={18} />
               </button>
@@ -3358,8 +3366,9 @@ function Step2SkiConfiguration({
               </p>
               <button
                 type="button"
+                aria-label="月曆下一個月"
                 onClick={() => actions.setCalendarMonth(addMonthsToDate(state.calendarMonth, 1))}
-                className="flex h-9 w-9 items-center justify-center rounded-sm border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-sm border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]"
               >
                 <ChevronRight size={18} />
               </button>
@@ -3442,7 +3451,7 @@ function Step2SkiConfiguration({
           )}
 
           {dateInfo && (() => {
-            const today = new Date().toISOString().split('T')[0]
+            const today = toDateKey(new Date())
             const courseEnded = dateInfo.course_end_date && dateInfo.course_end_date < today
             const bookingClosed = dateInfo.booking_close_date && dateInfo.booking_close_date < today
             const bookingNotOpen = dateInfo.booking_open_date && dateInfo.booking_open_date > today
@@ -3581,12 +3590,11 @@ function Step3Confirmation({
   referrerDetail, setReferrerDetail,
   messengerOptions, referralSourceOptions,
   paymentMethod, setPaymentMethod,
-  acceptedPolicy, setAcceptedPolicy,
+  acceptedPolicy, setAcceptedPolicy, setPolicyAcceptance,
   submittedReservation, senderAccount, setSenderAccount,
   staffSelectedCart,
   onRemoveGroup, onRemoveCourse, onEditGroup, onAddGroup, onAddCourseToGroup,
 }: any) {
-  const cancellationPolicyUrl = useSiteLink('/cancellation-policy')
   const cartSubtotal = submittedReservation?.total_amount ?? discountPreview?.subtotal ?? cart.reduce((sum: number, g: any) => sum + (g.totalPrice || 0), 0)
   const pricePending = !submittedReservation && !discountPreview && cart.some((group: CartItem) => group.totalPrice == null)
   const totalCourses = cart.reduce((sum: number, g: any) => sum + (g.courses?.length || 0), 0)
@@ -4022,18 +4030,7 @@ function Step3Confirmation({
 
         {/* 階段 3a：尚未送出訂單 → 顯示同意條款 */}
         {!isPaid && (
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={acceptedPolicy}
-              onChange={(e) => setAcceptedPolicy(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded text-[#2b5f8f] focus:ring-[#2b5f8f]"
-            />
-            <span className="text-xs text-[#6b7280] leading-relaxed">
-              我已閱讀並同意{' '}
-              <a href={cancellationPolicyUrl} className="text-[#2b5f8f] underline">取消及更改政策</a>
-            </span>
-          </label>
+          <CheckoutPolicyConsent onChange={proof => { setPolicyAcceptance(proof); setAcceptedPolicy(!!proof) }} />
         )}
 
         {/* 階段 3b：已送出訂單 → 顯示付款資訊 */}

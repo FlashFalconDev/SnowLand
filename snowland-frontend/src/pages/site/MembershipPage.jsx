@@ -254,7 +254,7 @@ function Orders({ data, onQuickRebook, onRefresh }) {
 
 function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
   const [editing, setEditing] = useState(false);
-  const savedDraft = () => ({ age_range: form.age_range, insurance_data: form.insurance_data || {}, snowboard_skills: form.snowboard_skills || [], ski_skills: form.ski_skills || [], waiver_signature: form.waiver_signature || '', waiver_agreed: form.waiver_completed, media_consent: form.media_consent || '' });
+  const savedDraft = () => ({ age_range: form.age_range, insurance_data: form.insurance_data || {}, snowboard_skills: form.snowboard_skills || [], ski_skills: form.ski_skills || [], waiver_signature: form.waiver_resign_required ? '' : form.waiver_signature || '', waiver_agreed: form.waiver_completed, media_consent: form.media_consent || '' });
   const [draft, setDraft] = useState(savedDraft);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -272,14 +272,16 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
   const save = async () => {
     setBusy(true); setMessage('');
     try {
-      const result = await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_pre_course_form', member_id: form.id, age_range: draft.age_range, snowboard_skills: draft.snowboard_skills, ski_skills: draft.ski_skills, insurance_data: { ...draft.insurance_data, waiver_signer_role: guardianSigning ? 'guardian' : 'self' }, waiver_agreed: draft.waiver_agreed, waiver_signature: draft.waiver_signature, waiver_document_version: waiverDocument.version, media_consent: draft.media_consent }) });
+      const result = await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_pre_course_form', member_id: form.id, age_range: draft.age_range, snowboard_skills: draft.snowboard_skills, ski_skills: draft.ski_skills, insurance_data: { ...draft.insurance_data, waiver_signer_role: guardianSigning ? 'guardian' : 'self' }, waiver_agreed: draft.waiver_agreed, waiver_signature: draft.waiver_signature, waiver_document_version: waiverDocument.version, waiver_course_revision: form.waiver_course_revision, media_consent: draft.media_consent }) });
       setMessage(result.message); setEditing(false); await onSaved();
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
   return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">{form.insurance_data?.full_name || `學員 ${form.student_number || ''}（待填寫姓名）`}</h3><p className="mt-1 break-all text-xs text-[#94a3b8]">{form.order_number}｜{form.resort}</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${form.insurance_completed && form.waiver_completed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{form.insurance_completed && form.waiver_completed ? '資料完成' : '尚有資料未完成'}</span></div>
+    {form.waiver_resign_required && <p role="status" className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">課程日期或模板已修改，請重新閱讀並簽署聲明書。原簽署已留底；如已投保，將由行政重新核對。</p>}
     {!editing ? <>
-      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><p>年齡：{ageLabel(form.age_range)}</p><p>保險：{form.insurance_completed ? '完成' : '未完成'}</p><p>聲明書：{form.waiver_completed ? '完成' : '需補齊或重新簽署'}</p></div>
+      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><p>年齡：{ageLabel(form.age_range)}</p><p>保險資料：{form.insurance_completed ? '已填寫' : '待補齊'}</p><p>聲明書：{form.waiver_completed ? '完成' : '需補齊或重新簽署'}</p></div>
+      <p className="mt-3 text-sm text-[#64748b]">投保作業：{({pending:'尚未投保',checking:'行政核對中',processing:'行政處理中',insured:'已投保完成'})[form.insurance_processing_status] || '待行政確認'}。填妥資料不代表已完成投保，作業狀態由行政核對及登錄。</p>
       <p className="mt-3 text-sm text-[#64748b]">程度：{[...form.snowboard_skills, ...form.ski_skills].join('、') || '尚未填寫'}</p>
       <button type="button" onClick={() => { setDraft(savedDraft()); setMessage(''); setEditing(true); }} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">填寫／修改資料</button>
     </> : <div className="mt-5 space-y-5">
@@ -309,6 +311,7 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
       <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => setEditing(false)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold disabled:opacity-50">取消</button><button type="button" disabled={busy || Boolean(birthStatus.error) || !draft.age_range || !draft.insurance_data.full_name?.trim() || (draft.waiver_agreed && (birthStatus.age === null || !draft.waiver_signature.trim() || !draft.media_consent || missingGuardianDetails))} onClick={save} className="min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? '儲存中…' : '儲存課前資料'}</button></div>
     </div>}
     {message && <p role="status" className="mt-3 text-sm text-[#2b5f8f]">{message}</p>}
+    {message.includes('課程已變更') && <button type="button" disabled={busy} onClick={() => { setEditing(false); onSaved(); }} className="mt-3 min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold">重新載入（放棄未儲存內容）</button>}
   </article>;
 }
 

@@ -39,7 +39,8 @@ from .models import (
 )
 from Control.views import login_required_control
 from .funcNewebpay import neweb_pay_request
-from .legal_documents import get_current_waiver
+from .legal_documents import get_current_waiver, course_waiver_revision
+from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
 from .media_files import course_media_url, private_file_response
 from .participant_forms import GUARDIAN_AGE_LIMIT, insurance_details_complete, participant_age, signer_details_complete
 from .participant_invitations import InvitationError, accept_invitation, binding_status, check_invitation, issue_invitation
@@ -829,6 +830,22 @@ def normalize_contact_info(request):
         'source_ip': source_ip,
         'source_country': source_country,
     }
+
+
+class CheckoutPoliciesAPI(APIView):
+    permission_classes = []
+
+    def get(self, request, client_code=None):
+        try:
+            tenant = resolve_tenant_client(client_code)
+            payload = checkout_policy_payload(tenant)
+        except TenantResolutionError as exc:
+            return Response({'error': str(exc)}, status=404)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=503)
+        response = Response(payload)
+        response['Cache-Control'] = 'no-store'
+        return response
 
 
 class SiteContentListAPI(APIView):
@@ -2279,6 +2296,13 @@ class CreateReservationAPI(APIView):
             # 解析 tenant client(永不回 None;失敗會 raise TenantResolutionError)
             tenant_client = resolve_tenant_client(client_code)
             tenant_client = type(tenant_client).objects.select_for_update().get(pk=tenant_client.pk)
+            if getattr(request, 'checkout_consent_channel', None) == 'legacy_chat':
+                contact_info['policy_consent_channel'] = 'legacy_chat'
+            else:
+                try:
+                    contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
+                except ValueError as exc:
+                    return Response({'code': 400, 'msg': str(exc)}, status=400)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
             discount_summary = calculate_cart_discount_summary(
                 cart_data,
@@ -2999,6 +3023,7 @@ class MemberCenterAPI(APIView):
             'snowboard_skills': list(member.snowboard_skills or []),
             'ski_skills': list(member.ski_skills or []),
             'insurance_data': member.insurance_data or {},
+            'insurance_processing_status': member.insurance_processing_status,
             'waiver_signature': member.waiver_signature,
             'waiver_document_version': member.waiver_document_version,
             'media_consent': member.media_consent,
@@ -3008,10 +3033,13 @@ class MemberCenterAPI(APIView):
             ),
             'waiver_completed': bool(
                 member.waiver_completed_at
+                and not member.waiver_resign_required
                 and member.waiver_signature
                 and member.waiver_document_version == waiver_document['version']
                 and signer_details_complete(member.insurance_data or {})
             ),
+            'waiver_resign_required': member.waiver_resign_required,
+            'waiver_course_revision': course_waiver_revision(member),
         } for member in member_details]
 
         participant_courses = {}
@@ -3081,7 +3109,7 @@ class MemberCenterAPI(APIView):
         } for evaluation in evaluations]
 
         completed_dates = {
-            item['date'] for item in learning_records if item['completed_at']
+            item['date'] for item in learning_records
         }
         visited_resorts = {
             item['resort'] for item in learning_records if item['resort'] != '未指定'
@@ -3220,6 +3248,11 @@ class MemberCenterAPI(APIView):
             insurance_complete = insurance_details_complete(insurance_data)
 
             waiver_agreed = request.data.get('waiver_agreed') is True
+            if waiver_agreed:
+                revision = course_waiver_revision(member)
+                submitted_revision = request.data.get('waiver_course_revision')
+                if (revision or member.waiver_resign_required) and (type(submitted_revision) is not int or submitted_revision != revision):
+                    return Response({'error': '課程已變更，請重新載入課前資料，再閱讀及簽署聲明書'}, status=409)
             waiver_signature = str(request.data.get('waiver_signature') or '').strip()[:120]
             waiver_document = get_current_waiver(tenant)
             submitted_version = str(request.data.get('waiver_document_version') or '')
@@ -3245,10 +3278,12 @@ class MemberCenterAPI(APIView):
             member.media_consent = media_consent if waiver_agreed else ''
             member.insurance_completed_at = timezone.now() if insurance_complete else None
             member.waiver_completed_at = timezone.now() if waiver_agreed else None
+            if waiver_agreed:
+                member.waiver_resign_required = False
             member.save(update_fields=[
                 'age_range', 'snowboard_skills', 'ski_skills', 'insurance_data',
                 'waiver_signature', 'insurance_completed_at', 'waiver_completed_at',
-                'waiver_document_version', 'waiver_document_snapshot', 'media_consent',
+                'waiver_document_version', 'waiver_document_snapshot', 'media_consent', 'waiver_resign_required',
             ])
             return Response({
                 'message': '課前資料已儲存',
@@ -3273,12 +3308,13 @@ class MemberCenterAPI(APIView):
                 or (booking.date == local_now.date() and booking.end_time > local_now.time())
             ):
                 return Response({'error': '課程尚未完成，暫時無法評分'}, status=400)
-            try:
-                rating = int(request.data.get('rating'))
-            except (TypeError, ValueError):
-                rating = 0
-            if rating not in range(1, 6):
+            raw_rating = request.data.get('rating')
+            # JSON booleans/floats and non-ASCII numeric characters are not
+            # selections from the five-star control. Never coerce them to a score.
+            rating_text = str(raw_rating).strip() if isinstance(raw_rating, (int, str)) and not isinstance(raw_rating, bool) else ''
+            if rating_text not in ('1', '2', '3', '4', '5'):
                 return Response({'error': '請選擇 1 到 5 分'}, status=400)
+            rating = int(rating_text)
             evaluation.self_assessment = {
                 **(evaluation.self_assessment or {}),
                 'satisfaction_rating': rating,
@@ -3707,6 +3743,10 @@ class SuperScheduleAPI(APIView):
             # 解析 tenant client(永不回 None;失敗會 raise TenantResolutionError)
             tenant_client = resolve_tenant_client(client_code)
             tenant_client = type(tenant_client).objects.select_for_update().get(pk=tenant_client.pk)
+            try:
+                contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
+            except ValueError as exc:
+                return Response({'code': 400, 'msg': str(exc)}, status=400)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
             discount_summary = calculate_cart_discount_summary(
                 cart_data,
