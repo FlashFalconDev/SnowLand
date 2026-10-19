@@ -1807,6 +1807,7 @@ class OrderAdminViewSet(ModelViewSet):
                 user=request.user,
                 selected_rule_days_before=request.data.get('selected_rule_days_before'),
                 manual_refund_amount=request.data.get('manual_refund_amount'),
+                currency=request.data.get('currency'),expected_refund_amount=request.data.get('expected_refund_amount'),
             )
         except ValueError as exc:
             return Response({'code': 400, 'msg': str(exc)}, status=400)
@@ -2297,8 +2298,18 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         if next_status not in allowed.get(cancellation.status, set()) and not legacy_review:
             return Response({'code': 400, 'msg': f'「{cancellation.get_status_display()}」不能改為這個狀態'}, status=400)
         review_fields={'actual_received_amount','refund_amount','cash_review_note','confirmed_received'}
-        if set(request.data)-({'status'}|review_fields):
+        native_fields={'currency','expected_refund_amount','confirmed_refund'} if cancellation.currency_snapshot else set()
+        if set(request.data)-({'status'}|review_fields|native_fields):
             return Response({'code':400,'msg':'取消處理包含不支援的欄位'},status=400)
+        native=cancellation.currency_snapshot or {}
+        if native.get('currency')=='JPY' and next_status in {'approved','refunded'}:
+            if review_pending:
+                return Response({'code':400,'msg':'日幣實收款尚待核對，請先確認原款及補退差額，不能直接核准退款'},status=400)
+            expected=request.data.get('expected_refund_amount')
+            if request.data.get('currency')!='JPY' or type(expected) is not int or expected!=native['refund_amount']:
+                return Response({'code':400,'msg':'請重新核對本筆日幣退款幣別與金額'},status=400)
+            if next_status=='refunded' and request.data.get('confirmed_refund') is not True:
+                return Response({'code':400,'msg':'請先核對日幣金額，確認已在系統外完成退款'},status=400)
         if next_status=='refunded' and review_pending:
             return Response({'code':400,'msg':'請先核對實收款及退款金額，不能直接記錄退款完成'},status=400)
         update_fields=['status','reviewed_by','reviewed_at','updated_at']
@@ -2330,6 +2341,10 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         cancellation.status = next_status
         cancellation.reviewed_by = request.user
         cancellation.reviewed_at = timezone.now()
+        if native.get('currency')=='JPY' and next_status in {'approved','refunded'}:
+            receipt={'currency':'JPY','amount':native['refund_amount'],'confirmed_by_id':request.user.pk,'confirmed_at':timezone.now().isoformat()}
+            cancellation.currency_snapshot={**native,'approval' if next_status=='approved' else 'refund_receipt':receipt}
+            update_fields.append('currency_snapshot')
         cancellation.save(update_fields=update_fields)
         if next_status in ('approved', 'refunded'):
             shared_class_ids = cancellation.group.reservations.filter(

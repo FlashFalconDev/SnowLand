@@ -35,6 +35,8 @@ async function main(){
     assert.equal(ui.find(ui.render(),node=>node.type==='form'),null)
     assert.match(JSON.stringify(ui.render()),/請勿再補款/)
   }
+  ui=harness('src/components/OrderAmendmentBalance.jsx','OrderAmendmentBalance',[[],'',true],{orderId:9,requestJson:async()=>({items:[]}),cancellationStatus:'requested'}, {})
+  assert.equal(ui.render(),null,'A cancelled order with no amendment history must not show an unrelated topup warning')
   const actionCalls=[];const api={processAmendmentBalance:async(id,payload)=>{actionCalls.push(payload);return{data:{id:row.id},msg:'已留底'}}}
   const reviewProps={orderId:42,row,action:'confirm_refund',onClose(){}}
   for(const states of [['',true,false,false,''],['QA',false,false,false,'']]){

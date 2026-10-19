@@ -2969,7 +2969,7 @@ class MemberCenterAPI(APIView):
                     payment_hold_status = 'scheduling_failed'
                 elif payment and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
                     payment_hold_status = 'payment_records_review'
-            from .currency import settlement_summary, received_settlement_summary
+            from .currency import settlement_summary, received_settlement_summary, public_cancellation_settlement
             orders.append({
                 'id': group.id,
                 'line_group_url': class_group_url,
@@ -2988,6 +2988,7 @@ class MemberCenterAPI(APIView):
                     'refund_amount': None if cancellation.requires_cash_review and cancellation.actual_received_amount is None else cancellation.refund_amount,
                     'requires_cash_review': cancellation.requires_cash_review,
                     'cash_review_pending': cancellation.requires_cash_review and cancellation.actual_received_amount is None,
+                    **({'settlement':public_cancellation_settlement(cancellation)} if cancellation.currency_snapshot else {}),
                 } if cancellation else None,
                 'total_amount': sum(
                     reservation.payment_amount
@@ -3670,6 +3671,12 @@ class MemberCancellationAPI(APIView):
             return error
         existing = group.cancellation_requests.order_by('-created_at').first()
         preview = calculate_refund(group)
+        if existing and existing.currency_snapshot and existing.status in {'requested','approved','refunded'}:
+            from .currency import public_cancellation_settlement
+            preview.update({'settlement':public_cancellation_settlement(existing),'original_amount':existing.original_amount,
+                'refund_amount':None if existing.requires_cash_review and existing.actual_received_amount is None else existing.refund_amount,
+                'requires_cash_review':existing.requires_cash_review,'refund_percent':existing.refund_percent,
+                'handling_fee_percent':existing.handling_fee_percent,'days_before':existing.days_before})
         payment = group.payments.order_by('-created_at').first()
         return Response({
             **preview,
@@ -3690,13 +3697,14 @@ class MemberCancellationAPI(APIView):
             cancellation = request_cancellation(
                 group, reason=reason,
                 reason_note=request.data.get('reason_note') or '',
-                bank={key: request.data.get(key, '') for key in ('bank_name', 'account_number', 'account_holder')},
+                bank={key: request.data.get(key, '') for key in ('bank_name', 'account_number', 'account_holder','overseas_details')},
                 user=request.user,
                 expected_user_id=request.user.pk, expected_client_id=group.client_id, require_paid=True,
+                currency=request.data.get('currency'),expected_refund_amount=request.data.get('expected_refund_amount'),
             )
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
-        return Response({'id': cancellation.id, 'status': cancellation.status,
+        return Response({**({'settlement':cancellation.currency_snapshot} if cancellation.currency_snapshot else {}),'id': cancellation.id, 'status': cancellation.status,
             'requires_cash_review':cancellation.requires_cash_review,
             'refund_amount':None if cancellation.requires_cash_review else cancellation.refund_amount}, status=201)
 

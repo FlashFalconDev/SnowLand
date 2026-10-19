@@ -88,7 +88,7 @@ export interface Order {
   line_group_url?: string
   line_group_qr_url?: string
   revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string; snapshot?: OrderRevisionSnapshot }[]
-  cancellation?: { id: number; status: string; reason: string; refund_amount: number | null; refund_percent: string; handling_fee_percent: string; calculation_mode: 'auto' | 'rule' | 'manual'; selected_rule_days_before: number | null; requires_cash_review:boolean;actual_received_amount:number|null;cash_review_note:string } | null
+  cancellation?: { id: number; status: string; reason: string; refund_amount: number | null; refund_percent: string; handling_fee_percent: string; calculation_mode: 'auto' | 'rule' | 'manual'; selected_rule_days_before: number | null; requires_cash_review:boolean;actual_received_amount:number|null;cash_review_note:string;currency_snapshot?:CancellationSettlement;refund_bank_name?:string;refund_account_number?:string;refund_account_holder?:string;refund_overseas_details?:string } | null
 }
 
 interface ListResp {
@@ -313,17 +313,19 @@ export async function saveClassGroupQR(orderId: number, file: File | null, onPro
   }) as any
 }
 
-export interface RefundPreview { original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
+export interface CancellationSettlement { currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null;original_amount:number;refund_amount:number|null }
+export interface RefundPreview { settlement?:CancellationSettlement;original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
 export async function previewOrderRefund(id: number): Promise<RefundPreview> {
   const res = await adminApi.get(`/orders/${id}/refund-preview/`) as any
   return res.data
 }
 
-export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string }; selected_rule_days_before?: number; manual_refund_amount?: number }): Promise<void> {
+export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string;overseas_details?:string }; selected_rule_days_before?: number; manual_refund_amount?: number;currency?:'JPY';expected_refund_amount?:number|null }): Promise<void> {
   await adminApi.post(`/orders/${id}/cancel/`, payload)
 }
 
 export interface CancellationCashReview { actual_received_amount:number;refund_amount:number;cash_review_note:string;confirmed_received:boolean }
-export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded', review?:CancellationCashReview): Promise<void> {
+export type CancellationReviewPayload=Partial<CancellationCashReview>&{currency?:'JPY';expected_refund_amount?:number|null;confirmed_refund?:boolean}
+export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded', review?:CancellationReviewPayload): Promise<void> {
   await adminApi.post(`/cancellations/${cancellationId}/process/`, { status, ...review })
 }

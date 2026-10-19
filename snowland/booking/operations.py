@@ -145,7 +145,10 @@ def calculate_refund(group):
     handling_fee = Decimal(original_amount) * Decimal(policy.cancellation_fee_percent) / Decimal(100)
     refund_amount = max(Decimal(0), refundable - handling_fee).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
     requires_cash_review = outstanding_amendments(group).exists()
-    return {
+    if (group.currency_snapshot or {}).get('currency')=='JPY':
+        from .currency import received_settlement_summary
+        requires_cash_review=requires_cash_review or received_settlement_summary(group) is None
+    result = {
         'original_amount': original_amount,
         'days_before': days_before,
         'refund_percent': refund_percent,
@@ -154,12 +157,17 @@ def calculate_refund(group):
         'requires_cash_review': requires_cash_review,
         'available_rules': rules,
     }
+    from .currency import cancellation_settlement
+    settlement=cancellation_settlement(group,original_amount,result['refund_amount'])
+    if settlement:result['settlement']=settlement
+    return result
 
 
 @transaction.atomic
 def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
                          selected_rule_days_before=None, manual_refund_amount=None,
-                         expected_user_id=None, expected_client_id=None, require_paid=False):
+                         expected_user_id=None, expected_client_id=None, require_paid=False,
+                         currency=None,expected_refund_amount=None):
     # Serialize with refund processing; never trust a caller's cached order/payment.
     group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
     if ((expected_user_id is not None and group.user_id != expected_user_id)
@@ -184,8 +192,12 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         value = bank.get(key, '')
         if not isinstance(value, str) or len(value) > 100:
             raise ValueError('退款銀行、帳號及戶名須為100字以內的文字')
+    overseas=bank.get('overseas_details','')
+    if not isinstance(overseas,str) or len(overseas)>1000:raise ValueError('海外退款資料須為1000字以內的文字')
+    overseas=overseas.strip()
     bank = {key: bank.get(key, '').strip() for key in ('bank_name', 'account_number', 'account_holder')}
     preview = calculate_refund(group)
+    preview.pop('settlement',None)
     rules = preview.pop('available_rules')
     values = preview
     if preview['requires_cash_review']:
@@ -229,6 +241,14 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
     if payment and (preview['requires_cash_review'] or payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay')):
         if not all(bank.get(key) for key in ('bank_name', 'account_number', 'account_holder')):
             raise ValueError('匯款訂單必須填寫退款銀行、帳號與戶名')
+    from .currency import cancellation_settlement
+    settlement=cancellation_settlement(group,values['original_amount'],None if values['requires_cash_review'] else values['refund_amount'])
+    if settlement:
+        native_refund=settlement['refund_amount']
+        if currency!='JPY' or expected_refund_amount!=native_refund or (native_refund is not None and type(expected_refund_amount) is not int):
+            raise ValueError('日幣退款金額或幣別尚未確認，請重新載入最新試算後送出；這次未建立取消申請')
+    elif currency not in (None,'TWD'):
+        raise ValueError('此訂單是台幣，請重新確認退款幣別')
     cancellation = CancellationRequest.objects.create(
         group=group,
         reason=reason,
@@ -238,6 +258,7 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         refund_account_holder=bank.get('account_holder', ''),
         calculation_mode=calculation_mode,
         selected_rule_days_before=selected_rule_days_before if calculation_mode == 'rule' else None,
+        currency_snapshot=settlement,refund_overseas_details=overseas,
         **values,
     )
     record_order_revision(group, user=user, change_type='cancel', reason=reason_note or reason)

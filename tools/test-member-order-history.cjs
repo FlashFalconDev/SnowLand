@@ -87,6 +87,13 @@ for (const [name, check] of [
     assert.ok(html.includes('QA教練'),'Photography keeps its actually assigned photographer name')
     assert.ok(!html.includes('>教練</span>') && !html.includes('>人數</span>'))
   }],
+  ['cancelled JPY history uses the frozen original amount instead of active zero', () => {
+    const html=renderCard({...order,reservations:[cancelled],total_amount:0,cancellation:{status:'approved',original_amount:9500,refund_amount:7125,
+      settlement:{currency:'JPY',original_amount:42750,refund_amount:32063,rate:'4.50000000'}}})
+    assert.ok(html.includes('日幣 JPY ¥ 42,750'))
+    assert.ok(html.includes('日幣 JPY ¥ 32,063'))
+    assert.ok(!html.includes('JPY ¥ 0'))
+  }],
   ['JPY member card distinguishes locked settlement from the TWD pricing basis', () => {
     const html=renderCard({...order,settlement:{currency:'JPY',base_currency:'TWD',amount:45000,base_amount:10000,rate:'4.50000000',locked_at:'2026-10-19T03:00:00Z'}})
     assert.ok(html.includes('日幣 JPY ¥ 45,000'))

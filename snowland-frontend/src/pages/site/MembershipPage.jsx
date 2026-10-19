@@ -34,6 +34,9 @@ const formatDate = (value) => value
 const paymentLabels = { payment_records_review: '付款紀錄待核對', unpaid: '待付款', pending: '付款確認中', paid: '已付款', expired: '付款已逾期', refunded: '已退款', all_cancelled: '已取消', collecting_class: '待成班', pending_coach_approval: '待教練確認', scheduling_failed: '待安排課程' };
 const paymentHoldMessages = { payment_records_review: '此訂單有既有收款或退款紀錄，請先聯絡客服核對；請勿再次付款。', all_cancelled: '此訂單已取消，無需付款。', collecting_class: '團體班尚未成班，滿人後才會開放付款。', pending_coach_approval: '等待教練確認接課，確認前不需要付款。', scheduling_failed: '課程正在重新安排，確認排課前不需要付款。' };
 const cancellationLabels = { requested: '取消審核中', approved: '已取消・退款處理中', rejected: '取消申請未通過', refunded: '已退款' };
+const refundMoney=(base,settlement)=>settlement?.currency==='JPY'
+  ? settlement.refund_amount==null?'待核對實收款':`日幣 JPY ¥ ${Number(settlement.refund_amount).toLocaleString()}`
+  : base==null?'待核對實收款':`NT$ ${Number(base).toLocaleString()}`;
 const ageOptions = ['4-6y', '7-12y', '13-18y', '19-24y', '25-35y', '36-45y', '46-55y', '56y以上'];
 const ageLabel = (value) => value ? value.replace('y', ' 歲') : '未填寫';
 
@@ -167,7 +170,8 @@ function OrderCard({ order, onQuickRebook, showActions = true, showOrderNumber =
     <div className="flex flex-wrap items-start justify-between gap-3"><div>{showOrderNumber && <p className="break-all text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{order.order_number}</p>}<h3 className="mt-2 text-lg font-semibold">{dateLabel}｜{reservation?.resort || '雪場安排中'}</h3>{courses.length > 1 && <p className="mt-2 text-xs text-[#64748b]">另有 {courses.length - 1} 項課程，{showOrderNumber ? '以下列出全部課程。' : '請查看詳情。'}</p>}</div><span className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs font-semibold text-[#2b5f8f]">{cancellationLabels[cancellationStage] || paymentLabels[order.payment_hold_status || order.payment_status] || order.payment_status}</span></div>
     <div className="mt-5 grid gap-3 text-sm text-[#475569] sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-[#94a3b8]">{reservation?.service_type === 'photo' ? '攝影方案' : '課程'}</span>{reservation?.course_template || reservation?.course_type || '安排中'}</p><p><span className="block text-xs text-[#94a3b8]">{reservation?.service_type === 'photo' ? '攝影師' : '教練'}</span>{coachChoice}</p><p><span className="block text-xs text-[#94a3b8]">{reservation?.service_type === 'photo' ? '預約數量' : '人數'}</span>{reservation?.people || 0} {reservation?.service_type === 'photo' ? '組' : '人'}</p><p><span className="block text-xs text-[#94a3b8]">天數</span>{dates.length ? `${dates.length} 天` : '待安排'}</p></div>
     <p className="mt-4 text-sm font-semibold text-[#1f2937]">{settledCancellation ? '原訂單金額' : fullyCancelled ? '取消前訂單金額' : '訂單金額'} NT$ {Number(displayAmount || 0).toLocaleString()}</p>
-    {!fullyCancelled && !order.cancellation && <SettlementSummary settlement={order.settlement} />}
+    {!fullyCancelled && (!order.cancellation||order.cancellation.status==='rejected') && <SettlementSummary settlement={order.settlement} />}
+    {order.cancellation?.settlement?.currency==='JPY'&&order.cancellation.status!=='rejected'&&<p className="mt-3 text-sm leading-7 text-[#1e4e73]">取消前日幣金額：日幣 JPY ¥ {Number(order.cancellation.settlement.original_amount).toLocaleString()}；{order.cancellation.status==='refunded'?'已記錄退款':order.cancellation.status==='approved'?'核准退款':'預估退款'}：{refundMoney(order.cancellation.refund_amount,order.cancellation.settlement)}。</p>}
     {showActions && <div className="mt-5 flex flex-wrap justify-end gap-3 border-t border-[#eef2f7] pt-4"><button type="button" onClick={() => onQuickRebook(order.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] hover:bg-[#eef4fa]">再次預約</button><SiteLink to={`/membership/orders/${order.id}`} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">查看詳情<ChevronRight size={16} /></SiteLink>{canPay && <SiteLink to={`/payment?reservation_group=${order.id}`} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">前往付款</SiteLink>}</div>}
   </article>;
 }
@@ -176,10 +180,10 @@ function CancellationForm({ order, onDone }) {
   const [preview, setPreview] = useState(null);
   const [reason, setReason] = useState('schedule');
   const [reasonNote, setReasonNote] = useState('');
-  const [bank, setBank] = useState({ bank_name: '', account_number: '', account_holder: '' });
+  const [bank, setBank] = useState({ bank_name: '', account_number: '', account_holder: '',overseas_details:'' });
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const bankComplete = !preview?.requires_bank_account || Object.values(bank).every((value) => value.trim());
+  const bankComplete = !preview?.requires_bank_account || ['bank_name','account_number','account_holder'].every((key) => bank[key].trim());
 
   const open = async () => {
     setBusy(true); setMessage('');
@@ -192,9 +196,9 @@ function CancellationForm({ order, onDone }) {
     try {
       await requestJson(`/booking/snowland/api/member-cancellations/${order.id}/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, reason_note: reasonNote, ...bank }),
+        body: JSON.stringify({ reason, reason_note: reasonNote, ...bank,...(preview.settlement?.currency==='JPY'?{currency:'JPY',expected_refund_amount:preview.settlement.refund_amount}:{}) }),
       });
-      setMessage('取消申請已送出，退款完成前訂單仍會保留。');
+      setMessage('取消申請已送出；審核通過前課程仍保留，核准後另行處理退款。');
       onDone();
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
@@ -203,12 +207,14 @@ function CancellationForm({ order, onDone }) {
   if (!preview) return <div className="mt-5 border-t border-[#eef2f7] pt-4"><button type="button" disabled={busy} onClick={open} className="min-h-11 text-sm font-semibold text-red-600 hover:underline disabled:opacity-50">{busy ? '載入退款資料…' : '申請取消訂單'}</button>{message && <p role="alert" className="mt-2 text-sm text-red-600">{message}</p>}</div>;
   return <div className="mt-5 rounded-sm border border-red-100 bg-red-50/50 p-5">
     <h3 className="font-semibold text-[#1f2937]">確認取消與退款資料</h3>
-    <p className="mt-2 text-sm text-[#64748b]">{preview.requires_cash_review?'訂單有未結清補款或退款差額，需由 SnowLand 核對實收款後確認退款金額，這裡不會自動試算。':`預估退款 NT$ ${Number(preview.refund_amount || 0).toLocaleString()}。`}送出後由 SnowLand 審核，尚未核准前不會直接取消課程。</p>
+    <p className="mt-2 text-sm text-[#64748b]">{preview.requires_cash_review?'訂單有未結清補款或退款差額，需由 SnowLand 核對實收款後確認退款金額，這裡不會自動試算。':`預估退款 ${refundMoney(preview.refund_amount,preview.settlement)}。`}送出後由 SnowLand 審核，尚未核准前不會直接取消課程。</p>
+    {preview.settlement?.currency==='JPY'&&<p className="mt-2 text-sm leading-7 text-[#64748b]">沿用原訂單匯率1 TWD＝{preview.settlement.rate} JPY，台幣退款計價基準 {refundMoney(preview.refund_amount)}。請提供可接收日幣的退款帳戶。</p>}
     {preview.request_status === 'rejected' && <p role="status" className="mt-4 rounded-sm bg-white px-4 py-3 text-sm font-semibold text-[#9a3412]">上次申請未通過；若仍需取消，可重新填寫並送出。</p>}
     {preview.request_status && preview.request_status !== 'rejected' ? <p className="mt-4 rounded-sm bg-white px-4 py-3 text-sm font-semibold text-[#2b5f8f]">目前狀態：{cancellationLabels[preview.request_status] || preview.request_status}</p> : <div className="mt-4 grid gap-3 md:grid-cols-2">
-      <label className="text-sm font-semibold">取消原因<select value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2"><option value="schedule">行程變更</option><option value="health">健康因素</option><option value="weather">天候因素</option><option value="duplicate">重複訂單</option><option value="other">其他</option></select></label>
+      <label className="text-sm font-semibold">取消原因<select value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2"><option value="schedule">行程變更</option><option value="health">健康因素</option><option value="weather">天候因素</option><option value="duplicate">重複訂單</option><option value="other">其他</option></select></label>
       <label className="text-sm font-semibold">補充說明<input maxLength={1000} value={reasonNote} onChange={(event) => setReasonNote(event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label>
-      {preview.requires_bank_account && <><label className="text-sm font-semibold">退款銀行<input required value={bank.bank_name} onChange={(event) => setBank({ ...bank, bank_name: event.target.value })} className="mt-1 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">退款帳號<input required value={bank.account_number} onChange={(event) => setBank({ ...bank, account_number: event.target.value })} className="mt-1 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">戶名<input required value={bank.account_holder} onChange={(event) => setBank({ ...bank, account_holder: event.target.value })} className="mt-1 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label></>}
+      {preview.requires_bank_account && <><label className="text-sm font-semibold">退款銀行<input required maxLength={100} value={bank.bank_name} onChange={(event) => setBank({ ...bank, bank_name: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">退款帳號<input required maxLength={100} value={bank.account_number} onChange={(event) => setBank({ ...bank, account_number: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">戶名<input required maxLength={100} value={bank.account_holder} onChange={(event) => setBank({ ...bank, account_holder: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label></>}
+      {preview.settlement?.currency==='JPY'&&preview.requires_bank_account&&<label className="text-sm font-semibold">海外退款資料（選填）<textarea maxLength={1000} value={bank.overseas_details} onChange={event=>setBank({...bank,overseas_details:event.target.value})} className="mt-1 min-h-24 w-full rounded-sm border border-[#cbd5e1] bg-white p-3"/></label>}
       <div className="flex items-end gap-2"><button type="button" disabled={busy} onClick={() => setPreview(null)} className="min-h-11 rounded-full border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50">返回</button><button type="button" disabled={busy || !bankComplete} onClick={submit} className="min-h-11 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '送出中…' : '確認送出'}</button></div>
     </div>}
     {message && <p role="alert" className="mt-3 text-sm text-red-700">{message}</p>}
@@ -241,8 +247,8 @@ function Orders({ data, onQuickRebook, onRefresh }) {
     {(selected.line_group_url || selected.line_group_qr_url) && <section className="rounded-sm border border-[#b6d6ec] bg-[#eef4fa] p-5"><h3 className="font-semibold text-[#1e4e73]">上課群組</h3><p className="mt-2 text-sm leading-6 text-[#64748b]">SnowLand 已準備好這筆課程的聯絡群組，課前資訊會在群組內確認。</p>{selected.line_group_url && <a href={selected.line_group_url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">加入上課群組 ↗</a>}<ClassGroupQRImage url={selected.line_group_qr_url || ''} appearance="light" /></section>}
     {selected.cancellation?.status === 'requested' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">取消申請已送出，等待 SnowLand 審核；核准前課程仍保留。</p>}
     {selected.cancellation?.status === 'rejected' && <p role="status" className="rounded-sm border border-[#fed7aa] bg-[#fff7ed] p-5 text-sm font-semibold text-[#9a3412]">上次取消申請未通過，課程仍保留；若仍需取消，可在下方重新提出。</p>}
-    {selected.cancellation?.status === 'approved' && selected.payment_status === 'paid' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">訂單已取消，退款處理中。核准退款金額 NT$ {Number(selected.cancellation.refund_amount || 0).toLocaleString()}。</p>}
-    {selected.cancellation?.status === 'refunded' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">訂單已退款 NT$ {Number(selected.cancellation.refund_amount || 0).toLocaleString()}。</p>}
+    {selected.cancellation?.status === 'approved' && selected.payment_status === 'paid' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">訂單已取消，退款處理中。核准退款金額 {refundMoney(selected.cancellation.refund_amount,selected.cancellation.settlement)}。</p>}
+    {selected.cancellation?.status === 'refunded' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">訂單已退款 {refundMoney(selected.cancellation.refund_amount,selected.cancellation.settlement)}。</p>}
     {selected.reservations.map((reservation) => <div key={reservation.id} className="rounded-sm border border-[#dbe3ec] bg-white p-5">
       <h3 className="font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}{reservation.status === 'cancelled' && '（已取消）'}</h3>
       <p className="mt-2 text-sm text-[#64748b]">{reservation.service_type === 'photo' ? '攝影師' : '授課教練'}：{reservation.coach === '安排中' ? '由學校安排' : reservation.coach}　{reservation.service_type === 'photo' ? '預約數量' : '學員'}：{reservation.people} {reservation.service_type === 'photo' ? '組' : '人'}</p>

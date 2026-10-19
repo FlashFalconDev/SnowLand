@@ -115,3 +115,20 @@ def amendment_settlement(group,previous_total,new_total,*,pending=()):
     if abs(balance)>9007199254740991:raise ValueError('日幣差額超過可處理範圍，請聯絡行政')
     return {'currency':'JPY','base_currency':'TWD','rate':snapshot['rate'],'locked_at':snapshot.get('locked_at'),
         'previous_total':old,'new_total':new,'difference_amount':new-old,'balance_amount':balance}
+
+
+def cancellation_settlement(group,original_amount,refund_amount):
+    snapshot=group.currency_snapshot or {}
+    if snapshot.get('currency')!='JPY':return {}
+    rate=Decimal(snapshot['rate'])
+    return {'currency':'JPY','base_currency':'TWD','rate':snapshot['rate'],'locked_at':snapshot.get('locked_at'),
+        'original_amount':convert_twd_amount(original_amount,rate),
+        'refund_amount':None if refund_amount is None else convert_twd_amount(refund_amount,rate)}
+
+
+def public_cancellation_settlement(cancellation):
+    snapshot=cancellation.currency_snapshot or {}
+    if snapshot.get('currency')!='JPY':return {}
+    result={key:snapshot.get(key) for key in ('currency','base_currency','rate','locked_at','original_amount','refund_amount')}
+    if cancellation.requires_cash_review and cancellation.actual_received_amount is None:result['refund_amount']=None
+    return result

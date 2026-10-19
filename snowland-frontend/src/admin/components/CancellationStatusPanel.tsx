@@ -14,10 +14,16 @@ export default function CancellationStatusPanel({ cancellation, readOnly }: { ca
   const [error, setError] = useState('')
   const [received,setReceived]=useState(''),[refund,setRefund]=useState(''),[reviewNote,setReviewNote]=useState('')
   const needsReview=!!cancellation.requires_cash_review&&cancellation.actual_received_amount==null
+  const native=cancellation.currency_snapshot?.currency==='JPY'?cancellation.currency_snapshot:null
+  const refundLabel=native?native.refund_amount==null?'待核對實收款':`日幣 JPY ¥ ${native.refund_amount.toLocaleString()}`:`NT$ ${(cancellation.refund_amount??0).toLocaleString()}`
   const reviewValid=received!==''&&refund!==''&&/^\d+$/.test(received)&&/^\d+$/.test(refund)&&Number(received)<=2147483647&&Number(refund)<=Number(received)&&!!reviewNote.trim()&&acknowledged
   useEffect(() => { setDecision(null); setAcknowledged(false); setError('') }, [cancellation.id, cancellation.status])
   const process = useMutation({
-    mutationFn: (next: Decision) => processOrderCancellation(cancellation.id, next, next==='approved'&&needsReview?{actual_received_amount:Number(received),refund_amount:Number(refund),cash_review_note:reviewNote.trim(),confirmed_received:acknowledged}:undefined),
+    mutationFn: (next: Decision) => {
+      const review=next==='approved'&&needsReview?{actual_received_amount:Number(received),refund_amount:Number(refund),cash_review_note:reviewNote.trim(),confirmed_received:acknowledged}:undefined
+      const currency=native&&next!=='rejected'?{currency:'JPY' as const,expected_refund_amount:native.refund_amount,...(next==='refunded'?{confirmed_refund:acknowledged}:{})}:undefined
+      return processOrderCancellation(cancellation.id,next,review||currency?{...review,...currency}:undefined)
+    },
     onSuccess: async (_, next) => {
       setDecision(null); setAcknowledged(false); setError('')
       await qc.invalidateQueries({ queryKey: ['admin', 'orders'] })
@@ -34,13 +40,16 @@ export default function CancellationStatusPanel({ cancellation, readOnly }: { ca
   const choose = (next: Decision) => { setDecision(next); setAcknowledged(false); setError('');setReceived('');setRefund('');setReviewNote('') }
   return <section className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-200" aria-label="取消與退款處理">
     <p className="font-semibold">取消狀態：{names[cancellation.status] || cancellation.status}</p>
-    <p className="mt-1">{needsReview?'有未結清補／退差額，退款金額待行政核對實收款。':`${cancellation.status === 'refunded' ? '已記錄退款' : '預計退款'} NT$ ${(cancellation.refund_amount??0).toLocaleString()} · ${cancellation.calculation_mode === 'manual' ? '人工核對金額' : cancellation.calculation_mode === 'rule' ? '指定方案' : '依日期計算'}`}</p>
+    <p className="mt-1">{needsReview?'退款金額待行政核對原款及補退差額的實際收付紀錄。':`${cancellation.status === 'refunded' ? '已記錄退款' : '預計退款'} ${refundLabel} · ${cancellation.calculation_mode === 'manual' ? '人工核對金額' : cancellation.calculation_mode === 'rule' ? '指定方案' : '依日期計算'}`}</p>
+    {native&&<p className="mt-1 text-xs leading-6">{needsReview?'台幣退款基準亦待實收核對':`台幣退款基準 NT$ ${(cancellation.refund_amount??0).toLocaleString()}`}；沿用原單匯率1 TWD＝{native.rate} JPY。請核對日幣實退金額，不是另退一筆台幣。</p>}
+    {cancellation.refund_bank_name&&<div className="mt-2 space-y-1 break-all"><p>退款銀行：{cancellation.refund_bank_name}</p><p>退款帳號：{cancellation.refund_account_number||'未提供，請先確認'}</p><p>退款戶名：{cancellation.refund_account_holder||'未提供，請先確認'}</p></div>}
+    {cancellation.refund_overseas_details&&<p className="mt-2 whitespace-pre-wrap break-words">海外退款資料：{cancellation.refund_overseas_details}</p>}
     {cancellation.actual_received_amount!=null&&<p className="mt-1 break-words">已核對實收款 NT$ {cancellation.actual_received_amount.toLocaleString()} · {cancellation.cash_review_note}</p>}
     <p className="mt-1 text-xs">這裡只管理取消與退款紀錄，不會自動將款項退回銀行或信用卡。</p>
     {!readOnly && <>
       <div className="mt-2 flex flex-wrap gap-2">{cancellation.status === 'requested' && <><button type="button" disabled={process.isPending} onClick={() => choose('rejected')} className="min-h-11 rounded-lg border border-red-300 px-3 py-2 text-sm disabled:opacity-40 dark:border-red-700">駁回申請</button><button type="button" disabled={process.isPending} onClick={() => choose('approved')} className="min-h-11 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">核准取消</button></>}{cancellation.status === 'approved' && <button type="button" disabled={process.isPending} onClick={() => choose(needsReview?'approved':'refunded')} className="min-h-11 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" >{needsReview?'核對實收款':'記錄退款完成'}</button>}</div>
       {decision && <div className="mt-3 rounded-lg border border-red-200 bg-white p-3 dark:border-red-800 dark:bg-gray-900">
-        <p>{decision === 'approved' ? '核准後會取消本訂單課程並釋出排課名額；不會實際退款。' : decision === 'rejected' ? '確定駁回這次取消申請？訂單付款及課程狀態不會變更。' : `請先在銀行或金流完成 NT$ ${(cancellation.refund_amount??0).toLocaleString()} 的退款，再記錄完成。`}</p>
+        <p>{decision === 'approved' ? '核准後會取消本訂單課程並釋出排課名額；不會實際退款。' : decision === 'rejected' ? '確定駁回這次取消申請？訂單付款及課程狀態不會變更。' : native?.refund_amount===0?'本次日幣退款為0，不需轉帳；請核對無須退款後記錄結案。':`請先在銀行或金流完成 ${refundLabel} 的退款，再記錄完成。`}</p>
         {decision==='approved'&&needsReview&&<div className="mt-3 space-y-3">
           <p>請合併核對原款、已收補款及已退差額；尚未入帳的補款不可算進實收款。</p>
           <label className="block">實際已收款（扣除已退款）<input inputMode="numeric" className="mt-1 min-h-11 w-full rounded border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white" disabled={process.isPending} value={received} onChange={e=>setReceived(e.target.value)}/></label>
@@ -48,7 +57,7 @@ export default function CancellationStatusPanel({ cancellation, readOnly }: { ca
           <label className="block">核對依據／退款原因<textarea maxLength={1000} value={reviewNote} disabled={process.isPending} onChange={e=>setReviewNote(e.target.value)} className="mt-1 min-h-24 w-full rounded border border-gray-300 bg-white p-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"/></label>
           <label className="flex min-h-11 items-start gap-2"><input type="checkbox" checked={acknowledged} disabled={process.isPending} onChange={e=>setAcknowledged(e.target.checked)}/><span>我已查核銀行／金流實收紀錄，退款不超過實收款</span></label>
         </div>}
-        {decision === 'refunded' && <label className="mt-2 flex min-h-11 items-start gap-2 py-2"><input type="checkbox" className="mt-1" checked={acknowledged} disabled={process.isPending} onChange={e => setAcknowledged(e.target.checked)} /><span>我已核對金額並在系統外完成實際退款</span></label>}
+        {decision === 'refunded' && <label className="mt-2 flex min-h-11 items-start gap-2 py-2"><input type="checkbox" className="mt-1" checked={acknowledged} disabled={process.isPending} onChange={e => setAcknowledged(e.target.checked)} /><span>{native?.refund_amount===0?'我已確認本次無需退款，可以結案':'我已核對金額並在系統外完成實際退款'}</span></label>}
         <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={process.isPending || (decision === 'refunded' && !acknowledged) || (decision==='approved'&&needsReview&&!reviewValid)} onClick={() => process.mutate(decision)} className="min-h-11 rounded-lg bg-red-600 px-3 py-2 font-semibold text-white disabled:opacity-40">{process.isPending ? '處理中…' : `確定${decisions[decision]}`}</button><button type="button" disabled={process.isPending} onClick={() => { setDecision(null); setAcknowledged(false); setError('') }} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600">返回，不變更退款狀態</button></div>
       </div>}
       {error && <p role="alert" className="mt-3 break-words font-medium">{error}</p>}

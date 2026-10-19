@@ -709,6 +709,8 @@ class CancellationRequest(models.Model):
     actual_received_amount = models.PositiveIntegerField(null=True, blank=True)
     cash_review_note = models.TextField(blank=True, default='')
     cash_review_snapshot = models.JSONField(default=dict, blank=True)
+    currency_snapshot = models.JSONField(default=dict,blank=True,editable=False,verbose_name='取消時原幣退款快照')
+    refund_overseas_details = models.TextField(blank=True,default='')
     selected_rule_days_before = models.IntegerField(null=True, blank=True)
     refund_bank_name = models.CharField(max_length=100, blank=True, default='')
     refund_account_number = models.CharField(max_length=100, blank=True, default='')

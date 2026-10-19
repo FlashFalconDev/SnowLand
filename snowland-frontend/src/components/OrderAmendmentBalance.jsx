@@ -48,6 +48,7 @@ export default function OrderAmendmentBalance({orderId,requestJson,onRefresh,can
   const url=`/booking/snowland/api/member-amendments/${orderId}/`;
   const load=useCallback(async()=>{try{const result=await requestJson(url);setItems(result.items||[]);setError('');}catch(error){setError(error.message);}finally{setLoaded(true);}},[requestJson,url]);
   useEffect(()=>{load();},[load]);
+  if(loaded&&!error&&!items.length)return null;
   if(['requested','approved','refunded'].includes(cancellationStatus))return <p role="status" className="rounded border border-[#b6d6ec] bg-[#eaf4fb] p-4 text-sm leading-7 text-[#1e4e73]">{cancellationStatus==='refunded'?'原補退差額已併入取消結算，請勿再補款。':'訂單正在取消／退款流程，補退差額暫停處理。請勿再補款，退款以 SnowLand 核對實收款後確認的金額為準。'}</p>;
   if(!loaded)return <p role="status" className="text-sm text-[#64748b]">正在核對訂單修改差額…</p>;
   if(error)return <section role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">差額資料未能載入：{error}<button onClick={load} className="ml-2 min-h-11 underline">重新載入</button></section>;

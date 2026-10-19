@@ -1895,14 +1895,14 @@ class CancellationRequestAdminSerializer(serializers.ModelSerializer):
             'days_before', 'refund_percent', 'handling_fee_percent', 'refund_amount',
             'calculation_mode', 'selected_rule_days_before',
             'requires_cash_review','actual_received_amount','cash_review_note','cash_review_snapshot',
-            'refund_bank_name', 'refund_account_number', 'refund_account_holder',
+            'refund_bank_name', 'refund_account_number', 'refund_account_holder','refund_overseas_details','currency_snapshot',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'order_number', 'original_amount', 'days_before', 'refund_percent',
             'handling_fee_percent', 'refund_amount', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
             'calculation_mode', 'selected_rule_days_before',
-            'requires_cash_review','actual_received_amount','cash_review_note','cash_review_snapshot',
+            'requires_cash_review','actual_received_amount','cash_review_note','cash_review_snapshot','currency_snapshot',
         ]
 
 
