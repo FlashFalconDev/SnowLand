@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Bell, CalendarDays, ChevronRight, ClipboardCheck, Gift, GraduationCap, LogOut, ShoppingBag, Star, UserRound } from 'lucide-react';
 import GoogleLoginButton from '../../components/auth/GoogleLoginButton';
 import ClassGroupQRImage from '../../components/ClassGroupQRImage';
@@ -552,12 +553,19 @@ export default function MembershipPage() {
   const [status, setStatus] = useState('loading');
   const [data, setData] = useState(null);
   const [notice, setNotice] = useState('');
+  const qc = useQueryClient();
+  const logoutPending = useRef(false);
+  const memberLoadRevision = useRef(0);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const loadMemberCenter = useCallback(async (options = {}) => {
+    if (logoutPending.current) return;
+    const revision = ++memberLoadRevision.current;
     const silent = options?.silent === true;
     if (!silent) setStatus('loading');
     try {
       const payload = await requestJson('/booking/snowland/api/member-center/');
+      if (revision !== memberLoadRevision.current || logoutPending.current) return;
       setData(payload); setStatus('ready'); localStorage.setItem('user', JSON.stringify(payload.member));
       if (!silent) {
         const returnTo = new URLSearchParams(location.search).get('return_to');
@@ -571,30 +579,50 @@ export default function MembershipPage() {
         else if (returnTo === 'console') navigate(`${basePath}/console`);
       }
     } catch (error) {
+      if (revision !== memberLoadRevision.current || logoutPending.current) return;
       if (error.status === 401) { setData(null); setStatus('guest'); }
       else { setNotice(error.message); setStatus('error'); }
     }
   }, [basePath, location.search, navigate]);
 
-  useEffect(() => { loadMemberCenter(); }, [loadMemberCenter]);
+  useEffect(() => {
+    loadMemberCenter();
+    return () => { memberLoadRevision.current += 1; };
+  }, [loadMemberCenter]);
 
   const quickRebook = async (orderId) => {
+    if (logoutPending.current) return;
+    const revision = memberLoadRevision.current;
     setNotice('正在複製上次預約設定…');
     try {
       const result = await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quick_rebook_group_id: orderId }) });
+      if (revision !== memberLoadRevision.current || logoutPending.current) return;
       useBookingStore.getState().replaceCart(result.cart); navigate(`${basePath}/booking?rebook=1`);
-    } catch (error) { setNotice(error.message); }
+    } catch (error) {
+      if (revision === memberLoadRevision.current && !logoutPending.current) setNotice(error.message);
+    }
   };
 
   const logout = async () => {
-    await fetch('/control/api/logout/', { method: 'POST', credentials: 'include' }).catch(() => undefined);
-    const invite = new URLSearchParams(location.search).get('invite');
-    localStorage.removeItem('user'); setData(null); setStatus('guest'); navigate(`${basePath}/membership${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`);
+    if (logoutPending.current) return;
+    logoutPending.current = true; setLoggingOut(true); setNotice('');
+    memberLoadRevision.current += 1;
+    try {
+      const result = await requestJson('/control/api/logout/', { method: 'POST' });
+      if (result.code !== 200) throw new Error('logout not confirmed');
+      const invite = new URLSearchParams(location.search).get('invite');
+      qc.clear();
+      localStorage.removeItem('user'); setData(null); setStatus('guest'); navigate(`${basePath}/membership${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`);
+    } catch {
+      setNotice('無法確認登出，請重試；確認成功前，請勿將裝置交給他人。');
+    } finally {
+      logoutPending.current = false; setLoggingOut(false);
+    }
   };
 
   if (status === 'loading') return <div className="flex min-h-screen items-center justify-center bg-[#f7f8fa]"><div className="h-11 w-11 animate-spin rounded-full border-4 border-[#dbe3ec] border-t-[#2b5f8f]" /><span className="sr-only">載入會員資料</span></div>;
   if (status === 'guest') return <AuthPanel onAuthenticated={loadMemberCenter} />;
   if (status === 'error' || !data) return <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-[#f7f8fa] px-6 text-center"><p className="text-lg font-semibold">會員資料暫時無法載入</p><p className="text-sm text-[#64748b]">{notice}</p><button onClick={loadMemberCenter} className="rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">重新載入</button></div>;
 
-  return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937]"><SiteHeader forceCompact forceDarkText forceLogoColor memberAuthenticated memberAvatarSrc="" /><main className="mx-auto max-w-7xl px-4 pb-24 pt-24 sm:px-6 md:pt-28"><nav aria-label="breadcrumb" className="mb-6 flex items-center gap-2 text-sm text-[#64748b]"><SiteLink to="/">首頁</SiteLink><span>/</span><span className="font-semibold text-[#1f2937]">會員專區</span></nav>{notice && <div role="status" className="mb-5 flex items-center justify-between rounded-sm bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="關閉訊息">×</button></div>}<div className="grid gap-7 lg:grid-cols-[250px_minmax(0,1fr)]"><aside className="min-w-0 self-start rounded-sm border border-[#dbe3ec] bg-white p-3 lg:sticky lg:top-24 lg:p-5"><div className="flex items-center gap-3 border-b border-[#e2e8f0] pb-3 text-left lg:block lg:pb-5 lg:text-center"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#eef4fa] text-[#2b5f8f] lg:mx-auto lg:h-20 lg:w-20"><UserRound size={30} /></div><div className="min-w-0"><p className="truncate font-semibold lg:mt-4">{data.member.name}</p><p className="mt-1 truncate text-xs text-[#64748b]">{data.member.email}</p></div></div><nav className="mt-3 grid grid-cols-2 gap-2 lg:block" aria-label="會員功能">{navItems.map(({ key, label, path, icon: Icon }) => <SiteLink key={key} to={path} className={`flex min-h-11 items-center gap-2 rounded-full border px-3 py-2.5 text-sm font-semibold lg:gap-3 lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-b lg:border-[#eef2f7] lg:px-2 lg:py-3.5 ${section === key ? 'border-[#2b5f8f] bg-[#eef4fa] text-[#2b5f8f] lg:bg-transparent' : 'border-[#e2e8f0] text-[#64748b] hover:text-[#2b5f8f]'}`}><Icon size={17} />{label}</SiteLink>)}</nav><button type="button" onClick={logout} className="mt-2 flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#64748b] hover:text-red-600 lg:mt-4 lg:w-full lg:gap-3 lg:px-2 lg:py-3"><LogOut size={17} />登出</button></aside><section className="min-w-0"><MemberContent section={section} data={data} onQuickRebook={quickRebook} onRefresh={() => loadMemberCenter({ silent: true })} /></section></div></main><SiteFooter /></div>;
+  return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937]"><SiteHeader forceCompact forceDarkText forceLogoColor memberAuthenticated memberAvatarSrc="" /><main className="mx-auto max-w-7xl px-4 pb-24 pt-24 sm:px-6 md:pt-28"><nav aria-label="breadcrumb" className="mb-6 flex items-center gap-2 text-sm text-[#64748b]"><SiteLink to="/">首頁</SiteLink><span>/</span><span className="font-semibold text-[#1f2937]">會員專區</span></nav>{notice && <div role="status" className="mb-5 flex items-center justify-between rounded-sm bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="關閉訊息">×</button></div>}<div className="grid gap-7 lg:grid-cols-[250px_minmax(0,1fr)]"><aside className="min-w-0 self-start rounded-sm border border-[#dbe3ec] bg-white p-3 lg:sticky lg:top-24 lg:p-5"><div className="flex items-center gap-3 border-b border-[#e2e8f0] pb-3 text-left lg:block lg:pb-5 lg:text-center"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#eef4fa] text-[#2b5f8f] lg:mx-auto lg:h-20 lg:w-20"><UserRound size={30} /></div><div className="min-w-0"><p className="truncate font-semibold lg:mt-4">{data.member.name}</p><p className="mt-1 truncate text-xs text-[#64748b]">{data.member.email}</p></div></div><nav className="mt-3 grid grid-cols-2 gap-2 lg:block" aria-label="會員功能">{navItems.map(({ key, label, path, icon: Icon }) => <SiteLink key={key} to={path} className={`flex min-h-11 items-center gap-2 rounded-full border px-3 py-2.5 text-sm font-semibold lg:gap-3 lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-b lg:border-[#eef2f7] lg:px-2 lg:py-3.5 ${section === key ? 'border-[#2b5f8f] bg-[#eef4fa] text-[#2b5f8f] lg:bg-transparent' : 'border-[#e2e8f0] text-[#64748b] hover:text-[#2b5f8f]'}`}><Icon size={17} />{label}</SiteLink>)}</nav><button type="button" onClick={logout} disabled={loggingOut} aria-busy={loggingOut} className="mt-2 flex min-h-11 items-center gap-2 px-3 py-2 text-sm font-semibold text-[#64748b] hover:text-red-600 disabled:opacity-50 lg:mt-4 lg:w-full lg:gap-3 lg:px-2 lg:py-3"><LogOut size={17} />{loggingOut ? '登出中…' : '登出'}</button></aside><section className="min-w-0"><MemberContent section={section} data={data} onQuickRebook={quickRebook} onRefresh={() => loadMemberCenter({ silent: true })} /></section></div></main><SiteFooter /></div>;
 }

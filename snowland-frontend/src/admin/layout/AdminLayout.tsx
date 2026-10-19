@@ -387,7 +387,7 @@ function ThemeToggleButton() {
 function AdminLayoutContent() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, loading: authLoading, logout } = useAuth()
+  const { user, loading: authLoading, logout, logoutError, loggingOut } = useAuth()
   const basePath = useContext(SiteBasePathContext) // e.g. "/snowland"
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -680,6 +680,8 @@ function AdminLayoutContent() {
       <NoManagerPermission
         user={user}
         onLogout={() => logout(`${basePath}/console`)}
+        logoutError={logoutError}
+        loggingOut={loggingOut}
         onRetry={() => { setAdminCheck(null); void fetchAdminMe().then(setAdminCheck) }}
         basePath={basePath}
         errorCode={adminCheck.errorCode}
@@ -824,8 +826,10 @@ function AdminLayoutContent() {
             <ThemeToggleButton />
             <button
               onClick={() => logout(`${basePath}/console`)}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 rounded-lg"
-              title="登出"
+              disabled={loggingOut}
+              aria-busy={loggingOut}
+              className="min-h-11 min-w-11 p-2 text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 rounded-lg disabled:opacity-50"
+              title={loggingOut ? '登出中…' : '登出'}
             >
               <LogOut size={20} />
             </button>
@@ -853,6 +857,10 @@ function AdminLayoutContent() {
           <strong>個人教練視角</strong>：僅顯示您本人的課程、評量、請假與薪資，不套用管理校區篩選。
         </div>}
         <main className="p-4 md:p-6">
+          {logoutError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+            <p>{logoutError}</p>
+            <button type="button" disabled={loggingOut} onClick={() => logout(`${basePath}/console`)} className="mt-2 min-h-11 rounded-lg border border-current px-4 py-2 disabled:opacity-50">{loggingOut ? '登出中…' : '重試登出'}</button>
+          </div>}
           <Outlet />
         </main>
       </div>
@@ -908,6 +916,8 @@ function NoManagerPermission({
   basePath,
   errorCode,
   errorMsg,
+  logoutError,
+  loggingOut,
 }: {
   user: { name?: string; email?: string; picture?: string }
   onLogout: () => Promise<void> | void
@@ -915,6 +925,8 @@ function NoManagerPermission({
   basePath: string
   errorCode: number | null
   errorMsg: string
+  logoutError?: string
+  loggingOut?: boolean
 }) {
   // 401: session 失效（已登入但 cookie 沒被後端認可）→ 直接登出讓他重新走 OAuth
   // 403: 登入了但不是 manager → 顯示「無權限」訊息
@@ -935,7 +947,7 @@ function NoManagerPermission({
     window.location.hostname === '127.0.0.1'
   )
 
-  if (is401) {
+  if (is401 && !logoutError) {
     // 等 onLogout 跳轉中
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -964,6 +976,7 @@ function NoManagerPermission({
         </div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-2">{title}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">{desc}</p>
+        {logoutError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">{logoutError}</p>}
 
         {/* 當前登入帳號 */}
         <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-6">
@@ -998,23 +1011,25 @@ function NoManagerPermission({
         <div className="flex flex-wrap gap-3">
           {!is403 && <button
             onClick={onRetry}
-            className="flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
             style={{ backgroundColor: PRIMARY }}
           >
             重新驗證
           </button>}
           <button
             onClick={() => window.location.href = basePath || '/'}
-            className="flex-1 min-w-[120px] px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
           >
             回首頁
           </button>
           <button
             onClick={() => onLogout()}
-            className="flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            disabled={loggingOut}
+            aria-busy={loggingOut}
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: PRIMARY }}
           >
-            切換帳號
+            {loggingOut ? '登出中…' : '切換帳號'}
           </button>
         </div>
       </div>

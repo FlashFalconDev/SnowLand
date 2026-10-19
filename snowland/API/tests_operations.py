@@ -284,8 +284,9 @@ class OperationsTests(TestCase):
         request.user = self.user
         request.tenant = self.client_tenant
         request.client_code = self.client_tenant.internal_code
-        with patch('booking.views.requests.get', side_effect=RuntimeError('offline')):
+        with patch('requests.get') as ip_lookup:
             legacy = legacy_payment(request, client_code=self.client_tenant.internal_code)
+        ip_lookup.assert_not_called()
         self.assertEqual(legacy.status_code, 200)
         self.assertIn('QA-ACCOUNT-001', legacy.content.decode())
         self.assertNotIn('123-456-789012', legacy.content.decode())

@@ -14,7 +14,7 @@ export default function PendingConfirmationsPage() {
   const notify = useNotification()
   const qc = useQueryClient()
 
-  const { data: items = [], isLoading, error } = useQuery({
+  const { data: items = [], isLoading, error, refetch } = useQuery({
     queryKey: ['admin', 'coach-pending'],
     queryFn: fetchCoachPending,
   })
@@ -22,8 +22,10 @@ export default function PendingConfirmationsPage() {
   const confirmMutation = useMutation({
     mutationFn: ({ id, action }: { id: number; action: 'accept' | 'reject' }) => coachConfirm(id, action),
     onSuccess: (res, vars) => {
-      qc.invalidateQueries({ queryKey: ['admin', 'coach-pending'] })
       if (res.code === 200) {
+        for (const key of ['coach-pending', 'my-courses', 'my-calendar', 'my-course-monthly-stats']) {
+          qc.invalidateQueries({ queryKey: ['admin', key] })
+        }
         notify.success(vars.action === 'accept' ? '已接受課程' : res.msg || '已拒絕')
       } else {
         notify.error(res.msg)
@@ -53,6 +55,7 @@ export default function PendingConfirmationsPage() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
           <AlertCircle size={32} className="mx-auto mb-3 text-red-500" />
           <p className="text-sm text-red-600">載入失敗</p>
+          <button type="button" onClick={() => refetch()} className="mt-3 min-h-11 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200">重新載入</button>
         </div>
       ) : items.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-16 text-center">
@@ -107,7 +110,7 @@ export default function PendingConfirmationsPage() {
                 <button
                   onClick={() => confirmMutation.mutate({ id: item.id, action: 'accept' })}
                   disabled={confirmMutation.isPending}
-                  className="flex-1 px-4 py-2 bg-green-500 text-white text-sm font-medium rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="min-h-11 flex-1 px-4 py-2 bg-green-500 text-white text-sm font-medium rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {confirmMutation.isPending && confirmMutation.variables?.id === item.id && <Loader2 size={14} className="animate-spin" />}
                   <Check size={16} />接受課程
@@ -119,7 +122,7 @@ export default function PendingConfirmationsPage() {
                     }
                   }}
                   disabled={confirmMutation.isPending}
-                  className="flex-1 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="min-h-11 flex-1 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <X size={16} />拒絕
                 </button>

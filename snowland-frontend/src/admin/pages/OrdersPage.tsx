@@ -906,7 +906,9 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
 
               {isSchedulingFailed && (
                 <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-700 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300">
-                  這筆課程尚未排課成功。未付款的排課失敗訂單會在建立後 30 分鐘自動取消；也可以請客人改選其他日期後重新下單。
+                  {order.payment_status === 'paid'
+                    ? '這筆訂單已付款，但課程尚未排課成功。請由行政重新指派可用教練，原付款紀錄保留，不需重複付款。'
+                    : '這筆課程尚未排課成功。請先由行政確認可用教練與訂單付款狀態，再安排排課或調整日期。'}
                 </div>
               )}
               {r.status === 'manually_assigned' && <p className="mt-3 rounded-lg bg-violet-50 p-3 text-sm leading-6 text-violet-800 dark:bg-violet-900/20 dark:text-violet-200">人工排定已鎖定教練，不會因其他訂單自動排課而被換走；如需改派，請在此訂單明確修改。</p>}
