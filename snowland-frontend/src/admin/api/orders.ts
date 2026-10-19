@@ -2,6 +2,7 @@
  * 訂單管理 API
  */
 import adminApi from './axios'
+import type { OrderSettlement } from '../../components/booking/SettlementSummary'
 
 export type ReservationStatus =
   | 'created' | 'cancelled' | 'auto_assigned' | 'manually_assigned'
@@ -63,6 +64,8 @@ export interface OrderRevisionSnapshot {
 }
 
 export interface Order {
+  settlement?: OrderSettlement
+  received_settlement?: OrderSettlement | null
   id: number
   sn: string
   name: string
@@ -187,6 +190,8 @@ export async function updateOrder(
   payload: {
     action: 'save' | 'schedule'
     payment_status?: PaymentStatus
+    payment_currency?: 'TWD' | 'JPY'
+    payment_received_amount?: number
     reservation_updates?: { reservation_id: number; coach_id: number | null }[]
     booking_updates?: { booking_id: number; date: string; start_time: string; end_time: string }[]
   }

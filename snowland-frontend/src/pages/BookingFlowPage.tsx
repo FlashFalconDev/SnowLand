@@ -13,8 +13,11 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import CheckoutPolicyConsent from '../components/booking/CheckoutPolicyConsent'
+import CurrencySelection, { type PaymentCurrencyQuote } from '../components/booking/CurrencySelection'
+import SettlementSummary, { settlementAmount, type OrderSettlement } from '../components/booking/SettlementSummary'
+import { quoteJpyPreview, sumJpyAmounts } from '../utils/settlementPreview'
 import type { CheckoutPolicyAcceptance } from '../api/booking'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Calendar,
@@ -80,13 +83,14 @@ type BankInfo = {
   bank_branch: string
   bank_account_number: string
   bank_account_holder: string
+  overseas_details?: string
 }
 
 type SubmittedReservation = {
   reservation_group_ids: number[]
   payment_access_tokens: Record<number, string>
   total_amount: number
-  payment_infos: { reservation_group_id: number; total_amount: number; bank_info: BankInfo }[]
+  payment_infos: { reservation_group_id: number; total_amount: number; bank_info: BankInfo; settlement?: OrderSettlement }[]
   payment_methods: string[]
   payment_expires_at: string | null
 }
@@ -729,6 +733,7 @@ const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []
 
 export default function BookingFlowPage() {
   const navigate = useNavigate()
+  const {clientCode='snowland'}=useParams<{clientCode:string}>()
   const { user, loading: authLoading } = useAuth()
   const membershipUrl = useSiteLink('/membership')
   const bookingUrl = useSiteLink('/booking')
@@ -846,6 +851,10 @@ export default function BookingFlowPage() {
   const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card'>('bank')
   const [acceptedPolicy, setAcceptedPolicy] = useState(false)
   const [policyAcceptance, setPolicyAcceptance] = useState<CheckoutPolicyAcceptance | null>(null)
+  const [currencyQuote,setCurrencyQuote]=useState<PaymentCurrencyQuote>({currency:'TWD',rate:'1.00000000'})
+  const [currencyReady,setCurrencyReady]=useState(true)
+  const [currencyReloadKey,setCurrencyReloadKey]=useState(0)
+  const [priceRetryKey,setPriceRetryKey]=useState(0)
 
   // 預約送出後的付款階段資訊
   const [submittedReservation, setSubmittedReservation] = useState<SubmittedReservation | null>(null)
@@ -863,10 +872,13 @@ export default function BookingFlowPage() {
     if (!detail) return source
     return `${source}：${detail}`
   }, [referrer, referrerDetail])
-  const discountPreviewKey = JSON.stringify([cart, contactInfo, discountCode.trim(), referralSourceValue])
+  const discountPreviewKey = JSON.stringify([cart, contactInfo, discountCode.trim(), referralSourceValue, priceRetryKey])
   const discountPreview = discountPreviewResult?.key === discountPreviewKey
     ? discountPreviewResult.preview
     : null
+  const jpyPreview=useMemo(()=>currencyQuote.currency==='JPY'&&discountPreview
+    ? quoteJpyPreview(discountPreview.item_subtotals,discountPreview.item_discount_amounts,currencyQuote.rate):null,
+    [currencyQuote.currency,currencyQuote.rate,discountPreview])
 
   // 排課失敗 modal 狀態
   const [schedulingFailed, setSchedulingFailed] = useState<{
@@ -1486,6 +1498,7 @@ export default function BookingFlowPage() {
       if (createdReservationIds.length > 0 && !submittedReservation) return false
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
+        if(currencyQuote.currency==='JPY'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading))return false
         if (hasUnconfirmedCartPrice(cart)) return false
         return cart.length > 0 && !!contactInfo.name.trim() && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
       }
@@ -1504,7 +1517,7 @@ export default function BookingFlowPage() {
     equipmentOption, equipmentAssistanceTimeSlotId, equipmentTimeSlots,
     cart, discountPreview,
     contactInfo.name, contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, referralSourceValue, staffLinkInfo, acceptedPolicy,
-    submittedReservation, createdReservationIds, paymentMethod, senderAccount,
+    submittedReservation, createdReservationIds, paymentMethod, senderAccount, currencyQuote.currency, currencyReady, jpyPreview, isDiscountPreviewLoading,
   ])
 
   const handleNext = async () => {
@@ -1869,7 +1882,7 @@ export default function BookingFlowPage() {
     const paymentInfos = await Promise.all(
       reservationGroupIds.map(async (reservationGroupId) => {
         const piRes = await fetch(
-          `${getBackendURL()}/booking/snowland/api/payment-info/?${new URLSearchParams({ reservation_group: String(reservationGroupId), ...(accessTokens[reservationGroupId] ? { access_token: accessTokens[reservationGroupId] } : {}) })}`,
+          `${getBackendURL()}/booking/${encodeURIComponent(clientCode)}/api/payment-info/?${new URLSearchParams({ reservation_group: String(reservationGroupId), ...(accessTokens[reservationGroupId] ? { access_token: accessTokens[reservationGroupId] } : {}) })}`,
           { credentials: 'include' },
         )
         const pi = await piRes.json().catch(() => ({}))
@@ -1888,6 +1901,7 @@ export default function BookingFlowPage() {
         reservation_group_id: reservationGroupIds[index],
         total_amount: Number(pi.total_amount || 0),
         bank_info: pi.bank_info || { ...emptyBankInfo },
+        settlement: pi.settlement,
       })),
       payment_methods: (paymentInfos[0]?.payment_methods || []).filter((method: string) =>
         paymentInfos.every((pi) => pi.payment_methods?.includes(method))
@@ -1919,6 +1933,7 @@ export default function BookingFlowPage() {
 
   // Step 3a：送出訂單；成功後抓付款資訊，停留在 Step 3 進入付款區塊
   const submitBooking = async () => {
+    if(currencyQuote.currency==='JPY'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading)){showToast('請先確認日幣匯率與試算金額，或改選台幣。','warning');return}
     if (cart.length === 0) {
       showToast('購物車是空的', 'warning')
       return
@@ -1937,6 +1952,8 @@ export default function BookingFlowPage() {
     )
     try {
       const response = await createReservation({
+        currency:currencyQuote.currency,
+        currency_rate:currencyQuote.rate,
         cart,
         accepted_policy: acceptedPolicy,
         policy_acceptance: policyAcceptance,
@@ -1996,6 +2013,7 @@ export default function BookingFlowPage() {
       } else if (isTimeoutError(e)) {
         showToast('預約處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
       } else {
+        if(currencyQuote.currency==='JPY'){setCurrencyReloadKey(value=>value+1);setPriceRetryKey(value=>value+1)}
         showToast(`預約失敗：${getPriceErrorMessage(e, '請重新確認課程或聯絡客服')}`, 'error')
       }
     } finally {
@@ -2021,7 +2039,7 @@ export default function BookingFlowPage() {
       setLoadingMessage('提交匯款資訊中...')
       try {
         for (const reservationGroupId of submittedReservation.reservation_group_ids) {
-          const res = await fetch(`${getBackendURL()}/booking/snowland/api/process-payment/`, {
+          const res = await fetch(`${getBackendURL()}/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -2029,6 +2047,8 @@ export default function BookingFlowPage() {
               reservation_group_id: reservationGroupId,
               payment_type: 'bank_transfer',
               sender_account: senderAccount,
+              currency:submittedReservation.payment_infos.find(info=>info.reservation_group_id===reservationGroupId)?.settlement?.currency || 'TWD',
+              expected_amount:submittedReservation.payment_infos.find(info=>info.reservation_group_id===reservationGroupId)?.settlement?.amount,
               access_token: submittedReservation.payment_access_tokens[reservationGroupId] || '',
             }),
           })
@@ -2063,7 +2083,7 @@ export default function BookingFlowPage() {
     setIsSubmitting(true)
     setLoadingMessage('跳轉到藍新付款頁面...')
     try {
-      const res = await fetch(`${getBackendURL()}/booking/snowland/api/process-payment/`, {
+      const res = await fetch(`${getBackendURL()}/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2493,6 +2513,13 @@ export default function BookingFlowPage() {
               ) : currentStep === 3 && (
                 <Step3Confirmation
                   cart={submittedReservation ? submittedCart : cart}
+                  clientCode={clientCode}
+                  currencyQuote={currencyQuote}
+                  setCurrencyQuote={setCurrencyQuote}
+                  onCurrencyReady={setCurrencyReady}
+                  currencyReloadKey={currencyReloadKey}
+                  jpyPreview={jpyPreview}
+                  onRetryPrice={()=>setPriceRetryKey(value=>value+1)}
                   contactInfo={contactInfo}
                   setContactInfo={setContactInfo}
                   discountCode={discountCode}
@@ -2670,6 +2697,8 @@ export default function BookingFlowPage() {
             setSchedulingFailed({ isOpen: false, message: '', conflictDetails: null, reservationGroupIds: [] })
             failedCartSignatureRef.current = ''
             const response = await superSchedule({
+              currency:currencyQuote.currency,
+              currency_rate:currencyQuote.rate,
               cart,
               accepted_policy: acceptedPolicy,
               policy_acceptance: policyAcceptance,
@@ -3584,6 +3613,7 @@ function Step2SkiConfiguration({
 // ============== Step 3: 確認訂單 ==============
 function Step3Confirmation({
   cart, contactInfo, setContactInfo,
+  clientCode, currencyQuote, setCurrencyQuote, onCurrencyReady, currencyReloadKey, jpyPreview, onRetryPrice,
   discountCode, setDiscountCode,
   discountPreview, isDiscountPreviewLoading,
   referrer, setReferrer,
@@ -3603,6 +3633,11 @@ function Step3Confirmation({
     ? submittedReservation.total_amount
     : (discountPreview?.total ?? Math.max(cartSubtotal - discountTotal, 0))
   const isPaid = !!submittedReservation
+  const currencyIsJpy=submittedReservation
+    ? submittedReservation.payment_infos.length>0&&submittedReservation.payment_infos.every((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.currency==='JPY')
+    : currencyQuote?.currency==='JPY'
+  const actualJpyTotal=submittedReservation&&currencyIsJpy
+    ? sumJpyAmounts(submittedReservation.payment_infos.map((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.amount)):null
   const canEditCart = !isPaid && !staffSelectedCart
   const isSharedClassCart = cart.some((group: CartItem) =>
     group.courses?.some((course) => course.sharedClassEnabled),
@@ -3988,16 +4023,21 @@ function Step3Confirmation({
           )}
         </div>
 
+        {!isPaid && <CurrencySelection clientCode={clientCode} value={currencyQuote} onChange={setCurrencyQuote} onReadyChange={onCurrencyReady} reloadKey={currencyReloadKey} />}
         <div className="border-t border-[#d4dbe4] pt-4 mb-6">
           <div className="flex justify-between items-baseline">
-            <span className="text-sm font-semibold text-[#1f2937]">{isSharedClassCart && !isPaid ? '成班後應付' : '總金額'}</span>
+            <span className="text-sm font-semibold text-[#1f2937]">{currencyIsJpy ? (isPaid?'日幣應付合計':'預估日幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額'}</span>
             <span className="text-2xl font-bold text-[#2b5f8f]">
-              {pricePending ? '價格待確認' : `NT$ ${total.toLocaleString()}`}
+              {pricePending ? '價格待確認' : currencyIsJpy
+                ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`JPY ¥ ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:'日幣金額待確認'
+                : `NT$ ${total.toLocaleString()}`}
             </span>
           </div>
+          {currencyIsJpy&&<p className="mt-2 text-xs leading-6 text-[#64748b]">台幣計價基準合計 NT$ {total.toLocaleString()}。{isPaid?'請依每筆訂單的日幣金額分別匯至對應帳戶。':'預估金額採各預約組分開換算；成立後會列出每筆應付金額。'}</p>}
         </div>
 
         {pricePending && <p role="status" className="mb-4 text-sm text-amber-800">{isDiscountPreviewLoading ? '正在確認最新價格…' : '尚未取得最新價格，請按課程「修改」重新確認日期、時段與價格後再送出。'}</p>}
+        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">日幣金額尚未確認，暫不能送出訂單。<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?'正在確認價格…':'重新確認價格'}</button></p>}
 
         <h4 className="text-sm font-semibold text-[#1f2937] mb-3">付款方式</h4>
         {isSharedClassCart && !isPaid && (
@@ -4047,11 +4087,13 @@ function Step3Confirmation({
               {submittedReservation.payment_infos.map((info: SubmittedReservation['payment_infos'][number]) => (
                 <div key={info.reservation_group_id} className="space-y-2 border-t border-[#e5e9f2] pt-3">
                   {submittedReservation.payment_infos.length > 1 && <p className="font-semibold text-[#1f2937]">預約 #{info.reservation_group_id}</p>}
+                  <SettlementSummary settlement={info.settlement} paymentInstructions />
                   <div className="flex justify-between"><span className="text-[#6b7280]">銀行</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_name || '—'}</span></div>
                   <div className="flex justify-between"><span className="text-[#6b7280]">分行</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_branch || '—'}</span></div>
                   <div className="flex justify-between"><span className="text-[#6b7280]">帳號</span><span className="text-[#1f2937] font-mono font-semibold">{info.bank_info.bank_account_number || '—'}</span></div>
                   <div className="flex justify-between"><span className="text-[#6b7280]">戶名</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_account_holder || '—'}</span></div>
-                  <div className="flex justify-between"><span className="text-[#1f2937] font-semibold">匯款金額</span><span className="text-[#2b5f8f] text-base font-bold">NT$ {info.total_amount.toLocaleString()}</span></div>
+                  {info.bank_info.overseas_details && <p className="whitespace-pre-wrap break-words text-[#1f2937]">{info.bank_info.overseas_details}</p>}
+                  <div className="flex flex-wrap justify-between gap-2"><span className="text-[#1f2937] font-semibold">匯款金額</span><span className="text-[#2b5f8f] text-base font-bold">{settlementAmount(info.settlement,info.total_amount)}</span></div>
                 </div>
               ))}
             </div>

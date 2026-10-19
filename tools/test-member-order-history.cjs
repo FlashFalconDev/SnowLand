@@ -15,7 +15,10 @@ vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,
   jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true,
 } }).outputText, balanceContext)
 const between = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)))
+const moneyContext=vm.createContext({React,exports:{}})
+vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/components/booking/SettlementSummary.tsx'),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,moneyContext)
 const context = vm.createContext({ React, Intl, Date, Number,
+  SettlementSummary:moneyContext.exports.default,settlementAmount:moneyContext.exports.settlementAmount,
   OrderAmendmentBalance: balanceContext.exports.default,
   requestJson: async () => ({ items: [] }),
   useLocation: () => ({ pathname: '/membership/orders/1' }),
@@ -83,6 +86,14 @@ for (const [name, check] of [
     assert.ok(html.includes('攝影方案') && html.includes('攝影師') && html.includes('預約數量'))
     assert.ok(html.includes('QA教練'),'Photography keeps its actually assigned photographer name')
     assert.ok(!html.includes('>教練</span>') && !html.includes('>人數</span>'))
+  }],
+  ['JPY member card distinguishes locked settlement from the TWD pricing basis', () => {
+    const html=renderCard({...order,settlement:{currency:'JPY',base_currency:'TWD',amount:45000,base_amount:10000,rate:'4.50000000',locked_at:'2026-10-19T03:00:00Z'}})
+    assert.ok(html.includes('日幣 JPY ¥ 45,000'))
+    assert.ok(html.includes('台幣計價基準 NT$ 10,000'))
+    assert.ok(!html.includes('請使用日幣匯款'),'An order listing is not payment authorization while waiting for a coach')
+    const detail=renderToStaticMarkup(React.createElement(context.Orders,{data:{orders:[{...order,settlement:{currency:'JPY',base_currency:'TWD',amount:45000,base_amount:10000,rate:'4.50000000'}}]}}))
+    assert.equal((detail.match(/aria-label="付款幣別與金額"/g)||[]).length,1,'Detail must not duplicate the same currency summary')
   }],
   ['detail marks cancelled course instead of presenting it as active', () => {
     const html = renderToStaticMarkup(React.createElement(context.Orders, { data: { orders: [order] } }))

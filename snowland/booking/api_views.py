@@ -2969,6 +2969,7 @@ class MemberCenterAPI(APIView):
                     payment_hold_status = 'scheduling_failed'
                 elif payment and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
                     payment_hold_status = 'payment_records_review'
+            from .currency import settlement_summary, received_settlement_summary
             orders.append({
                 'id': group.id,
                 'line_group_url': class_group_url,
@@ -2979,6 +2980,8 @@ class MemberCenterAPI(APIView):
                 'created_at': group.created_at.isoformat(),
                 'payment_status': payment.status if payment else 'unpaid',
                 'payment_hold_status': payment_hold_status,
+                'settlement': settlement_summary(group),
+                'received_settlement': received_settlement_summary(group),
                 'cancellation': {
                     'status': cancellation.status,
                     'original_amount': cancellation.original_amount,

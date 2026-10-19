@@ -315,7 +315,7 @@ export default function PaymentPage() {
             ))}
           </div>
 
-          <SettlementSummary settlement={paymentData.settlement} />
+          <SettlementSummary settlement={paymentData.settlement} paymentInstructions={paymentData.payment_status==='unpaid'} />
           <div className="mt-6 flex items-center justify-between border-t-2 border-gray-200 pt-6">
             <span className="text-xl font-semibold text-gray-700">總金額</span>
             <span className="text-3xl font-bold text-[#2b5f8f]">

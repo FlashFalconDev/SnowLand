@@ -1648,6 +1648,16 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
 
 class OrderAdminSerializer(serializers.ModelSerializer):
     """訂單 = ReservationGroup 為主，附帶旗下的 Reservation 與 Booking"""
+    settlement = serializers.SerializerMethodField()
+    received_settlement = serializers.SerializerMethodField()
+
+    def get_received_settlement(self, obj):
+        from booking.currency import received_settlement_summary
+        return received_settlement_summary(obj)
+
+    def get_settlement(self, obj):
+        from booking.currency import settlement_summary
+        return settlement_summary(obj)
     user_name = serializers.SerializerMethodField()
     user_email = serializers.SerializerMethodField()
     booking_contact = serializers.SerializerMethodField()
@@ -1674,7 +1684,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             'id', 'sn', 'order_number', 'name', 'user', 'user_name', 'user_email', 'booking_contact',
             'campus', 'campus_name', 'marketing_source', 'marketing_source_detail', 'line_group_url', 'line_group_qr_url',
             'reservations', 'total_fee', 'payment_status', 'payment_method',
-            'bank_account', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
+            'bank_account', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
         ]
         read_only_fields = fields
 

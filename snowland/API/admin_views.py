@@ -1879,6 +1879,15 @@ class OrderAdminViewSet(ModelViewSet):
             return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
         if payment_status and payment_status not in dict(Payment.STATUS_CHOICES):
             return Response({'code': 400, 'msg': '無效的付款狀態'}, status=400)
+        jpy_receipt = None
+        if payment_status == 'paid' and (instance.currency_snapshot or {}).get('currency') == 'JPY':
+            prior_payment=instance.payments.select_for_update().order_by('-created_at','-pk').first()
+            if not prior_payment or prior_payment.status != 'paid':
+                from booking.currency import order_settlement
+                expected=order_settlement(instance)
+                if data.get('payment_currency') != 'JPY' or type(data.get('payment_received_amount')) is not int or data['payment_received_amount'] != expected['amount']:
+                    return Response({'code':400,'msg':'請核對銀行實收日幣金額，確認幣別及金額與本單相同後再標記已付款'},status=400)
+                jpy_receipt={**expected,'confirmed_at':timezone.now().isoformat(),'confirmed_by_id':request.user.pk}
         if payment_status and instance.reservations.filter(shared_course_class__status='collecting').exists():
             return Response({'code': 400, 'msg': '團體班仍在湊班中，成班後才能修改付款狀態'}, status=400)
         if not isinstance(reservation_updates, list) or not isinstance(booking_updates, list):
@@ -2011,6 +2020,11 @@ class OrderAdminViewSet(ModelViewSet):
                     user=instance.user,
                 )
             payment.status = payment_status
+            if jpy_receipt is not None:
+                payload=payment.DataJSON if isinstance(payment.DataJSON,dict) else {}
+                confirmations=list(payload.get('settlement_confirmations',[]))
+                confirmations.append(jpy_receipt)
+                payment.DataJSON={**payload,'settlement':jpy_receipt,'settlement_confirmations':confirmations}
             payment.save()
             if payment_status == 'paid':
                 from booking.operations import schedule_group_notifications

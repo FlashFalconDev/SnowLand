@@ -16,6 +16,8 @@ import ClassGroupQRPanel from '../components/ClassGroupQRPanel'
 import CancellationStatusPanel from '../components/CancellationStatusPanel'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
+import OrderCurrencySummary from '../components/OrderCurrencySummary'
+import { settlementAmount } from '../../components/booking/SettlementSummary'
 
 const PRIMARY = '#8b5cf6'
 
@@ -305,7 +307,7 @@ function FullOrdersPage() {
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div className="min-w-0"><div className="text-xs text-gray-500 dark:text-gray-400">學員</div><div className="truncate font-medium text-gray-900 dark:text-white">{order.user_name}</div></div>
-                  <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">NT$ {(order.total_fee || 0).toLocaleString()}</div></div>
+                    <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">{settlementAmount(order.settlement,order.total_fee || 0)}</div>{order.settlement?.currency==='JPY'&&<div className="text-xs text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</div>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
@@ -358,7 +360,7 @@ function FullOrdersPage() {
                           </>
                         ) : '—'}
                       </td>
-                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">NT$ {(order.total_fee || 0).toLocaleString()}</td>
+                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{settlementAmount(order.settlement,order.total_fee || 0)}{order.settlement?.currency==='JPY'&&<div className="text-xs font-normal text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</td>
                       <td className="px-5 py-3 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
                       </td>
@@ -552,6 +554,9 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   })
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(order.payment_status)
   const [editing, setEditing] = useState(false)
+  const [jpyReceiptConfirmed,setJpyReceiptConfirmed]=useState(false)
+  const requiresJpyReceipt=paymentStatus==='paid'&&order.payment_status!=='paid'&&order.settlement?.currency==='JPY'
+  useEffect(()=>{setJpyReceiptConfirmed(false)},[order.id,order.payment_status,order.settlement?.amount,editing])
   const [groupLinkDraft, setGroupLinkDraft] = useState(order.line_group_url || '')
   const [groupLinkError, setGroupLinkError] = useState('')
   useEffect(() => { setGroupLinkDraft(order.line_group_url || ''); setGroupLinkError('') }, [order.id, order.line_group_url])
@@ -692,6 +697,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
       return updateOrder(order.id, {
         action,
         payment_status: paymentStatus !== order.payment_status ? paymentStatus : undefined,
+        payment_currency:requiresJpyReceipt&&jpyReceiptConfirmed?'JPY':undefined,
+        payment_received_amount:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.amount:undefined,
         reservation_updates: updates,
         booking_updates: bookingUpdates,
       })
@@ -945,13 +952,15 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
 
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><CreditCard size={14} style={{ color: PRIMARY }} />付款資訊</h3>
+            <OrderCurrencySummary settlement={order.settlement} receivedSettlement={order.received_settlement} confirmationRequired={editing&&requiresJpyReceipt} confirmed={jpyReceiptConfirmed} onConfirmChange={setJpyReceiptConfirmed} busy={saveMutation.isPending} />
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-2 text-sm">
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">付款狀態</span>
                 {editing && !sharedPaymentHeld ? (
                   <select
+                    aria-label="訂單付款狀態"
                     value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                    onChange={(e) => {setJpyReceiptConfirmed(false);setPaymentStatus(e.target.value as PaymentStatus)}}
                     className="px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                   >
                     {Object.entries(PAYMENT_LABEL).map(([k, v]) => (
@@ -1012,7 +1021,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               </button>
               <button
                 onClick={() => saveMutation.mutate('save')}
-                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking)}
+                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-[#8b5cf6] text-sm font-medium rounded-lg hover:bg-[#8b5cf6]/5 disabled:opacity-50 flex items-center gap-2"
                 style={{ color: PRIMARY }}
               >
@@ -1021,7 +1030,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               </button>
               <button
                 onClick={() => saveMutation.mutate('schedule')}
-                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking)}
+                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 style={{ backgroundColor: PRIMARY }}
               >

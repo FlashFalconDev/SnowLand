@@ -81,3 +81,20 @@ def order_settlement(group, *, base_amount=None):
         base_amount = sum(group.reservations.exclude(status__in=['deleted', 'cancelled']).values_list('payment_amount',flat=True))
     snapshot = group.currency_snapshot or {'currency':'TWD','base_currency':'TWD','rate':'1.00000000','locked_at':None,'bank_info':{}}
     return {**snapshot, 'base_amount':base_amount, 'amount':convert_twd_amount(base_amount,Decimal(snapshot['rate']))}
+
+
+def settlement_summary(group, *, base_amount=None):
+    """Order listings expose amounts, not bank instructions before payment opens."""
+    snapshot=order_settlement(group,base_amount=base_amount)
+    return {key:snapshot[key] for key in ('currency','base_currency','base_amount','amount','rate','locked_at')}
+
+
+def received_settlement_summary(group):
+    payment=group.payments.order_by('-created_at','-pk').first()
+    if not payment or payment.status!='paid' or not isinstance(payment.DataJSON,dict):
+        return None
+    snapshot=payment.DataJSON.get('settlement')
+    if not isinstance(snapshot,dict) or not snapshot.get('confirmed_at'):
+        return None
+    keys=('currency','base_currency','base_amount','amount','rate','locked_at')
+    return {key:snapshot[key] for key in keys} if all(key in snapshot for key in keys) else None

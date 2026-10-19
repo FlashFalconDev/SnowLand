@@ -100,6 +100,13 @@ class CustomerJourneyTests(TestCase):
             'currency_snapshot':{'currency':'JPY','rate':'0.00001','amount':1}})
         relabel = self.hq.patch(f'/api/admin/snowland/payment-accounts/{bank.pk}/',{'currency':'TWD'},format='json')
         self.assertEqual(relabel.status_code,400,relabel.data)
+        member_order=next(row for row in self.api.get(self.center).data['orders'] if row['id']==reservation.group_id)
+        self.assertEqual(member_order['settlement']['currency'],'JPY')
+        self.assertEqual(member_order['settlement']['amount'],45000)
+        self.assertNotIn('bank_info',member_order['settlement'])
+        admin_order=self.hq.get(f'/api/admin/snowland/orders/{reservation.group_id}/').data['data']
+        self.assertEqual(admin_order['settlement']['amount'],45000)
+        self.assertNotIn('bank_info',admin_order['settlement'])
         config.jpy_per_twd='9';config.jpy_enabled=False;config.save()
         bank.account_number='QA-CHANGED';bank.save()
         accepted = self.coach_api.post(f'/api/admin/snowland/coach/confirm/{reservation.pk}/', {'action': 'accept'}, format='json')
@@ -119,6 +126,20 @@ class CustomerJourneyTests(TestCase):
             'payment_type':'bank_transfer','sender_account':'12345','currency':'JPY','expected_amount':45000}, format='json')
         self.assertEqual(reported.status_code,200,reported.data)
         self.assertEqual(self.api.get('/booking/snowland/api/payment-info/', {'reservation_group':reservation.group_id}).data['payment_status'],'pending')
+        unsafe=self.hq.patch(f'/api/admin/snowland/orders/{reservation.group_id}/',{'action':'save','payment_status':'paid'},format='json')
+        self.assertEqual(unsafe.status_code,400,unsafe.data)
+        mismatch=self.hq.patch(f'/api/admin/snowland/orders/{reservation.group_id}/',{'action':'save','payment_status':'paid',
+            'payment_currency':'TWD','payment_received_amount':10000},format='json')
+        self.assertEqual(mismatch.status_code,400,mismatch.data)
+        confirmed=self.hq.patch(f'/api/admin/snowland/orders/{reservation.group_id}/',{'action':'save','payment_status':'paid',
+            'payment_currency':'JPY','payment_received_amount':45000},format='json')
+        self.assertEqual(confirmed.status_code,200,confirmed.data)
+        receipt=self.hq.get(f'/api/admin/snowland/orders/{reservation.group_id}/').data['data']['received_settlement']
+        self.assertEqual(receipt['currency'],'JPY')
+        self.assertEqual(receipt['amount'],45000)
+        member_receipt=next(row for row in self.api.get(self.center).data['orders'] if row['id']==reservation.group_id)['received_settlement']
+        self.assertEqual(member_receipt,receipt)
+        self.assertNotIn('bank_info',member_receipt)
 
     def test_jpy_disabled_missing_account_and_unknown_currency_roll_back_checkout(self):
         from Resorts.models import PaymentCurrencySettings
