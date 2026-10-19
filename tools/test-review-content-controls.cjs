@@ -32,6 +32,7 @@ function harness({rulesError=false}={}){
     if(name==='../../components/CourseAreaFields')return{default:function CourseAreaFields(){return null}}
     if(name==='../../components/HomepagePresentationFields')return{default:function HomepagePresentationFields(){return null}}
     if(name==='../../components/SiteFooterFields')return{default:function SiteFooterFields(){return null}}
+    if(name==='../../components/SiteTrackingFields')return{default:function SiteTrackingFields(){return null}}
     if(name==='../../components/WaiverDocumentFields')return{default:function WaiverDocumentFields(){return null}}
     if(name==='../../../hooks/useSiteContent')return{GUIDE_CATEGORIES:['裝備與技巧'],guideArticleMode:item=>item.metadata?.article_mode||(item.link_url&&!item.body?'external':'internal')}
     if(name==='../../utils/articleContent')return articleContext.exports

@@ -20,6 +20,7 @@ import HistoryPage from '@/pages/HistoryPage'
 import ClientSelectionPage from '@/pages/ClientSelectionPage'
 import SiteRoutes from '@/pages/site/SiteRoutes'
 import { SiteBasePathContext } from '@/components/site/SiteLink'
+import SiteTracking from '@/components/site/SiteTracking'
 // @ts-ignore
 import SiteHeader from '@/components/site/SiteHeader'
 // @ts-ignore
@@ -236,6 +237,7 @@ function ClientRoutes() {
 
   return (
     <SiteBasePathContext.Provider value={basePath}>
+      <SiteTracking />
       <Routes>
         {/* 付款頁面 */}
         <Route path="payment" element={<PaymentPage />} />

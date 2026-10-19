@@ -267,6 +267,12 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'body':'請填寫聲明書正文，不能以空白內容取代'})
             if 'is_draft' in metadata and not isinstance(metadata['is_draft'], bool):
                 raise serializers.ValidationError({'metadata':'法務確認中必須是勾選或取消勾選'})
+        if location == 'site.tracking' or getattr(self.instance, 'location_key', None) == 'site.tracking':
+            from Client.site_tracking import validate_site_tracking
+            try:
+                attrs['metadata'] = validate_site_tracking(attrs, self.instance, getattr(self.context.get('request'), 'tenant', None))
+            except ValueError as exc:
+                raise serializers.ValidationError({'metadata': str(exc)})
         if location == 'site.footer':
             from Client.site_footer import validate_site_footer
             try:
