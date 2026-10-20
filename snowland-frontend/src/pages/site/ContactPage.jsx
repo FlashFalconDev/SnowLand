@@ -1,4 +1,5 @@
 import React from 'react';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 import ContactForm from '../../components/site/ContactForm';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
@@ -29,6 +30,7 @@ const renderTextWithLinks = (text) => {
 };
 
 function ContactPage() {
+  const { t } = useSiteLocale();
   const { items, isLoading, error } = useSiteContent('about.contact', { limit: 1 });
   const page = siteContentToPage(items[0]);
   const blocks = Array.isArray(page?.blocks) ? page.blocks.filter(Boolean) : [];
@@ -54,7 +56,7 @@ function ContactPage() {
         <SiteHeader forceTransparent forceDarkText forceLogoColor />
         <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
           <p className={`text-sm ${error ? "text-red-600" : "text-[#64748b]"}`}>
-            {error ? "聯絡資訊暫時無法載入，請稍後再試。" : isLoading ? "聯絡資訊載入中。" : "目前沒有已發布的聯絡資訊。"}
+            {t(error ? "聯絡資訊暫時無法載入，請稍後再試。" : isLoading ? "聯絡資訊載入中。" : "目前沒有已發布的聯絡資訊。")}
           </p>
         </main>
         <SiteFooter />
@@ -82,7 +84,7 @@ function ContactPage() {
                 Contact us
               </p>
               <h1 className="text-3xl md:text-4xl font-semibold tracking-wide text-[#111827] font-display">
-                {page.title || "聯絡我們"}
+                {t(page.title || "聯絡我們")}
               </h1>
               <div className="space-y-3 text-sm md:text-base text-[#475569] leading-relaxed">
                 {infoLines

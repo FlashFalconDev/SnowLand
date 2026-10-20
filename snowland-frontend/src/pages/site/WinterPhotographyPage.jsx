@@ -6,8 +6,10 @@ import SiteFooter from '../../components/site/SiteFooter';
 import PhotographyContentGate from '../../components/site/PhotographyContentGate';
 import SiteHeader from '../../components/site/SiteHeader';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 
 function WinterPhotographyLayout({ content }) {
+  const { t } = useSiteLocale();
   const c = (key) => content.values[key] ?? '';
   const scrollerRef = useRef(null);
   const itemRefs = useRef([]);
@@ -166,7 +168,7 @@ function WinterPhotographyLayout({ content }) {
 
   return (
     <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
-      <SiteHeader forceTransparent forceDarkText forceLogoColor />
+      <SiteHeader forceCompact forceDarkText forceLogoColor />
       <main className="max-w-5xl mx-auto px-6 pt-32 pb-24 flex-1 w-full">
         <div className="text-center">
           <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
@@ -215,16 +217,16 @@ function WinterPhotographyLayout({ content }) {
             <button
               type="button"
               onClick={() => scrollToIndex(activeIndex - 1)}
-              className="absolute left-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
-              aria-label="Previous photo"
+              className="absolute left-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
+              aria-label={t('上一張照片')}
             >
               ←
             </button>
             <button
               type="button"
               onClick={() => scrollToIndex(activeIndex + 1)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
-              aria-label="Next photo"
+              className="absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
+              aria-label={t('下一張照片')}
             >
               →
             </button>
@@ -259,7 +261,7 @@ function WinterPhotographyLayout({ content }) {
               <SiteLink to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                {c("winter_010")}</SiteLink>
+                {t(c("winter_010"))}</SiteLink>
             </div>
           </div>
         </section>
@@ -357,7 +359,7 @@ function WinterPhotographyLayout({ content }) {
                     to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    {c("winter_032")}</SiteLink>
+                    {t(c("winter_032"))}</SiteLink>
                 </div>
               </div>
             </div>
@@ -392,7 +394,7 @@ function WinterPhotographyLayout({ content }) {
                     to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    {c("winter_041")}</SiteLink>
+                    {t(c("winter_041"))}</SiteLink>
                 </div>
               </div>
             </div>
@@ -423,7 +425,7 @@ function WinterPhotographyLayout({ content }) {
                     to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    {c("winter_049")}</SiteLink>
+                    {t(c("winter_049"))}</SiteLink>
                 </div>
               </div>
             </div>
@@ -523,7 +525,7 @@ function WinterPhotographyLayout({ content }) {
                       <line x1="16" y1="2.5" x2="16" y2="6" />
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
-                    {c("winter_063")}</SiteLink>
+                    {t(c("winter_063"))}</SiteLink>
                   <a
                     href="#faq"
                     className="flex items-center justify-center gap-3 border-t border-[#d7dde3] px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc] md:border-t-0 md:border-l"
@@ -628,7 +630,7 @@ function WinterPhotographyLayout({ content }) {
                 to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                {c("winter_075")}</SiteLink>
+                {t(c("winter_075"))}</SiteLink>
             </div>
           </div>
         </section>
@@ -710,7 +712,7 @@ function WinterPhotographyLayout({ content }) {
                     to="/faq"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    {c("winter_089")}</SiteLink>
+                    {t(c("winter_089"))}</SiteLink>
                 </div>
               </div>
             </div>

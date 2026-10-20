@@ -2,8 +2,10 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import SiteLink from './SiteLink';
 import { useSiteContent } from '../../hooks/useSiteContent';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 
 const SpecialOffers = () => {
+    const { t } = useSiteLocale();
     const { items: cmsOffers, isLoading, error } = useSiteContent('homepage.offers', { limit: 6, includeEnded: true });
     const offers = cmsOffers.map((item, index) => ({
             title: item.title || '限定優惠',
@@ -25,15 +27,15 @@ const SpecialOffers = () => {
                         Special Offers
                     </p>
                     <h2 className="text-2xl md:text-3xl font-bold text-[#1f2937] mt-4 font-display">
-                        限定優惠
+                        {t('限定優惠')}
                     </h2>
                 </div>
 
                 {/* Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 max-w-[680px] mx-auto">
-                    {isLoading && <p className="md:col-span-2 py-12 text-center text-sm text-[#64748b]">正在載入優惠…</p>}
-                    {!isLoading && error && <p className="md:col-span-2 py-12 text-center text-sm text-red-600">優惠暫時無法載入，請稍後再試。</p>}
-                    {!isLoading && !error && offers.length === 0 && <p className="md:col-span-2 py-12 text-center text-sm text-[#64748b]">目前沒有進行中的優惠。</p>}
+                    {isLoading && <p className="md:col-span-2 py-12 text-center text-sm text-[#64748b]">{t('正在載入優惠…')}</p>}
+                    {!isLoading && error && <p className="md:col-span-2 py-12 text-center text-sm text-red-600">{t('優惠暫時無法載入，請稍後再試。')}</p>}
+                    {!isLoading && !error && offers.length === 0 && <p className="md:col-span-2 py-12 text-center text-sm text-[#64748b]">{t('目前沒有進行中的優惠。')}</p>}
                     {offers.map((offer) => (
                         <SiteLink key={`${offer.title}-${offer.link_url}`} to={offer.link_url} aria-label={offer.title} className="block">
                             <motion.div
@@ -44,7 +46,7 @@ const SpecialOffers = () => {
                                 className="group relative w-full max-w-[320px] mx-auto aspect-square overflow-hidden shadow-lg cursor-pointer"
                             >
                                 <div className={`absolute top-6 right-6 text-xs font-bold px-3 py-1 rounded-xl shadow-lg ${offer.badgeClassName}`}>
-                                    {offer.badge}
+                                    {t(offer.badge)}
                                 </div>
                                 <img
                                     loading="lazy"
@@ -56,7 +58,7 @@ const SpecialOffers = () => {
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-80 transition-opacity duration-300 group-hover:opacity-90"></div>
                                 <div className="absolute bottom-0 left-0 p-8 w-full">
                                     <div className="text-brand-orange text-xs md:text-sm font-bold mb-2 uppercase tracking-wider">
-                                        期間限定
+                                        {t('期間限定')}
                                     </div>
                                     <h3 className="text-white text-xl md:text-2xl font-bold mb-3 drop-shadow-lg leading-tight">
                                         {offer.title}

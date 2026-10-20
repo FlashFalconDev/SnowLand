@@ -1,3 +1,4 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
@@ -7,6 +8,7 @@ import CoachLoadNotice from '../../components/site/CoachLoadNotice';
 import { useWebsiteCoachCards } from '../../api/websiteCoaches';
 
 function CoachTeamPage() {
+  const {t} = useSiteLocale();
   const { coaches: coaches, isLoading: coachesLoading, error: coachesError, retry: retryCoaches } = useWebsiteCoachCards();
 
   return (
@@ -14,14 +16,12 @@ function CoachTeamPage() {
       <SiteHeader forceTransparent forceDarkText forceLogoColor />
       <main className="flex-1 w-full">
         <section className="bg-[#f6f8fb]">
-          <div className="max-w-6xl mx-auto px-6 md:px-10 py-16 md:py-24">
+          <div className="max-w-6xl mx-auto px-6 md:px-10 pt-32 pb-16 md:pt-40 md:pb-24">
             <div className="text-center mb-12 md:mb-16">
               <p className="text-xs md:text-sm tracking-[0.3em] uppercase text-[#6b7280] font-medium font-display">
                 COACH
               </p>
-              <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-                教練團隊
-              </h2>
+              <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">{t("教練團隊")}</h2>
             </div>
 
             <CoachLoadNotice isLoading={coachesLoading} error={coachesError} count={coaches.length} retry={retryCoaches} />

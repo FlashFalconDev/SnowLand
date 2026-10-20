@@ -3,10 +3,11 @@ const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequi
 const defaults=JSON.parse(fs.readFileSync(path.join(__dirname,'../snowland/Client/fixtures/course_area_defaults.json'),'utf8'))
 function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))return node;for(const c of React.Children.toArray(node.props?.children)){const hit=find(c,p);if(hit)return hit}return null}
 function load(file,imports){const ctx=vm.createContext({exports:{},require:imports});vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,ctx);return ctx.exports.default}
-function setup(areas={},resorts={},slug='tomamu-area'){
+function setup(areas={},resorts={},slug='tomamu-area',language='zh-Hant'){
  let retries=0
  const Component=load('src/components/site/CourseAreaPage.jsx',name=>{
    if(name==='react')return React
+   if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React,language)
    if(name==='react-router-dom')return{useParams:()=>({resort:slug})}
    if(name==='./SiteLink')return p=>React.createElement('a',{href:'/snowland'+p.to},p.children)
    if(name==='./ResortGrid')return p=>React.createElement('div',null,p.resorts.map(r=>React.createElement('a',{key:r.slug,href:'/snowland'+r.route},r.nameChinese)))
@@ -18,6 +19,13 @@ function setup(areas={},resorts={},slug='tomamu-area'){
  return{render:()=>Component(),retries:()=>retries}
 }
 let app=setup(),html=renderToStaticMarkup(app.render())
+for(const language of ['en','ja']){
+ const local=setup({}, {}, 'tomamu-area',language),markup=renderToStaticMarkup(local.render())
+ assert.ok(markup.includes(language==='en'?'Campus resort list':'校区のスキー場一覧'))
+ assert.ok(markup.includes('星野校區')&&markup.includes('/snowland/course/tomamu'))
+ const failed=setup({error:Error('QA')},{},'tomamu-area',language);find(failed.render(),n=>n.type==='button').props.onClick();assert.equal(failed.retries(),2)
+ assert.ok(renderToStaticMarkup(setup({items:[]},{},'missing',language).render()).includes(language==='en'?'This campus is not open yet':'この校区はまだ公開されていません'))
+}
 assert.ok(html.includes('星野校區'));assert.ok(html.includes('/snowland/course/tomamu'));assert.ok(html.includes('佐幌'));assert.ok(!html.includes('手稻'));assert.ok(html.includes('data-map-slugs="tomamu,sahoro"'))
 assert.ok(renderToStaticMarkup(setup({isLoading:true}).render()).includes('正在載入校區雪場'))
 assert.ok(renderToStaticMarkup(setup({items:[]}).render()).includes('此校區尚未開放'))

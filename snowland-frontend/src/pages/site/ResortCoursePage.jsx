@@ -1,3 +1,4 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
@@ -16,6 +17,7 @@ const slopeColors = {
 };
 
 function ResortCoursePage() {
+  const {t} = useSiteLocale();
   const { resort, section } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -182,10 +184,10 @@ function ResortCoursePage() {
         <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
           <p className={`text-sm ${detailError ? "text-red-600" : "text-[#64748b]"}`}>
             {detailError
-              ? "雪場資料暫時無法載入，請稍後再試。"
+              ? t("雪場資料暫時無法載入，請稍後再試。")
               : detailLoading || resortsLoading
-                ? "雪場資料載入中。"
-                : "目前沒有已發布的雪場資料。"}
+                ? t("雪場資料載入中。")
+                : t("目前沒有已發布的雪場資料。")}
           </p>
         </main>
         <SiteFooter />
@@ -194,7 +196,7 @@ function ResortCoursePage() {
   }
 
   const heroImage = resortInfo.heroImage || resortMeta?.imagePlaceholder;
-  const regionLabel = resortMeta?.region ? `北海道 | ${resortMeta.region}` : "北海道";
+  const regionLabel = resortMeta?.region ? `${t('北海道')} | ${t(resortMeta.region)}` : t('北海道');
   const tags = Array.isArray(resortInfo.tags) && resortInfo.tags.length > 0 ? resortInfo.tags : resortMeta?.tags ?? [];
   const slopes = Array.isArray(resortInfo.slopes) ? resortInfo.slopes : [];
   const activeTabContent = tabsBySlug[activeTabSlug];
@@ -249,13 +251,13 @@ function ResortCoursePage() {
     ) : null;
   const renderTabBody = () => {
     const legacyHtml = activeTabContent?.html ?? "";
-    if (activeTabContent?.presentation === 'cms' || ['rental', 'lift', 'access'].includes(activeTabSlug)) {
+    if (activeTabContent?.presentation === 'cms' || ['rental', 'lift', 'access', 'nursery'].includes(activeTabSlug) || (activeTabSlug === 'ski-slope' && resort !== 'kamui')) {
       return (
         <div className="mx-auto max-w-4xl rounded-sm border border-[#e2e8f0] bg-white p-5 shadow-sm md:p-8">
           {legacyHtml ? (
             <>
               {/<table[\s>]/i.test(legacyHtml) && (
-                <p className="mb-3 text-xs text-[#64748b] md:hidden">表格可左右滑動查看完整內容。</p>
+                <p className="mb-3 text-xs text-[#64748b] md:hidden">{t("表格可左右滑動查看完整內容。")}</p>
               )}
               <div
                 className="legacy-tab-content overflow-x-auto text-sm leading-7 text-[#475569] [&_table]:min-w-[600px] md:text-base"
@@ -263,7 +265,7 @@ function ResortCoursePage() {
               />
             </>
           ) : (
-            <p className="text-sm text-[#64748b]">相關資訊尚未公布，請與 SnowLand 聯繫確認。</p>
+            <p className="text-sm text-[#64748b]">{t("相關資訊尚未公布，請與 SnowLand 聯繫確認。")}</p>
           )}
         </div>
       );
@@ -541,7 +543,7 @@ function ResortCoursePage() {
         <div className="space-y-8">
           {firstImage && (
             <div className="rounded-sm overflow-hidden border border-[#e2e8f0] bg-white shadow-sm">
-              <img loading="lazy" decoding="async" src={firstImage} alt="雪道地圖" className="w-full h-auto object-contain" />
+              <img loading="lazy" decoding="async" src={firstImage} alt={t('雪道地圖')} className="w-full h-auto object-contain" />
             </div>
           )}
           <div className="mt-6 bg-white">
@@ -551,35 +553,25 @@ function ResortCoursePage() {
                   key={row[0]}
                   className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]"
                 >
-                  <div className="font-semibold text-[#1f2937]">{row[0]}</div>
-                  <div>{row[1]}</div>
+                  <div className="font-semibold text-[#1f2937]">{t(row[0] === '滑道數量' ? '本頁列出雪道數' : row[0])}</div>
+                  <div>{row[0] === '滑道數量' ? slopeCourses.length : t(row[1])}</div>
                 </div>
               ))}
             </div>
           </div>
           <div className="mt-8">
             <div className="overflow-x-auto">
-              <table className="mx-auto w-full max-w-5xl min-w-[980px] text-left text-[10px] md:text-sm">
+              <table className="mx-auto w-full max-w-5xl min-w-[980px] text-left text-sm">
                 <thead className="bg-[#dbe2f0] text-[#1f2937]">
                   <tr className="text-[10px] font-semibold uppercase font-display tracking-[0.08em] md:text-xs md:tracking-[0.2em]">
-                    <th className="px-1.5 md:px-4 py-2.5 text-right whitespace-nowrap w-[32px] md:w-[56px]">
-                      編號
-                    </th>
+                    <th className="px-1.5 md:px-4 py-2.5 text-right whitespace-nowrap w-[32px] md:w-[56px]">{t("編號")}</th>
                     <th className="px-1.5 md:px-4 py-2.5 whitespace-nowrap w-[44px] md:w-[84px]">
                       Level
                     </th>
-                    <th className="pl-1.5 pr-0.5 md:px-4 py-2.5 whitespace-nowrap">
-                      雪道名稱
-                    </th>
-                    <th className="pl-0.5 pr-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[54px] md:w-[100px]">
-                      長度 (m)
-                    </th>
-                    <th className="px-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[48px] md:w-[90px]">
-                      斜率 (°)
-                    </th>
-                    <th className="px-1.5 md:px-4 py-2.5 w-[300px] md:w-[620px]">
-                      雪道介紹
-                    </th>
+                    <th className="pl-1.5 pr-0.5 md:px-4 py-2.5 whitespace-nowrap">{t("雪道名稱")}</th>
+                    <th className="pl-0.5 pr-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[54px] md:w-[100px]">{t("長度 (m)")}</th>
+                    <th className="px-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[48px] md:w-[90px]">{t("斜率 (°)")}</th>
+                    <th className="px-1.5 md:px-4 py-2.5 w-[300px] md:w-[620px]">{t("雪道介紹")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -596,7 +588,7 @@ function ResortCoursePage() {
                         <span style={{ color: levelColor }}>{course.no}</span>
                       </td>
                       <td className="px-1.5 md:px-4 py-2.5 font-semibold text-[#1f2937]">
-                        <span style={{ color: levelColor }}>{course.level}</span>
+                        <span style={{ color: levelColor }}>{t(course.level)}</span>
                       </td>
                       <td className="pl-1.5 pr-0.5 md:px-4 py-2.5 font-semibold text-[#1f2937] whitespace-nowrap">
                         {course.name}
@@ -608,7 +600,7 @@ function ResortCoursePage() {
                         {course.slope}
                       </td>
                       <td className="px-1.5 md:px-4 py-2.5 text-[#475569] leading-relaxed whitespace-normal">
-                        {course.intro}
+                        {t(course.intro)}
                       </td>
                     </tr>
                     );
@@ -627,7 +619,7 @@ function ResortCoursePage() {
         <div className="space-y-8">
           <div className="relative w-full aspect-[5/2] overflow-hidden rounded-sm border border-[#e2e8f0]">
             {firstImage ? (
-              <img loading="lazy" decoding="async" src={firstImage} alt="雪票資訊" className="w-full h-full object-cover" />
+              <img loading="lazy" decoding="async" src={firstImage} alt={t('雪票資訊')} className="w-full h-full object-cover" />
             ) : (
               <>
                 <div className="absolute inset-0 bg-gradient-to-br from-[#9fbad0] via-[#b7ccdc] to-[#dbe6ef]" />
@@ -639,9 +631,7 @@ function ResortCoursePage() {
             )}
           </div>
           <div className="text-center">
-            <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-              網路販售價格
-            </h3>
+            <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("網路販售價格")}</h3>
           </div>
           <div className="overflow-x-auto thin-scrollbar" ref={liftScrollRef}>
             {firstTable ? (
@@ -653,10 +643,10 @@ function ResortCoursePage() {
               <table className="w-full min-w-[720px] text-left text-sm text-[#475569]">
                 <thead className="bg-[#dbe2f0] text-xs font-semibold tracking-[0.2em] uppercase text-[#1f2937] font-display">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">票券類型</th>
-                    <th className="px-4 py-3 text-center font-semibold">成人</th>
-                    <th className="px-4 py-3 text-center font-semibold">兒童</th>
-                    <th className="px-4 py-3 font-semibold w-[220px] md:w-[280px]">備註</th>
+                    <th className="px-4 py-3 font-semibold">{t("票券類型")}</th>
+                    <th className="px-4 py-3 text-center font-semibold">{t("成人")}</th>
+                    <th className="px-4 py-3 text-center font-semibold">{t("兒童")}</th>
+                    <th className="px-4 py-3 font-semibold w-[220px] md:w-[280px]">{t("備註")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -694,7 +684,7 @@ function ResortCoursePage() {
             </div>
           )}
           <div className="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)] text-sm text-[#475569] border-t border-b border-[#e2e8f0] py-6">
-            <div className="font-semibold text-[#1f2937]">販售地點</div>
+            <div className="font-semibold text-[#1f2937]">{t("販售地點")}</div>
             <ul className="space-y-1">
               {ticketLocations.map((item, index) => (
                 <li key={`${item}-${index}`}>{item}</li>
@@ -712,7 +702,7 @@ function ResortCoursePage() {
         <div className="space-y-8">
           <div className="rounded-sm overflow-hidden border border-[#e2e8f0] bg-white shadow-sm">
             {firstImage ? (
-              <img loading="lazy" decoding="async" src={firstImage} alt="租借雪具" className="w-full h-auto object-contain" />
+              <img loading="lazy" decoding="async" src={firstImage} alt={t("租借雪具")} className="w-full h-auto object-contain" />
             ) : (
               <div className="aspect-[5/2] w-full bg-[#e2e8f0] flex items-center justify-center text-xs tracking-[0.4em] uppercase text-[#94a3b8]">
                 Image Holder
@@ -720,9 +710,7 @@ function ResortCoursePage() {
             )}
           </div>
           <div className="text-sm text-[#475569]">
-            <div className="px-1 pb-3 text-lg font-semibold text-[#1f2937] font-display">
-              租借地點：
-            </div>
+            <div className="px-1 pb-3 text-lg font-semibold text-[#1f2937] font-display">{t("租借地點：")}</div>
             <ul className="space-y-1 px-1">
               {locationLines.map((line, index) => (
                 <li key={`${line}-${index}`}>{line || "xxxx"}</li>
@@ -735,9 +723,7 @@ function ResortCoursePage() {
           </ul>
 
           <div className="space-y-6">
-            <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display text-center">
-              裝備尺寸
-            </h3>
+            <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display text-center">{t("裝備尺寸")}</h3>
             <div className="grid gap-6 lg:grid-cols-2">
               {["成人", "兒童"].map((title) => (
                 <div key={title} className="rounded-sm bg-white overflow-hidden">
@@ -748,8 +734,8 @@ function ResortCoursePage() {
                     <table className="w-full text-left text-sm text-[#475569]">
                       <thead className="bg-[#dbe2f0] text-xs font-semibold tracking-[0.2em] uppercase text-[#1f2937] font-display">
                         <tr>
-                          <th className="px-4 py-3 font-semibold">物品</th>
-                          <th className="px-4 py-3 font-semibold w-[180px]">尺寸</th>
+                          <th className="px-4 py-3 font-semibold">{t("物品")}</th>
+                          <th className="px-4 py-3 font-semibold w-[180px]">{t("尺寸")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -794,9 +780,7 @@ function ResortCoursePage() {
                 <SiteLink
                   to="/guides/packing-checklist"
                   className="mt-6 inline-flex items-center justify-center rounded-full border border-white/70 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white hover:text-[#0b1d2a]"
-                >
-                  查看滑雪裝備準備清單
-                </SiteLink>
+                >{t("查看滑雪裝備準備清單")}</SiteLink>
               </div>
             </div>
           </div>
@@ -817,9 +801,7 @@ function ResortCoursePage() {
                   <SiteLink
                     to="/guides/packing-checklist"
                     className="mt-6 inline-flex items-center justify-center rounded-full border border-white/70 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white hover:text-[#0b1d2a]"
-                  >
-                    查看滑雪裝備準備清單
-                  </SiteLink>
+                  >{t("查看滑雪裝備準備清單")}</SiteLink>
                 </div>
               </div>
             </div>
@@ -850,12 +832,8 @@ function ResortCoursePage() {
                   <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                     Accommodation
                   </p>
-                  <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                    旭川市區住宿選擇
-                  </h2>
-                  <p className="max-w-xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">
-                    神居滑雪場建議以旭川市區作為住宿據點，車程便利、機能完整，適合把滑雪與市區用餐、採買一起安排。
-                  </p>
+                  <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("旭川市區住宿選擇")}</h2>
+                  <p className="max-w-xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">{t("神居滑雪場建議以旭川市區作為住宿據點，車程便利、機能完整，適合把滑雪與市區用餐、採買一起安排。")}</p>
                 </div>
               </div>
 
@@ -881,10 +859,10 @@ function ResortCoursePage() {
                       <div className={`px-0 md:px-4 ${isReversed ? "lg:order-1" : ""}`}>
                         <div className="max-w-2xl text-[#2b2b2b] text-sm md:text-base leading-relaxed space-y-4">
                           <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                            {hotel.title}
+                            {t(hotel.title)}
                           </h3>
                           <p className="text-sm md:text-base text-[#475569] leading-relaxed">
-                            {hotel.description}
+                            {t(hotel.description)}
                           </p>
                           <div>
                             <a
@@ -893,7 +871,7 @@ function ResortCoursePage() {
                               rel="noopener noreferrer"
                               className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-6 py-2 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                             >
-                              {hotel.ctaLabel}
+                              {t(hotel.ctaLabel)}
                             </a>
                           </div>
                         </div>
@@ -934,9 +912,7 @@ function ResortCoursePage() {
           <section className="bg-white text-[#1f2937]">
             <div className="pt-0 pb-12 md:pt-0 md:pb-16 space-y-4 md:space-y-6">
               <div className="max-w-5xl mx-auto px-6 md:px-8 text-center">
-                <p className="max-w-2xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">
-                  札幌國際滑雪場可選擇入住札幌市區或定山溪溫泉，交通便利、車程約 1 小時內。白天滑雪、晚上回市區或泡湯放鬆，是相當受歡迎的住宿安排。
-                </p>
+                <p className="max-w-2xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">{t("札幌國際滑雪場可選擇入住札幌市區或定山溪溫泉，交通便利、車程約 1 小時內。白天滑雪、晚上回市區或泡湯放鬆，是相當受歡迎的住宿安排。")}</p>
               </div>
 
               <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 md:px-8 space-y-10 md:space-y-12">
@@ -978,10 +954,10 @@ function ResortCoursePage() {
                       <div className={`px-0 md:px-4 ${isReversed ? "lg:order-1" : ""}`}>
                         <div className="max-w-2xl text-[#2b2b2b] text-sm md:text-base leading-relaxed space-y-4">
                           <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                            {hotel.title}
+                            {t(hotel.title)}
                           </h3>
                           <p className="text-sm md:text-base text-[#475569] leading-relaxed">
-                            {hotel.description}
+                            {t(hotel.description)}
                           </p>
                           <div>
                             <a
@@ -990,7 +966,7 @@ function ResortCoursePage() {
                               rel="noopener noreferrer"
                               className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-6 py-2 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                             >
-                              {hotel.ctaLabel}
+                              {t(hotel.ctaLabel)}
                             </a>
                           </div>
                         </div>
@@ -1023,7 +999,7 @@ function ResortCoursePage() {
                 {accommodationImages[index] ? (
                   <img loading="lazy" decoding="async"
                     src={accommodationImages[index]}
-                    alt="住宿推薦"
+                    alt={t("住宿推薦")}
                     className="h-full w-full object-cover"
                   />
                 ) : (
@@ -1034,7 +1010,7 @@ function ResortCoursePage() {
               </div>
               <div className="px-6 py-6 space-y-4">
                 <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                  {fallbackTitle} 住宿推薦 {index === 0 ? "" : "xxxx"}
+                  {fallbackTitle}{t("住宿推薦")}{index === 0 ? "" : "xxxx"}
                 </h3>
                 <p className="text-sm md:text-base text-[#475569] leading-relaxed">
                   {sentencePool[index] || (index === 0 ? cardDescription : "xxxx")}
@@ -1045,9 +1021,7 @@ function ResortCoursePage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-6 py-2 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
-                  >
-                    查詢空房
-                  </a>
+                  >{t("查詢空房")}</a>
                 </div>
               </div>
             </div>
@@ -1105,9 +1079,7 @@ function ResortCoursePage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
-                      >
-                        交通資訊連結
-                      </a>
+                      >{t("交通資訊連結")}</a>
                     </div>
                   </div>
                 </div>
@@ -1139,7 +1111,7 @@ function ResortCoursePage() {
           <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-start">
             <div className="relative w-full aspect-[3/2] overflow-hidden rounded-sm border border-[#e2e8f0]">
               {firstImage ? (
-                <img loading="lazy" decoding="async" src={firstImage} alt="雪場托兒" className="w-full h-full object-cover" />
+                <img loading="lazy" decoding="async" src={firstImage} alt={t("雪場托兒")} className="w-full h-full object-cover" />
               ) : (
                 <>
                   <div className="absolute inset-0 bg-gradient-to-br from-[#9fbad0] via-[#b7ccdc] to-[#dbe6ef]" />
@@ -1192,7 +1164,7 @@ function ResortCoursePage() {
 
   return (
     <div className="min-h-screen bg-[#0b1d2a] text-white flex flex-col">
-      <SiteHeader forceTransparent />
+      <SiteHeader forceTransparent forceDarkText={isPriceLanding} forceLogoColor={isPriceLanding} />
       <main className="flex-1 w-full">
         {!isPriceLanding && (
           <section ref={heroSectionRef} className={`relative overflow-hidden text-[#1f2937] ${heroImage ? "bg-[#f3f0ea]" : "bg-gradient-to-br from-[#17384f] via-[#285a72] to-[#102838]"}`}>
@@ -1214,7 +1186,7 @@ function ResortCoursePage() {
                     ? "opacity-100 translate-x-0"
                     : "pointer-events-none opacity-0 -translate-x-4"
                 }`}
-                aria-label={`上一個雪場：${previousResort.nameChinese}`}
+                aria-label={t("上一個雪場：{name}", {name: previousResort.nameChinese})}
               >
                 <span className="text-[10px] font-semibold tracking-[0.2em] text-white/80">
                   {previousResort.nameChinese}
@@ -1240,7 +1212,7 @@ function ResortCoursePage() {
                     ? "opacity-100 translate-x-0"
                     : "pointer-events-none opacity-0 translate-x-4"
                 }`}
-                aria-label={`下一個雪場：${nextResort.nameChinese}`}
+                aria-label={t("下一個雪場：{name}", {name: nextResort.nameChinese})}
               >
                 <span className="text-[10px] font-semibold tracking-[0.2em] text-white/80">
                   {nextResort.nameChinese}
@@ -1280,7 +1252,7 @@ function ResortCoursePage() {
                   className="group relative mt-6 hidden lg:inline-flex w-56 items-center justify-center rounded-full bg-[#8ec8f0] px-10 py-5 text-sm font-bold text-white transition-all duration-300 hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
                 >
                   <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                  <span className="relative z-10">預約課程</span>
+                  <span className="relative z-10">{t("預約課程")}</span>
                   <svg
                     className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
                     fill="none"
@@ -1305,20 +1277,20 @@ function ResortCoursePage() {
                     </div>
                     <div className="mt-6 grid grid-cols-2 gap-4 text-xs text-white/80">
                       <div>
-                        <p className="uppercase tracking-[0.3em] text-white/60">特色</p>
+                        <p className="uppercase tracking-[0.3em] text-white/60">{t("特色")}</p>
                         <ul className="mt-2 space-y-1 text-sm font-semibold text-white">
                           {tags.map((tag) => (
-                            <li key={tag}>{tag}</li>
+                            <li key={tag}>{t(tag)}</li>
                           ))}
                         </ul>
                       </div>
                       <div>
-                        <p className="uppercase tracking-[0.3em] text-white/60">雪道分級</p>
+                        <p className="uppercase tracking-[0.3em] text-white/60">{t("雪道分級")}</p>
                         <div className="mt-3 space-y-3 text-xs text-white/85">
                           {slopes.map((item) => (
                             <div key={item.label}>
                               <div className="flex items-center justify-between">
-                                <span className="font-semibold">{item.label}</span>
+                                <span className="font-semibold">{t(item.label)}</span>
                                 <span className="text-white/70">{item.value}%</span>
                               </div>
                               <div className="mt-1 h-2 w-full overflow-hidden rounded-sm bg-white/20">
@@ -1343,7 +1315,7 @@ function ResortCoursePage() {
                   className="group relative mt-2 inline-flex w-56 items-center justify-center rounded-full bg-[#8ec8f0] px-10 py-5 text-sm font-bold text-white transition-all duration-300 hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
                 >
                   <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                  <span className="relative z-10">預約課程</span>
+                  <span className="relative z-10">{t("預約課程")}</span>
                   <svg
                     className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
                     fill="none"
@@ -1384,12 +1356,12 @@ function ResortCoursePage() {
                           }, 50);
                         }
                       }}
-                      className={`relative pb-4 transition-colors duration-200 group ${
+                      className={`relative min-h-[44px] min-w-[44px] pb-4 transition-colors duration-200 group ${
                         isActive ? "text-[#111827]" : "hover:text-[#2b5f8f]"
                       }`}
                       aria-current={isActive ? "page" : undefined}
                     >
-                      {item.label}
+                      {t(item.label)}
                       <span
                         className={`absolute left-0 -bottom-[1px] h-0.5 transition-all duration-300 ${
                           isActive ? "w-full bg-[#111827]" : "w-0 bg-[#2b5f8f] group-hover:w-full"
@@ -1410,7 +1382,7 @@ function ResortCoursePage() {
                         {resortMeta?.nameEnglish ? `${resortMeta.nameEnglish} COURSE PRICING` : "SKI COURSE PRICING"}
                       </p>
                       <h2 className="text-2xl font-semibold tracking-wide font-display">
-                        {resortMeta?.nameChinese ? `${resortMeta.nameChinese}課程價目表` : "滑雪課程價目表"}
+                        {resortMeta?.nameChinese ? t("{resort}課程價目表", {resort: resortMeta.nameChinese}) : t("滑雪課程價目表")}
                       </h2>
                     </div>
 
@@ -1418,19 +1390,17 @@ function ResortCoursePage() {
                       {pricing && <div className="flex items-center justify-center gap-4 text-base font-semibold text-[#64748b]">
                         <button
                           type="button"
-                          className={`transition-colors ${
+                          className={`min-h-[44px] min-w-[44px] transition-colors ${
                             priceTab === "discount" ? "text-[#F7941D]" : "hover:text-[#1f2937]"
                           }`}
                           onClick={() => setPriceTab("discount")}
-                        >
-                          優惠時段
-                        </button>
+                        >{t("優惠時段")}</button>
                         <button
                           type="button"
                           role="switch"
                           aria-checked={priceTab === "regular"}
-                          aria-label="切換價目表"
-                          className="relative h-10 w-20 rounded-full bg-[#d4d4d4] transition-colors"
+                          aria-label={t("切換價目表")}
+                          className="relative h-11 w-20 shrink-0 rounded-full bg-[#d4d4d4] transition-colors"
                           onClick={() => setPriceTab((prev) => (prev === "discount" ? "regular" : "discount"))}
                         >
                           <span
@@ -1442,23 +1412,21 @@ function ResortCoursePage() {
                         </button>
                         <button
                           type="button"
-                          className={`transition-colors ${
+                          className={`min-h-[44px] min-w-[44px] transition-colors ${
                             priceTab === "regular" ? "text-[#2b5f8f]" : "hover:text-[#1f2937]"
                           }`}
                           onClick={() => setPriceTab("regular")}
-                        >
-                          一般時段
-                        </button>
+                        >{t("一般時段")}</button>
                       </div>}
 
                       <div className="w-full max-w-xl mx-auto">
                         <div className="text-center">
                           <p className="text-[#1f2937]">
                             <span className="text-xl font-semibold">
-                              {pricing?.season_label || '課程價格'} ｜{" "}
+                              {pricing?.season_label || t('課程價格')} ｜{" "}
                             </span>
                             <span className="text-lg font-semibold" style={{ color: priceAccentText }}>
-                              {pricePlan?.period || '請至預約流程即時計價'}
+                              {pricePlan?.period || t('請至預約流程即時計價')}
                             </span>
                           </p>
                         </div>
@@ -1492,29 +1460,27 @@ function ResortCoursePage() {
                             backgroundColor: priceTab === "discount" ? "#f0cfac" : "#dbe2f0",
                           }}
                         >
+                          <div className="px-4 py-3 text-center">{t("人數")}</div>
                           <div className="px-4 py-3 text-center">
-                            人數
-                          </div>
-                          <div className="px-4 py-3 text-center">
-                            {pricing?.column_labels?.full || '全天'}
+                            {t(pricing?.column_labels?.full || '全天')}
                           </div>
                           {showHalfDay && (
                             <div className="px-4 py-3 text-center">
-                              {pricing?.column_labels?.half || '半天'}
+                              {t(pricing?.column_labels?.half || '半天')}
                             </div>
                           )}
                         </div>
                           <div className="text-sm text-[#475569]">
                             {pricingLoading ? (
-                              <div className="px-4 py-8 text-center text-[#64748b]">價目載入中。</div>
+                              <div className="px-4 py-8 text-center text-[#64748b]">{t("價目載入中。")}</div>
                             ) : pricingStale ? (
-                              <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
+                              <div className="px-4 py-8 text-center text-[#475569]">{t("本雪季價目尚未發布。請至")} {" "}<SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">{t("預約課程")}</SiteLink>{" "}{t("查看目前可預約課程與即時計價。")}</div>
                             ) : pricingError ? (
-                              <div className="px-4 py-8 text-center text-red-600">價目暫時無法載入，請稍後再試。</div>
+                              <div className="px-4 py-8 text-center text-red-600">{t("價目暫時無法載入，請稍後再試。")}</div>
                             ) : !pricing ? (
-                              <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
+                              <div className="px-4 py-8 text-center text-[#475569]">{t("本雪季價目尚未發布。請至")} {" "}<SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">{t("預約課程")}</SiteLink>{" "}{t("查看目前可預約課程與即時計價。")}</div>
                             ) : priceTableRows.length === 0 ? (
-                              <div className="px-4 py-8 text-center text-[#64748b]">目前尚未設定此時段價格。</div>
+                              <div className="px-4 py-8 text-center text-[#64748b]">{t("目前尚未設定此時段價格。")}</div>
                             ) : priceTableRows.map((row, index) => (
                               <div
                                 key={row.label}
@@ -1581,9 +1547,9 @@ function ResortCoursePage() {
                     <div className="max-w-6xl mx-auto px-6 py-12 space-y-12">
                       <div className="divide-y divide-[#e2e2de]">
                         <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
-                          <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">優惠</h3>
+                          <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("優惠")}</h3>
                           <ul className="space-y-3 text-sm text-[#475569] list-disc pl-5">
-                            {!pricing?.promotions?.length && <li>本雪季優惠尚未公布。</li>}
+                            {!pricing?.promotions?.length && <li>{t("本雪季優惠尚未公布。")}</li>}
                             {(pricing?.promotions ?? []).map((promotion) => (
                               <li key={promotion.title} className="space-y-2">
                                 <span>{promotion.title}</span>
@@ -1596,188 +1562,20 @@ function ResortCoursePage() {
                         </div>
 
                         <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] py-8">
-                          <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程費用</h3>
+                          <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("課程費用")}</h3>
                           <ul className="space-y-2 text-sm text-[#475569] list-disc pl-5">
-                            {!pricing?.fee_notes?.length && <li>請以預約流程顯示的即時計價為準。</li>}
+                            {!pricing?.fee_notes?.length && <li>{t("請以預約流程顯示的即時計價為準。")}</li>}
                             {(pricing?.fee_notes ?? []).map((note) => <li key={note}>{note}</li>)}
                           </ul>
                         </div>
 
                 {!pricing && !pricingLoading && (
-                  <p className="pt-8 text-sm text-[#475569]">本雪季課程時間請以預約流程可選時段為準。</p>
+                  <p className="pt-8 text-sm text-[#475569]">{t("本雪季課程時間請以預約流程可選時段為準。")}</p>
                 )}
                 <div className={pricing ? 'pt-8' : 'hidden'}>
-                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程時間</h3>
-                          <div className="mt-6 space-y-8 divide-y divide-[#e2e2de]">
-                            <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
-                              <p className="text-sm font-semibold text-[#1f2937]">全天5hr課程</p>
-                              <div className="grid gap-6 md:grid-cols-2">
-                                <div className="space-y-2 mt-4 md:mt-0">
-                                  <p className="text-sm font-semibold text-[#1f2937]">含協助租借裝備</p>
-                                  <ul className="space-y-2 text-sm text-[#475569]">
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>08:30</span>
-                                      <span>- 集合時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>08:30~09:00(30min)</span>
-                                      <span>- 當日協助租借裝備</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>09:00~11:30(2.5hr)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>11:30~12:30(1hr)</span>
-                                      <span>- 中午休息</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>12:30~14:30(2hrs)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                  </ul>
-                                </div>
-                                <div className="space-y-2 mt-4 md:mt-0">
-                                  <p className="text-sm font-semibold text-[#1f2937]">不含協助租借裝備</p>
-                                  <ul className="space-y-2 text-sm text-[#475569]">
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>09:00</span>
-                                      <span>- 集合時間，教練在集合時檢整裝備沒問題後開始課程</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>09:00~11:30(2.5hr)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>11:30~12:30(1hr)</span>
-                                      <span>- 中午休息</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>12:30~15:00(2.5hrs)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                  </ul>
-                                  <div className="space-y-2 text-sm text-[#475569]">
-                                    <ul className="list-disc pl-5">
-                                      <li className="pt-2 font-semibold text-[#1f2937]">
-                                        如需要協助租借又不希望壓縮上課時間須加購協助服務
-                                      </li>
-                                    </ul>
-                                    <ul className="list-disc pl-5">
-                                      <li className="font-semibold text-[#1f2937]">加購協助租借裝備時間</li>
-                                    </ul>
-                                    <ul className="space-y-1 pl-5">
-                                      <li>- 前一日 15:30~17:00</li>
-                                      <li>- 當  日 08:30~09:00</li>
-                                    </ul>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)]">
-                              <p className="text-sm font-semibold text-[#1f2937]">半天3h課程</p>
-                              <div className="grid gap-6 md:grid-cols-2">
-                                <div className="space-y-2">
-                                  <p className="text-sm font-semibold text-[#1f2937]">含協助租借裝備</p>
-                                  <ul className="space-y-2 text-sm text-[#475569]">
-                                    <li className="flex items-center gap-3 text-xs font-semibold text-[#1f2937]">
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                      <span>早上課</span>
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>08:30</span>
-                                      <span>- 集合時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>08:30~09:00(30min)</span>
-                                      <span>- 協助租借裝備</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>09:00~11:30(2.5hrs)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                    <li className="flex items-center gap-3 pt-2 text-xs font-semibold text-[#1f2937]">
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                      <span>下午課</span>
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>12:30</span>
-                                      <span>- 集合時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>12:30~13:00(30min)</span>
-                                      <span>- 協助租借裝備</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>13:00~15:30(2.5hrs)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                  </ul>
-                                </div>
-                                <div className="space-y-2">
-                                  <p className="text-sm font-semibold text-[#1f2937]">不含協助租借裝備</p>
-                                  <ul className="space-y-2 text-sm text-[#475569]">
-                                    <li className="flex items-center gap-3 text-xs font-semibold text-[#1f2937]">
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                      <span>早上課</span>
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>09:00</span>
-                                      <span>- 集合時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>09:00~12:00(3hrs)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 invisible">
-                                      <span>00:00</span>
-                                      <span>-</span>
-                                    </li>
-                                    <li className="flex items-center gap-3 pt-2 text-xs font-semibold text-[#1f2937]">
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                      <span>下午課</span>
-                                      <span className="h-px flex-1 bg-[#1f2937]" />
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>12:30</span>
-                                      <span>- 集合時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>12:30~15:30(3hrs)</span>
-                                      <span>- 上課時間</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>前一日 15:30~17:00</span>
-                                      <span>- 租借裝備</span>
-                                    </li>
-                                    <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                                      <span>當日 08:30~09:00</span>
-                                      <span>- 集合時間</span>
-                                    </li>
-                                  </ul>
-                                  <div className="space-y-2 text-sm text-[#475569]">
-                                    <ul className="list-disc pl-5">
-                                      <li className="pt-2 font-semibold text-[#1f2937]">
-                                        如需要協助租借又不希望壓縮上課時間須加購協助服務
-                                      </li>
-                                    </ul>
-                                    <ul className="list-disc pl-5">
-                                      <li className="font-semibold text-[#1f2937]">加購協助租借裝備時間</li>
-                                    </ul>
-                                    <ul className="space-y-1 pl-5">
-                                      <li>- 前一日 15:30~17:00</li>
-                                      <li>- 當  日 08:30~09:00</li>
-                                    </ul>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("課程時間")}</h3>
+                  <p className="mt-6 text-sm leading-relaxed text-[#475569]">{t("本雪季課程時間請以預約流程可選時段為準。")}</p>
+                </div>
                       </div>
 
                       <div className="flex justify-center">
@@ -1786,7 +1584,7 @@ function ResortCoursePage() {
                           className="group relative inline-flex w-56 items-center justify-center rounded-full bg-[#8ec8f0] px-10 py-5 text-sm font-bold text-white transition-all duration-300 hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
                         >
                           <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                          <span className="relative z-10">預約課程</span>
+                          <span className="relative z-10">{t("預約課程")}</span>
                           <svg
                             className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
                             fill="none"
@@ -1818,7 +1616,7 @@ function ResortCoursePage() {
                       {tabHeaderMeta[activeTabSlug]?.eyebrow || "RESORT INFO"}
                     </p>
                     <h2 className="text-2xl font-semibold tracking-wide font-display">
-                      {tabHeaderMeta[activeTabSlug]?.title || activeTabContent.title}
+                      {t(tabHeaderMeta[activeTabSlug]?.title || activeTabContent.title)}
                     </h2>
                   </div>
                 )}
@@ -1830,9 +1628,7 @@ function ResortCoursePage() {
       </main>
       <section className="bg-[#f7f8fa] text-[#1f2937] border-t border-[#e2e8f0]">
         <div className="max-w-6xl mx-auto px-6 py-16">
-          <h2 className="text-2xl font-semibold text-[#1f2937] font-display text-center">
-            查看其他雪場
-          </h2>
+          <h2 className="text-2xl font-semibold text-[#1f2937] font-display text-center">{t("查看其他雪場")}</h2>
           <div className="mt-6">
             <HokkaidoMap resorts={skiResorts} />
           </div>

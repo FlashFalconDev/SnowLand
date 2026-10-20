@@ -31,6 +31,7 @@ function gate(data){
   let reloaded=0
   const ctx=vm.createContext({React,exports:{},window:{location:{reload:()=>reloaded++}},require:name=>{
     if(name==='react')return React
+    if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React)
     if(name.includes('useSiteContent'))return{useSiteContent:()=>({items:[],isLoading:false,error:null,...data})}
     if(name==='./SiteHeader'||name==='./SiteFooter')return()=>null
     throw Error(name)

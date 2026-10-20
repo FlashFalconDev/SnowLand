@@ -13,15 +13,16 @@ assert.equal(ctx.exports.guideArticleTarget({...row,metadata:{category:'裝備�
 assert.equal(ctx.exports.guideArticleTarget({...row,metadata:{},link_url:'javascript:alert(1)'}),'')
 assert.equal(ctx.exports.guideArticleTarget({...row,metadata:{},link_url:'https://land110602.com/%e6%9e%97%e9%96%93%e9%9b%aa%e9%81%93/'}),'/guides/best-hokkaido-tree-runs')
 assert.equal(ctx.exports.guideArticleTarget({...row,metadata:{},link_url:'__proto__'}),'')
-function render(file,{items=[row],loading=false,error=null,articleId='501',category,query=''}={}){
+function render(file,{items=[row],loading=false,error=null,articleId='501',category,query='',language='zh-Hant'}={}){
  let stateIndex=0
  const react=file.includes('NewsPage')?{...React,useState:initial=>[stateIndex++===2?items:initial,()=>{}]}:React
  const context=vm.createContext({exports:{},require:name=>{
   if(name==='react')return react
+  if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React,language)
   if(name==='react-router-dom')return{useParams:()=>({articleId,category}),useNavigate:()=>()=>{},useSearchParams:()=>[new URLSearchParams(query)]}
   if(name.includes('SiteHeader')||name.includes('SiteFooter')||name.includes('HokkaidoMap')||name.includes('ResortGrid'))return()=>null
   if(name.includes('SiteLink'))return{__esModule:true,SiteBasePathContext:React.createContext('/snowland'),default:({to,children,...props})=>React.createElement('a',{...props,href:to},children)}
-  if(name.includes('useSiteContent'))return{...ctx.exports,useSiteContent:key=>({items:key==='guides.articles'?items:[],isLoading:loading,error,refetch(){}})}
+  if(name.includes('useSiteContent'))return{...ctx.exports,useSiteContent:key=>({items:['guides.articles','guides.article-pages'].includes(key)?items:[],isLoading:loading,error,refetch(){}})}
   if(name.includes('/api/booking'))return{fetchSiteContent:()=>Promise.resolve([])}
   if(name.includes('guideArticleHtml'))return articleHtmlCtx.exports
   throw Error(name)
@@ -46,6 +47,20 @@ assert.ok(render('src/pages/site/GuideArticlePage.jsx',{error:Error('qa'),items:
 assert.ok(render('src/pages/site/GuideArticlePage.jsx',{items:[]}).includes('文章不存在或已下架'))
 assert.ok(render('src/pages/site/GuideArticlePage.jsx',{items:[{...row,metadata:{...row.metadata,blocks:[{type:'paragraph',text:'<script>unsafe</script>'}]}}]}).includes('&lt;script&gt;'))
 assert.doesNotThrow(()=>render('src/pages/site/GuideArticlePage.jsx',{items:[{...row,metadata:{...row.metadata,blocks:[{type:'image',src:'/qa.svg',alt:{}}]}}]}),'舊資料的錯誤圖片說明不可造成空白頁')
+for(const language of ['en','ja']){
+ const html=render('src/pages/site/GuideArticlePage.jsx',{language,items:[{...row,metadata:{...row.metadata,category:'裝備與技巧',article:{html:'<h2>QA原始章節</h2><p>QA原始內文</p><table><tr><td>QA表格</td></tr></table>'}}}]})
+ assert.ok(html.includes(language==='en'?'Article contents':'記事の目次'))
+ assert.ok(html.includes(language==='en'?'Back to articles':'記事一覧へ戻る'))
+ assert.ok(html.includes(language==='en'?'Scroll tables sideways':'表を左右にスクロール'))
+ assert.ok(html.includes('QA原始章節')&&html.includes('QA原始內文')&&html.includes('QA表格'))
+ assert.ok(render('src/pages/site/GuideArticlePage.jsx',{language,items:[]}).includes(language==='en'?'unavailable or has been unpublished':'公開が終了しています'))
+ for(const [file,slug] of [['PackingChecklistPage.jsx','packing-checklist'],['BestHokkaidoTreeRunsPage.jsx','best-hokkaido-tree-runs']]){
+  const markup=render('src/pages/site/'+file,{language,items:[{...row,external_id:slug,metadata:{article:{title:'QA原始文章',date:'2026-10-19',html:'<h2>QA原始章節</h2><p>QA原始內容</p>'}}}]})
+  assert.ok(markup.includes(language==='en'?'Collapse contents':'目次を閉じる'))
+  assert.ok(markup.includes('min-h-11 min-w-11'),'Legacy TOC toggles need44px touch targets')
+  assert.ok(markup.includes('QA原始章節')&&markup.includes('QA原始內容'))
+ }
+}
 assert.ok(render('src/pages/site/NewsPage.jsx').includes('href="/guides/articles/501"'),'新文章在最新消息也要連到同一篇，不能是#')
 assert.ok(render('src/pages/site/SkiResortsPage.jsx',{items:[{...row,metadata:{...row.metadata,category:'北海道滑雪場'}}]}).includes('href="/guides/articles/501"'),'雪場延伸閱讀不能漏掉客戶路徑')
 console.log('PASS guide articles: internal/external/legacy targets, custom categories, real list/detail, escaped body and loading/error/hidden states')

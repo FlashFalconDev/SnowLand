@@ -35,11 +35,19 @@ const formatDate = (value) => value
 const paymentLabels = { payment_records_review: '付款紀錄待核對', unpaid: '待付款', pending: '付款確認中', paid: '已付款', expired: '付款已逾期', refunded: '已退款', all_cancelled: '已取消', collecting_class: '待成班', pending_coach_approval: '待教練確認', scheduling_failed: '待安排課程' };
 const paymentHoldMessages = { payment_records_review: '此訂單有既有收款或退款紀錄，請先聯絡客服核對；請勿再次付款。', all_cancelled: '此訂單已取消，無需付款。', collecting_class: '團體班尚未成班，滿人後才會開放付款。', pending_coach_approval: '等待教練確認接課，確認前不需要付款。', scheduling_failed: '課程正在重新安排，確認排課前不需要付款。' };
 const cancellationLabels = { requested: '取消審核中', approved: '已取消・退款處理中', rejected: '取消申請未通過', refunded: '已退款' };
-const refundMoney=(base,settlement)=>settlement?.currency==='JPY'
-  ? settlement.refund_amount==null?'待核對實收款':`日幣 JPY ¥ ${Number(settlement.refund_amount).toLocaleString()}`
-  : base==null?'待核對實收款':`NT$ ${Number(base).toLocaleString()}`;
+const refundMoney=(base,settlement,t)=>settlement?.currency==='JPY'
+  ? settlement.refund_amount==null?(t?t('待核對實收款'):'待核對實收款')
+    : t?t('日幣 JPY ¥ {amount}',{amount:Number(settlement.refund_amount).toLocaleString()}):`日幣 JPY ¥ ${Number(settlement.refund_amount).toLocaleString()}`
+  : base==null?(t?t('待核對實收款'):'待核對實收款'):`NT$ ${Number(base).toLocaleString()}`;
 const ageOptions = ['4-6y', '7-12y', '13-18y', '19-24y', '25-35y', '36-45y', '46-55y', '56y以上'];
-const ageLabel = (value) => value ? value.replace('y', ' 歲') : '未填寫';
+const ageLabel = (value, t) => {
+  if (!t) return value ? value.replace('y', ' 歲') : '未填寫';
+  if (!value) return t('未填寫');
+  const range = value.match(/^(\d+)-(\d+)y$/);
+  if (range) return t('{from}-{to} 歲', {from:range[1],to:range[2]});
+  const above = value.match(/^(\d+)y以上$/);
+  return above ? t('{age} 歲以上',{age:above[1]}) : value;
+};
 
 async function requestJson(url, options = {}) {
   const headers = new Headers(options.headers);
@@ -138,15 +146,15 @@ function AuthPanel({ onAuthenticated }) {
             <input type="password" required minLength={mode === 'register' || mode === 'reset' ? 8 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-2 w-full rounded-sm border border-[#cbd5e1] bg-[#f8fafc] px-4 py-3 text-base outline-none focus:border-[#2b5f8f] focus:ring-2 focus:ring-[#2b5f8f]/15" />
           </label>}
           {mode === 'login' && <div className="flex items-center justify-between gap-4 text-sm"><label className="flex items-center gap-2 text-[#475569]"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />{t('記住帳號')}</label><button type="button" onClick={() => setMode('forgot')} className="min-h-11 font-semibold text-[#2b5f8f] hover:underline">{t('忘記密碼')}</button></div>}
-          {error && <p role="alert" className="rounded-sm bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-          {message && <p role="status" className="rounded-sm bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p>}
+          {error && <p role="alert" className="rounded-sm bg-red-50 px-4 py-3 text-sm text-red-700">{t(error)}</p>}
+          {message && <p role="status" className="rounded-sm bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{t(message)}</p>}
           <button type="submit" disabled={busy} className="w-full rounded-full bg-[#2b5f8f] px-6 py-3.5 font-semibold text-white hover:bg-[#1c4f7b] disabled:opacity-55">{t(busy ? '處理中…' : mode === 'forgot' ? '寄送重設信' : mode === 'reset' ? '更新密碼' : mode === 'register' ? '建立帳號' : '會員登入')}</button>
           {['forgot', 'reset'].includes(mode) && <button type="button" onClick={() => setMode('login')} className="min-h-11 w-full text-sm font-semibold text-[#64748b]">{t('返回登入')}</button>}
         </form>
         {['login', 'register'].includes(mode) && <div className="mt-7 border-t border-[#e2e8f0] pt-6">
           <p className="mb-4 text-center text-xs font-semibold uppercase tracking-[0.2em] text-[#94a3b8]">{t('或使用')}</p>
           <GoogleLoginButton onLogin={onAuthenticated} />
-          <button type="button" disabled title="需設定 LINE Login Channel" className="mt-3 flex w-full cursor-not-allowed items-center justify-center gap-3 rounded-sm bg-[#e2e8f0] px-4 py-3 text-sm font-semibold text-[#64748b]"><span className="flex h-6 w-6 items-center justify-center rounded bg-white text-[#06c755]">L</span>{t('LINE 登入尚未啟用')}</button>
+          <button type="button" disabled title={t('需設定 LINE Login Channel')} className="mt-3 flex w-full cursor-not-allowed items-center justify-center gap-3 rounded-sm bg-[#e2e8f0] px-4 py-3 text-sm font-semibold text-[#64748b]"><span className="flex h-6 w-6 items-center justify-center rounded bg-white text-[#06c755]">L</span>{t('LINE 登入尚未啟用')}</button>
         </div>}
       </div>
     </section>
@@ -155,6 +163,7 @@ function AuthPanel({ onAuthenticated }) {
 }
 
 function OrderCard({ order, onQuickRebook, showActions = true, showOrderNumber = false }) {
+  const { t } = useSiteLocale();
   const activeCourses = (order.reservations || []).filter(item => !['cancelled', 'deleted'].includes(item.status));
   const courses = activeCourses.length ? activeCourses : (order.reservations || []).filter(item => item.status !== 'deleted');
   const reservation = courses[0];
@@ -169,16 +178,17 @@ function OrderCard({ order, onQuickRebook, showActions = true, showOrderNumber =
   const displayAmount = settledCancellation ? order.cancellation.original_amount
     : fullyCancelled ? (order.historical_amount ?? order.total_amount) : order.total_amount;
   return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-[0_8px_25px_rgba(15,23,42,0.04)] md:p-6">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div>{showOrderNumber && <p className="break-all text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{order.order_number}</p>}<h3 className="mt-2 text-lg font-semibold">{dateLabel}｜{reservation?.resort || '雪場安排中'}</h3>{courses.length > 1 && <p className="mt-2 text-xs text-[#64748b]">另有 {courses.length - 1} 項課程，{showOrderNumber ? '以下列出全部課程。' : '請查看詳情。'}</p>}</div><span className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs font-semibold text-[#2b5f8f]">{cancellationLabels[cancellationStage] || paymentLabels[order.payment_hold_status || order.payment_status] || order.payment_status}</span></div>
-    <div className="mt-5 grid gap-3 text-sm text-[#475569] sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-[#94a3b8]">{reservation?.service_type === 'photo' ? '攝影方案' : '課程'}</span>{reservation?.course_template || reservation?.course_type || '安排中'}</p><p><span className="block text-xs text-[#94a3b8]">{reservation?.service_type === 'photo' ? '攝影師' : '教練'}</span>{coachChoice}</p><p><span className="block text-xs text-[#94a3b8]">{reservation?.service_type === 'photo' ? '預約數量' : '人數'}</span>{reservation?.people || 0} {reservation?.service_type === 'photo' ? '組' : '人'}</p><p><span className="block text-xs text-[#94a3b8]">天數</span>{dates.length ? `${dates.length} 天` : '待安排'}</p></div>
-    <p className="mt-4 text-sm font-semibold text-[#1f2937]">{settledCancellation ? '原訂單金額' : fullyCancelled ? '取消前訂單金額' : '訂單金額'} NT$ {Number(displayAmount || 0).toLocaleString()}</p>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div>{showOrderNumber && <p className="break-all text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{order.order_number}</p>}<h3 className="mt-2 text-lg font-semibold">{dateLabel === '日期安排中' ? t(dateLabel) : dateLabel}｜{reservation?.resort || t('雪場安排中')}</h3>{courses.length > 1 && <p className="mt-2 text-xs text-[#64748b]">{t('另有 {count} 項課程，',{count:courses.length-1})}{t(showOrderNumber ? '以下列出全部課程。' : '請查看詳情。')}</p>}</div><span className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs font-semibold text-[#2b5f8f]">{t(cancellationLabels[cancellationStage] || paymentLabels[order.payment_hold_status || order.payment_status] || order.payment_status)}</span></div>
+    <div className="mt-5 grid gap-3 text-sm text-[#475569] sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '攝影方案' : '課程')}</span>{reservation?.course_template || reservation?.course_type || t('安排中')}</p><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '攝影師' : '教練')}</span>{['由學校安排','指定教練待安排','不指定'].includes(coachChoice) ? t(coachChoice) : coachChoice}</p><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '預約數量' : '人數')}</span>{t(reservation?.service_type === 'photo' ? '{count} 組' : '{count} 人',{count:reservation?.people || 0})}</p><p><span className="block text-xs text-[#94a3b8]">{t('天數')}</span>{dates.length ? t('{count} 天',{count:dates.length}) : t('待安排')}</p></div>
+    <p className="mt-4 text-sm font-semibold text-[#1f2937]">{t(settledCancellation ? '原訂單金額' : fullyCancelled ? '取消前訂單金額' : '訂單金額')} NT$ {Number(displayAmount || 0).toLocaleString()}</p>
     {!fullyCancelled && (!order.cancellation||order.cancellation.status==='rejected') && <SettlementSummary settlement={order.settlement} />}
-    {order.cancellation?.settlement?.currency==='JPY'&&order.cancellation.status!=='rejected'&&<p className="mt-3 text-sm leading-7 text-[#1e4e73]">取消前日幣金額：日幣 JPY ¥ {Number(order.cancellation.settlement.original_amount).toLocaleString()}；{order.cancellation.status==='refunded'?'已記錄退款':order.cancellation.status==='approved'?'核准退款':'預估退款'}：{refundMoney(order.cancellation.refund_amount,order.cancellation.settlement)}。</p>}
-    {showActions && <div className="mt-5 flex flex-wrap justify-end gap-3 border-t border-[#eef2f7] pt-4"><button type="button" onClick={() => onQuickRebook(order.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] hover:bg-[#eef4fa]">再次預約</button><SiteLink to={`/membership/orders/${order.id}`} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">查看詳情<ChevronRight size={16} /></SiteLink>{canPay && <SiteLink to={`/payment?reservation_group=${order.id}`} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">前往付款</SiteLink>}</div>}
+    {order.cancellation?.settlement?.currency==='JPY'&&order.cancellation.status!=='rejected'&&<p className="mt-3 text-sm leading-7 text-[#1e4e73]">{t('取消前日幣金額：{amount}；{stage}：{refund}。',{amount:t('日幣 JPY ¥ {amount}',{amount:Number(order.cancellation.settlement.original_amount).toLocaleString()}),stage:t(order.cancellation.status==='refunded'?'已記錄退款':order.cancellation.status==='approved'?'核准退款':'預估退款'),refund:order.cancellation.settlement.refund_amount==null?t('待核對實收款'):t('日幣 JPY ¥ {amount}',{amount:Number(order.cancellation.settlement.refund_amount).toLocaleString()})})}</p>}
+    {showActions && <div className="mt-5 flex flex-wrap justify-end gap-3 border-t border-[#eef2f7] pt-4"><button type="button" onClick={() => onQuickRebook(order.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] hover:bg-[#eef4fa]">{t('再次預約')}</button><SiteLink to={`/membership/orders/${order.id}`} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t('查看詳情')}<ChevronRight size={16} /></SiteLink>{canPay && <SiteLink to={`/payment?reservation_group=${order.id}`} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t('前往付款')}</SiteLink>}</div>}
   </article>;
 }
 
 function CancellationForm({ order, onDone }) {
+  const { t } = useSiteLocale();
   const [preview, setPreview] = useState(null);
   const [reason, setReason] = useState('schedule');
   const [reasonNote, setReasonNote] = useState('');
@@ -206,64 +216,67 @@ function CancellationForm({ order, onDone }) {
     finally { setBusy(false); }
   };
 
-  if (!preview) return <div className="mt-5 border-t border-[#eef2f7] pt-4"><button type="button" disabled={busy} onClick={open} className="min-h-11 text-sm font-semibold text-red-600 hover:underline disabled:opacity-50">{busy ? '載入退款資料…' : '申請取消訂單'}</button>{message && <p role="alert" className="mt-2 text-sm text-red-600">{message}</p>}</div>;
+  if (!preview) return <div className="mt-5 border-t border-[#eef2f7] pt-4"><button type="button" disabled={busy} onClick={open} className="min-h-11 text-sm font-semibold text-red-600 hover:underline disabled:opacity-50">{busy ? t("載入退款資料…") : t("申請取消訂單")}</button>{message && <p role="alert" className="mt-2 text-sm text-red-600">{t(message)}</p>}</div>;
   return <div className="mt-5 rounded-sm border border-red-100 bg-red-50/50 p-5">
-    <h3 className="font-semibold text-[#1f2937]">確認取消與退款資料</h3>
-    <p className="mt-2 text-sm text-[#64748b]">{preview.requires_cash_review?'訂單有未結清補款或退款差額，需由 SnowLand 核對實收款後確認退款金額，這裡不會自動試算。':`預估退款 ${refundMoney(preview.refund_amount,preview.settlement)}。`}送出後由 SnowLand 審核，尚未核准前不會直接取消課程。</p>
-    {preview.settlement?.currency==='JPY'&&<p className="mt-2 text-sm leading-7 text-[#64748b]">沿用原訂單匯率1 TWD＝{preview.settlement.rate} JPY，台幣退款計價基準 {refundMoney(preview.refund_amount)}。請提供可接收日幣的退款帳戶。</p>}
-    {preview.request_status === 'rejected' && <p role="status" className="mt-4 rounded-sm bg-white px-4 py-3 text-sm font-semibold text-[#9a3412]">上次申請未通過；若仍需取消，可重新填寫並送出。</p>}
-    {preview.request_status && preview.request_status !== 'rejected' ? <p className="mt-4 rounded-sm bg-white px-4 py-3 text-sm font-semibold text-[#2b5f8f]">目前狀態：{cancellationLabels[preview.request_status] || preview.request_status}</p> : <div className="mt-4 grid gap-3 md:grid-cols-2">
-      <label className="text-sm font-semibold">取消原因<select value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2"><option value="schedule">行程變更</option><option value="health">健康因素</option><option value="weather">天候因素</option><option value="duplicate">重複訂單</option><option value="other">其他</option></select></label>
-      <label className="text-sm font-semibold">補充說明<input maxLength={1000} value={reasonNote} onChange={(event) => setReasonNote(event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label>
-      {preview.requires_bank_account && <><label className="text-sm font-semibold">退款銀行<input required maxLength={100} value={bank.bank_name} onChange={(event) => setBank({ ...bank, bank_name: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">退款帳號<input required maxLength={100} value={bank.account_number} onChange={(event) => setBank({ ...bank, account_number: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">戶名<input required maxLength={100} value={bank.account_holder} onChange={(event) => setBank({ ...bank, account_holder: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label></>}
-      {preview.settlement?.currency==='JPY'&&preview.requires_bank_account&&<label className="text-sm font-semibold">海外退款資料（選填）<textarea maxLength={1000} value={bank.overseas_details} onChange={event=>setBank({...bank,overseas_details:event.target.value})} className="mt-1 min-h-24 w-full rounded-sm border border-[#cbd5e1] bg-white p-3"/></label>}
-      <div className="flex items-end gap-2"><button type="button" disabled={busy} onClick={() => setPreview(null)} className="min-h-11 rounded-full border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50">返回</button><button type="button" disabled={busy || !bankComplete} onClick={submit} className="min-h-11 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '送出中…' : '確認送出'}</button></div>
+    <h3 className="font-semibold text-[#1f2937]">{t("確認取消與退款資料")}</h3>
+    <p className="mt-2 text-sm text-[#64748b]">{preview.requires_cash_review?t("訂單有未結清補款或退款差額，需由 SnowLand 核對實收款後確認退款金額，這裡不會自動試算。"):t('預估退款 {amount}。',{amount:refundMoney(preview.refund_amount,preview.settlement,t)})}{t("送出後由 SnowLand 審核，尚未核准前不會直接取消課程。")}</p>
+    {preview.settlement?.currency==='JPY'&&<p className="mt-2 text-sm leading-7 text-[#64748b]">{t('沿用原訂單匯率1 TWD＝{rate} JPY，台幣退款計價基準 {amount}。請提供可接收日幣的退款帳戶。',{rate:preview.settlement.rate,amount:refundMoney(preview.refund_amount,null,t)})}</p>}
+    {preview.request_status === 'rejected' && <p role="status" className="mt-4 rounded-sm bg-white px-4 py-3 text-sm font-semibold text-[#9a3412]">{t("上次申請未通過；若仍需取消，可重新填寫並送出。")}</p>}
+    {preview.request_status && preview.request_status !== 'rejected' ? <p className="mt-4 rounded-sm bg-white px-4 py-3 text-sm font-semibold text-[#2b5f8f]">{t('目前狀態：{status}',{status:t(cancellationLabels[preview.request_status] || preview.request_status)})}</p> : <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <label className="text-sm font-semibold">{t("取消原因")}<select value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2"><option value="schedule">{t("行程變更")}</option><option value="health">{t("健康因素")}</option><option value="weather">{t("天候因素")}</option><option value="duplicate">{t("重複訂單")}</option><option value="other">{t("其他")}</option></select></label>
+      <label className="text-sm font-semibold">{t("補充說明")}<input maxLength={1000} value={reasonNote} onChange={(event) => setReasonNote(event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label>
+      {preview.requires_bank_account && <><label className="text-sm font-semibold">{t("退款銀行")}<input required maxLength={100} value={bank.bank_name} onChange={(event) => setBank({ ...bank, bank_name: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">{t("退款帳號")}<input required maxLength={100} value={bank.account_number} onChange={(event) => setBank({ ...bank, account_number: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label><label className="text-sm font-semibold">{t("戶名")}<input required maxLength={100} value={bank.account_holder} onChange={(event) => setBank({ ...bank, account_holder: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label></>}
+      {preview.settlement?.currency==='JPY'&&preview.requires_bank_account&&<label className="text-sm font-semibold">{t("海外退款資料（選填）")}<textarea maxLength={1000} value={bank.overseas_details} onChange={event=>setBank({...bank,overseas_details:event.target.value})} className="mt-1 min-h-24 w-full rounded-sm border border-[#cbd5e1] bg-white p-3"/></label>}
+      <div className="flex items-end gap-2"><button type="button" disabled={busy} onClick={() => setPreview(null)} className="min-h-11 rounded-full border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50">{t("返回")}</button><button type="button" disabled={busy || !bankComplete} onClick={submit} className="min-h-11 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? t("送出中…") : t("確認送出")}</button></div>
     </div>}
-    {message && <p role="alert" className="mt-3 text-sm text-red-700">{message}</p>}
+    {message && <p role="alert" className="mt-3 text-sm text-red-700">{t(message)}</p>}
   </div>;
 }
 
 function SharedClassSummary({ summary }) {
+  const { t } = useSiteLocale();
   if (!summary) return null;
-  return <section aria-label="同班報名與程度" className="mt-4 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] p-4 text-sm text-[#1e4e73]">
-    <h4 className="font-semibold">同班報名與程度</h4>
-    {summary.status === 'cancelled' ? <p className="mt-2">這個團體班已取消，請聯絡 SnowLand 確認安排。</p> : <>
-      <p className="mt-2">{summary.status === 'ready' ? '已成班' : '湊班中'} · 已報名 {summary.registered_students} 人，滿 {summary.minimum_students} 人成班</p>
-      <p className="mt-2 font-semibold">{summary.other_students > 0 ? `同班其他學員：${summary.other_students} 人 · ${summary.ability_level_label}` : '目前尚無其他學員報名'}</p>
-      <p className="mt-2 text-xs leading-5 text-[#64748b]">這是同程度團體班；只顯示人數與程度，不公開其他學員的姓名、聯絡資料或訂單。</p>
+  return <section aria-label={t('同班報名與程度')} className="mt-4 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] p-4 text-sm text-[#1e4e73]">
+    <h4 className="font-semibold">{t('同班報名與程度')}</h4>
+    {summary.status === 'cancelled' ? <p className="mt-2">{t('這個團體班已取消，請聯絡 SnowLand 確認安排。')}</p> : <>
+      <p className="mt-2">{t(summary.status === 'ready' ? '已成班' : '湊班中')} · {t('已報名 {count} 人，滿 {minimum} 人成班',{count:summary.registered_students,minimum:summary.minimum_students})}</p>
+      <p className="mt-2 font-semibold">{summary.other_students > 0 ? <>{t('同班其他學員：{count} 人',{count:summary.other_students})} · {summary.ability_level_label}</> : t('目前尚無其他學員報名')}</p>
+      <p className="mt-2 text-xs leading-5 text-[#64748b]">{t('這是同程度團體班；只顯示人數與程度，不公開其他學員的姓名、聯絡資料或訂單。')}</p>
     </>}
   </section>;
 }
 
 function Orders({ data, onQuickRebook, onRefresh }) {
+  const { t } = useSiteLocale();
   const location = useLocation();
   const id = Number(location.pathname.match(/\/orders\/(\d+)/)?.[1]);
   const selected = data.orders.find((order) => order.id === id);
-  if (id && !selected) return <EmptyState title="找不到這筆訂單" description="請確認連結，或使用建立這筆訂單的會員帳號登入。" action={<SiteLink to="/membership/orders" className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">返回我的訂單</SiteLink>} />;
-  if (selected) return <div><SiteLink to="/membership/orders" className="text-sm font-semibold text-[#2b5f8f]">← 返回我的訂單</SiteLink><h2 className="mt-5 text-2xl font-semibold">訂單詳情</h2><div className="mt-6 space-y-5"><OrderCard order={selected} onQuickRebook={onQuickRebook} showActions={false} showOrderNumber />
+  if (id && !selected) return <EmptyState title={t("找不到這筆訂單")} description={t("請確認連結，或使用建立這筆訂單的會員帳號登入。")} action={<SiteLink to="/membership/orders" className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">{t("返回我的訂單")}</SiteLink>} />;
+  if (selected) return <div><SiteLink to="/membership/orders" className="text-sm font-semibold text-[#2b5f8f]">{t("← 返回我的訂單")}</SiteLink><h2 className="mt-5 text-2xl font-semibold">{t("訂單詳情")}</h2><div className="mt-6 space-y-5"><OrderCard order={selected} onQuickRebook={onQuickRebook} showActions={false} showOrderNumber />
     <OrderAmendmentBalance orderId={selected.id} requestJson={requestJson} onRefresh={onRefresh} cancellationStatus={selected.cancellation?.status}/>
-    {selected.received_settlement?.currency==='JPY'&&<p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">SnowLand已核對原訂單收款：{settlementAmount(selected.received_settlement,selected.received_settlement.base_amount)}。修改後補退差額請看上方個別紀錄，實際入帳以銀行紀錄為準。</p>}
-    {selected.payment_hold_status && selected.payment_status === 'unpaid' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{paymentHoldMessages[selected.payment_hold_status]}</p>}
-    {selected.payment_status === 'unpaid' && !selected.payment_hold_status && <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5"><p className="text-sm font-semibold text-[#1e4e73]">這筆訂單尚未付款，可查看匯款資料與付款期限。</p><SiteLink to={`/payment?reservation_group=${selected.id}`} className="inline-flex rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">前往付款</SiteLink></div>}
-    {selected.payment_status === 'pending' && <p className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">匯款資料已送出，等待 SnowLand 確認付款。</p>}
-    {(selected.line_group_url || selected.line_group_qr_url) && <section className="rounded-sm border border-[#b6d6ec] bg-[#eef4fa] p-5"><h3 className="font-semibold text-[#1e4e73]">上課群組</h3><p className="mt-2 text-sm leading-6 text-[#64748b]">SnowLand 已準備好這筆課程的聯絡群組，課前資訊會在群組內確認。</p>{selected.line_group_url && <a href={selected.line_group_url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">加入上課群組 ↗</a>}<ClassGroupQRImage url={selected.line_group_qr_url || ''} appearance="light" /></section>}
-    {selected.cancellation?.status === 'requested' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">取消申請已送出，等待 SnowLand 審核；核准前課程仍保留。</p>}
-    {selected.cancellation?.status === 'rejected' && <p role="status" className="rounded-sm border border-[#fed7aa] bg-[#fff7ed] p-5 text-sm font-semibold text-[#9a3412]">上次取消申請未通過，課程仍保留；若仍需取消，可在下方重新提出。</p>}
-    {selected.cancellation?.status === 'approved' && selected.payment_status === 'paid' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">訂單已取消，退款處理中。核准退款金額 {refundMoney(selected.cancellation.refund_amount,selected.cancellation.settlement)}。</p>}
-    {selected.cancellation?.status === 'refunded' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">訂單已退款 {refundMoney(selected.cancellation.refund_amount,selected.cancellation.settlement)}。</p>}
+    {selected.received_settlement?.currency==='JPY'&&<p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{t('SnowLand已核對原訂單收款：{amount}。修改後補退差額請看上方個別紀錄，實際入帳以銀行紀錄為準。',{amount:settlementAmount(selected.received_settlement,selected.received_settlement.base_amount)})}</p>}
+    {selected.payment_hold_status && selected.payment_status === 'unpaid' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{t(paymentHoldMessages[selected.payment_hold_status] || selected.payment_hold_status)}</p>}
+    {selected.payment_status === 'unpaid' && !selected.payment_hold_status && <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5"><p className="text-sm font-semibold text-[#1e4e73]">{t("這筆訂單尚未付款，可查看匯款資料與付款期限。")}</p><SiteLink to={`/payment?reservation_group=${selected.id}`} className="inline-flex rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("前往付款")}</SiteLink></div>}
+    {selected.payment_status === 'pending' && <p className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{t("匯款資料已送出，等待 SnowLand 確認付款。")}</p>}
+    {(selected.line_group_url || selected.line_group_qr_url) && <section className="rounded-sm border border-[#b6d6ec] bg-[#eef4fa] p-5"><h3 className="font-semibold text-[#1e4e73]">{t("上課群組")}</h3><p className="mt-2 text-sm leading-6 text-[#64748b]">{t("SnowLand 已準備好這筆課程的聯絡群組，課前資訊會在群組內確認。")}</p>{selected.line_group_url && <a href={selected.line_group_url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("加入上課群組 ↗")}</a>}<ClassGroupQRImage url={selected.line_group_qr_url || ''} appearance="light" /></section>}
+    {selected.cancellation?.status === 'requested' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{t("取消申請已送出，等待 SnowLand 審核；核准前課程仍保留。")}</p>}
+    {selected.cancellation?.status === 'rejected' && <p role="status" className="rounded-sm border border-[#fed7aa] bg-[#fff7ed] p-5 text-sm font-semibold text-[#9a3412]">{t("上次取消申請未通過，課程仍保留；若仍需取消，可在下方重新提出。")}</p>}
+    {selected.cancellation?.status === 'approved' && selected.payment_status === 'paid' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{t('訂單已取消，退款處理中。核准退款金額 {amount}。',{amount:refundMoney(selected.cancellation.refund_amount,selected.cancellation.settlement,t)})}</p>}
+    {selected.cancellation?.status === 'refunded' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{t('訂單已退款 {amount}。',{amount:refundMoney(selected.cancellation.refund_amount,selected.cancellation.settlement,t)})}</p>}
     {selected.reservations.map((reservation) => <div key={reservation.id} className="rounded-sm border border-[#dbe3ec] bg-white p-5">
-      <h3 className="font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}{reservation.status === 'cancelled' && '（已取消）'}</h3>
-      <p className="mt-2 text-sm text-[#64748b]">{reservation.service_type === 'photo' ? '攝影師' : '授課教練'}：{reservation.coach === '安排中' ? '由學校安排' : reservation.coach}　{reservation.service_type === 'photo' ? '預約數量' : '學員'}：{reservation.people} {reservation.service_type === 'photo' ? '組' : '人'}</p>
+      <h3 className="font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}{reservation.status === 'cancelled' && t('（已取消）')}</h3>
+      <p className="mt-2 text-sm text-[#64748b]">{reservation.service_type === 'photo' ? t("攝影師") : t("授課教練")}：{reservation.coach === '安排中' ? t("由學校安排") : reservation.coach}　{reservation.service_type === 'photo' ? t("預約數量") : t("學員")}：{t(reservation.service_type==='photo'?'{count} 組':'{count} 人',{count:reservation.people})}</p>
       <SharedClassSummary summary={reservation.shared_class_summary} />
       <div className="mt-4 space-y-2">{reservation.bookings.map((booking) => <p key={booking.id} className="rounded-sm bg-[#f8fafc] px-4 py-3 text-sm text-[#475569]">{formatDate(booking.date)}　{booking.start_time}–{booking.end_time}　{booking.course_name}</p>)}</div>
-      {!['cancelled', 'deleted'].includes(reservation.status) && <SiteLink to={`/membership/pre-course-forms?reservation=${reservation.id}`} className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">填寫學員與課前資料</SiteLink>}
+      {!['cancelled', 'deleted'].includes(reservation.status) && <SiteLink to={`/membership/pre-course-forms?reservation=${reservation.id}`} className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("填寫學員與課前資料")}</SiteLink>}
     </div>)}
     {selected.payment_status === 'paid' && !['requested', 'approved', 'refunded'].includes(selected.cancellation?.status) && <CancellationForm order={selected} onDone={onRefresh} />}
-    <div className="flex justify-end"><button type="button" onClick={() => onQuickRebook(selected.id)} className="rounded-full border border-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">再次預約</button></div></div></div>;
-  return <div><h2 className="text-2xl font-semibold">我的訂單</h2><p className="mt-2 text-sm text-[#64748b]">查看付款狀態、課程明細及快速再次預約。</p><div className="mt-7 space-y-4">{data.orders.length ? data.orders.map((order) => <OrderCard key={order.id} order={order} onQuickRebook={onQuickRebook} />) : <EmptyState title="目前沒有訂單" action={<SiteLink to="/booking" className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">開始預約</SiteLink>} />}</div></div>;
+    <div className="flex justify-end"><button type="button" onClick={() => onQuickRebook(selected.id)} className="rounded-full border border-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">{t("再次預約")}</button></div></div></div>;
+  return <div><h2 className="text-2xl font-semibold">{t("我的訂單")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("查看付款狀態、課程明細及快速再次預約。")}</p><div className="mt-7 space-y-4">{data.orders.length ? data.orders.map((order) => <OrderCard key={order.id} order={order} onQuickRebook={onQuickRebook} />) : <EmptyState title={t("目前沒有訂單")} action={<SiteLink to="/booking" className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">{t("開始預約")}</SiteLink>} />}</div></div>;
 }
 
 function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
+  const { t } = useSiteLocale();
   const [editing, setEditing] = useState(false);
   const savedDraft = () => ({ age_range: form.age_range, insurance_data: form.insurance_data || {}, snowboard_skills: form.snowboard_skills || [], ski_skills: form.ski_skills || [], waiver_signature: form.waiver_resign_required ? '' : form.waiver_signature || '', waiver_agreed: form.waiver_completed, media_consent: form.media_consent || '' });
   const [draft, setDraft] = useState(savedDraft);
@@ -288,45 +301,46 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
-  return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">{form.insurance_data?.full_name || `學員 ${form.student_number || ''}（待填寫姓名）`}</h3><p className="mt-1 break-all text-xs text-[#94a3b8]">{form.order_number}｜{form.resort}</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${form.insurance_completed && form.waiver_completed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{form.insurance_completed && form.waiver_completed ? '資料完成' : '尚有資料未完成'}</span></div>
-    {form.waiver_resign_required && <p role="status" className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">課程日期或模板已修改，請重新閱讀並簽署聲明書。原簽署已留底；如已投保，將由行政重新核對。</p>}
+  return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">{form.insurance_data?.full_name || t('學員 {number}（待填寫姓名）',{number:form.student_number || ''})}</h3><p className="mt-1 break-all text-xs text-[#94a3b8]">{form.order_number}｜{form.resort}</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${form.insurance_completed && form.waiver_completed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{form.insurance_completed && form.waiver_completed ? t("資料完成") : t("尚有資料未完成")}</span></div>
+    {form.waiver_resign_required && <p role="status" className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t("課程日期或模板已修改，請重新閱讀並簽署聲明書。原簽署已留底；如已投保，將由行政重新核對。")}</p>}
     {!editing ? <>
-      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><p>年齡：{ageLabel(form.age_range)}</p><p>保險資料：{form.insurance_completed ? '已填寫' : '待補齊'}</p><p>聲明書：{form.waiver_completed ? '完成' : '需補齊或重新簽署'}</p></div>
-      <p className="mt-3 text-sm text-[#64748b]">投保作業：{({pending:'尚未投保',checking:'行政核對中',processing:'行政處理中',insured:'已投保完成'})[form.insurance_processing_status] || '待行政確認'}。填妥資料不代表已完成投保，作業狀態由行政核對及登錄。</p>
-      <p className="mt-3 text-sm text-[#64748b]">程度：{[...form.snowboard_skills, ...form.ski_skills].join('、') || '尚未填寫'}</p>
-      <button type="button" onClick={() => { setDraft(savedDraft()); setMessage(''); setEditing(true); }} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">填寫／修改資料</button>
+      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><p>{t('年齡：{age}',{age:ageLabel(form.age_range,t)})}</p><p>{t('保險資料：{status}',{status:t(form.insurance_completed?'已填寫':'待補齊')})}</p><p>{t('聲明書：{status}',{status:t(form.waiver_completed?'完成':'需補齊或重新簽署')})}</p></div>
+      <p className="mt-3 text-sm text-[#64748b]">{t('投保作業：{status}。填妥資料不代表已完成投保，作業狀態由行政核對及登錄。',{status:t(({pending:'尚未投保',checking:'行政核對中',processing:'行政處理中',insured:'已投保完成'})[form.insurance_processing_status] || '待行政確認')})}</p>
+      <p className="mt-3 text-sm text-[#64748b]">{t('程度：{level}',{level:[...form.snowboard_skills,...form.ski_skills].map(value => t(value)).join('、') || t('尚未填寫')})}</p>
+      <button type="button" onClick={() => { setDraft(savedDraft()); setMessage(''); setEditing(true); }} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("填寫／修改資料")}</button>
     </> : <div className="mt-5 space-y-5">
-      <p className="text-sm text-[#64748b]">先填這位學員的姓名與年齡即可儲存；保險資料與聲明書可稍後補齊。</p>
+      <p className="text-sm text-[#64748b]">{t("先填這位學員的姓名與年齡即可儲存；保險資料與聲明書可稍後補齊。")}</p>
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="text-sm font-semibold">年齡區間<select value={draft.age_range} onChange={(event) => setDraft({ ...draft, age_range: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2"><option value="">請選擇年齡區間</option>{ageOptions.map((option) => <option key={option} value={option}>{ageLabel(option)}</option>)}</select></label>
-        {[['full_name', '學員姓名（保險用）'], ['birth_date', '出生日期'], ['id_number', '身分證／護照號碼'], ['phone', '聯絡電話'], ['emergency_contact', '緊急聯絡人'], ['emergency_phone', '緊急聯絡電話']].map(([key, label]) => <label key={key} className="text-sm font-semibold">{label}<input type={key === 'birth_date' ? 'date' : 'text'} max={key === 'birth_date' ? waiverDocument.reference_date : undefined} value={draft.insurance_data[key] || ''} onChange={(event) => updateInsurance(key, event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label>)}
+        <label className="text-sm font-semibold">{t("年齡區間")}<select value={draft.age_range} onChange={(event) => setDraft({ ...draft, age_range: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2"><option value="">{t("請選擇年齡區間")}</option>{ageOptions.map((option) => <option key={option} value={option}>{ageLabel(option,t)}</option>)}</select></label>
+        {[['full_name', '學員姓名（保險用）'], ['birth_date', '出生日期'], ['id_number', '身分證／護照號碼'], ['phone', '聯絡電話'], ['emergency_contact', '緊急聯絡人'], ['emergency_phone', '緊急聯絡電話']].map(([key, label]) => <label key={key} className="text-sm font-semibold">{t(label)}<input type={key === 'birth_date' ? 'date' : 'text'} max={key === 'birth_date' ? waiverDocument.reference_date : undefined} value={draft.insurance_data[key] || ''} onChange={(event) => updateInsurance(key, event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label>)}
       </div>
-      {birthStatus.error && <p role="alert" className="text-sm text-red-700">{birthStatus.error}</p>}
-      {requiresGuardian && <p role="status" className="rounded-sm bg-[#eef4fa] p-3 text-sm text-[#2b5f8f]">依出生日期，這位學員目前未滿 {guardianAgeLimit} 歲，請由法定代理人簽署並填寫下方資料；也可以先儲存草稿。</p>}
+      {birthStatus.error && <p role="alert" className="text-sm text-red-700">{t(birthStatus.error)}</p>}
+      {requiresGuardian && <p role="status" className="rounded-sm bg-[#eef4fa] p-3 text-sm text-[#2b5f8f]">{t('依出生日期，這位學員目前未滿 {age} 歲，請由法定代理人簽署並填寫下方資料；也可以先儲存草稿。',{age:guardianAgeLimit})}</p>}
       <details className="rounded-sm border border-[#dbe3ec] p-4">
-        <summary className="min-h-11 cursor-pointer text-sm font-semibold">過往滑雪經驗（選填）</summary>
-        <div className="mt-3 grid gap-4 md:grid-cols-2">{[['snowboard_skills', '單板經驗'], ['ski_skills', '雙板經驗']].map(([field, label]) => <fieldset key={field}><legend className="text-sm font-semibold">{label}</legend><div className="mt-2 max-h-64 overflow-y-auto">{(skillOptions?.[field] || []).map(([value, text]) => <label key={value} className="flex min-h-11 items-center gap-2 py-2 text-sm"><input type="checkbox" checked={draft[field].includes(value)} onChange={() => toggleSkill(field, value)} />{text}</label>)}</div></fieldset>)}</div>
+        <summary className="min-h-11 cursor-pointer text-sm font-semibold">{t("過往滑雪經驗（選填）")}</summary>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">{[['snowboard_skills', '單板經驗'], ['ski_skills', '雙板經驗']].map(([field, label]) => <fieldset key={field}><legend className="text-sm font-semibold">{t(label)}</legend><div className="mt-2 max-h-64 overflow-y-auto">{(skillOptions?.[field] || []).map(([value, text]) => <label key={value} className="flex min-h-11 items-center gap-2 py-2 text-sm"><input type="checkbox" checked={draft[field].includes(value)} onChange={() => toggleSkill(field, value)} />{t(text)}</label>)}</div></fieldset>)}</div>
       </details>
       <div className="rounded-sm border border-[#dbe3ec] bg-[#f8fafc] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{waiverDocument.title}</p><span className="rounded-full bg-white px-3 py-1 text-xs text-[#64748b]">版本 {waiverDocument.version}{waiverDocument.is_draft ? '｜法務確認中' : ''}</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{waiverDocument.title}</p><span className="rounded-full bg-white px-3 py-1 text-xs text-[#64748b]">{t('版本 {version}',{version:waiverDocument.version})}{waiverDocument.is_draft ? t("｜法務確認中") : ''}</span></div>
         <div className="mt-3 max-h-72 overflow-y-auto break-words rounded-sm border border-[#dbe3ec] bg-white p-4 text-sm leading-7 text-[#475569] whitespace-pre-wrap">{waiverDocument.body.replace(/\*\*/g, '').replace(/^\s*[#>]+\s*/gm, '')}</div>
-        <a href={waiverDocument.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-[#2b5f8f] hover:underline">開啟客戶提供的原始文件</a>
-        <fieldset className="mt-4"><legend className="text-sm font-semibold">由誰簽署聲明書？</legend><div className="mt-2 flex flex-wrap gap-4 text-sm"><label className={`flex min-h-11 items-center gap-2 ${requiresGuardian ? 'text-[#94a3b8]' : ''}`}><input type="radio" name={`signer-role-${form.id}`} disabled={requiresGuardian} checked={!guardianSigning} onChange={() => updateInsurance('waiver_signer_role', 'self')} />學員本人簽署</label><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`signer-role-${form.id}`} checked={guardianSigning} onChange={() => updateInsurance('waiver_signer_role', 'guardian')} />法定代理人代簽</label></div><p className="mt-2 text-xs text-[#64748b]">簽署前需填寫出生日期。更改出生日期或簽署身分後，需重新確認並簽名。</p></fieldset>
-        {guardianSigning && <div className="mt-3 grid gap-4 rounded-sm border border-[#dbe3ec] bg-white p-4 sm:grid-cols-2"><p className="text-sm leading-6 text-[#64748b] sm:col-span-2">請填實際代簽人的資料；代簽人不需要另外建立會員帳號。</p><label className="text-sm font-semibold">法定代理人姓名<input value={draft.insurance_data.guardian_name || ''} onChange={event => updateInsurance('guardian_name', event.target.value)} maxLength={120} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label><label className="text-sm font-semibold">與學員的關係<input value={draft.insurance_data.guardian_relationship || ''} onChange={event => updateInsurance('guardian_relationship', event.target.value)} maxLength={120} placeholder="例如：父親、母親、監護人" className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label></div>}
-        <fieldset className="mt-4"><legend className="text-sm font-semibold">宣傳影像授權（不影響上課權益）</legend><div className="mt-2 flex flex-wrap gap-4 text-sm"><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'agree'} onChange={() => setDraft({ ...draft, media_consent: 'agree' })} />同意公開宣傳</label><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'decline'} onChange={() => setDraft({ ...draft, media_consent: 'decline' })} />不同意公開宣傳</label></div></fieldset>
-        <label className="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" checked={draft.waiver_agreed} onChange={(event) => setDraft({ ...draft, waiver_agreed: event.target.checked })} className="mt-1" />本人已完整閱讀並同意此版本聲明書</label>
-        <label className="mt-3 block text-sm font-semibold">立書人（本人或法定代理人）簽名<input value={draft.waiver_signature} onChange={(event) => setDraft({ ...draft, waiver_signature: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label>
-        {draft.waiver_agreed && missingGuardianDetails && <p role="alert" className="mt-2 text-sm text-amber-800">請補齊法定代理人姓名及與學員的關係後再儲存簽署。</p>}
+        <a href={waiverDocument.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-[#2b5f8f] hover:underline">{t("開啟客戶提供的原始文件")}</a>
+        <fieldset className="mt-4"><legend className="text-sm font-semibold">{t("由誰簽署聲明書？")}</legend><div className="mt-2 flex flex-wrap gap-4 text-sm"><label className={`flex min-h-11 items-center gap-2 ${requiresGuardian ? 'text-[#94a3b8]' : ''}`}><input type="radio" name={`signer-role-${form.id}`} disabled={requiresGuardian} checked={!guardianSigning} onChange={() => updateInsurance('waiver_signer_role', 'self')} />{t("學員本人簽署")}</label><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`signer-role-${form.id}`} checked={guardianSigning} onChange={() => updateInsurance('waiver_signer_role', 'guardian')} />{t("法定代理人代簽")}</label></div><p className="mt-2 text-xs text-[#64748b]">{t("簽署前需填寫出生日期。更改出生日期或簽署身分後，需重新確認並簽名。")}</p></fieldset>
+        {guardianSigning && <div className="mt-3 grid gap-4 rounded-sm border border-[#dbe3ec] bg-white p-4 sm:grid-cols-2"><p className="text-sm leading-6 text-[#64748b] sm:col-span-2">{t("請填實際代簽人的資料；代簽人不需要另外建立會員帳號。")}</p><label className="text-sm font-semibold">{t("法定代理人姓名")}<input value={draft.insurance_data.guardian_name || ''} onChange={event => updateInsurance('guardian_name', event.target.value)} maxLength={120} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label><label className="text-sm font-semibold">{t("與學員的關係")}<input value={draft.insurance_data.guardian_relationship || ''} onChange={event => updateInsurance('guardian_relationship', event.target.value)} maxLength={120} placeholder={t("例如：父親、母親、監護人")} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label></div>}
+        <fieldset className="mt-4"><legend className="text-sm font-semibold">{t("宣傳影像授權（不影響上課權益）")}</legend><div className="mt-2 flex flex-wrap gap-4 text-sm"><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'agree'} onChange={() => setDraft({ ...draft, media_consent: 'agree' })} />{t("同意公開宣傳")}</label><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'decline'} onChange={() => setDraft({ ...draft, media_consent: 'decline' })} />{t("不同意公開宣傳")}</label></div></fieldset>
+        <label className="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" checked={draft.waiver_agreed} onChange={(event) => setDraft({ ...draft, waiver_agreed: event.target.checked })} className="mt-1" />{t("本人已完整閱讀並同意此版本聲明書")}</label>
+        <label className="mt-3 block text-sm font-semibold">{t("立書人（本人或法定代理人）簽名")}<input value={draft.waiver_signature} onChange={(event) => setDraft({ ...draft, waiver_signature: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label>
+        {draft.waiver_agreed && missingGuardianDetails && <p role="alert" className="mt-2 text-sm text-amber-800">{t("請補齊法定代理人姓名及與學員的關係後再儲存簽署。")}</p>}
       </div>
-      {(!draft.age_range || !draft.insurance_data.full_name?.trim()) && <p className="text-sm text-amber-800">請先填寫學員姓名與年齡區間。</p>}
-      <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => setEditing(false)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold disabled:opacity-50">取消</button><button type="button" disabled={busy || Boolean(birthStatus.error) || !draft.age_range || !draft.insurance_data.full_name?.trim() || (draft.waiver_agreed && (birthStatus.age === null || !draft.waiver_signature.trim() || !draft.media_consent || missingGuardianDetails))} onClick={save} className="min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? '儲存中…' : '儲存課前資料'}</button></div>
+      {(!draft.age_range || !draft.insurance_data.full_name?.trim()) && <p className="text-sm text-amber-800">{t("請先填寫學員姓名與年齡區間。")}</p>}
+      <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => setEditing(false)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold disabled:opacity-50">{t("取消")}</button><button type="button" disabled={busy || Boolean(birthStatus.error) || !draft.age_range || !draft.insurance_data.full_name?.trim() || (draft.waiver_agreed && (birthStatus.age === null || !draft.waiver_signature.trim() || !draft.media_consent || missingGuardianDetails))} onClick={save} className="min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? t("儲存中…") : t("儲存課前資料")}</button></div>
     </div>}
-    {message && <p role="status" className="mt-3 text-sm text-[#2b5f8f]">{message}</p>}
-    {message.includes('課程已變更') && <button type="button" disabled={busy} onClick={() => { setEditing(false); onSaved(); }} className="mt-3 min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold">重新載入（放棄未儲存內容）</button>}
+    {message && <p role="status" className="mt-3 text-sm text-[#2b5f8f]">{t(message)}</p>}
+    {message.includes('課程已變更') && <button type="button" disabled={busy} onClick={() => { setEditing(false); onSaved(); }} className="mt-3 min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold">{t("重新載入（放棄未儲存內容）")}</button>}
   </article>;
 }
 
 function MissingStudents({ order, reservation, onSaved }) {
+  const { t } = useSiteLocale();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const prepare = async () => {
@@ -337,10 +351,11 @@ function MissingStudents({ order, reservation, onSaved }) {
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   };
-  return <article className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5"><p className="break-all text-xs text-[#64748b]">{order.order_number}</p><h3 className="mt-2 font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}</h3><p className="mt-3 text-sm leading-7 text-[#475569]">這門課訂了 {reservation.people} 人，目前還有 {reservation.missing_students} 位尚未建立學員欄位。按下方按鈕後，逐位填寫姓名與課前資料即可，不會增加訂課人數或費用。</p><button type="button" disabled={busy} onClick={prepare} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? '建立中…' : '建立學員資料'}</button>{error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}</article>;
+  return <article className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5"><p className="break-all text-xs text-[#64748b]">{order.order_number}</p><h3 className="mt-2 font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}</h3><p className="mt-3 text-sm leading-7 text-[#475569]">{t('這門課訂了 {people} 人，目前還有 {missing} 位尚未建立學員欄位。按下方按鈕後，逐位填寫姓名與課前資料即可，不會增加訂課人數或費用。',{people:reservation.people,missing:reservation.missing_students})}</p><button type="button" disabled={busy} onClick={prepare} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? t("建立中…") : t("建立學員資料")}</button>{error && <p role="alert" className="mt-3 text-sm text-red-700">{t(error)}</p>}</article>;
 }
 
 function ParticipantRoster({ order, reservation, onSaved }) {
+  const { t, locale } = useSiteLocale();
   const basePath = useContext(SiteBasePathContext);
   const [busy, setBusy] = useState(null);
   const [links, setLinks] = useState({});
@@ -356,7 +371,7 @@ function ParticipantRoster({ order, reservation, onSaved }) {
       });
       setLinks(previous => ({ ...previous, [memberId]: revoke ? null : {
         url: `${window.location.origin}${basePath}/membership?invite=${result.token}`,
-        expires: new Date(result.expires_at).toLocaleDateString('zh-TW'),
+        expires: result.expires_at,
       } }));
       setMessage(result.message);
       await onSaved();
@@ -369,22 +384,23 @@ function ParticipantRoster({ order, reservation, onSaved }) {
     catch { setMessage('瀏覽器無法自動複製，請選取下方完整網址後複製。'); }
   };
   return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5 md:p-6">
-    <h3 className="font-semibold">同行學員綁定</h3>
+    <h3 className="font-semibold">{t("同行學員綁定")}</h3>
     <p className="mt-2 text-sm text-[#64748b]">{order.order_number}｜{reservation.resort}</p>
-    <p className="mt-3 text-sm leading-7 text-[#64748b]">未綁定的學員可由您代填，也可邀請本人或家長登入後綁定。綁定後，個人課前資料與學習紀錄只由該帳號管理，您不再看到他的個資。</p>
-    {order.payment_status !== 'paid' && <p className="mt-3 text-sm text-[#64748b]">付款完成後開放邀請；目前仍可先代填課前資料。</p>}
+    <p className="mt-3 text-sm leading-7 text-[#64748b]">{t("未綁定的學員可由您代填，也可邀請本人或家長登入後綁定。綁定後，個人課前資料與學習紀錄只由該帳號管理，您不再看到他的個資。")}</p>
+    {order.payment_status !== 'paid' && <p className="mt-3 text-sm text-[#64748b]">{t("付款完成後開放邀請；目前仍可先代填課前資料。")}</p>}
     <ul className="mt-4 divide-y divide-[#e2e8f0]">{(reservation.participants || []).map(participant => <li key={participant.id} className="py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">學員 {participant.student_number}</p><p className="mt-1 text-sm text-[#64748b]">{participant.binding_status === 'bound' ? '已綁定，由本人或家長管理' : participant.binding_status === 'pending' ? '已產生邀請，等待確認' : '尚未綁定，可由您代填'}</p></div>
-        {participant.can_invite && <div className="flex flex-wrap gap-2"><button type="button" disabled={busy !== null} onClick={() => act(participant.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] disabled:opacity-40">{busy === participant.id ? '處理中…' : participant.binding_status === 'pending' ? '重新產生邀請' : '產生邀請連結'}</button>{participant.binding_status === 'pending' && <button type="button" disabled={busy !== null} onClick={() => act(participant.id, true)} className="min-h-11 px-3 py-2 text-sm font-semibold text-[#64748b] disabled:opacity-40">撤銷邀請</button>}</div>}
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{t("學員")}{participant.student_number}</p><p className="mt-1 text-sm text-[#64748b]">{participant.binding_status === 'bound' ? t("已綁定，由本人或家長管理") : participant.binding_status === 'pending' ? t("已產生邀請，等待確認") : t("尚未綁定，可由您代填")}</p></div>
+        {participant.can_invite && <div className="flex flex-wrap gap-2"><button type="button" disabled={busy !== null} onClick={() => act(participant.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] disabled:opacity-40">{busy === participant.id ? t("處理中…") : participant.binding_status === 'pending' ? t("重新產生邀請") : t("產生邀請連結")}</button>{participant.binding_status === 'pending' && <button type="button" disabled={busy !== null} onClick={() => act(participant.id, true)} className="min-h-11 px-3 py-2 text-sm font-semibold text-[#64748b] disabled:opacity-40">{t("撤銷邀請")}</button>}</div>}
       </div>
-      {links[participant.id] && participant.binding_status !== 'bound' && <div className="mt-3 rounded-sm bg-[#f8fafc] p-3"><label className="text-sm font-semibold">學員 {participant.student_number} 的邀請網址<input readOnly onFocus={event => event.target.select()} value={links[participant.id].url} className="mt-2 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2 text-sm" /></label><p className="mt-2 text-xs leading-6 text-[#64748b]">有效至 {links[participant.id].expires}。重新產生會讓舊連結失效，請勿公開分享。</p><button type="button" onClick={() => copy(links[participant.id].url)} className="mt-2 min-h-11 rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">複製邀請連結</button></div>}
+      {links[participant.id] && participant.binding_status !== 'bound' && <div className="mt-3 rounded-sm bg-[#f8fafc] p-3"><label className="text-sm font-semibold">{t('學員 {number} 的邀請網址',{number:participant.student_number})}<input readOnly onFocus={event => event.target.select()} value={links[participant.id].url} className="mt-2 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2 text-sm" /></label><p className="mt-2 text-xs leading-6 text-[#64748b]">{t('有效至 {date}。重新產生會讓舊連結失效，請勿公開分享。',{date:new Date(links[participant.id].expires).toLocaleDateString(locale==='zh-Hant'?'zh-TW':locale)})}</p><button type="button" onClick={() => copy(links[participant.id].url)} className="mt-2 min-h-11 rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t("複製邀請連結")}</button></div>}
     </li>)}</ul>
-    {error && <p role="alert" className="mt-3 rounded-sm bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    {message && <p role="status" className="mt-3 rounded-sm bg-[#eef4fa] p-3 text-sm text-[#2b5f8f]">{message}</p>}
+    {error && <p role="alert" className="mt-3 rounded-sm bg-red-50 p-3 text-sm text-red-700">{t(error)}</p>}
+    {message && <p role="status" className="mt-3 rounded-sm bg-[#eef4fa] p-3 text-sm text-[#2b5f8f]">{t(message)}</p>}
   </article>;
 }
 
 function ParticipantInvitation({ token, onAccepted }) {
+  const { t } = useSiteLocale();
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -409,32 +425,34 @@ function ParticipantInvitation({ token, onAccepted }) {
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   };
-  return <section className="mb-7 rounded-sm border border-[#dbe3ec] bg-white p-5 md:p-6" aria-label="同行學員邀請">
-    <h2 className="text-xl font-semibold">確認同行學員綁定</h2>
-    {loading ? <p role="status" className="mt-4 text-sm text-[#64748b]">正在檢查邀請連結…</p> : <>
-      {preview && <><p className="mt-3 text-sm leading-7 text-[#64748b]">{preview.resort}｜{preview.dates.map(formatDate).join('、') || '日期安排中'}｜學員 {preview.student_number}</p>
-        {preview.accepted ? <><p className="mt-4 text-sm text-[#2b5f8f]">這位學員已綁定您的帳號。</p><button type="button" onClick={() => onAccepted(preview.reservation_id, '')} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">前往課前資料</button></> : <>
-          <p className="mt-3 text-sm leading-7 text-[#64748b]">請確認目前顯示的是您要使用的會員帳號。綁定會保留訂購人已填的資料，但不代表您已簽署聲明書；請到課前資料檢查。</p>
-          <fieldset className="mt-4"><legend className="text-sm font-semibold">這位學員是誰？</legend><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">{[['self', '我本人'], ['guardian', '我的子女／受監護人']].map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2 text-sm"><input type="radio" name="invitation-role" value={value} checked={role === value} onChange={() => { setRole(value); setError(''); }} />{label}</label>)}</div></fieldset>
-          <label className="mt-3 flex items-start gap-3 text-sm leading-7"><input type="checkbox" className="mt-1.5 h-4 w-4 shrink-0" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />我確認這是本人或子女的學員名額，同意綁定到目前帳號。</label>
-          <button type="button" disabled={!confirmed || busy} onClick={accept} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{busy ? '綁定中…' : '確認綁定'}</button>
+  return <section className="mb-7 rounded-sm border border-[#dbe3ec] bg-white p-5 md:p-6" aria-label={t("同行學員邀請")}>
+    <h2 className="text-xl font-semibold">{t("確認同行學員綁定")}</h2>
+    {loading ? <p role="status" className="mt-4 text-sm text-[#64748b]">{t("正在檢查邀請連結…")}</p> : <>
+      {preview && <><p className="mt-3 text-sm leading-7 text-[#64748b]">{preview.resort}｜{preview.dates.map(formatDate).join('、') || t('日期安排中')}｜{t('學員 {number}',{number:preview.student_number})}</p>
+        {preview.accepted ? <><p className="mt-4 text-sm text-[#2b5f8f]">{t("這位學員已綁定您的帳號。")}</p><button type="button" onClick={() => onAccepted(preview.reservation_id, '')} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("前往課前資料")}</button></> : <>
+          <p className="mt-3 text-sm leading-7 text-[#64748b]">{t("請確認目前顯示的是您要使用的會員帳號。綁定會保留訂購人已填的資料，但不代表您已簽署聲明書；請到課前資料檢查。")}</p>
+          <fieldset className="mt-4"><legend className="text-sm font-semibold">{t("這位學員是誰？")}</legend><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">{[['self', '我本人'], ['guardian', '我的子女／受監護人']].map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2 text-sm"><input type="radio" name="invitation-role" value={value} checked={role === value} onChange={() => { setRole(value); setError(''); }} />{t(label)}</label>)}</div></fieldset>
+          <label className="mt-3 flex items-start gap-3 text-sm leading-7"><input type="checkbox" className="mt-1.5 h-4 w-4 shrink-0" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />{t("我確認這是本人或子女的學員名額，同意綁定到目前帳號。")}</label>
+          <button type="button" disabled={!confirmed || busy} onClick={accept} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{busy ? t("綁定中…") : t("確認綁定")}</button>
         </>}
       </>}
-      {error && <div role="alert" className="mt-4 rounded-sm bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {!preview && <button type="button" onClick={load} className="mt-3 min-h-11 text-sm font-semibold text-[#2b5f8f]">重新檢查邀請</button>}
+      {error && <div role="alert" className="mt-4 rounded-sm bg-red-50 p-3 text-sm text-red-700">{t(error)}</div>}
+      {!preview && <button type="button" onClick={load} className="mt-3 min-h-11 text-sm font-semibold text-[#2b5f8f]">{t("重新檢查邀請")}</button>}
     </>}
   </section>;
 }
 
 function Forms({ forms, orders, waiverDocument, skillOptions, onSaved }) {
+  const { t } = useSiteLocale();
   const reservationId = Number(new URLSearchParams(useLocation().search).get('reservation'));
   const visibleForms = reservationId ? forms.filter(form => form.reservation_id === reservationId) : forms;
   const missing = orders.flatMap(order => order.reservations.filter(reservation => reservation.missing_students > 0 && !['cancelled', 'deleted'].includes(reservation.status) && (!reservationId || reservation.id === reservationId)).map(reservation => ({ order, reservation })));
   const rosterCourses = orders.flatMap(order => order.reservations.filter(reservation => reservation.participants?.length > 0 && !['cancelled', 'deleted'].includes(reservation.status) && (!reservationId || reservation.id === reservationId)).map(reservation => ({ order, reservation })));
-  return <div><h2 className="text-2xl font-semibold">學員與課前資料</h2><p className="mt-2 text-sm leading-7 text-[#64748b]">依訂課人數逐位填寫年齡、保險與聲明書。您可以代填尚未綁定的同行學員；已綁定者請由本人或家長登入填寫。</p>{reservationId > 0 && <SiteLink to="/membership/pre-course-forms" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[#2b5f8f]">查看全部課程的學員</SiteLink>}<div className="mt-7 space-y-4">{rosterCourses.map(({order, reservation}) => <ParticipantRoster key={`roster-${reservation.id}`} order={order} reservation={reservation} onSaved={onSaved} />)}{missing.map(({order, reservation}) => <MissingStudents key={reservation.id} order={order} reservation={reservation} onSaved={onSaved} />)}{visibleForms.map(form => <PreCourseForm key={form.id} form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} />)}{!missing.length && !visibleForms.length && !rosterCourses.length && <EmptyState title="目前沒有待填寫的課前資料" description="完成訂課或確認同行學員邀請後，學員資料會出現在這裡。" action={<SiteLink to="/membership/orders" className="mt-5 inline-flex min-h-11 items-center font-semibold text-[#2b5f8f]">查看我的訂單</SiteLink>} />}</div></div>;
+  return <div><h2 className="text-2xl font-semibold">{t("學員與課前資料")}</h2><p className="mt-2 text-sm leading-7 text-[#64748b]">{t("依訂課人數逐位填寫年齡、保險與聲明書。您可以代填尚未綁定的同行學員；已綁定者請由本人或家長登入填寫。")}</p>{reservationId > 0 && <SiteLink to="/membership/pre-course-forms" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[#2b5f8f]">{t("查看全部課程的學員")}</SiteLink>}<div className="mt-7 space-y-4">{rosterCourses.map(({order, reservation}) => <ParticipantRoster key={`roster-${reservation.id}`} order={order} reservation={reservation} onSaved={onSaved} />)}{missing.map(({order, reservation}) => <MissingStudents key={reservation.id} order={order} reservation={reservation} onSaved={onSaved} />)}{visibleForms.map(form => <PreCourseForm key={form.id} form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} />)}{!missing.length && !visibleForms.length && !rosterCourses.length && <EmptyState title={t("目前沒有待填寫的課前資料")} description={t("完成訂課或確認同行學員邀請後，學員資料會出現在這裡。")} action={<SiteLink to="/membership/orders" className="mt-5 inline-flex min-h-11 items-center font-semibold text-[#2b5f8f]">{t("查看我的訂單")}</SiteLink>} />}</div></div>;
 }
 
 function SatisfactionForm({ record, onSaved }) {
+  const { t } = useSiteLocale();
   const existing = record.self_assessment?.satisfaction_rating;
   const [rating, setRating] = useState(existing || 0);
   const [feedback, setFeedback] = useState(record.self_assessment?.satisfaction_feedback || '');
@@ -447,11 +465,12 @@ function SatisfactionForm({ record, onSaved }) {
     catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
-  return <div className="mt-5 border-t border-[#eef2f7] pt-5"><p className="text-sm font-semibold">課後滿意度</p><div className="mt-3 flex gap-2" aria-label="課程評分">{[1, 2, 3, 4, 5].map((value) => <button type="button" key={value} onClick={() => { setRating(value); setMessage(''); }} aria-label={`${value} 分`} className={value <= rating ? 'text-amber-500' : 'text-[#cbd5e1]'}><Star size={25} fill="currentColor" /></button>)}</div><textarea value={feedback} onChange={(event) => { setFeedback(event.target.value); setMessage(''); }} placeholder="可填寫對課程或教練的回饋" className="mt-3 min-h-24 w-full rounded-sm border border-[#cbd5e1] px-3 py-2 text-sm" /><button type="button" disabled={!rating || busy} onClick={submit} className="mt-3 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{busy ? '儲存中…' : existing ? '更新評價' : '送出評價'}</button>{message && <p role="status" className="mt-2 text-sm text-[#2b5f8f]">{message}</p>}</div>;
+  return <div className="mt-5 border-t border-[#eef2f7] pt-5"><p className="text-sm font-semibold">{t("課後滿意度")}</p><div className="mt-3 flex gap-2" aria-label={t("課程評分")}>{[1, 2, 3, 4, 5].map((value) => <button type="button" key={value} onClick={() => { setRating(value); setMessage(''); }} aria-label={t('{score} 分',{score:value})} aria-pressed={value===rating} className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2b5f8f] ${value <= rating ? 'text-amber-500' : 'text-[#cbd5e1]'}`}><Star size={25} fill="currentColor" /></button>)}</div><textarea value={feedback} onChange={(event) => { setFeedback(event.target.value); setMessage(''); }} placeholder={t("可填寫對課程或教練的回饋")} className="mt-3 min-h-24 w-full rounded-sm border border-[#cbd5e1] px-3 py-2 text-sm" /><button type="button" disabled={!rating || busy} onClick={submit} className="mt-3 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{busy ? t("儲存中…") : existing ? t("更新評價") : t("送出評價")}</button>{message && <p role="status" className="mt-2 text-sm text-[#2b5f8f]">{t(message)}</p>}</div>;
 }
 
 function Journey({ records, onSaved }) {
-  return <div><h2 className="text-2xl font-semibold">課程評量與學習紀錄</h2><p className="mt-2 text-sm text-[#64748b]">查看程度變化、教練建議、課程照片／影片，並填寫課後評價。</p><div className="mt-7 space-y-5">{records.length ? records.map((record) => <article key={record.id} className="overflow-hidden rounded-sm border border-[#dbe3ec] bg-white">{record.media.length > 0 && <div className={`grid overflow-hidden bg-[#e2e8f0] ${record.media.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>{record.media.map((media) => media.type === 'video' ? <video key={media.id} controls preload="metadata" className="aspect-video w-full object-contain" src={media.url} /> : <a key={media.id} href={media.url} target="_blank" rel="noreferrer" aria-label="開啟課程照片原圖"><img loading="lazy" src={media.url} alt={media.caption || `${record.resort} 課程照片`} className="aspect-video w-full object-contain" /></a>)}</div>}<div className="p-5 md:p-6"><p className="text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{formatDate(record.date)}｜{record.order_number}</p><h3 className="mt-2 text-lg font-semibold">{record.resort}｜{record.course_name}</h3><p className="mt-3 text-sm text-[#64748b]">學員：{record.member_name}　教練：{record.coach}</p>{record.trail_names?.length > 0 && <p className="mt-3 text-sm text-[#64748b]">本次雪道：{record.trail_names.join('、')}</p>}<div className="mt-5 rounded-sm bg-[#f8fafc] p-4"><p className="text-xs font-semibold text-[#2b5f8f]">教練建議</p><p className="mt-2 whitespace-pre-line text-sm leading-7 text-[#475569]">{record.coach_notes || '教練尚未填寫建議'}</p></div>{Object.keys(record.learning_progress || {}).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{Object.entries(record.learning_progress).map(([key, value]) => <span key={key} className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs text-[#2b5f8f]">{formatLearningProgressEntry(key, value)}</span>)}</div>}<SatisfactionForm record={record} onSaved={onSaved} /></div></article>) : <EmptyState title="尚無課程評量" description="教練完成課後評量後，紀錄與您有權查看的課程附件會出現在這裡。" />}</div></div>;
+  const { t } = useSiteLocale();
+  return <div><h2 className="text-2xl font-semibold">{t("課程評量與學習紀錄")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("查看程度變化、教練建議、課程照片／影片，並填寫課後評價。")}</p><div className="mt-7 space-y-5">{records.length ? records.map((record) => <article key={record.id} className="overflow-hidden rounded-sm border border-[#dbe3ec] bg-white">{record.media.length > 0 && <div className={`grid overflow-hidden bg-[#e2e8f0] ${record.media.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>{record.media.map((media) => media.type === 'video' ? <video key={media.id} controls preload="metadata" className="aspect-video w-full object-contain" src={media.url} /> : <a key={media.id} href={media.url} target="_blank" rel="noreferrer" aria-label={t("開啟課程照片原圖")}><img loading="lazy" src={media.url} alt={media.caption || t('{resort} 課程照片',{resort:record.resort})} className="aspect-video w-full object-contain" /></a>)}</div>}<div className="p-5 md:p-6"><p className="text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{formatDate(record.date)}｜{record.order_number}</p><h3 className="mt-2 text-lg font-semibold">{record.resort}｜{record.course_name}</h3><p className="mt-3 text-sm text-[#64748b]">{t('學員：{name}',{name:record.member_name})}　{t('教練：{name}',{name:record.coach})}</p>{record.trail_names?.length > 0 && <p className="mt-3 text-sm text-[#64748b]">{t('本次雪道：{trails}',{trails:record.trail_names.join('、')})}</p>}<div className="mt-5 rounded-sm bg-[#f8fafc] p-4"><p className="text-xs font-semibold text-[#2b5f8f]">{t("教練建議")}</p><p className="mt-2 whitespace-pre-line text-sm leading-7 text-[#475569]">{record.coach_notes || t('教練尚未填寫建議')}</p></div>{Object.keys(record.learning_progress || {}).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{Object.entries(record.learning_progress).map(([key, value]) => <span key={key} className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs text-[#2b5f8f]">{formatLearningProgressEntry(key, value,t)}</span>)}</div>}<SatisfactionForm record={record} onSaved={onSaved} /></div></article>) : <EmptyState title={t("尚無課程評量")} description={t("教練完成課後評量後，紀錄與您有權查看的課程附件會出現在這裡。")} />}</div></div>;
 }
 
 function Overview({ data }) {
@@ -484,7 +503,7 @@ function Overview({ data }) {
 <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">{t(upcomingStatus)}</span>
 <p className="mt-5 text-xl font-semibold">{formatDate(upcoming.booking.date)}</p>
 <p className="mt-2 font-semibold">{upcoming.reservation.resort}</p>
-<p className="mt-2 text-sm text-[#64748b]">{upcoming.booking.start_time}–{upcoming.booking.end_time}｜{upcoming.reservation.people} 位學員</p>
+<p className="mt-2 text-sm text-[#64748b]">{upcoming.booking.start_time}–{upcoming.booking.end_time}｜{t('{count} 位學員',{count:upcoming.reservation.people})}</p>
 <SiteLink to={upcoming.order.is_participant ? `/membership/pre-course-forms?reservation=${upcoming.reservation.id}` : `/membership/orders/${upcoming.order.id}`} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-[#2b5f8f]">{t(upcoming.order.is_participant ? '查看課前資料' : '查看預約詳情')}<ChevronRight size={16} />
 </SiteLink>
 </> : <>
@@ -502,7 +521,7 @@ function Overview({ data }) {
 </div>
 </div>}<div className="mt-8">
 <h3 className="text-xl font-semibold">{t('我的 SnowLand 滑雪旅程')}</h3>
-<div className="mt-4 grid gap-4 sm:grid-cols-3">{[[data.journey.seasons, '一起滑過的雪季'], [data.journey.completed_course_days, '完成課程天數'], [data.journey.resorts, '去過的雪場']].map(([value, label]) => <div key={label} className="rounded-sm border border-[#dbe3ec] bg-white p-6 text-center">
+<div className="mt-4 grid gap-4 sm:grid-cols-3">{[[data.journey.seasons, '一起滑過的雪季'], [data.journey.completed_course_days, '完成課程天數'], [data.journey.resorts, '去過的雪場']].map(([value, label]) => <div key={t(label)} className="rounded-sm border border-[#dbe3ec] bg-white p-6 text-center">
 <p className="text-3xl font-semibold text-[#2b5f8f]">{value}</p>
 <p className="mt-2 text-sm text-[#64748b]">{t(label)}</p>
 </div>)}</div>
@@ -511,20 +530,22 @@ function Overview({ data }) {
 }
 
 function ParticipantCourses({ courses }) {
+  const { t } = useSiteLocale();
   if (!courses?.length) return null;
-  return <section className="space-y-5"><div><h2 className="text-2xl font-semibold">我參加的課程</h2><p className="mt-2 text-sm leading-7 text-[#64748b]">已綁定的本人或子女課程。訂單付款與取消由原訂購人管理。</p></div>
+  return <section className="space-y-5"><div><h2 className="text-2xl font-semibold">{t("我參加的課程")}</h2><p className="mt-2 text-sm leading-7 text-[#64748b]">{t("已綁定的本人或子女課程。訂單付款與取消由原訂購人管理。")}</p></div>
     {courses.map(course => <article key={course.id} className="rounded-sm border border-[#dbe3ec] bg-white p-5 md:p-6">
-      <p className="text-xs font-semibold text-[#64748b]">{course.status === 'cancelled' ? '課程已取消' : course.payment_status === 'refunded' ? '已退款' : '已綁定課程'}</p>
+      <p className="text-xs font-semibold text-[#64748b]">{course.status === 'cancelled' ? t("課程已取消") : course.payment_status === 'refunded' ? t("已退款") : t("已綁定課程")}</p>
       <h3 className="mt-2 text-lg font-semibold">{course.resort}｜{course.course_name}</h3>
-      <p className="mt-3 text-sm leading-7 text-[#64748b]">學員：{course.student_names.join('、')}<br />教練：{course.coach}</p>
+      <p className="mt-3 text-sm leading-7 text-[#64748b]">{t('學員：{name}',{name:course.student_names.join('、')})}<br />{t('教練：{name}',{name:course.coach})}</p>
       <ul className="mt-3 space-y-2 text-sm text-[#475569]">{course.bookings.map(booking => <li key={booking.id}>{formatDate(booking.date)}｜{booking.start_time}–{booking.end_time}</li>)}</ul>
-      <div className="mt-4 flex flex-wrap gap-3"><SiteLink to={`/membership/pre-course-forms?reservation=${course.id}`} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2 text-sm font-semibold text-white">查看課前資料</SiteLink>{course.line_group_url && <a href={course.line_group_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-full border border-[#2b5f8f] px-5 py-2 text-sm font-semibold text-[#2b5f8f]">加入上課群組 ↗</a>}</div>
+      <div className="mt-4 flex flex-wrap gap-3"><SiteLink to={`/membership/pre-course-forms?reservation=${course.id}`} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2 text-sm font-semibold text-white">{t("查看課前資料")}</SiteLink>{course.line_group_url && <a href={course.line_group_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-full border border-[#2b5f8f] px-5 py-2 text-sm font-semibold text-[#2b5f8f]">{t("加入上課群組 ↗")}</a>}</div>
       <ClassGroupQRImage url={course.line_group_qr_url || ''} appearance="light" />
     </article>)}
   </section>;
 }
 
 function MemberNotifications() {
+  const { t, locale } = useSiteLocale();
   const headingRef = useRef(null);
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
@@ -558,33 +579,35 @@ function MemberNotifications() {
     } catch (failure) { setError(failure.message); setErrorCode(failure.status); if ([401, 404].includes(failure.status)) setData(null); }
     finally { setBusyId(null); }
   };
-  return <section><h2 ref={headingRef} className="text-2xl font-semibold">通知中心</h2><p className="mt-2 text-sm leading-7 text-[#64748b]">這裡顯示本帳號的站內通知，以及 Email 成功寄出後同步保存的內容。更新前的舊郵件不會補入；LINE 推播請到 LINE 查看。</p>
-    {data && !loading && <p className="mt-3 text-sm font-semibold text-[#2b5f8f]">{data.unread_count} 則未讀・共 {data.count} 則通知</p>}
-    {message && <p role="status" className="mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm text-[#2b5f8f]">{message}</p>}
-    {error && <div role="alert" className="mt-4 rounded-sm bg-red-50 p-4 text-sm text-red-700"><p>{error}</p>{errorCode === 401 ? <SiteLink to="/membership/notifications?login=1" className="mt-2 inline-flex min-h-11 items-center font-semibold underline">重新登入</SiteLink> : <button type="button" className="mt-2 min-h-11 font-semibold underline" onClick={() => { setPage(1); setReload(value => value+1); }}>重新載入第一頁</button>}</div>}
-    {loading ? <p role="status" className="mt-7 text-sm text-[#64748b]">正在載入通知…</p> : data && <div className="mt-6 space-y-4">
+  return <section><h2 ref={headingRef} className="text-2xl font-semibold">{t("通知中心")}</h2><p className="mt-2 text-sm leading-7 text-[#64748b]">{t("這裡顯示本帳號的站內通知，以及 Email 成功寄出後同步保存的內容。更新前的舊郵件不會補入；LINE 推播請到 LINE 查看。")}</p>
+    {data && !loading && <p className="mt-3 text-sm font-semibold text-[#2b5f8f]">{t('{unread} 則未讀・共 {count} 則通知',{unread:data.unread_count,count:data.count})}</p>}
+    {message && <p role="status" className="mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm text-[#2b5f8f]">{t(message)}</p>}
+    {error && <div role="alert" className="mt-4 rounded-sm bg-red-50 p-4 text-sm text-red-700"><p>{t(error)}</p>{errorCode === 401 ? <SiteLink to="/membership/notifications?login=1" className="mt-2 inline-flex min-h-11 items-center font-semibold underline">{t("重新登入")}</SiteLink> : <button type="button" className="mt-2 min-h-11 font-semibold underline" onClick={() => { setPage(1); setReload(value => value+1); }}>{t("重新載入第一頁")}</button>}</div>}
+    {loading ? <p role="status" className="mt-7 text-sm text-[#64748b]">{t("正在載入通知…")}</p> : data && <div className="mt-6 space-y-4">
       {data.results.map(row => <article key={row.id} className={`rounded-sm border bg-white p-5 md:p-6 ${row.read_at ? 'border-[#dbe3ec]' : 'border-[#8eb6d9]'}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-[#64748b]">{row.read_at ? '已讀' : '未讀'}{!row.active && '・已失效'}{row.sent_at && `｜${new Date(row.sent_at).toLocaleString('zh-TW')}`}</p><h3 className="mt-2 break-words text-lg font-semibold">{row.subject}</h3></div><button type="button" disabled={Boolean(row.read_at) || busyId !== null} onClick={() => markRead(row.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] disabled:opacity-40">{busyId === row.id ? '儲存中…' : row.read_at ? '已讀' : '標為已讀'}</button></div>
-        <p className="mt-4 whitespace-pre-line break-words text-sm leading-7 text-[#475569]">{row.body}</p>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-[#64748b]">{row.read_at ? t("已讀") : t("未讀")}{!row.active && t('・已失效')}{row.sent_at && `｜${new Date(row.sent_at).toLocaleString(locale)}`}</p><h3 className="mt-2 break-words text-lg font-semibold">{row.active ? row.subject : t(row.subject)}</h3></div><button type="button" disabled={Boolean(row.read_at) || busyId !== null} onClick={() => markRead(row.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] disabled:opacity-40">{busyId === row.id ? t("儲存中…") : row.read_at ? t("已讀") : t("標為已讀")}</button></div>
+        <p className="mt-4 whitespace-pre-line break-words text-sm leading-7 text-[#475569]">{row.active ? row.body : t(row.body)}</p>
         {row.active && row.line_group_qr_url && <ClassGroupQRImage url={row.line_group_qr_url} appearance="light" />}
-        {row.active && <div className="mt-4 flex flex-wrap gap-3">{row.action_path && <SiteLink to={row.action_path} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2 text-sm font-semibold text-white">{row.action_path.startsWith('/membership/pre-course-forms?') ? '填寫課前資料' : '查看我的課程'}</SiteLink>}{row.line_group_url && <a href={row.line_group_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-full border border-[#2b5f8f] px-5 py-2 text-sm font-semibold text-[#2b5f8f]">加入上課群組 ↗</a>}</div>}
+        {row.active && <div className="mt-4 flex flex-wrap gap-3">{row.action_path && <SiteLink to={row.action_path} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2 text-sm font-semibold text-white">{row.action_path.startsWith('/membership/pre-course-forms?') ? t("填寫課前資料") : t("查看我的課程")}</SiteLink>}{row.line_group_url && <a href={row.line_group_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-full border border-[#2b5f8f] px-5 py-2 text-sm font-semibold text-[#2b5f8f]">{t("加入上課群組 ↗")}</a>}</div>}
       </article>)}
-      {!data.results.length && <EmptyState title="目前沒有站內通知" description="有新的課程提醒時，會顯示在這裡。" />}
-      {(data.has_previous || data.has_next) && <nav aria-label="通知分頁" className="flex flex-wrap items-center justify-between gap-3"><button type="button" disabled={!data.has_previous || busyId !== null} onClick={() => setPage(value => value-1)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2 text-sm disabled:opacity-40">上一頁</button><span className="text-sm text-[#64748b]">第 {data.page} 頁</span><button type="button" disabled={!data.has_next || busyId !== null} onClick={() => setPage(value => value+1)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2 text-sm disabled:opacity-40">下一頁</button></nav>}
+      {!data.results.length && <EmptyState title={t("目前沒有站內通知")} description={t("有新的課程提醒時，會顯示在這裡。")} />}
+      {(data.has_previous || data.has_next) && <nav aria-label={t("通知分頁")} className="flex flex-wrap items-center justify-between gap-3"><button type="button" disabled={!data.has_previous || busyId !== null} onClick={() => setPage(value => value-1)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2 text-sm disabled:opacity-40">{t("上一頁")}</button><span className="text-sm text-[#64748b]">{t('第 {page} 頁',{page:data.page})}</span><button type="button" disabled={!data.has_next || busyId !== null} onClick={() => setPage(value => value+1)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2 text-sm disabled:opacity-40">{t("下一頁")}</button></nav>}
     </div>}
   </section>;
 }
 
 function MemberSection({ section, data, onQuickRebook, onRefresh }) {
+  const { t } = useSiteLocale();
   if (section === 'notifications') return <MemberNotifications />;
   if (section === 'orders') return <>{(data.orders.length > 0 || !data.participant_courses?.length) && <Orders data={data} onQuickRebook={onQuickRebook} onRefresh={onRefresh} />}{data.participant_courses?.length > 0 && <div className={data.orders.length ? 'mt-8' : ''}><ParticipantCourses courses={data.participant_courses} /></div>}</>;
   if (section === 'forms') return <Forms forms={data.pre_course_forms} orders={data.orders} waiverDocument={data.waiver_document} skillOptions={data.skill_options} onSaved={onRefresh} />;
   if (section === 'journey') return <Journey records={data.learning_records} onSaved={onRefresh} />;
-  if (section === 'offers') return <div><h2 className="text-2xl font-semibold">專屬優惠</h2><p className="mt-2 text-sm text-[#64748b]">會員等級、點數與推薦碼集中在這裡。</p><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-sm bg-gradient-to-br from-[#1c3b5f] to-[#2b5f8f] p-6 text-white"><Gift /><p className="mt-8 text-sm text-white/70">會員等級</p><p className="mt-1 text-2xl font-semibold">{{ new: '新會員', alumni: '舊生', silver: '銀級', gold: '金級' }[data.level] || data.level}</p><p className="mt-3 text-sm">{data.alumni_verified ? '舊生身分已確認' : '舊生身分尚未確認；如曾上課，請聯絡 SnowLand 核對。'}</p><p className="mt-5 text-sm">目前點數：{data.points}</p><p className="mt-1 text-sm text-white/80">其中歷史補登：{data.previous_points || 0} 點</p></div><div className="rounded-sm border border-[#dbe3ec] bg-white p-6"><p className="text-sm font-semibold text-[#64748b]">我的推薦碼</p><p className="mt-4 break-all text-2xl font-semibold tracking-wider text-[#2b5f8f]">{data.referral_code}</p><p className="mt-4 text-sm leading-7 text-[#64748b]">實際折扣與回饋以 SnowLand 已公布、啟用的活動為準；顯示推薦碼不代表已套用優惠。</p></div></div></div>;
+  if (section === 'offers') return <div><h2 className="text-2xl font-semibold">{t("專屬優惠")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("會員等級、點數與推薦碼集中在這裡。")}</p><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-sm bg-gradient-to-br from-[#1c3b5f] to-[#2b5f8f] p-6 text-white"><Gift /><p className="mt-8 text-sm text-white/70">{t("會員等級")}</p><p className="mt-1 text-2xl font-semibold">{t({ new: '新會員', alumni: '舊生', silver: '銀級', gold: '金級' }[data.level] || data.level)}</p><p className="mt-3 text-sm">{data.alumni_verified ? t("舊生身分已確認") : t("舊生身分尚未確認；如曾上課，請聯絡 SnowLand 核對。")}</p><p className="mt-5 text-sm">{t('目前點數：{count}',{count:data.points})}</p><p className="mt-1 text-sm text-white/80">{t('其中歷史補登：{count} 點',{count:data.previous_points || 0})}</p></div><div className="rounded-sm border border-[#dbe3ec] bg-white p-6"><p className="text-sm font-semibold text-[#64748b]">{t("我的推薦碼")}</p><p className="mt-4 break-all text-2xl font-semibold tracking-wider text-[#2b5f8f]">{data.referral_code}</p><p className="mt-4 text-sm leading-7 text-[#64748b]">{t("實際折扣與回饋以 SnowLand 已公布、啟用的活動為準；顯示推薦碼不代表已套用優惠。")}</p></div></div></div>;
   return <Overview data={data} />;
 }
 
 function MemberContent(props) {
+  const { t } = useSiteLocale();
   const location = useLocation();
   const navigate = useNavigate();
   const basePath = useContext(SiteBasePathContext);
@@ -594,7 +617,7 @@ function MemberContent(props) {
     await props.onRefresh();
     navigate(`${basePath}/membership/pre-course-forms?reservation=${reservationId}${notice ? '&bound=1' : ''}`);
   };
-  return <>{token && <ParticipantInvitation token={token} onAccepted={onAccepted} />}{params.get('bound') === '1' && <p role="status" className="mb-5 rounded-sm bg-[#eef4fa] p-4 text-sm text-[#2b5f8f]">綁定完成，您可以填寫自己的課前資料。</p>}<MemberSection {...props} /></>;
+  return <>{token && <ParticipantInvitation token={token} onAccepted={onAccepted} />}{params.get('bound') === '1' && <p role="status" className="mb-5 rounded-sm bg-[#eef4fa] p-4 text-sm text-[#2b5f8f]">{t("綁定完成，您可以填寫自己的課前資料。")}</p>}<MemberSection {...props} /></>;
 }
 
 export default function MembershipPage() {
@@ -675,7 +698,7 @@ export default function MembershipPage() {
 
   if (status === 'loading') return <div className="flex min-h-screen items-center justify-center bg-[#f7f8fa]"><div className="h-11 w-11 animate-spin rounded-full border-4 border-[#dbe3ec] border-t-[#2b5f8f]" /><span className="sr-only">{t('載入會員資料')}</span></div>;
   if (status === 'guest') return <AuthPanel onAuthenticated={loadMemberCenter} />;
-  if (status === 'error' || !data) return <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-[#f7f8fa] px-6 text-center"><p className="text-lg font-semibold">{t('會員資料暫時無法載入')}</p><p className="text-sm text-[#64748b]">{notice}</p><button onClick={loadMemberCenter} className="rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">{t('重新載入')}</button></div>;
+  if (status === 'error' || !data) return <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-[#f7f8fa] px-6 text-center"><p className="text-lg font-semibold">{t('會員資料暫時無法載入')}</p><p className="text-sm text-[#64748b]">{t(notice)}</p><button onClick={loadMemberCenter} className="rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">{t('重新載入')}</button></div>;
 
   return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937]">
 <SiteHeader forceCompact forceDarkText forceLogoColor memberAuthenticated memberAvatarSrc="" />
@@ -685,7 +708,7 @@ export default function MembershipPage() {
 <span>/</span>
 <span className="font-semibold text-[#1f2937]">{t('會員專區')}</span>
 </nav>{notice && <div role="status" className="mb-5 flex items-center justify-between rounded-sm bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]">
-<span>{notice}</span>
+<span>{t(notice)}</span>
 <button onClick={() => setNotice('')} aria-label={t('關閉訊息')}>×</button>
 </div>}<div className="grid gap-7 lg:grid-cols-[250px_minmax(0,1fr)]">
 <aside className="min-w-0 self-start rounded-sm border border-[#dbe3ec] bg-white p-3 lg:sticky lg:top-24 lg:p-5">

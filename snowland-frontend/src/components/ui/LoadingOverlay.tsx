@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react'
+import { useSiteLocale } from '@/contexts/SiteLocale'
 
 interface LoadingOverlayProps {
   isLoading: boolean
@@ -15,6 +16,7 @@ export default function LoadingOverlay({
   steps = [],
   activeStep = 0,
 }: LoadingOverlayProps) {
+  const {t}=useSiteLocale()
   if (!isLoading) return null
 
   return (
@@ -23,9 +25,9 @@ export default function LoadingOverlay({
         <div className="flex flex-col items-center gap-4 text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary-500" />
           <div>
-            <p className="text-lg font-semibold text-gray-800">{message}</p>
+            <p className="text-lg font-semibold text-gray-800">{t(message)}</p>
             {detail && (
-              <p className="mt-2 text-sm leading-6 text-gray-500">{detail}</p>
+              <p className="mt-2 text-sm leading-6 text-gray-500">{t(detail)}</p>
             )}
           </div>
 
@@ -48,7 +50,7 @@ export default function LoadingOverlay({
                       {done ? '✓' : index + 1}
                     </span>
                     <span className={current ? 'font-semibold text-gray-800' : done ? 'text-gray-600' : 'text-gray-400'}>
-                      {step}
+                      {t(step)}
                     </span>
                   </div>
                 )
@@ -57,7 +59,7 @@ export default function LoadingOverlay({
           )}
 
           <p className="text-xs leading-5 text-amber-700">
-            多組預約排課可能需要一些時間，請不要關閉頁面或重複送出。
+            {t('多組預約排課可能需要一些時間，請不要關閉頁面或重複送出。')}
           </p>
         </div>
       </div>

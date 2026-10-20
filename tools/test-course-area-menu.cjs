@@ -34,7 +34,7 @@ let app=setup(),tree=app.render(),html=renderToStaticMarkup(tree)
 for(const row of defaults){assert.ok(html.includes('/snowland/course/'+row.external_id));assert.ok(html.includes(row.title.replaceAll('&','&amp;')))}
 const trigger=findAll(tree,n=>n.type==='button'&&Array.isArray(n.props.children)&&n.props.children[0]==='滑雪課程')[0]
 assert.ok(trigger);trigger.props.onClick();assert.equal(findAll(app.render(),n=>n.type==='button'&&n.props['aria-expanded']===true).length,1)
-const open=findAll(app.render(),n=>n.type==='button'&&n.props['aria-label']==='Open menu')[0];open.props.onClick()
+const open=findAll(app.render(),n=>n.type==='button'&&n.props['aria-label']==='開啟選單')[0];open.props.onClick()
 tree=app.render();const mobileTrigger=findAll(tree,n=>n.type==='button'&&Array.isArray(n.props.children)&&n.props.children[0]==='滑雪課程').at(-1);mobileTrigger.props.onClick()
 html=renderToStaticMarkup(app.render());for(const row of defaults)assert.equal(html.split('/snowland/course/'+row.external_id).length-1,2,'Desktop and expanded mobile share same data')
 const mobileLink=findAll(app.render(),n=>n.type&&typeof n.type==='function'&&n.props.to==='/course/furano-area').at(-1);mobileLink.props.onClick();assert.ok(!renderToStaticMarkup(app.render()).includes('MENU'))

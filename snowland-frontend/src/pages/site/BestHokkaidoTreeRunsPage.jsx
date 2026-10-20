@@ -1,9 +1,11 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React, { useState } from 'react';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 import { siteContentToArticle, useSiteContent } from '../../hooks/useSiteContent';
 
 function BestHokkaidoTreeRunsPage() {
+  const {t} = useSiteLocale();
   const [isTocOpen, setIsTocOpen] = useState(true);
   const { items: articleItems, isLoading, error } = useSiteContent('guides.article-pages');
   const { items: relatedItems } = useSiteContent('guides.articles');
@@ -15,7 +17,7 @@ function BestHokkaidoTreeRunsPage() {
         <SiteHeader forceTransparent forceDarkText forceLogoColor />
         <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
           <p className={`text-sm ${error ? "text-red-600" : "text-[#64748b]"}`}>
-            {error ? "文章暫時無法載入，請稍後再試。" : isLoading ? "文章載入中。" : "目前沒有已發布的文章。"}
+            {error ? t("文章暫時無法載入，請稍後再試。") : isLoading ? t("文章載入中。") : t("目前沒有已發布的文章。")}
           </p>
         </main>
         <SiteFooter />
@@ -93,7 +95,7 @@ function BestHokkaidoTreeRunsPage() {
       <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
         <SiteHeader forceTransparent forceDarkText forceLogoColor />
         <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
-          <p className="text-sm text-[#64748b]">內容載入中。</p>
+          <p className="text-sm text-[#64748b]">{t("內容載入中。")}</p>
         </main>
         <SiteFooter />
       </div>
@@ -141,15 +143,13 @@ function BestHokkaidoTreeRunsPage() {
               <aside className="order-first lg:order-none lg:w-64">
                 <div className="w-full border-r border-[#e2e8f0] pr-8 text-left">
                   <div className="flex items-center justify-between gap-4">
-                    <p className="text-sm font-semibold text-[#1f2937] font-display">
-                      目錄
-                    </p>
+                    <p className="text-sm font-semibold text-[#1f2937] font-display">{t("目錄")}</p>
                     <button
                       type="button"
                       onClick={() => setIsTocOpen((prev) => !prev)}
-                      className="text-sm font-semibold text-[#94a3b8] hover:text-[#2b5f8f] transition-colors"
+                      className="min-h-11 min-w-11 text-sm font-semibold text-[#64748b] hover:text-[#2b5f8f] transition-colors"
                       aria-expanded={isTocOpen}
-                      aria-label={isTocOpen ? "收合目錄" : "展開目錄"}
+                      aria-label={isTocOpen ? t("收合目錄") : t("展開目錄")}
                     >
                       {isTocOpen ? "−" : "+"}
                     </button>
@@ -184,9 +184,7 @@ function BestHokkaidoTreeRunsPage() {
         {article.relatedLinks && article.relatedLinks.length > 0 && (
           <section className="max-w-5xl mx-auto px-6 mt-16">
             <div className="flex items-center gap-4">
-              <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                延伸閱讀
-              </h2>
+              <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("延伸閱讀")}</h2>
               <div className="h-px flex-1 bg-[#e2e8f0]" />
             </div>
             <div className="mt-8 grid w-full max-w-4xl mx-auto gap-6 md:grid-cols-2 lg:grid-cols-3">

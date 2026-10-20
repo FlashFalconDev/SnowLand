@@ -24,11 +24,18 @@ export interface PayrollCoach {
   id: number; name: string; campus_ids: number[]; can_manage: boolean
 }
 
+export interface PayrollSettlement {
+  version: number; base_currency: 'TWD'; base_amount: number; currency: 'TWD'|'JPY'; rate: string
+  gross_amount: number; deductions: {name:string;basis:number;percent:string;amount:number}[]
+  deduction_total: number; net_amount: number; base_net_amount: number; base_deduction_total: number
+  note: string; reviewed_by: number; reviewed_at: string
+}
 export interface PayrollStatement {
   id: number; coach: number; coach_name: string; campus: number; campus_name: string
   period_start: string; period_end: string; course_pay: number; specified_fees: number
   referral_commission: number; assistance_pay: number; supervisor_allowance: number
   adjustment: number; total_amount: number; status: string
+  settlement_snapshot?: Partial<PayrollSettlement>
   published_at: string | null; confirmation_deadline: string | null; review_token: string | null
   confirmed_at: string | null; confirmation_method: string
   confirmation_timezone: string
@@ -45,7 +52,7 @@ export interface Evaluation {
   media: { id: number; media_type: 'photo' | 'video'; url: string; caption: string; is_public: boolean }[]
 }
 
-export interface PayrollDocument { title: string; body: string; coach_name: string; campus_name: string; period_start: string; period_end: string; currency: string; total_amount: number; lines: { line_type: string; description: string; quantity: string; unit_amount: string; total_amount: number }[] }
+export interface PayrollDocument { title: string; body: string; coach_name: string; campus_name: string; period_start: string; period_end: string; currency: string; total_amount: number; settlement?: Partial<PayrollSettlement>; lines: { line_type: string; description: string; quantity: string; unit_amount: string; total_amount: number }[] }
 export interface PayrollDocumentSettings { title: string; body: string; is_active: boolean }
 export const fetchPayrollDocumentSettings = async (): Promise<PayrollDocumentSettings> => (await adminApi.get('/payroll-statements/document-settings/') as unknown as DetailResponse<PayrollDocumentSettings>).data
 export const savePayrollDocumentSettings = async (data: PayrollDocumentSettings): Promise<PayrollDocumentSettings> => (await adminApi.post('/payroll-statements/document-settings/',data) as unknown as DetailResponse<PayrollDocumentSettings>).data

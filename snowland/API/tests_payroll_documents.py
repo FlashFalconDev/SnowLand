@@ -30,6 +30,8 @@ class PayrollDocumentTests(TestCase):
         self.settings_url = '/api/admin/snowland/payroll-statements/document-settings/'
 
     def confirm(self):
+        from Coach.payroll_settlement import save_settlement
+        save_settlement(self.statement, {'currency':'TWD','rate':'1','base_amount':self.statement.total_amount,'deductions':[],'reviewed':True}, self.hq)
         statement = publish_statement(self.statement, self.deadline)
         self.statement = confirm_statement(statement, self.coach_user, str(statement.review_token))
         self.api.force_authenticate(self.coach_user)

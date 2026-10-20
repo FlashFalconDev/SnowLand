@@ -369,6 +369,19 @@ class PageColor(models.Model):
         return f"{self.client.name} - {self.page.page_name}"
 
 
+class InstagramConnection(models.Model):
+    client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name='instagram_connection')
+    expected_username = models.CharField(max_length=30, blank=True, default='')
+    username = models.CharField(max_length=30, blank=True, default='')
+    account_id = models.CharField(max_length=40, blank=True, default='')
+    encrypted_token = models.TextField(blank=True, default='', editable=False)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    token_refreshed_at = models.DateTimeField(null=True, blank=True)
+    enabled = models.BooleanField(default=False)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=200, blank=True, default='')
+
+
 class SiteContent(models.Model):
     """
     官網可編輯內容。
@@ -414,7 +427,7 @@ class SiteContent(models.Model):
     subtitle = models.CharField(max_length=300, blank=True, default='', verbose_name='副標題')
     summary = models.TextField(blank=True, default='', verbose_name='摘要')
     body = models.TextField(blank=True, default='', verbose_name='內容')
-    image_url = models.CharField(max_length=500, blank=True, default='', verbose_name='圖片網址')
+    image_url = models.CharField(max_length=2000, blank=True, default='', verbose_name='圖片網址')
     link_url = models.CharField(max_length=500, blank=True, default='', verbose_name='連結網址')
     source = models.CharField(max_length=50, blank=True, default='', verbose_name='來源')
     external_id = models.CharField(max_length=120, blank=True, default='', verbose_name='外部 ID')

@@ -3,12 +3,13 @@ import { motion } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 import SiteLink from '../../components/site/SiteLink';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 
 const steps = [
   {
     num: '01',
     title: '選擇課程',
-    desc: '選擇您要的課程大類、雪場、課程類型與人數。我們提供星野Tomamu、野雪嚮導及北海道各雪場課程。',
+    desc: '登入會員後，選擇課程大類、雪場及人數，再分配每位學員的滑雪程度。',
     icon: (
       <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M9 11H3v10h6V11zM15 3H9v18h6V3zM21 7h-6v14h6V7z" />
@@ -17,8 +18,8 @@ const steps = [
   },
   {
     num: '02',
-    title: '指定教練',
-    desc: '可選擇指定專屬教練或由系統智能配對最適合您程度的教練。各教練皆具專業證照與多語言教學能力。',
+    title: '選擇日期時段',
+    desc: '依畫面選擇課程方案、開放日期及時段；時長、最低人數與可預約範圍以所選課程為準。',
     icon: (
       <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -29,8 +30,8 @@ const steps = [
   },
   {
     num: '03',
-    title: '選擇日期時段',
-    desc: '彈性選擇上課日期與時段，支援全天（5小時）或半天（3小時）課程，可預約多個日期。',
+    title: '教練與裝備',
+    desc: '依課程提供的選項設定教練、語言與裝備需求，再將課程加入購物車。',
     icon: (
       <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -42,8 +43,8 @@ const steps = [
   },
   {
     num: '04',
-    title: '加購裝備 / 攝影',
-    desc: '可加購裝備租借協助、課程攝影服務，或加入其他天數 / 組數預約。一次完成完整滑雪行程。',
+    title: '確認聯絡資料',
+    desc: '確認購物車的日期、人數及價格，填寫聯絡資料與活動來源，閱讀並確認訂單條款後送出。',
     icon: (
       <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" />
@@ -54,8 +55,8 @@ const steps = [
   },
   {
     num: '05',
-    title: '確認付款',
-    desc: '確認訂單後選擇付款方式：台灣地區銀行轉帳或海外信用卡支付。完成後將寄送確認信至您的信箱。',
+    title: '確認安排與付款',
+    desc: '若訂單等待教練確認、課服安排或團體成班，請先勿付款。開放付款後，依訂單顯示的方式與期限完成付款。',
     icon: (
       <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
@@ -65,8 +66,8 @@ const steps = [
   },
   {
     num: '06',
-    title: '完成預約',
-    desc: '客服收到訂單後將主動聯繫確認，並提供上課地點、裝備準備等詳細資訊。期待為您服務！',
+    title: '查看訂單與課前資料',
+    desc: '到會員訂單查看最新安排及付款狀態，並逐位完成學員資料、保險資料及課前聲明；資料填妥不代表已完成投保。',
     icon: (
       <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -79,23 +80,25 @@ const steps = [
 const notes = [
   {
     title: '取消與更改規定',
-    desc: '課程開始前 14 天以上取消可全額退費；7–14 天取消退費 70%；7 天內取消恕不退費。如需更改日期請盡早聯繫客服。',
+    desc: '請先查看取消與更改規定；會員訂單的取消試算為預估值，實際退款仍須核對實收款及行政審核。',
+    href: '/cancellation-policy',
   },
   {
     title: '付款方式',
-    desc: '台灣地區支援銀行轉帳；海外學員可使用信用卡線上支付。付款完成後預約即正式成立。',
+    desc: '依訂單顯示的幣別、付款方式與收款帳戶付款；未開放付款前請勿匯款。',
   },
   {
-    title: '早鳥與推薦優惠',
-    desc: '提前預約可享早鳥折扣（全天課程每人折扣 NT$300 / 半天課程每人折扣 NT$200）；舊生推薦新生雙方各享 NT$500 折扣。',
+    title: '優惠與折扣',
+    desc: '優惠依當期設定及適用條件計算；請以結帳時顯示的折扣與應付金額為準。',
   },
   {
     title: '裝備準備',
-    desc: '如需租借雪具，可於預約時加購「裝備租借協助」服務，教練將協助您完成裝備挑選與試穿。',
+    desc: '依所選課程與雪場提供的選項選擇裝備需求；加購服務、集合時間及費用請以訂單資訊為準。',
   },
 ];
 
 function CourseHowToBookPage() {
+  const { t } = useSiteLocale();
   return (
     <div className="min-h-screen bg-white text-[#1f2937] flex flex-col">
       <SiteHeader forceTransparent forceDarkText forceLogoColor />
@@ -107,11 +110,11 @@ function CourseHowToBookPage() {
             Ski Course
           </p>
           <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-            預約流程
+            {t('預約流程')}
           </h1>
           <p className="mt-6 text-sm md:text-base text-[#6b7280] leading-relaxed max-w-2xl mx-auto">
-            六個簡單步驟，為您安排最適合的滑雪課程。<br />
-            如有任何疑問，歡迎透過 Line、WhatsApp 或聯絡表單與我們聯繫。
+            {t('六個簡單步驟，為您安排最適合的滑雪課程。')}<br />
+            {t('如有任何疑問，歡迎透過 Line、WhatsApp 或聯絡表單與我們聯繫。')}
           </p>
         </section>
 
@@ -137,10 +140,10 @@ function CourseHowToBookPage() {
                         {step.num}
                       </p>
                       <h3 className="mt-3 text-lg md:text-xl font-semibold text-[#1f2937] font-display">
-                        {step.title}
+                        {t(step.title)}
                       </h3>
                       <p className="mt-3 text-sm text-[#6b7280] leading-relaxed">
-                        {step.desc}
+                        {t(step.desc)}
                       </p>
                     </div>
                   </div>
@@ -154,7 +157,7 @@ function CourseHowToBookPage() {
                 to="/booking"
                 className="inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-10 py-4 text-base font-semibold text-white hover:bg-[#8ec8f0] transition-colors shadow-lg hover:shadow-xl"
               >
-                立即預約課程
+                {t('立即預約課程')}
                 <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                 </svg>
@@ -171,7 +174,7 @@ function CourseHowToBookPage() {
                 Notes
               </p>
               <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-                注意事項
+                {t('注意事項')}
               </h2>
             </div>
 
@@ -182,23 +185,24 @@ function CourseHowToBookPage() {
                   className="border-l-2 border-[#2b5f8f] pl-6 py-2"
                 >
                   <h3 className="text-base font-semibold text-[#1f2937] font-display">
-                    {note.title}
+                    {t(note.title)}
                   </h3>
                   <p className="mt-3 text-sm text-[#6b7280] leading-relaxed">
-                    {note.desc}
+                    {t(note.desc)}
                   </p>
+                  {note.href && <SiteLink to={note.href} className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4">{t('查看取消與更改規定')}</SiteLink>}
                 </div>
               ))}
             </div>
 
             <div className="mt-12 md:mt-16 text-center text-sm text-[#6b7280]">
-              更多問題請參考{' '}
+              {t('更多問題請參考')}{' '}
               <SiteLink to="/faq" className="text-[#2b5f8f] font-semibold underline underline-offset-4 hover:text-[#8ec8f0]">
-                常見問題
+                {t('常見問題')}
               </SiteLink>
-              ，或{' '}
+              {' '}{t('或')}{' '}
               <SiteLink to="/contact" className="text-[#2b5f8f] font-semibold underline underline-offset-4 hover:text-[#8ec8f0]">
-                聯絡我們
+                {t('聯絡我們')}
               </SiteLink>
               。
             </div>

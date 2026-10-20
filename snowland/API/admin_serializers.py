@@ -2334,6 +2334,7 @@ class PayrollLineAdminSerializer(serializers.ModelSerializer):
 
 
 class PayrollStatementAdminSerializer(serializers.ModelSerializer):
+    settlement_snapshot = serializers.JSONField(read_only=True)
     coach_name = serializers.CharField(source='coach.name', read_only=True)
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     lines = PayrollLineAdminSerializer(many=True, read_only=True)
@@ -2358,7 +2359,7 @@ class PayrollStatementAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PayrollStatement
-        fields = ['id', 'coach', 'coach_name', 'campus', 'campus_name', 'period_start', 'period_end', 'course_pay', 'specified_fees', 'referral_commission', 'assistance_pay', 'supervisor_allowance', 'adjustment', 'total_amount', 'status', 'notes', 'lines', 'published_at', 'confirmation_deadline', 'review_token', 'confirmed_at', 'confirmation_method', 'confirmation_timezone', 'document_snapshot', 'document_digest', 'signature_file_url', 'signer_name', 'signed_at', 'created_at', 'updated_at']
+        fields = ['id', 'coach', 'coach_name', 'campus', 'campus_name', 'period_start', 'period_end', 'course_pay', 'specified_fees', 'referral_commission', 'assistance_pay', 'supervisor_allowance', 'adjustment', 'total_amount', 'settlement_snapshot', 'status', 'notes', 'lines', 'published_at', 'confirmation_deadline', 'review_token', 'confirmed_at', 'confirmation_method', 'confirmation_timezone', 'document_snapshot', 'document_digest', 'signature_file_url', 'signer_name', 'signed_at', 'created_at', 'updated_at']
         read_only_fields = fields
 
     def validate(self, attrs):

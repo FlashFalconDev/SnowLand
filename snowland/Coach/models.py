@@ -310,6 +310,7 @@ class PayrollStatement(models.Model):
     supervisor_allowance = models.PositiveIntegerField(default=0)
     adjustment = models.IntegerField(default=0)
     total_amount = models.IntegerField(default=0)
+    settlement_snapshot = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     notes = models.TextField(blank=True, default='')
     published_at = models.DateTimeField(null=True, blank=True)

@@ -235,17 +235,18 @@ const formatCurrency = (value?: number | null) => {
   return `NT$ ${Number(value || 0).toLocaleString()}`
 }
 
-const getWeekdayLabel = (dateKey?: string) => {
+const getWeekdayLabel = (dateKey?: string, locale = 'zh-TW') => {
   if (!dateKey) return ''
   const date = parseDateKey(dateKey)
+  if (locale === 'en' || locale === 'ja') return date.toLocaleDateString(locale, { weekday: 'short' })
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   return `週${weekdays[date.getDay()]}`
 }
 
-const getCartDateSummary = (courses: Course[]) => {
+const getCartDateSummary = (courses: Course[], locale = 'zh-TW') => {
   const dates = Array.from(new Set(courses.map((course) => course.date).filter(Boolean))).sort()
   if (dates.length === 0) return '未選日期'
-  if (dates.length === 1) return `${formatDateKey(dates[0])} ${getWeekdayLabel(dates[0])}`
+  if (dates.length === 1) return `${formatDateKey(dates[0])} ${getWeekdayLabel(dates[0], locale)}`
   return `${formatDateKey(dates[0])} - ${formatDateKey(dates[dates.length - 1])}`
 }
 
@@ -286,11 +287,11 @@ const groupCartCoursesBySegment = (courses: Course[]): CartCourseSegment[] => {
   return segments
 }
 
-const formatCourseSegmentDates = (courses: Course[]) => {
+const formatCourseSegmentDates = (courses: Course[], locale = 'zh-TW') => {
   const dates = [...courses].map((course) => course.date).filter(Boolean).sort()
   if (dates.length === 0) return '未選日期'
-  if (dates.length === 1) return `${formatDateKey(dates[0])} ${getWeekdayLabel(dates[0])}`
-  return `${dates.map((date) => `${formatDateKey(date)} ${getWeekdayLabel(date)}`).join('、')}`
+  if (dates.length === 1) return `${formatDateKey(dates[0])} ${getWeekdayLabel(dates[0], locale)}`
+  return `${dates.map((date) => `${formatDateKey(date)} ${getWeekdayLabel(date, locale)}`).join(locale === 'en' ? ', ' : '、')}`
 }
 
 const formatCalendarMonth = (date: Date) => `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`
@@ -581,13 +582,14 @@ const coachAbilityAliases: Record<string, string[]> = {
   level6: ['level6', 'expert'],
 }
 
-const getStudentAbilitySummary = (counts: Record<string, number> = {}) => {
+const getStudentAbilitySummary = (counts: Record<string, number> = {}, translate?: (source: string, values?: Record<string, string | number>) => string) => {
   const selected = abilityLevelOrder.filter((level) => (Number(counts[level]) || 0) > 0)
   if (selected.length === 0) return ''
   return selected
     .map((level) => {
       const count = Number(counts[level]) || 0
       const label = abilityLevels.find((item) => item.id === level)?.name || getCoachAbilityLabel(level)
+      if (translate) return translate('{level}：{count} 人',{level:translate(label),count})
       return count > 1 ? `${label} ${count}人` : label
     })
     .join('、')
@@ -709,8 +711,9 @@ const getFirstCourseDateKeys = (courseDateKeys: string[] = []) => {
   return first ? [first] : []
 }
 
-const getEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []) => {
-  const dayLabel = getEquipmentSlotDayLabel(slot)
+const getEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = [], translate = (text: string) => text) => {
+  const sourceDayLabel = getEquipmentSlotDayLabel(slot)
+  const dayLabel = translate(sourceDayLabel)
   const timeText = formatEquipmentSlotTime(slot)
   const label = String(slot?.label || '').trim()
   const scheduleLines = getEquipmentSlotScheduleLines(slot, courseDateKeys)
@@ -719,7 +722,7 @@ const getEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []) => {
   if (scheduleLines.length > 1) return `${dayLabel}：${scheduleLines.join('、')}`
 
   if (timeText) {
-    if (!label || label === dayLabel) return `${dayLabel} ${timeText}`
+    if (!label || label === sourceDayLabel) return `${dayLabel} ${timeText}`
     if (label.includes(timeText)) return label
     return `${label} ${timeText}`
   }
@@ -727,9 +730,9 @@ const getEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []) => {
   return label || dayLabel
 }
 
-const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []) => {
-  const firstDayLabel = getEquipmentSlotLabel(slot, getFirstCourseDateKeys(courseDateKeys))
-  return courseDateKeys.length > 1 ? `${firstDayLabel}（費用只加第一天）` : firstDayLabel
+const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = [], translate = (text: string) => text) => {
+  const firstDayLabel = getEquipmentSlotLabel(slot, getFirstCourseDateKeys(courseDateKeys), translate)
+  return courseDateKeys.length > 1 ? `${firstDayLabel}${translate('（費用只加第一天）')}` : firstDayLabel
 }
 
 export default function BookingFlowPage() {
@@ -1352,7 +1355,7 @@ export default function BookingFlowPage() {
     const minimumGroupSize = template?.shared_class_enabled ? 1 : Number(template?.minimum_group_size || 1)
     if (template && peopleCount < minimumGroupSize) {
       setToast({
-        message: `此課程至少 ${minimumGroupSize} 人才能預約`,
+        message: t('此課程至少 {count} 人才能預約',{count:minimumGroupSize}),
         type: 'warning',
         isOpen: true,
       })
@@ -1361,7 +1364,7 @@ export default function BookingFlowPage() {
     const studentLevelRule = getTemplateStudentLevelRule(template, abilityLevelCounts, selectedAbilityLevel)
     if (studentLevelRule.insufficient) {
       setToast({
-        message: `此課程只開放等級 ${studentLevelRule.requiredRank} 以上學員，請調整學員等級或選擇其他課程`,
+        message: t('此課程只開放等級 {level} 以上學員，請調整學員等級或選擇其他課程',{level:studentLevelRule.requiredRank}),
         type: 'warning',
         isOpen: true,
       })
@@ -1687,7 +1690,7 @@ export default function BookingFlowPage() {
     setCalendarMonth(new Date())
     setCurrentStep(2)
     setStep2Index(templateStepIndex >= 0 ? templateStepIndex : 0)
-    showToast(`正在加課到第 ${cart.findIndex((item) => item.id === groupId) + 1} 組，請選擇課程、日期與時段；人數、程度與教練會沿用此組。`, 'info')
+    showToast(t('正在加課到第 {group} 組，請選擇課程、日期與時段；人數、程度與教練會沿用此組。',{group:cart.findIndex((item) => item.id === groupId)+1}), 'info')
   }
 
   const addCurrentToCart = async () => {
@@ -1717,7 +1720,7 @@ export default function BookingFlowPage() {
       return false
     }
     if (unavailableSelectedDates.length > 0) {
-      showToast(`以下日期目前不可預約：${unavailableSelectedDates.map(formatDateKey).join('、')}`, 'warning')
+      showToast(t('以下日期目前不可預約：{dates}',{dates:unavailableSelectedDates.map(formatDateKey).join('、')}), 'warning')
       return false
     }
 
@@ -1765,7 +1768,7 @@ export default function BookingFlowPage() {
           : ((fetchedSessions as any)?.data || [])
         const daySession = (daySessions || []).find((item: any) => Number(item.id) === Number(selectedTimeSlot))
         if (!daySession || daySession.is_full || daySession.is_active === false) {
-          throw new Error(`${formatDateKey(courseDate)} 的此時段不可預約`)
+          throw new Error(t('{date} 的此時段不可預約',{date:formatDateKey(courseDate)}))
         }
         const priceData = await calculatePrice({
           template_id: selectedCourseTemplate,
@@ -1949,7 +1952,7 @@ export default function BookingFlowPage() {
     const totalCartCourses = cart.reduce((sum, group) => sum + (group.courses?.length || 0), 0)
     startLoading(
       '正在建立預約',
-      `目前共 ${cart.length} 組預約、${totalCartCourses} 堂課。多組排課需要逐一確認教練與時段。`,
+      t('目前共 {groups} 組預約、{lessons} 堂課。多組排課需要逐一確認教練與時段。', {groups:cart.length,lessons:totalCartCourses}),
       ['確認課程與價格', '套用優惠', '建立訂單', '自動安排教練', '整理付款資訊'],
     )
     try {
@@ -1964,7 +1967,7 @@ export default function BookingFlowPage() {
         staff_link: staffLinkToken || undefined,
       })
       if (response.code !== 200) {
-        showToast(`預約失敗：${response.msg}`, 'error')
+        showToast(t('預約失敗：{message}',{message:t(response.msg || '未知錯誤')}), 'error')
         return
       }
 
@@ -2016,7 +2019,7 @@ export default function BookingFlowPage() {
         showToast('預約處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
       } else {
         if(currencyQuote.currency==='JPY'){setCurrencyReloadKey(value=>value+1);setPriceRetryKey(value=>value+1)}
-        showToast(`預約失敗：${getPriceErrorMessage(e, '請重新確認課程或聯絡客服')}`, 'error')
+        showToast(t('預約失敗：{message}',{message:t(getPriceErrorMessage(e, '請重新確認課程或聯絡客服'))}), 'error')
       }
     } finally {
       setIsSubmitting(false)
@@ -2056,7 +2059,7 @@ export default function BookingFlowPage() {
           })
           const data = await res.json().catch(() => ({}))
           if (!res.ok) {
-            showToast(data.error || `預約 #${reservationGroupId} 提交失敗`, 'error')
+            showToast(data.error || t('預約 #{id} 提交失敗',{id:reservationGroupId}), 'error')
             return
           }
         }
@@ -2068,7 +2071,7 @@ export default function BookingFlowPage() {
         setCompletionFlow('bank_submitted')
         setCurrentStep(4)
       } catch (e: any) {
-        showToast(`提交失敗：${e.message || '未知錯誤'}`, 'error')
+        showToast(t('提交失敗：{message}',{message:t(e.message || '未知錯誤')}), 'error')
       } finally {
         setIsSubmitting(false)
         setLoadingMessage('')
@@ -2114,7 +2117,7 @@ export default function BookingFlowPage() {
         }
       }
     } catch (e: any) {
-      showToast(`跳轉失敗：${e.message || '未知錯誤'}`, 'error')
+        showToast(t('跳轉失敗：{message}',{message:t(e.message || '未知錯誤')}), 'error')
     } finally {
       setIsSubmitting(false)
       setLoadingMessage('')
@@ -2183,7 +2186,7 @@ export default function BookingFlowPage() {
           const nextSession = chooseReplacementSession(daySessions, course, suggested.period)
 
           if (!nextSession) {
-            throw new Error(`${formatDateKey(targetDate)} 找不到可預約時段，請改選其他建議日期。`)
+            throw new Error(t('{date} 找不到可預約時段，請改選其他建議日期。',{date:formatDateKey(targetDate)}))
           }
 
           const priceEquipmentOption = isPhotoGroup
@@ -2255,7 +2258,7 @@ export default function BookingFlowPage() {
       setSchedulingFailed({ isOpen: false, message: '', conflictDetails: null, reservationGroupIds: [] })
       setCurrentStep(3)
       showToast(
-        `已將購物車內 ${cart.length} 組預約批次改到 ${formatDateKey(suggested.date)}${suggested.period ? ` ${suggested.period}` : ''}`,
+        t('已將購物車內 {count} 組預約批次改到 {date}{period}',{count:cart.length,date:formatDateKey(suggested.date),period:suggested.period ? ` ${t(suggested.period)}` : ''}),
         'success',
       )
     } catch (e: any) {
@@ -2296,7 +2299,7 @@ export default function BookingFlowPage() {
       setCalendarMonth(parseDateKey(suggested.date))
       setStep2Index(timeStepIndex >= 0 ? timeStepIndex : Math.max(dateStepIndex, 0))
       showToast(
-        `已選擇 ${formatDateKey(suggested.date)}${suggested.period ? ` ${suggested.period}` : ''}，請確認可預約時段`,
+        t('已選擇 {date}{period}，請確認可預約時段',{date:formatDateKey(suggested.date),period:suggested.period ? ` ${t(suggested.period)}` : ''}),
         'info',
       )
       return
@@ -2313,7 +2316,7 @@ export default function BookingFlowPage() {
       <div className="min-h-screen flex items-center justify-center bg-[#f7f8fa]">
         <div className="text-center">
           <div className="w-10 h-10 border-2 border-[#2b5f8f] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-[#6b7280] font-display">載入中...</p>
+          <p className="text-sm text-[#6b7280] font-display">{t('載入中…')}</p>
         </div>
       </div>
     )
@@ -2386,7 +2389,7 @@ export default function BookingFlowPage() {
               </button>}
             </div>
 
-          {staffPrepareMode && <div className="mb-5 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] px-4 py-3 text-sm text-[#1e4e73]" role="status"><b>代客選課模式</b> · 只準備課程，不會送出訂單或收款。選好後請回後台建立連結。</div>}
+          {staffPrepareMode && <div className="mb-5 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] px-4 py-3 text-sm text-[#1e4e73]" role="status"><b>{t('代客選課模式')}</b> · {t('只準備課程，不會送出訂單或收款。選好後請回後台建立連結。')}</div>}
 
             {/* Steps progress */}
             <div className="flex items-center justify-between">
@@ -2425,7 +2428,7 @@ export default function BookingFlowPage() {
           </div>
 
           {/* Step Content */}
-          {staffLinkInfo && <div className="mb-4 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>工作人員協助訂課</b> · {staffLinkInfo.created_by} · 訂單固定歸屬「{staffLinkInfo.campus.name}」{staffSelectedCart && ' · 課程已由工作人員選定，請確認資料後送出'}</div>}
+          {staffLinkInfo && <div className="mb-4 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>{t('工作人員協助訂課')}</b> · {staffLinkInfo.created_by} · {t('訂單固定歸屬「{campus}」',{campus:staffLinkInfo.campus.name})}{staffSelectedCart && <> · {t('課程已由工作人員選定，請確認資料後送出')}</>}</div>}
           {editingGroupId && currentStep === 2 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><p>{t("正在修改這組課程。原課程已保留，完成新設定後才會替換。")}</p><button type="button" onClick={() => { resetDraftSelection(); setCurrentStep(3); }} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 font-semibold">{t("取消修改，保留原課程")}</button></div>}
           <AnimatePresence mode="wait">
             <motion.div
@@ -2497,20 +2500,20 @@ export default function BookingFlowPage() {
 
               {currentStep === 3 && createdReservationIds.length > 0 && !submittedReservation ? (
                 <div role="alert" className="mx-auto max-w-2xl rounded-sm border border-amber-300 bg-amber-50 p-6 text-[#1f2937]">
-                  <h2 className="text-xl font-semibold">訂單已建立</h2>
-                  <p className="mt-2 text-sm leading-6">{paymentInfoError || '正在取得付款資訊…'}請勿再次送出訂單。</p>
-                  <p className="mt-2 text-sm">預約編號：{createdReservationIds.join('、')}</p>
+                  <h2 className="text-xl font-semibold">{t('訂單已建立')}</h2>
+                  <p className="mt-2 text-sm leading-6">{t(paymentInfoError || '正在取得付款資訊…')}{' '}{t('請勿再次送出訂單。')}</p>
+                  <p className="mt-2 text-sm">{t('預約編號：{ids}',{ids:createdReservationIds.join('、')})}</p>
                   <div className="mt-5 flex flex-wrap gap-3">
-                    <button type="button" onClick={retryPaymentInfo} disabled={isSubmitting} className="rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{isSubmitting ? '載入中…' : '重新取得付款資訊'}</button>
-                    <a href={membershipUrl} className="rounded-full border border-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">{t("查看會員訂單")}</a>
+                    <button type="button" onClick={retryPaymentInfo} disabled={isSubmitting} className="min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{t(isSubmitting ? '載入中…' : '重新取得付款資訊')}</button>
+                    <a href={membershipUrl} className="inline-flex min-h-11 items-center rounded-full border border-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-[#2b5f8f]">{t("查看會員訂單")}</a>
                   </div>
                 </div>
               ) : currentStep === 3 && staffPrepareMode ? (
                 <section className="mx-auto max-w-2xl space-y-4 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm">
-                  <h2 className="text-xl font-semibold text-[#1f2937]">確認替客人選的課程</h2>
-                  <p className="text-sm text-[#64748b]">這裡只準備課程，不會替客人送單或扣款。確認後回後台建立連結，客人登入後再填資料及付款。</p>
-                  {cart.map(group => <div key={group.id} className="rounded-sm border border-[#e2e8f0] p-4 text-sm text-[#1f2937]"><b>{group.resortName} · {group.peopleCount} 人</b>{group.courses.map(course => <p key={`${course.courseTemplateId}-${course.date}-${course.timeSlotStart}`} className="mt-1 text-[#64748b]">{course.courseTemplateName} · {course.date} {course.timeSlotStart}–{course.timeSlotEnd}</p>)}<p className="mt-2 font-semibold">小計 {formatCurrency(group.totalPrice)}</p><button type="button" onClick={() => handleEditCartGroup(group.id)} className="mt-2 text-sm font-semibold text-[#2b5f8f]">修改這組課程</button></div>)}
-                  <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t("增加新組別課程")}</button><a href={staffConsoleUrl} className="rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">回後台建立連結</a></div>
+                  <h2 className="text-xl font-semibold text-[#1f2937]">{t('確認替客人選的課程')}</h2>
+                  <p className="text-sm text-[#64748b]">{t('這裡只準備課程，不會替客人送單或扣款。確認後回後台建立連結，客人登入後再填資料及付款。')}</p>
+                  {cart.map(group => <div key={group.id} className="rounded-sm border border-[#e2e8f0] p-4 text-sm text-[#1f2937]"><b>{group.resortName} · {t('{count} 位學員',{count:group.peopleCount})}</b>{group.courses.map(course => <p key={`${course.courseTemplateId}-${course.date}-${course.timeSlotStart}`} className="mt-1 text-[#64748b]">{course.courseTemplateName} · {course.date} {course.timeSlotStart}–{course.timeSlotEnd}</p>)}<p className="mt-2 font-semibold">{t('小計')} {formatCurrency(group.totalPrice)}</p><button type="button" onClick={() => handleEditCartGroup(group.id)} className="mt-2 min-h-11 text-sm font-semibold text-[#2b5f8f]">{t('修改這組課程')}</button></div>)}
+                  <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t("增加新組別課程")}</button><a href={staffConsoleUrl} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t('回後台建立連結')}</a></div>
                 </section>
               ) : currentStep === 3 && (
                 <Step3Confirmation
@@ -2660,23 +2663,23 @@ export default function BookingFlowPage() {
 
       <ConfirmModal
         isOpen={superConfirmOpen}
-        title="嘗試進階排課？"
+        title={t('嘗試進階排課？')}
         message={
           <div className="space-y-3">
-            <p>進階排課會嘗試把課程拆成單日安排，以提高排課成功率。</p>
+            <p>{t('進階排課會嘗試把課程拆成單日安排，以提高排課成功率。')}</p>
             <div className="rounded-sm border border-amber-200 bg-amber-50 p-3 text-xs text-[#7c2d12]">
-              <p className="mb-2 font-semibold">注意事項：</p>
+              <p className="mb-2 font-semibold">{t('注意事項：')}</p>
               <ul className="list-disc space-y-1 pl-5">
-                <li>課程期間每日授課教練可能不同。</li>
-                <li>所有教練皆依 SnowLand 教學標準進行授課，課程內容與學習進度將完整交接。</li>
-                <li>若您希望由同一位教練全程授課，建議改選其他日期或時段，以利安排固定教練。</li>
+                <li>{t('課程期間每日授課教練可能不同。')}</li>
+                <li>{t('所有教練皆依 SnowLand 教學標準進行授課，課程內容與學習進度將完整交接。')}</li>
+                <li>{t('若您希望由同一位教練全程授課，建議改選其他日期或時段，以利安排固定教練。')}</li>
               </ul>
             </div>
           </div>
         }
         variant="info"
-        confirmText="繼續進階排課"
-        cancelText="取消"
+        confirmText={t('繼續進階排課')}
+        cancelText={t('取消')}
         onCancel={() => {
           setSuperConfirmOpen(false)
           // 取消 → 回到原本的失敗 modal
@@ -2690,7 +2693,7 @@ export default function BookingFlowPage() {
           const totalCartCourses = cart.reduce((sum, group) => sum + (group.courses?.length || 0), 0)
           startLoading(
             '正在嘗試進階排課',
-            `系統會把 ${totalCartCourses} 堂課拆開檢查可用教練，以提高成功率。`,
+            t('系統會把 {lessons} 堂課拆開檢查可用教練，以提高成功率。',{lessons:totalCartCourses}),
             ['拆分每日課程', '查詢可接課教練', '確認每日時段', '建立進階預約', '整理付款資訊'],
           )
           try {
@@ -2708,7 +2711,7 @@ export default function BookingFlowPage() {
               discount_code: discountCode.trim() || undefined,
             })
             if (response.code !== 200) {
-              showToast(`進階排課失敗：${response.msg}`, 'error')
+              showToast(t('進階排課失敗：{message}',{message:t(response.msg || '未知錯誤')}), 'error')
               return
             }
             if (response.scheduling_failed) {
@@ -2748,7 +2751,7 @@ export default function BookingFlowPage() {
             if (isTimeoutError(e)) {
               showToast('進階排課處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
             } else {
-              showToast(`進階排課失敗：${getPriceErrorMessage(e, '請重新確認課程或聯絡客服')}`, 'error')
+              showToast(t('進階排課失敗：{message}',{message:t(getPriceErrorMessage(e, '請重新確認課程或聯絡客服'))}), 'error')
             }
           } finally {
             setIsSubmitting(false)
@@ -2766,9 +2769,9 @@ export default function BookingFlowPage() {
 
       <LoadingOverlay
         isLoading={!!loadingMessage}
-        message={loadingMessage}
-        detail={loadingDetail}
-        steps={loadingSteps}
+        message={t(loadingMessage)}
+        detail={t(loadingDetail)}
+        steps={loadingSteps.map(step=>t(step))}
         activeStep={loadingStepIndex}
       />
     </div>
@@ -2914,7 +2917,7 @@ function Step2SkiConfiguration({
           })}
           {resorts.length === 0 && (
             <p className="col-span-2 text-center text-sm text-[#6b7280] py-8">
-              此課程大類尚未設定可用雪場，請先到後台課程大類設定。
+              {t('此課程大類尚未設定可用雪場，請先到後台課程大類設定。')}
             </p>
           )}
         </div>
@@ -3044,7 +3047,7 @@ function Step2SkiConfiguration({
                 {t("請分配每位學員的能力等級")}
               </p>
               <p className="mt-1 text-xs text-[#64748b]">
-                目前依{isSnowboardCourse ? '單板' : '雙板'}標準顯示說明
+                {t('目前依{sport}標準顯示說明',{sport:t(isSnowboardCourse ? 'Snowboard 單板' : 'Ski 雙板')})}
               </p>
             </div>
             <div className={`text-sm font-semibold ${
@@ -3069,22 +3072,22 @@ function Step2SkiConfiguration({
                   }`}
                 >
                   <div>
-                    <p className="font-semibold text-[#1f2937] font-display">{level.name}</p>
+                    <p className="font-semibold text-[#1f2937] font-display">{t(level.name)}</p>
                     {count > 0 && (
-                      <p className="mt-1 text-xs font-semibold text-[#2b5f8f]">{count} 人</p>
+                      <p className="mt-1 text-xs font-semibold text-[#2b5f8f]">{t('{count} 位學員',{count})}</p>
                     )}
                   </div>
                   <p className="text-sm leading-6 text-[#4b5563]">
-                    {level[abilityDescriptionKey]}
+                    {t(level[abilityDescriptionKey])}
                   </p>
                   <select
-                    aria-label={`${level.name}學員人數`}
+                    aria-label={t('{level}學員人數',{level:t(level.name)})}
                     value={count}
                     onChange={(e) => actions.setAbilityLevelCount(level.id, Number(e.target.value))}
                     className="min-h-11 rounded-sm border border-[#d4dbe4] bg-white px-3 text-sm text-[#1f2937] focus:border-[#2b5f8f] focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/20"
                   >
                     {Array.from({ length: maxSelectable + 1 }, (_, index) => (
-                      <option key={index} value={index}>{index} 人</option>
+                      <option key={index} value={index}>{t('{count} 位學員',{count:index})}</option>
                     ))}
                   </select>
                 </div>
@@ -3095,8 +3098,8 @@ function Step2SkiConfiguration({
           {assignedAbilityCount !== state.peopleCount && (
             <div className="rounded-sm border border-[#f59e0b] bg-[#fff7e6] p-3 text-sm text-[#92400e]">
               {assignedAbilityCount < state.peopleCount
-                ? `還有 ${remainingAbilityCount} 位學員尚未分配能力等級。`
-                : `能力等級分配超過總人數 ${assignedAbilityCount - state.peopleCount} 人，請調整。`}
+                ? t('還有 {count} 位學員尚未分配能力等級。',{count:remainingAbilityCount})
+                : t('能力等級分配超過總人數 {count} 人，請調整。',{count:assignedAbilityCount - state.peopleCount})}
             </div>
           )}
         </div>
@@ -3149,7 +3152,7 @@ function Step2SkiConfiguration({
                       : 'bg-white border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]'
                   }`}
                 >
-                  {option.label}
+                  {t(option.label)}
                 </button>
               ))}
             </div>
@@ -3181,11 +3184,11 @@ function Step2SkiConfiguration({
           >
             <p className="font-semibold text-[#1f2937] font-display">{t("不指定教練")}</p>
             <p className="mt-1 text-xs text-[#6b7280]">
-              {!canSelectAnyCoach
+              {t(!canSelectAnyCoach
                 ? '指定 English / 粵語時不可選擇不指定教練'
                   : currentTemplateHasCoachRestriction
                     ? '由系統依課程等級與優先名單安排教練，仍會計入指定費'
-                : '由系統依照時間、等級與雪場安排合適教練'}
+                : '由系統依照時間、等級與雪場安排合適教練')}
             </p>
           </button>
 
@@ -3252,17 +3255,17 @@ function Step2SkiConfiguration({
                         {t("搭配學生等級")}
                       </p>
                       <p className="mt-1 text-sm font-semibold leading-6 text-[#1e3a8a]">
-                        {matchedStudentAbilityText || selectedStudentAbilityText || '尚未分配能力等級'}
+                        {matchedStudentAbilityText || selectedStudentAbilityText || t('尚未分配能力等級')}
                       </p>
                     </div>
                     <div className="mt-3 space-y-2 text-xs leading-5 text-[#64748b]">
                       <p>
                         <span className="font-semibold text-[#334155]">{t("語言：")}</span>
-                        {getCoachLanguageCodes(coach).map(getLanguageLabel).join(' / ') || '未設定'}
+                        {getCoachLanguageCodes(coach).map((code: string)=>t(getLanguageLabel(code))).join(' / ') || t('未設定')}
                       </p>
                       <p>
                         <span className="font-semibold text-[#334155]">{t("教練等級：")}</span>
-                        {priceLevelLabel}
+                        {t(priceLevelLabel)}
                       </p>
                       {certificationText && (
                         <p>
@@ -3276,9 +3279,9 @@ function Step2SkiConfiguration({
               })}
               {coaches.length === 0 && (
                 <p className="col-span-full text-center text-sm text-[#6b7280] py-8">
-                  {languageRequiresCoach(state.selectedLanguage)
+                  {t(languageRequiresCoach(state.selectedLanguage)
                     ? '目前沒有符合語言與等級條件的可指定教練'
-                    : '目前沒有符合篩選條件的教練，您可選擇「不指定教練」'}
+                    : '目前沒有符合篩選條件的教練，您可選擇「不指定教練」')}
                 </p>
               )}
             </div>
@@ -3376,10 +3379,10 @@ function Step2SkiConfiguration({
             return (
               <div className={`mb-4 p-3 rounded-sm text-xs ${expired ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-[#e9eef3] border border-[#2b5f8f]/20 text-[#1f2937]'}`}>
                 <div className={`font-medium mb-1 ${expired ? 'text-red-700' : 'text-[#2b5f8f]'}`}>
-                  {expired ? '⚠️ 課程已結束' : '📅 可預約期間'}
+                  {expired ? '⚠️ ' : '📅 '}{t(expired ? '課程已結束' : '可預約期間')}
                 </div>
                 <div>
-                  {effectiveStart} 至 {dateInfo.course_end_date || '不限'}
+                  {t('{start} 至 {end}',{start:effectiveStart,end:dateInfo.course_end_date || t('不限')})}
                 </div>
               </div>
             )
@@ -3389,7 +3392,7 @@ function Step2SkiConfiguration({
             <div className="flex items-center justify-between">
               <button
                 type="button"
-                aria-label="月曆上一個月"
+                aria-label={t('月曆上一個月')}
                 onClick={() => actions.setCalendarMonth(addMonthsToDate(state.calendarMonth, -1))}
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-sm border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]"
               >
@@ -3400,7 +3403,7 @@ function Step2SkiConfiguration({
               </p>
               <button
                 type="button"
-                aria-label="月曆下一個月"
+                aria-label={t('月曆下一個月')}
                 onClick={() => actions.setCalendarMonth(addMonthsToDate(state.calendarMonth, 1))}
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-sm border border-[#d4dbe4] text-[#1f2937] hover:border-[#2b5f8f]"
               >
@@ -3427,7 +3430,7 @@ function Step2SkiConfiguration({
                 const visibleSlot = sharedSlots.find((slot: { remaining_capacity: number }) => slot.remaining_capacity > 0)
                   || sharedSlots[0]
                 const sharedLabel = visibleSlot
-                  ? (visibleSlot.status === 'ready' ? '已成班' : `${visibleSlot.registered_students}/${visibleSlot.minimum_students} 湊班`)
+                  ? (visibleSlot.status === 'ready' ? t('已成班') : t('{registered}/{minimum} 湊班',{registered:visibleSlot.registered_students,minimum:visibleSlot.minimum_students}))
                   : ''
 
                 return (
@@ -3436,7 +3439,8 @@ function Step2SkiConfiguration({
                     type="button"
                     disabled={disabled}
                     onClick={() => actions.toggleCourseDate(dateKey)}
-                    aria-label={`${dateKey}${sharedLabel ? `，${sharedLabel}` : ''}${disabled ? '，不可預約' : ''}`}
+                    aria-label={[dateKey,sharedLabel,disabled ? t('不可預約') : ''].filter(Boolean).join(' · ')}
+                    aria-pressed={Boolean(selected)}
                     className={`flex ${selectedTemplateInfo?.shared_class_enabled ? 'min-h-14 flex-col' : 'h-11'} items-center justify-center rounded-sm border text-sm font-semibold transition-colors ${
                       selected
                         ? 'border-[#2b5f8f] bg-[#2b5f8f] text-white'
@@ -3453,7 +3457,7 @@ function Step2SkiConfiguration({
                 )
               })}
             </div>
-            {selectedTemplateInfo?.shared_class_enabled && <p className="mt-3 text-xs text-[#64748b]">標示人數的日期已有同程度團體班；沒有標示的日期也可選，報名後開始湊班。選好日期後可查看各時段剩餘名額。</p>}
+            {selectedTemplateInfo?.shared_class_enabled && <p className="mt-3 text-xs text-[#64748b]">{t('標示人數的日期已有同程度團體班；沒有標示的日期也可選，報名後開始湊班。選好日期後可查看各時段剩餘名額。')}</p>}
           </div>
 
           {state.selectedCourseDates?.length > 0 && (
@@ -3492,20 +3496,20 @@ function Step2SkiConfiguration({
             if (!courseEnded && !bookingClosed && !bookingNotOpen) return null
             return (
               <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-sm text-sm text-red-700">
-                ⚠️ 目前無法預約：
+                ⚠️ {t('目前無法預約：')}
                 <ul className="mt-1 ml-4 list-disc space-y-0.5">
-                  {courseEnded && <li>課程已於 {dateInfo.course_end_date} 結束</li>}
-                  {bookingClosed && <li>預約已於 {dateInfo.booking_close_date} 截止</li>}
-                  {bookingNotOpen && <li>預約將於 {dateInfo.booking_open_date} 開放</li>}
+                  {courseEnded && <li>{t('課程已於 {date} 結束',{date:dateInfo.course_end_date})}</li>}
+                  {bookingClosed && <li>{t('預約已於 {date} 截止',{date:dateInfo.booking_close_date})}</li>}
+                  {bookingNotOpen && <li>{t('預約將於 {date} 開放',{date:dateInfo.booking_open_date})}</li>}
                 </ul>
               </div>
             )
           })()}
 
           <p className="mt-3 text-xs text-[#6b7280] text-center">
-            {selectedTemplateInfo?.shared_class_enabled
+            {t(selectedTemplateInfo?.shared_class_enabled
               ? '團體湊班一次選一天；要預約其他日期請另外下單。'
-              : '可直接點選一個或多個上課日期'}
+              : '可直接點選一個或多個上課日期')}
           </p>
         </div>
       )}
@@ -3531,9 +3535,9 @@ function Step2SkiConfiguration({
               {selectedTemplateInfo?.shared_class_enabled && !s.is_full && <p className="mt-1 text-xs">
                 {s.shared_class
                   ? s.shared_class.status === 'ready'
-                    ? `已成班・剩 ${s.shared_class.remaining_capacity} 位`
-                    : `湊班 ${s.shared_class.registered_students}/${s.shared_class.minimum_students} 人・剩 ${s.shared_class.remaining_capacity} 位`
-                  : '新班・報名後開始湊班'}
+                    ? t('已成班・剩 {count} 位',{count:s.shared_class.remaining_capacity})
+                    : t('湊班 {registered}/{minimum} 人・剩 {count} 位',{registered:s.shared_class.registered_students,minimum:s.shared_class.minimum_students,count:s.shared_class.remaining_capacity})
+                  : t('新班・報名後開始湊班')}
               </p>}
               {s.is_full && (
                 <span className="absolute top-1 right-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
@@ -3544,7 +3548,7 @@ function Step2SkiConfiguration({
           ))}
           {sessions.length === 0 && (
             <p className="col-span-full text-center text-sm text-[#6b7280] py-8">
-              {state.selectedDate ? '此日期沒有可用時段' : '載入時段中...'}
+              {t(state.selectedDate ? '此日期沒有可用時段' : '載入時段中...')}
             </p>
           )}
         </div>
@@ -3600,7 +3604,7 @@ function Step2SkiConfiguration({
                             : 'border-[#e5e9f2] bg-white text-[#1f2937] hover:border-[#2b5f8f]'
                         }`}
                       >
-                        <span className="font-semibold">{label}</span>
+                        <span className="font-semibold">{getPurchasedEquipmentSlotLabel(slot, state.selectedCourseDates || [], t)}</span>
                         {slot.description && <span className="block mt-1 text-xs text-[#64748b]">{slot.description}</span>}
                       </button>
                     )
@@ -3650,7 +3654,7 @@ function Step3Confirmation({
   )
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-8">
       {/* Left - 聯絡資料 + 訂單明細 */}
       <div>
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -3676,42 +3680,42 @@ function Step3Confirmation({
             <div className={`rounded-sm border px-4 py-3 ${isSharedClassCart ? 'border-[#b6d6ec] bg-[#eaf4fb] text-sm font-semibold text-[#1e4e73]' : 'border-[#dbe3ec] bg-[#f8fafc] text-xs text-[#64748b]'}`}>
               <span>
                 {isSharedClassCart
-                  ? '團體湊班為單獨報名；滿成班人數後，系統才會請您付款。若排課尚待確認，會先暫停付款。'
+                  ? t('團體湊班為單獨報名；滿成班人數後，系統才會請您付款。若排課尚待確認，會先暫停付款。')
                   : isPaid
-                    ? `已建立 ${cart.length} 組預約、${totalCourses} 堂課。以下是送出時的課程內容。`
+                    ? t('已建立 {groups} 組預約、{lessons} 堂課。以下是送出時的課程內容。',{groups:cart.length,lessons:totalCourses})
                     : staffSelectedCart
-                      ? `工作人員已選好 ${cart.length} 組預約、${totalCourses} 堂課。請核對內容，若需修改請聯絡工作人員。`
-                      : `共 ${cart.length} 組預約、${totalCourses} 堂課。同一組請按「新增同組其他課程」，會以同一位教練排課；「增加新組別課程」會獨立排課。`}
+                      ? t('工作人員已選好 {groups} 組預約、{lessons} 堂課。請核對內容，若需修改請聯絡工作人員。',{groups:cart.length,lessons:totalCourses})
+                      : t('共 {groups} 組預約、{lessons} 堂課。同一組請按「新增同組其他課程」，會以同一位教練排課；「增加新組別課程」會獨立排課。',{groups:cart.length,lessons:totalCourses})}
               </span>
             </div>
-            {canEditCart && hasUnconfirmedCartPrice(cart) && <p role="alert" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">請先按「修改」重新選擇日期、時段並確認價格，再送出訂單。折扣預覽不代表課程設定已確認。</p>}
+            {canEditCart && hasUnconfirmedCartPrice(cart) && <p role="alert" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">{t('請先按「修改」重新選擇日期、時段並確認價格，再送出訂單。折扣預覽不代表課程設定已確認。')}</p>}
             {cart.map((group: any, groupIndex: number) => {
               const courseSegments = groupCartCoursesBySegment(group.courses || [])
               return (
               <article key={group.id} className="border border-[#dbe3ec] bg-white rounded-sm shadow-sm">
-                <div className="flex flex-col gap-3 border-b border-[#edf1f6] px-4 py-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-3 border-b border-[#edf1f6] px-4 py-4">
                   <div>
                     <p className="text-xs font-semibold text-[#94a3b8] uppercase tracking-wider">
-                      預約組 {groupIndex + 1}
+                      {t('預約組 {number}',{number:groupIndex+1})}
                       {courseSegments.length > 1 && (
                         <span className="ml-2 rounded-full bg-[#eff6ff] px-2 py-0.5 text-[#2b5f8f]">
-                          {courseSegments.length} 項課程
+                          {t('{count} 項課程',{count:courseSegments.length})}
                         </span>
                       )}
                     </p>
                     <h3 className="mt-1 text-base font-semibold text-[#1f2937]">
-                      {group.courseCategory || '課程預約'}
+                      {group.courseCategory || t('課程預約')}
                     </h3>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#64748b]">
                       <span className="inline-flex items-center gap-1">
                         <MapPin size={13} />
-                        {group.resortName || group.resort || '未指定雪場'}
+                        {group.resortName || group.resort || t('未指定雪場')}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <Calendar size={13} />
-                        {getCartDateSummary(group.courses || [])}
+                        {t(getCartDateSummary(group.courses || [],locale))}
                       </span>
-                      <span>{courseSegments.length} 項課程</span>
+                      <span>{t('{count} 項課程',{count:courseSegments.length})}</span>
                     </div>
                   </div>
                   {canEditCart && (
@@ -3720,7 +3724,7 @@ function Step3Confirmation({
                         <button
                           type="button"
                           onClick={() => onAddCourseToGroup?.(group.id)}
-                          className="inline-flex items-center gap-1 rounded-full border border-[#2b5f8f] bg-[#2b5f8f] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#8ec8f0]"
+                          className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#2b5f8f] bg-[#2b5f8f] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#8ec8f0]"
                         >
                           <Plus size={13} />
                           {t("新增同組其他課程")}
@@ -3729,7 +3733,7 @@ function Step3Confirmation({
                       <button
                         type="button"
                         onClick={() => onEditGroup?.(group.id)}
-                        className="inline-flex items-center gap-1 rounded-full border border-[#d4dbe4] px-3 py-1.5 text-xs font-semibold text-[#2b5f8f] hover:border-[#2b5f8f]"
+                        className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#d4dbe4] px-3 py-1.5 text-xs font-semibold text-[#2b5f8f] hover:border-[#2b5f8f]"
                       >
                         <Pencil size={13} />
                         {t("修改")}
@@ -3737,7 +3741,7 @@ function Step3Confirmation({
                       <button
                         type="button"
                         onClick={() => onRemoveGroup?.(group.id)}
-                        className="inline-flex items-center gap-1 rounded-full border border-[#f1c7c7] px-3 py-1.5 text-xs font-semibold text-[#b42318] hover:bg-[#fff1f1]"
+                        className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#f1c7c7] px-3 py-1.5 text-xs font-semibold text-[#b42318] hover:bg-[#fff1f1]"
                       >
                         <Trash2 size={13} />
                         {t("刪除")}
@@ -3746,39 +3750,36 @@ function Step3Confirmation({
                   )}
                 </div>
 
-                {canEditCart && group.rebookSource && !isPhotoCartGroup(group) && <p className="mx-4 mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm leading-6 text-[#1e4e73]">將沿用上次可管理的 {group.rebookSource.learnerCount} 位學員姓名、年齡區間與滑雪程度；其他成人需重新邀請。保險資料與聲明簽名須重新確認。</p>}
-                {canEditCart && group.rebookLearnersReset && <p role="status" className="mx-4 mt-4 rounded-sm bg-amber-50 p-3 text-sm leading-6 text-amber-900">人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。</p>}
-                <div className={`grid grid-cols-2 gap-2 px-4 py-4 ${isPhotoCartGroup(group) ? '' : 'sm:grid-cols-3 lg:grid-cols-5'}`}>
+                {canEditCart && group.rebookSource && !isPhotoCartGroup(group) && <p className="mx-4 mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm leading-6 text-[#1e4e73]">{t('將沿用上次可管理的 {count} 位學員姓名、年齡區間與滑雪程度；其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。',{count:group.rebookSource.learnerCount})}</p>}
+                {canEditCart && group.rebookLearnersReset && <p role="status" className="mx-4 mt-4 rounded-sm bg-amber-50 p-3 text-sm leading-6 text-amber-900">{t("人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。")}</p>}
+                <div className={`grid grid-cols-2 gap-2 px-4 py-4 ${isPhotoCartGroup(group) ? '' : 'sm:grid-cols-3'}`}>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
-                      <Users size={13} /> {isPhotoCartGroup(group) ? '預約數量' : '人數'}
+                      <Users size={13} /> {isPhotoCartGroup(group) ? t("預約數量") : t("人數")}
                     </p>
-                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.peopleCount || 1} {isPhotoCartGroup(group) ? '組' : '人'}</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{t(isPhotoCartGroup(group)?'{count} 組':'{count} 人',{count:group.peopleCount||1})}</p>
                   </div>
                   {!isPhotoCartGroup(group) && <><div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="text-[11px] font-semibold text-[#94a3b8]">{t("程度")}</p>
-                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{group.abilityLevelName || getCoachAbilityLabel(group.abilityLevel) || '未指定'}</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{getStudentAbilitySummary(group.abilityLevelCounts,t) || group.abilityLevelName || t(getCoachAbilityLabel(group.abilityLevel) || '未指定')}</p>
                   </div>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
-                      <Languages size={13} /> 語言
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{getLanguageLabel(group.language || 'zh')}</p>
+                      <Languages size={13} />{t("語言")}</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1f2937]">{t(getLanguageLabel(group.language || 'zh'))}</p>
                   </div>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
-                      <User size={13} /> 教練
-                    </p>
+                      <User size={13} />{t("教練")}</p>
                     <p className="mt-1 break-words text-sm font-semibold leading-relaxed text-[#1f2937]">
-                      {group.courses?.[0]?.sharedClassEnabled ? '由學校安排' : (group.coachName || '不指定')}
+                      {group.courses?.[0]?.sharedClassEnabled ? t("由學校安排") : group.coach === 'any' ? t('不指定') : (group.coachName || t('不指定'))}
                     </p>
                   </div>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
                     <p className="flex items-center gap-1 text-[11px] font-semibold text-[#94a3b8]">
-                      <Package size={13} /> 裝備
-                    </p>
+                      <Package size={13} />{t("裝備")}</p>
                     <p className="mt-1 text-sm font-semibold text-[#1f2937]">
-                      {getEquipmentOptionLabel(group.equipmentOption, group.equipment)}
+                      {t(getEquipmentOptionLabel(group.equipmentOption, group.equipment))}
                     </p>
                   </div></>}
                   {isPhotoCartGroup(group) && <div className="rounded-sm bg-[#f8fafc] px-3 py-2">
@@ -3808,7 +3809,7 @@ function Step3Confirmation({
                       <div key={segment.key} className="grid gap-3 rounded-sm border border-[#edf1f6] bg-[#fbfdff] px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
                         <div>
                           <p className="mb-1 text-xs font-semibold text-[#2b5f8f]">
-                            第 {segmentIndex + 1} 項課程
+                            {t('第 {number} 項課程',{number:segmentIndex+1})}
                           </p>
                           <p className="text-sm font-semibold text-[#1f2937]">
                             {firstCourse?.courseTemplateName || firstCourse?.courseTypeName}
@@ -3816,14 +3817,14 @@ function Step3Confirmation({
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#64748b]">
                             <span className="inline-flex items-center gap-1">
                               <Calendar size={13} />
-                              {formatCourseSegmentDates(segment.courses)}
+                              {t(formatCourseSegmentDates(segment.courses,locale))}
                             </span>
                             <span className="inline-flex items-center gap-1">
                               <Clock size={13} />
                               {firstCourse?.timeSlotStart || '--:--'} - {firstCourse?.timeSlotEnd || '--:--'}
                             </span>
                             {segment.courses.length > 1 && (
-                              <span>{segment.courses.length} 天</span>
+                              <span>{t('{count} 天',{count:segment.courses.length})}</span>
                             )}
                           </div>
                         </div>
@@ -3833,7 +3834,7 @@ function Step3Confirmation({
                             <button
                               type="button"
                               onClick={removeSegment}
-                              aria-label="刪除此課程項目"
+                              aria-label={t('刪除此課程項目')}
                               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#94a3b8] hover:bg-[#fff1f1] hover:text-[#b42318]"
                             >
                               <Trash2 size={15} />
@@ -3846,8 +3847,8 @@ function Step3Confirmation({
 
                   {(group.equipmentAssistanceTimeLabel || group.equipmentOption === 'class_time_help') && (
                     <div className="rounded-sm border border-[#dbeafe] bg-[#eff6ff] px-3 py-2 text-sm text-[#1e3a8a]">
-                      <span className="font-semibold">裝備協助：</span>
-                      {group.equipmentAssistanceTimeLabel || '課程時間內協助'}
+                      <span className="font-semibold">{t('裝備協助')}：</span>
+                      {group.equipmentAssistanceTimeLabel || t('課程時間內協助')}
                     </div>
                   )}
 
@@ -3860,7 +3861,7 @@ function Step3Confirmation({
                   ) : null}
 
                   <div className="flex items-center justify-between border-t border-[#edf1f6] pt-3">
-                    <span className="text-sm font-semibold text-[#64748b]">小計</span>
+                    <span className="text-sm font-semibold text-[#64748b]">{t("小計")}</span>
                     <span className="text-base font-bold text-[#1f2937]">{formatCurrency(group.totalPrice)}</span>
                   </div>
                 </div>
@@ -3875,13 +3876,12 @@ function Step3Confirmation({
         </h3>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              姓名 <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">{t("姓名")}<span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={contactInfo.name}
-              aria-label="聯絡人姓名"
+              aria-label={t('聯絡人姓名')}
               required
               readOnly={isPaid}
               onChange={(e) => setContactInfo({ ...contactInfo, name: e.target.value })}
@@ -3902,8 +3902,7 @@ function Step3Confirmation({
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              聯絡電話 <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">{t("聯絡電話")}<span className="text-red-500">*</span>
             </label>
             <input
               type="tel"
@@ -3915,8 +3914,7 @@ function Step3Confirmation({
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              通訊軟體 <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">{t("通訊軟體")}<span className="text-red-500">*</span>
             </label>
             <select
               value={contactInfo.messengerType}
@@ -3938,8 +3936,7 @@ function Step3Confirmation({
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
-              通訊軟體 ID <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">{t("通訊軟體 ID")}<span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -3962,8 +3959,8 @@ function Step3Confirmation({
 
         <div className="space-y-3 mb-6">
           <div className="flex justify-between text-sm">
-            <span className="text-[#6b7280]">{isPaid ? '本筆應付' : '課程費用'}</span>
-            <span className="text-[#1f2937]">{pricePending ? '價格待確認' : `NT$ ${cartSubtotal.toLocaleString()}`}</span>
+            <span className="text-[#6b7280]">{t(isPaid ? '本筆應付' : '課程費用')}</span>
+            <span className="text-[#1f2937]">{pricePending ? t("價格待確認") : `NT$ ${cartSubtotal.toLocaleString()}`}</span>
           </div>
 
           {!isPaid && <div>
@@ -4009,7 +4006,7 @@ function Step3Confirmation({
                 value={referrerDetail}
                 readOnly={isPaid}
                 onChange={(e) => setReferrerDetail(e.target.value)}
-                placeholder={referrer === '其他' ? '請填寫來源' : '補充說明（例如：推薦人姓名、活動名稱）'}
+                placeholder={referrer === '其他' ? t("請填寫來源") : t("補充說明（例如：推薦人姓名、活動名稱）")}
                 className="mt-2 w-full px-3 py-2 rounded-sm border border-[#e2e8f0] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#2b5f8f]/30"
               />
             )}
@@ -4034,16 +4031,16 @@ function Step3Confirmation({
           <div className="flex justify-between items-baseline">
             <span className="text-sm font-semibold text-[#1f2937]">{t(currencyIsJpy ? (isPaid?'日幣應付合計':'預估日幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額')}</span>
             <span className="text-2xl font-bold text-[#2b5f8f]">
-              {pricePending ? '價格待確認' : currencyIsJpy
-                ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`JPY ¥ ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:'日幣金額待確認'
+              {pricePending ? t("價格待確認") : currencyIsJpy
+                ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`JPY ¥ ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:t("日幣金額待確認")
                 : `NT$ ${total.toLocaleString()}`}
             </span>
           </div>
-          {currencyIsJpy&&<p className="mt-2 text-xs leading-6 text-[#64748b]">台幣計價基準合計 NT$ {total.toLocaleString()}。{isPaid?'請依每筆訂單的日幣金額分別匯至對應帳戶。':'預估金額採各預約組分開換算；成立後會列出每筆應付金額。'}</p>}
+          {currencyIsJpy&&<p className="mt-2 text-xs leading-6 text-[#64748b]">{t('台幣計價基準合計 NT$ {amount}。',{amount:total.toLocaleString()})}{t(isPaid?'請依每筆訂單的日幣金額分別匯至對應帳戶。':'預估金額採各預約組分開換算；成立後會列出每筆應付金額。')}</p>}
         </div>
 
-        {pricePending && <p role="status" className="mb-4 text-sm text-amber-800">{isDiscountPreviewLoading ? '正在確認最新價格…' : '尚未取得最新價格，請按課程「修改」重新確認日期、時段與價格後再送出。'}</p>}
-        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">{t("日幣金額尚未確認，暫不能送出訂單。")}<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?'正在確認價格…':'重新確認價格'}</button></p>}
+        {pricePending && <p role="status" className="mb-4 text-sm text-amber-800">{t(isDiscountPreviewLoading ? '正在確認最新價格…' : '尚未取得最新價格，請按課程「修改」重新確認日期、時段與價格後再送出。')}</p>}
+        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">{t("日幣金額尚未確認，暫不能送出訂單。")}<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?t("正在確認價格…"):t("重新確認價格")}</button></p>}
 
         <h4 className="text-sm font-semibold text-[#1f2937] mb-3">{t("付款方式")}</h4>
         {isSharedClassCart && !isPaid && (
@@ -4069,7 +4066,7 @@ function Step3Confirmation({
                 onChange={(e) => setPaymentMethod(e.target.value as any)}
                 className="text-[#2b5f8f] focus:ring-[#2b5f8f]"
               />
-              <span className="text-sm text-[#1f2937]">{p.label}</span>
+              <span className="text-sm text-[#1f2937]">{t(p.label)}</span>
             </label>
           ))}
         </div>}
@@ -4085,14 +4082,13 @@ function Step3Confirmation({
             <h4 className="text-sm font-semibold text-[#2b5f8f] mb-3">{t("匯款資訊")}</h4>
             <div className="mb-4 rounded-sm border border-[#f5c16c] bg-[#fff7e6] p-3 text-xs leading-5 text-[#92400e]">
               {submittedReservation.payment_expires_at
-                ? `請於 ${new Date(submittedReservation.payment_expires_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })} 前完成匯款。`
-                : '請於訂單付款期限內完成匯款。'}若尚未匯款，可按「稍後匯款」；若已匯款，請填寫匯款帳戶後五碼並按「確認已匯款」。
-            </div>
+                ? t('請於 {date} 前完成匯款。',{date:new Date(submittedReservation.payment_expires_at).toLocaleString(locale,{timeZone:'Asia/Taipei'})})
+                : t('請於訂單付款期限內完成匯款。')}{t("若尚未匯款，可按「稍後匯款」；若已匯款，請填寫匯款帳戶後五碼並按「確認已匯款」。")}</div>
             {submittedReservation.payment_infos.length > 1 && <p className="mb-3 text-sm font-semibold text-[#92400e]">{t("每筆預約請分別匯至下方對應帳戶，不要將總金額匯入單一帳戶。")}</p>}
             <div className="space-y-4 text-sm">
               {submittedReservation.payment_infos.map((info: SubmittedReservation['payment_infos'][number]) => (
                 <div key={info.reservation_group_id} className="space-y-2 border-t border-[#e5e9f2] pt-3">
-                  {submittedReservation.payment_infos.length > 1 && <p className="font-semibold text-[#1f2937]">預約 #{info.reservation_group_id}</p>}
+                  {submittedReservation.payment_infos.length > 1 && <p className="font-semibold text-[#1f2937]">{t('預約 #{number}',{number:info.reservation_group_id})}</p>}
                   <SettlementSummary settlement={info.settlement} paymentInstructions />
                   <div className="flex justify-between"><span className="text-[#6b7280]">{t("銀行")}</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_name || '—'}</span></div>
                   <div className="flex justify-between"><span className="text-[#6b7280]">{t("分行")}</span><span className="text-[#1f2937] font-medium">{info.bank_info.bank_branch || '—'}</span></div>
@@ -4124,9 +4120,9 @@ function Step3Confirmation({
         {isPaid && paymentMethod === 'card' && submittedReservation.payment_methods.includes('newebpay') && (
           <div className="mt-2 p-4 bg-white border border-[#2b5f8f]/30 rounded-sm text-center">
             <p className="text-sm text-[#1f2937] mb-1">
-              {submittedReservation.reservation_group_ids.length > 1
+              {t(submittedReservation.reservation_group_ids.length > 1
                 ? '多筆預約目前請使用銀行轉帳，或分開結帳使用信用卡'
-                : '將於下一步開啟藍新付款視窗'}
+                : '將於下一步開啟藍新付款視窗')}
             </p>
             <p className="text-xl font-bold text-[#2b5f8f]">NT$ {total.toLocaleString()}</p>
           </div>

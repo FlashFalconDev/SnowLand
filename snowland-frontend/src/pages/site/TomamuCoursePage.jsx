@@ -1,3 +1,4 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link as RouterLink, useParams } from 'react-router-dom';
@@ -10,6 +11,7 @@ import { useSiteLink } from '../../hooks/useSiteBasePath';
 import { siteContentToResort, useCoursePricing, useSiteContent } from '../../hooks/useSiteContent';
 
 function TomamuCoursePage() {
+  const {t} = useSiteLocale();
   const { section } = useParams();
   const [priceTab, setPriceTab] = useState("regular");
   const [activeTab, setActiveTab] = useState("滑雪課程");
@@ -223,6 +225,10 @@ function TomamuCoursePage() {
     進階: "#111111",
     零基礎: "#e66fa6",
   };
+  const formatTicketPrice = (value) => {
+    const match = /^(\d[\d,]*) 日圓$/.exec(value);
+    return match ? t('{amount} 日圓', { amount: match[1] }) : value;
+  };
   const tomamuOnlineTicketPrices = [
     {
       type: "新冬試滑一日券",
@@ -407,7 +413,7 @@ function TomamuCoursePage() {
                     ? "opacity-100 translate-x-0"
                     : "pointer-events-none opacity-0 -translate-x-4"
                 }`}
-                aria-label={`上一個雪場：${previousResort.nameChinese}`}
+                aria-label={t("上一個雪場：{name}", {name: previousResort.nameChinese})}
               >
                 <span className="text-[10px] font-semibold tracking-[0.2em] text-white/80">
                   {previousResort.nameChinese}
@@ -433,7 +439,7 @@ function TomamuCoursePage() {
                     ? "opacity-100 translate-x-0"
                     : "pointer-events-none opacity-0 translate-x-4"
                 }`}
-                aria-label={`下一個雪場：${nextResort.nameChinese}`}
+                aria-label={t("下一個雪場：{name}", {name: nextResort.nameChinese})}
               >
                 <span className="text-[10px] font-semibold tracking-[0.2em] text-white/80">
                   {nextResort.nameChinese}
@@ -463,15 +469,13 @@ function TomamuCoursePage() {
                 <h1 className="text-3xl md:text-4xl font-semibold tracking-wide font-display leading-tight text-white drop-shadow-sm">
                   星野TOMAMU
                 </h1>
-                <p className="mt-6 text-base md:text-lg text-white/85 max-w-xl leading-relaxed drop-shadow-sm">
-                  北海道的中心地帶，一站式度假村粉雪天堂。除了滑雪還提供多種雪地活動，讓您在雪地中盡情玩樂。
-                </p>
+                <p className="mt-6 text-base md:text-lg text-white/85 max-w-xl leading-relaxed drop-shadow-sm">{t("北海道的中心地帶，一站式度假村粉雪天堂。除了滑雪還提供多種雪地活動，讓您在雪地中盡情玩樂。")}</p>
                 <a
                   href={bookingUrl}
                   className="group relative mt-6 hidden lg:inline-flex w-56 items-center justify-center rounded-full bg-[#8ec8f0] px-10 py-5 text-sm font-bold text-white transition-all duration-300 hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
                 >
                   <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                  <span className="relative z-10">預約課程</span>
+                  <span className="relative z-10">{t("預約課程")}</span>
                   <svg
                     className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
                     fill="none"
@@ -494,24 +498,24 @@ function TomamuCoursePage() {
                     <div className="mt-4 text-4xl font-semibold tracking-wide font-display">星野TOMAMU</div>
                     <div className="mt-6 grid grid-cols-1 gap-4 text-xs text-white/80 sm:grid-cols-2">
                       <div>
-                        <p className="uppercase tracking-[0.3em] text-white/60">特色</p>
+                        <p className="uppercase tracking-[0.3em] text-white/60">{t("特色")}</p>
                         <ul className="mt-2 space-y-1 text-sm font-semibold text-white">
                           <li>Ski-in/Ski-out</li>
-                          <li>親子樂園</li>
-                          <li>初學友善</li>
-                          <li>夜滑雪道</li>
-                          <li>托兒服務</li>
-                          <li>雪具租借</li>
-                          <li>多元戶外活動</li>
+                          <li>{t("親子樂園")}</li>
+                          <li>{t("初學友善")}</li>
+                          <li>{t("夜滑雪道")}</li>
+                          <li>{t("托兒服務")}</li>
+                          <li>{t("雪具租借")}</li>
+                          <li>{t("多元戶外活動")}</li>
                         </ul>
                       </div>
                       <div>
-                        <p className="uppercase tracking-[0.3em] text-white/60">雪道分級</p>
+                        <p className="uppercase tracking-[0.3em] text-white/60">{t("雪道分級")}</p>
                         {slopeStats.length ? <div className="mt-3 space-y-3 text-xs text-white/85">
                           {slopeStats.map((item) => (
                             <div key={item.label}>
                               <div className="flex items-center justify-between">
-                                <span className="font-semibold">{item.label}</span>
+                                <span className="font-semibold">{t(item.label)}</span>
                                 <span className="text-white/70">{item.value}%</span>
                               </div>
                               <div className="mt-1 h-2 w-full overflow-hidden rounded-sm bg-white/20">
@@ -522,7 +526,7 @@ function TomamuCoursePage() {
                               </div>
                             </div>
                           ))}
-                        </div> : <p className="mt-3 text-sm leading-relaxed text-white/80">雪道比例待雪場資料確認後更新。</p>}
+                        </div> : <p className="mt-3 text-sm leading-relaxed text-white/80">{t("雪道比例待雪場資料確認後更新。")}</p>}
                       </div>
                     </div>
                   </div>
@@ -534,7 +538,7 @@ function TomamuCoursePage() {
                   className="group relative mt-2 inline-flex w-56 items-center justify-center rounded-full bg-[#8ec8f0] px-10 py-5 text-sm font-bold text-white transition-all duration-300 hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
                 >
                   <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                  <span className="relative z-10">預約課程</span>
+                  <span className="relative z-10">{t("預約課程")}</span>
                   <svg
                     className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
                     fill="none"
@@ -561,12 +565,12 @@ function TomamuCoursePage() {
                     key={item.slug}
                     to={`/course/tomamu/${item.slug}`}
                     onClick={() => setActiveTab(item.label)}
-                    className={`group relative pb-4 transition-colors duration-200 ${
+                    className={`group relative inline-flex min-h-[44px] min-w-[44px] pb-4 transition-colors duration-200 ${
                       isActive ? "text-[#111827]" : "hover:text-[#2b5f8f]"
                     }`}
                     aria-current={isActive ? "page" : undefined}
                   >
-                    {item.label}
+                    {t(item.label)}
                     <span
                       className={`absolute left-0 -bottom-[1px] h-0.5 transition-all duration-300 ${
                         isActive ? "w-full bg-[#111827]" : "w-0 bg-[#2b5f8f] group-hover:w-full"
@@ -593,12 +597,8 @@ function TomamuCoursePage() {
                 <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                   Accommodation
                 </p>
-                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                  舒適的住宿選擇
-                </h2>
-                <p className="max-w-xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">
-                  星野TOMAMU滑雪場提供多種住宿選擇，包括RISONARE Tomamu和The Tower等，房間寬敞舒適，部分客房配備私人桑拿和按摩浴池，讓您在滑雪後放鬆身心。
-                </p>
+                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("舒適的住宿選擇")}</h2>
+                <p className="max-w-xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">{t("星野TOMAMU滑雪場提供多種住宿選擇，包括RISONARE Tomamu和The Tower等，房間寬敞舒適，部分客房配備私人桑拿和按摩浴池，讓您在滑雪後放鬆身心。")}</p>
               </motion.div>
             </div>
 
@@ -625,7 +625,7 @@ function TomamuCoursePage() {
                         {hotel.title}
                       </h3>
                       <p className="text-sm md:text-base text-[#475569] leading-relaxed">
-                        {hotel.description}
+                        {t(hotel.description)}
                       </p>
                       <div>
                         <a
@@ -633,9 +633,7 @@ function TomamuCoursePage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-6 py-2 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
-                        >
-                          查詢空房
-                        </a>
+                        >{t("查詢空房")}</a>
                       </div>
                     </div>
                   </div>
@@ -653,28 +651,24 @@ function TomamuCoursePage() {
               <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                 TOMAMU COURSE PRICING
               </p>
-              <h2 className="text-2xl font-semibold tracking-wide font-display">
-                星野課程價目表
-              </h2>
+              <h2 className="text-2xl font-semibold tracking-wide font-display">{t("星野課程價目表")}</h2>
             </div>
 
             <div className="grid gap-8">
               {pricing && <div className="flex items-center justify-center gap-4 text-base font-semibold text-[#64748b]">
                 <button
                   type="button"
-                  className={`transition-colors ${
+                  className={`min-h-[44px] min-w-[44px] transition-colors ${
                     priceTab === "discount" ? "text-[#F7941D]" : "hover:text-[#1f2937]"
                   }`}
                   onClick={() => setPriceTab("discount")}
-                >
-                  優惠時段
-                </button>
+                >{t("優惠時段")}</button>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={priceTab === "regular"}
-                  aria-label="切換價目表"
-                  className="relative h-10 w-20 rounded-full bg-[#d4d4d4] transition-colors"
+                  aria-label={t("切換價目表")}
+                  className="relative h-11 w-20 shrink-0 rounded-full bg-[#d4d4d4] transition-colors"
                   onClick={() => setPriceTab((prev) => (prev === "discount" ? "regular" : "discount"))}
                 >
                   <span
@@ -686,23 +680,21 @@ function TomamuCoursePage() {
                 </button>
                 <button
                   type="button"
-                  className={`transition-colors ${
+                  className={`min-h-[44px] min-w-[44px] transition-colors ${
                     priceTab === "regular" ? "text-[#2b5f8f]" : "hover:text-[#1f2937]"
                   }`}
                   onClick={() => setPriceTab("regular")}
-                >
-                  一般時段
-                </button>
+                >{t("一般時段")}</button>
               </div>}
 
               <div className="w-full max-w-xl mx-auto">
                 <div className="text-center">
                   <p className="text-[#1f2937]">
                     <span className="text-xl font-semibold">
-                      {pricing?.season_label || '課程價格'} ｜{" "}
+                      {pricing?.season_label || t('課程價格')} ｜{" "}
                     </span>
                     <span className="text-lg font-semibold" style={{ color: priceAccentText }}>
-                      {pricePlan?.period || '請至預約流程即時計價'}
+                      {pricePlan?.period || t('請至預約流程即時計價')}
                     </span>
                   </p>
                 </div>
@@ -736,25 +728,23 @@ function TomamuCoursePage() {
                       backgroundColor: priceTab === "discount" ? "#f0cfac" : "#dbe2f0",
                     }}
                   >
+                    <div className="px-4 py-3 text-center">{t("人數")}</div>
                     <div className="px-4 py-3 text-center">
-                      人數
+                      {t(pricing?.column_labels?.full || '全天')}
                     </div>
-                    <div className="px-4 py-3 text-center">
-                      {pricing?.column_labels?.full || '全天'}
-                    </div>
-                    {showHalfDay && <div className="px-4 py-3 text-center">{pricing?.column_labels?.half || '半天'}</div>}
+                    {showHalfDay && <div className="px-4 py-3 text-center">{t(pricing?.column_labels?.half || '半天')}</div>}
                   </div>
                   <div className="text-sm text-[#475569]">
                     {pricingLoading ? (
-                      <div className="px-4 py-8 text-center text-[#64748b]">價目載入中。</div>
+                      <div className="px-4 py-8 text-center text-[#64748b]">{t("價目載入中。")}</div>
                     ) : pricingStale ? (
-                      <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
+                      <div className="px-4 py-8 text-center text-[#475569]">{t("本雪季價目尚未發布。請至")} {" "}<SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">{t("預約課程")}</SiteLink>{" "}{t("查看目前可預約課程與即時計價。")}</div>
                     ) : pricingError ? (
-                      <div className="px-4 py-8 text-center text-red-600">價目暫時無法載入，請稍後再試。</div>
+                      <div className="px-4 py-8 text-center text-red-600">{t("價目暫時無法載入，請稍後再試。")}</div>
                     ) : !pricing ? (
-                      <div className="px-4 py-8 text-center text-[#475569]">本雪季價目尚未發布。請至 <SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">預約課程</SiteLink> 查看目前可預約課程與即時計價。</div>
+                      <div className="px-4 py-8 text-center text-[#475569]">{t("本雪季價目尚未發布。請至")} {" "}<SiteLink to="/booking" className="font-semibold text-[#2b5f8f] underline">{t("預約課程")}</SiteLink>{" "}{t("查看目前可預約課程與即時計價。")}</div>
                     ) : priceTableRows.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-[#64748b]">目前尚未設定此時段價格。</div>
+                      <div className="px-4 py-8 text-center text-[#64748b]">{t("目前尚未設定此時段價格。")}</div>
                     ) : priceTableRows.map((row, index) => (
                       <div
                         key={row.label}
@@ -818,9 +808,9 @@ function TomamuCoursePage() {
             <div className="max-w-6xl mx-auto px-6 py-12 space-y-12">
               <div className="divide-y divide-[#e2e2de]">
                 <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
-                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">優惠</h3>
+                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("優惠")}</h3>
                   <ul className="space-y-3 text-sm text-[#475569] list-disc pl-5">
-                    {!pricing?.promotions?.length && <li>本雪季優惠尚未公布。</li>}
+                    {!pricing?.promotions?.length && <li>{t("本雪季優惠尚未公布。")}</li>}
                     {(pricing?.promotions ?? []).map((promotion) => (
                       <li key={promotion.title} className="space-y-2">
                         <span>{promotion.title}</span>
@@ -833,187 +823,19 @@ function TomamuCoursePage() {
                 </div>
 
                 <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] py-8">
-                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程費用</h3>
+                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("課程費用")}</h3>
                   <ul className="space-y-2 text-sm text-[#475569] list-disc pl-5">
-                    {!pricing?.fee_notes?.length && <li>請以預約流程顯示的即時計價為準。</li>}
+                    {!pricing?.fee_notes?.length && <li>{t("請以預約流程顯示的即時計價為準。")}</li>}
                     {(pricing?.fee_notes ?? []).map((note) => <li key={note}>{note}</li>)}
                   </ul>
                 </div>
 
                 {!pricing && !pricingLoading && (
-                  <p className="pt-8 text-sm text-[#475569]">本雪季課程時間請以預約流程可選時段為準。</p>
+                  <p className="pt-8 text-sm text-[#475569]">{t("本雪季課程時間請以預約流程可選時段為準。")}</p>
                 )}
                 <div className={pricing ? 'pt-8' : 'hidden'}>
-                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">課程時間</h3>
-                  <div className="mt-6 space-y-8 divide-y divide-[#e2e2de]">
-                    <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] pb-8">
-                      <p className="text-sm font-semibold text-[#1f2937]">全天5hr課程</p>
-                      <div className="grid gap-6 md:grid-cols-2">
-                        <div className="space-y-2 mt-4 md:mt-0">
-                          <p className="text-sm font-semibold text-[#1f2937]">含協助租借裝備</p>
-                          <ul className="space-y-2 text-sm text-[#475569]">
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>08:30</span>
-                              <span>- 集合時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>08:30~09:00(30min)</span>
-                              <span>- 當日協助租借裝備</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>09:00~11:30(2.5hr)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>11:30~12:30(1hr)</span>
-                              <span>- 中午休息</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>12:30~14:30(2hrs)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                          </ul>
-                        </div>
-                        <div className="space-y-2 mt-4 md:mt-0">
-                          <p className="text-sm font-semibold text-[#1f2937]">不含協助租借裝備</p>
-                          <ul className="space-y-2 text-sm text-[#475569]">
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>09:00</span>
-                              <span>- 集合時間，教練在集合時檢整裝備沒問題後開始課程</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>09:00~11:30(2.5hr)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>11:30~12:30(1hr)</span>
-                              <span>- 中午休息</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>12:30~15:00(2.5hrs)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                          </ul>
-                          <div className="space-y-2 text-sm text-[#475569]">
-                            <ul className="list-disc pl-5">
-                              <li className="pt-2 font-semibold text-[#1f2937]">
-                                如需要協助租借又不希望壓縮上課時間須加購協助服務
-                              </li>
-                            </ul>
-                            <ul className="list-disc pl-5">
-                              <li className="font-semibold text-[#1f2937]">加購協助租借裝備時間</li>
-                            </ul>
-                            <ul className="space-y-1 pl-5">
-                              <li>- 前一日 15:30~17:00</li>
-                              <li>- 當  日 08:30~09:00</li>
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)]">
-                      <p className="text-sm font-semibold text-[#1f2937]">半天3h課程</p>
-                      <div className="grid gap-6 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <p className="text-sm font-semibold text-[#1f2937]">含協助租借裝備</p>
-                          <ul className="space-y-2 text-sm text-[#475569]">
-                            <li className="flex items-center gap-3 text-xs font-semibold text-[#1f2937]">
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                              <span>早上課</span>
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>08:30</span>
-                              <span>- 集合時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>08:30~09:00(30min)</span>
-                              <span>- 協助租借裝備</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>09:00~11:30(2.5hrs)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                            <li className="flex items-center gap-3 pt-2 text-xs font-semibold text-[#1f2937]">
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                              <span>下午課</span>
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>12:30</span>
-                              <span>- 集合時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>12:30~13:00(30min)</span>
-                              <span>- 協助租借裝備</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>13:00~15:30(2.5hrs)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                          </ul>
-                        </div>
-                        <div className="space-y-2">
-                          <p className="text-sm font-semibold text-[#1f2937]">不含協助租借裝備</p>
-                          <ul className="space-y-2 text-sm text-[#475569]">
-                            <li className="flex items-center gap-3 text-xs font-semibold text-[#1f2937]">
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                              <span>早上課</span>
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>09:00</span>
-                              <span>- 集合時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>09:00~12:00(3hrs)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 invisible">
-                              <span>00:00</span>
-                              <span>-</span>
-                            </li>
-                            <li className="flex items-center gap-3 pt-2 text-xs font-semibold text-[#1f2937]">
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                              <span>下午課</span>
-                              <span className="h-px flex-1 bg-[#1f2937]" />
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>12:30</span>
-                              <span>- 集合時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>12:30~15:30(3hrs)</span>
-                              <span>- 上課時間</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>前一日 15:30~17:00</span>
-                              <span>- 租借裝備</span>
-                            </li>
-                            <li className="grid grid-cols-[140px_minmax(0,1fr)] gap-3">
-                              <span>當日 08:30~09:00</span>
-                              <span>- 集合時間</span>
-                            </li>
-                          </ul>
-                          <div className="space-y-2 text-sm text-[#475569]">
-                            <ul className="list-disc pl-5">
-                              <li className="pt-2 font-semibold text-[#1f2937]">
-                                如需要協助租借又不希望壓縮上課時間須加購協助服務
-                              </li>
-                            </ul>
-                            <ul className="list-disc pl-5">
-                              <li className="font-semibold text-[#1f2937]">加購協助租借裝備時間</li>
-                            </ul>
-                            <ul className="space-y-1 pl-5">
-                              <li>- 前一日 15:30~17:00</li>
-                              <li>- 當  日 08:30~09:00</li>
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("課程時間")}</h3>
+                  <p className="mt-6 text-sm leading-relaxed text-[#475569]">{t("本雪季課程時間請以預約流程可選時段為準。")}</p>
                 </div>
               </div>
 
@@ -1023,7 +845,7 @@ function TomamuCoursePage() {
                   className="group relative inline-flex w-56 items-center justify-center rounded-full bg-[#8ec8f0] px-10 py-5 text-sm font-bold text-white transition-all duration-300 hover:bg-[#7bbbe7] hover:scale-105 hover:shadow-[0_0_30px_rgba(142,200,240,0.6)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8ec8f0] overflow-hidden"
                 >
                   <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                  <span className="relative z-10">預約課程</span>
+                  <span className="relative z-10">{t("預約課程")}</span>
                   <svg
                     className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
                     fill="none"
@@ -1047,9 +869,7 @@ function TomamuCoursePage() {
               <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                 TOMAMU SLOPE MAP
               </p>
-              <h2 className="text-2xl font-semibold tracking-wide font-display">
-                雪道介紹
-              </h2>
+              <h2 className="text-2xl font-semibold tracking-wide font-display">{t("雪道介紹")}</h2>
             </div>
             <div className="mt-6">
               <img loading="lazy" decoding="async"
@@ -1061,32 +881,32 @@ function TomamuCoursePage() {
             <div className="mt-6 bg-white">
               <div className="mx-auto w-full max-w-5xl border-b border-[#e2e8f0] text-sm text-[#475569]">
                 <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <div className="font-semibold text-[#1f2937]">滑道數量</div>
-                  <div>29 (進階4條、中級14條、初級10條、零基礎1條)</div>
+                  <div className="font-semibold text-[#1f2937]">{t("滑道數量")}</div>
+                  <div>{t("29 (進階4條、中級14條、初級10條、零基礎1條)")}</div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <div className="font-semibold text-[#1f2937]">總滑行距離</div>
+                  <div className="font-semibold text-[#1f2937]">{t("總滑行距離")}</div>
                   <div>21.5 km</div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <div className="font-semibold text-[#1f2937]">滑雪場滑道面積</div>
+                  <div className="font-semibold text-[#1f2937]">{t("滑雪場滑道面積")}</div>
                   <div>123.9ha</div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <div className="font-semibold text-[#1f2937]">最長滑行距離</div>
+                  <div className="font-semibold text-[#1f2937]">{t("最長滑行距離")}</div>
                   <div>4,200ｍ　(Silver Bell ～ Beginner's Choice)</div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <div className="font-semibold text-[#1f2937]">最大坡度</div>
+                  <div className="font-semibold text-[#1f2937]">{t("最大坡度")}</div>
                   <div>35°　(No Gravity)</div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <div className="font-semibold text-[#1f2937]">標高差</div>
+                  <div className="font-semibold text-[#1f2937]">{t("標高差")}</div>
                   <div>585m (1171m～586m)</div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <div className="font-semibold text-[#1f2937]">纜車數</div>
-                  <div>吊椅5、纜車1</div>
+                  <div className="font-semibold text-[#1f2937]">{t("纜車數")}</div>
+                  <div>{t("吊椅5、纜車1")}</div>
                 </div>
               </div>
             </div>
@@ -1095,12 +915,12 @@ function TomamuCoursePage() {
                 <table className="mx-auto w-full max-w-5xl text-left text-[10px] md:text-sm">
                   <thead className="bg-[#dbe2f0] text-[#1f2937]">
                     <tr className="text-[10px] font-semibold uppercase font-display tracking-[0.08em] md:text-xs md:tracking-[0.2em]">
-                      <th className="px-1.5 md:px-4 py-2.5 text-right whitespace-nowrap w-[36px] md:w-[80px]">編號</th>
+                      <th className="px-1.5 md:px-4 py-2.5 text-right whitespace-nowrap w-[36px] md:w-[80px]">{t("編號")}</th>
                       <th className="px-1.5 md:px-4 py-2.5 whitespace-nowrap w-[54px] md:w-[110px]">Level</th>
-                      <th className="pl-1.5 pr-0.5 md:px-4 py-2.5 w-[110px] md:w-[320px]">雪道名稱</th>
-                      <th className="pl-0.5 pr-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[62px] md:w-[130px]">長度 (m)</th>
-                      <th className="px-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[54px] md:w-[120px]">斜率 (°)</th>
-                      <th className="px-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[70px] md:w-[150px]">平均斜率 (°)</th>
+                      <th className="pl-1.5 pr-0.5 md:px-4 py-2.5 w-[110px] md:w-[320px]">{t("雪道名稱")}</th>
+                      <th className="pl-0.5 pr-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[62px] md:w-[130px]">{t("長度 (m)")}</th>
+                      <th className="px-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[54px] md:w-[120px]">{t("斜率 (°)")}</th>
+                      <th className="px-1 md:px-4 py-2.5 text-right whitespace-nowrap w-[70px] md:w-[150px]">{t("平均斜率 (°)")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1123,7 +943,7 @@ function TomamuCoursePage() {
                           className="px-1.5 md:px-4 py-2.5 font-semibold"
                           style={{ color: levelColor }}
                         >
-                          {course.level}
+                          {t(course.level)}
                         </td>
                         <td className="pl-1.5 pr-0.5 md:px-4 py-2.5 font-semibold text-[#1f2937] break-words">
                           {course.name}
@@ -1157,12 +977,9 @@ function TomamuCoursePage() {
               <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                 LIFT TICKETS
               </p>
-              <h2 className="text-2xl font-semibold tracking-wide font-display">
-                雪票價格
-              </h2>
-              <p className="text-sm md:text-base leading-relaxed text-[#475569]">
-                星野住宿客人享有住宿者優惠，請於現場購買雪票。
-              </p>
+              <h2 className="text-2xl font-semibold tracking-wide font-display">{t("雪票價格")}</h2>
+              <p className="text-sm font-semibold leading-relaxed text-[#2b5f8f]">{t("以下為 2025–2026 雪季參考資料；最新雪票價格與使用規則請以雪場官方網站為準。")}</p>
+              <p className="text-sm md:text-base leading-relaxed text-[#475569]">{t("星野住宿客人享有住宿者優惠，請於現場購買雪票。")}</p>
             </motion.div>
             <div className="space-y-8">
               <div className="relative w-full aspect-[5/2] overflow-hidden rounded-sm border border-[#e2e8f0]">
@@ -1173,18 +990,16 @@ function TomamuCoursePage() {
                 />
               </div>
               <div className="text-center">
-                <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                  網路販售價格
-                </h3>
+                <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("網路販售價格")}</h3>
               </div>
               <div className="overflow-x-auto thin-scrollbar">
                 <table className="w-full min-w-[720px] text-left text-sm text-[#475569]">
                   <thead className="bg-[#dbe2f0] text-xs font-semibold tracking-[0.2em] uppercase text-[#1f2937] font-display">
                     <tr>
-                      <th className="px-4 py-3 font-semibold">票券類型</th>
-                      <th className="px-4 py-3 text-center font-semibold">成人（12歲以上）</th>
-                      <th className="px-4 py-3 text-center font-semibold">兒童（7～11歲）</th>
-                      <th className="px-4 py-3 font-semibold w-[220px] md:w-[280px]">備註</th>
+                      <th className="px-4 py-3 font-semibold">{t("票券類型")}</th>
+                      <th className="px-4 py-3 text-center font-semibold">{t("成人（12歲以上）")}</th>
+                      <th className="px-4 py-3 text-center font-semibold">{t("兒童（7～11歲）")}</th>
+                      <th className="px-4 py-3 font-semibold w-[220px] md:w-[280px]">{t("備註")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1195,14 +1010,14 @@ function TomamuCoursePage() {
                           index % 2 === 0 ? "bg-white" : "bg-[#f8fafc]"
                         }`}
                       >
-                        <td className="px-4 py-3 font-semibold text-[#1f2937]">{ticket.type}</td>
+                        <td className="px-4 py-3 font-semibold text-[#1f2937]">{t(ticket.type)}</td>
                         <td className="px-4 py-3 text-center font-semibold text-[#1f2937] whitespace-nowrap">
-                          {ticket.adult}
+                          {formatTicketPrice(ticket.adult)}
                         </td>
                         <td className="px-4 py-3 text-center font-semibold text-[#1f2937] whitespace-nowrap">
-                          {ticket.child}
+                          {formatTicketPrice(ticket.child)}
                         </td>
-                        <td className="px-4 py-3 w-[220px] md:w-[280px]">{ticket.note || "—"}</td>
+                        <td className="px-4 py-3 w-[220px] md:w-[280px]">{t(ticket.note) || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1210,41 +1025,33 @@ function TomamuCoursePage() {
               </div>
               <div className="text-sm text-[#475569]">
                 <ul className="space-y-2 list-disc pl-5">
-                  <li>購入後不可退款，取消及變更。</li>
-                  <li>Web販售價格不會變動，建議於使用當日再行購入。</li>
-                  <li>IC卡片無抵壓保証金，可以將卡片帶回。</li>
-                  <li>6歲以下免費。請攜同符合資格的兒童至售票處。</li>
-                  <li>4/1～4/5期間內，僅有限纜車運行。</li>
-                  <li>
-                    詳細資訊請參閱
-                    <a
+                  <li>{t("購入後不可退款，取消及變更。")}</li>
+                  <li>{t("Web販售價格不會變動，建議於使用當日再行購入。")}</li>
+                  <li>{t("IC卡片無抵壓保証金，可以將卡片帶回。")}</li>
+                  <li>{t("6歲以下免費。請攜同符合資格的兒童至售票處。")}</li>
+                  <li>{t("4/1～4/5期間內，僅有限纜車運行。")}</li>
+                  <li>{t("詳細資訊請參閱")}<a
                       href="https://www.snowtomamu.jp/winter/cn/ski/ticket/"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-1 text-[#2b5f8f] underline underline-offset-2"
-                    >
-                      官方網站
-                    </a>
-                    詳情。
-                  </li>
+                    >{t("官方網站")}</a>{t("詳情。")}</li>
                 </ul>
               </div>
             </div>
             <div className="space-y-8">
               <div className="text-center">
-                <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                  現場購買價格
-                </h3>
+                <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("現場購買價格")}</h3>
               </div>
               <div className="overflow-x-auto thin-scrollbar">
                 <table className="w-full min-w-[720px] text-left text-sm text-[#475569]">
                   <thead className="bg-[#dbe2f0] text-xs font-semibold tracking-[0.2em] uppercase text-[#1f2937] font-display">
                     <tr>
-                      <th className="px-4 py-3 font-semibold">票券類型</th>
-                      <th className="px-4 py-3 text-center font-semibold">成人（12歲以上）</th>
-                      <th className="px-4 py-3 text-center font-semibold">兒童（7～11歲）</th>
-                      <th className="px-4 py-3 text-center font-semibold">敬老（60歲以上）</th>
-                      <th className="px-4 py-3 font-semibold w-[220px] md:w-[280px]">備註</th>
+                      <th className="px-4 py-3 font-semibold">{t("票券類型")}</th>
+                      <th className="px-4 py-3 text-center font-semibold">{t("成人（12歲以上）")}</th>
+                      <th className="px-4 py-3 text-center font-semibold">{t("兒童（7～11歲）")}</th>
+                      <th className="px-4 py-3 text-center font-semibold">{t("敬老（60歲以上）")}</th>
+                      <th className="px-4 py-3 font-semibold w-[220px] md:w-[280px]">{t("備註")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1255,17 +1062,17 @@ function TomamuCoursePage() {
                           index % 2 === 0 ? "bg-white" : "bg-[#f8fafc]"
                         }`}
                       >
-                        <td className="px-4 py-3 font-semibold text-[#1f2937]">{ticket.type}</td>
+                        <td className="px-4 py-3 font-semibold text-[#1f2937]">{t(ticket.type)}</td>
                         <td className="px-4 py-3 text-center font-semibold text-[#1f2937] whitespace-nowrap">
-                          {ticket.adult}
+                          {formatTicketPrice(ticket.adult)}
                         </td>
                         <td className="px-4 py-3 text-center font-semibold text-[#1f2937] whitespace-nowrap">
-                          {ticket.child}
+                          {formatTicketPrice(ticket.child)}
                         </td>
                         <td className="px-4 py-3 text-center font-semibold text-[#1f2937] whitespace-nowrap">
-                          {ticket.senior}
+                          {formatTicketPrice(ticket.senior)}
                         </td>
-                        <td className="px-4 py-3 w-[220px] md:w-[280px]">{ticket.note || "—"}</td>
+                        <td className="px-4 py-3 w-[220px] md:w-[280px]">{t(ticket.note) || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1273,18 +1080,16 @@ function TomamuCoursePage() {
               </div>
               <div className="text-sm text-[#475569]">
                 <ul className="space-y-2 list-disc pl-5">
-                  <li>敬老價格適用於60歲及以上人士，購買纜車票時請出示能確認年齡的身分證明。</li>
-                  <li>如需購買2日票以上的雪票，請至窗口購買。費用計算為1日票乘以所需天數。</li>
+                  <li>{t("敬老價格適用於60歲及以上人士，購買纜車票時請出示能確認年齡的身分證明。")}</li>
+                  <li>{t("如需購買2日票以上的雪票，請至窗口購買。費用計算為1日票乘以所需天數。")}</li>
                 </ul>
               </div>
             </div>
             <div className="text-sm text-[#475569]">
-              <div className="px-1 pb-3 text-lg font-semibold text-[#1f2937] font-display">
-                販售地點
-              </div>
+              <div className="px-1 pb-3 text-lg font-semibold text-[#1f2937] font-display">{t("販售地點")}</div>
               <ul className="space-y-1 px-1">
-                <li>Tomamu The Tower Ⅰ 售票處（雪場側）</li>
-                <li>Resort Center售票處</li>
+                <li>{t("Tomamu The Tower Ⅰ 售票處（雪場側）")}</li>
+                <li>{t("Resort Center售票處")}</li>
               </ul>
             </div>
           </div>
@@ -1298,9 +1103,7 @@ function TomamuCoursePage() {
               <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                 RENTAL
               </p>
-              <h2 className="text-2xl font-semibold tracking-wide font-display">
-                租借雪具
-              </h2>
+              <h2 className="text-2xl font-semibold tracking-wide font-display">{t("租借雪具")}</h2>
             </div>
 
             <div className="space-y-5">
@@ -1312,126 +1115,103 @@ function TomamuCoursePage() {
                 />
               </div>
               <div className="text-sm text-[#475569]">
-                <div className="px-1 pb-3 text-lg font-semibold text-[#1f2937] font-display">
-                  租借地點：
-                </div>
+                <div className="px-1 pb-3 text-lg font-semibold text-[#1f2937] font-display">{t("租借地點：")}</div>
                 <ul className="space-y-1 px-1">
-                  <li>The Tower 1F 租賃區</li>
-                  <li>RISONARE Tomamu 租借區</li>
+                  <li>{t("The Tower 1F 租賃區")}</li>
+                  <li>{t("RISONARE Tomamu 租借區")}</li>
                   <li>Resort Center Rental / VECTOR GLIDE Demo Center</li>
                 </ul>
               </div>
               <ul className="space-y-2 text-sm text-[#475569] list-disc pl-5">
-                <li>
-                  費用及營業時間，請至{" "}
+                <li>{t("費用及營業時間，請至")}{" "}
                   <a
                     href="https://www.snowtomamu.jp/winter/cn/ski/rental/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[#2b5f8f] underline underline-offset-2"
-                  >
-                    星野TOMAMU官方網站
-                  </a>{" "}
-                  查詢。
-                </li>
-                <li>可使用網路預約，可以記房帳，租借超方便。</li>
+                  >{t("星野TOMAMU官方網站")}</a>{" "}{t("查詢。")}</li>
+                <li>{t("可使用網路預約，可以記房帳，租借超方便。")}</li>
               </ul>
             </div>
 
             <div className="space-y-6">
-              <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display text-center">
-                裝備尺寸
-              </h3>
+              <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display text-center">{t("裝備尺寸")}</h3>
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-sm bg-white overflow-hidden">
-                  <div className="px-4 py-3 text-center text-lg font-semibold text-[#1f2937] font-display">
-                    成人
-                  </div>
+                  <div className="px-4 py-3 text-center text-lg font-semibold text-[#1f2937] font-display">{t("成人")}</div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm text-[#475569]">
                       <thead className="bg-[#dbe2f0] text-xs font-semibold tracking-[0.2em] uppercase text-[#1f2937] font-display">
                         <tr>
-                          <th className="px-4 py-3 font-semibold">物品</th>
-                          <th className="px-4 py-3 font-semibold w-[180px]">尺寸</th>
+                          <th className="px-4 py-3 font-semibold">{t("物品")}</th>
+                          <th className="px-4 py-3 font-semibold w-[180px]">{t("尺寸")}</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr className="border-t border-[#e2e8f0] bg-white">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">
-                            滑雪板
-                            <span className="mt-1 block text-xs font-normal text-[#94a3b8]">
-                              ※不提供短滑雪板和Funski（一般長度滑雪板）<br />
-                              ※不提供短板、Fun skis短板（130cm以下短版）、Fat skis寬板雙板、粉雪用雪板
-                            </span>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("滑雪板")}<span className="mt-1 block text-xs font-normal text-[#94a3b8]">{t("※不提供短滑雪板和Funski（一般長度滑雪板）")}<br />{t("※不提供短板、Fun skis短板（130cm以下短版）、Fat skis寬板雙板、粉雪用雪板")}</span>
                           </th>
                           <td className="px-4 py-3 w-[180px]">125cm～165cm</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-[#f8fafc]">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">滑雪靴</th>
-                          <td className="px-4 py-3 w-[180px]">22.5cm～31.5cm（1cm刻度）</td>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("滑雪靴")}</th>
+                          <td className="px-4 py-3 w-[180px]">{t("22.5cm～31.5cm（1cm刻度）")}</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-white">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">單板滑雪板</th>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("單板滑雪板")}</th>
                           <td className="px-4 py-3 w-[180px]">140cm～165cm</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-[#f8fafc]">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">單板滑雪靴</th>
-                          <td className="px-4 py-3 w-[180px]">22.5cm～31.5cm（1cm刻度）</td>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("單板滑雪靴")}</th>
+                          <td className="px-4 py-3 w-[180px]">{t("22.5cm～31.5cm（1cm刻度）")}</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-white">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">雪鞋</th>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("雪鞋")}</th>
                           <td className="px-4 py-3 w-[180px]">22.5cm～28.0cm</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-[#f8fafc]">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">雪衣</th>
-                          <td className="px-4 py-3 w-[180px]">SS～XXO *男女通用款</td>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("雪衣")}</th>
+                          <td className="px-4 py-3 w-[180px]">{t("SS～XXO *男女通用款")}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                   <ul className="px-4 py-3 text-sm text-[#475569] list-disc pl-5">
-                    <li>高階裝備的尺寸請洽詢工作人員。</li>
+                    <li>{t("高階裝備的尺寸請洽詢工作人員。")}</li>
                   </ul>
                 </div>
 
                 <div className="rounded-sm bg-white overflow-hidden">
-                  <div className="px-4 py-3 text-center text-lg font-semibold text-[#1f2937] font-display">
-                    兒童
-                  </div>
+                  <div className="px-4 py-3 text-center text-lg font-semibold text-[#1f2937] font-display">{t("兒童")}</div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm text-[#475569]">
                       <thead className="bg-[#dbe2f0] text-xs font-semibold tracking-[0.2em] uppercase text-[#1f2937] font-display">
                         <tr>
-                          <th className="px-4 py-3 font-semibold">物品</th>
-                          <th className="px-4 py-3 font-semibold w-[180px]">尺寸</th>
+                          <th className="px-4 py-3 font-semibold">{t("物品")}</th>
+                          <th className="px-4 py-3 font-semibold w-[180px]">{t("尺寸")}</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr className="border-t border-[#e2e8f0] bg-white">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">
-                            滑雪板
-                            <span className="mt-1 block text-xs font-normal text-[#94a3b8]">
-                              ※不提供短滑雪板和Funski（一般長度滑雪板）<br />
-                              ※不提供短板、Fun skis短板（130cm以下短版）、Fat skis寬板雙板、粉雪用雪板
-                            </span>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("滑雪板")}<span className="mt-1 block text-xs font-normal text-[#94a3b8]">{t("※不提供短滑雪板和Funski（一般長度滑雪板）")}<br />{t("※不提供短板、Fun skis短板（130cm以下短版）、Fat skis寬板雙板、粉雪用雪板")}</span>
                           </th>
                           <td className="px-4 py-3 w-[180px]">70cm～140cm</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-[#f8fafc]">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">滑雪靴</th>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("滑雪靴")}</th>
                           <td className="px-4 py-3 w-[180px]">15.5cm～24.5cm</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-white">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">單板滑雪板</th>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("單板滑雪板")}</th>
                           <td className="px-4 py-3 w-[180px]">90cm～140cm</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-[#f8fafc]">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">單板滑雪靴</th>
-                          <td className="px-4 py-3 w-[180px]">17.0cm～21.0cm（1cm刻度）</td>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("單板滑雪靴")}</th>
+                          <td className="px-4 py-3 w-[180px]">{t("17.0cm～21.0cm（1cm刻度）")}</td>
                         </tr>
                         <tr className="border-t border-[#e2e8f0] bg-white">
-                          <th className="px-4 py-3 font-semibold text-[#1f2937]">雪衣</th>
-                          <td className="px-4 py-3 w-[180px]">90cm～140cm *男女通用款</td>
+                          <th className="px-4 py-3 font-semibold text-[#1f2937]">{t("雪衣")}</th>
+                          <td className="px-4 py-3 w-[180px]">{t("90cm～140cm *男女通用款")}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1450,15 +1230,11 @@ function TomamuCoursePage() {
               />
               <div className="absolute inset-0 bg-[#0b1d2a]/55" />
               <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-6 py-8 md:px-10 md:py-10 text-center text-white">
-                <p className="max-w-[16rem] text-base md:max-w-[24rem] md:text-lg font-semibold leading-relaxed">
-                  凡訂購SnowLand星野滑雪課程，皆可加購教練協助租借服務，租對裝備學滑雪更有效率。
-                </p>
+                <p className="max-w-[16rem] text-base md:max-w-[24rem] md:text-lg font-semibold leading-relaxed">{t("凡訂購SnowLand星野滑雪課程，皆可加購教練協助租借服務，租對裝備學滑雪更有效率。")}</p>
                 <SiteLink
                   to="/guides/packing-checklist"
                   className="mt-6 inline-flex items-center justify-center rounded-full border border-white/70 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white hover:text-[#0b1d2a]"
-                >
-                  查看滑雪裝備準備清單
-                </SiteLink>
+                >{t("查看滑雪裝備準備清單")}</SiteLink>
               </div>
             </div>
           </div>
@@ -1479,12 +1255,8 @@ function TomamuCoursePage() {
                 <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                   Nursery
                 </p>
-                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                  GAO育兒&玩雪
-                </h2>
-                <p className="max-w-2xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">
-                  從 5 個月大的嬰兒開始提供保育，3 歲起提供保育和玩雪相結合的項目。 請根據您的住宿方式使用 2 小時至 1 天的托兒服務。
-                </p>
+                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("GAO育兒&玩雪")}</h2>
+                <p className="max-w-2xl mx-auto text-sm md:text-base leading-relaxed text-[#475569]">{t("從 5 個月大的嬰兒開始提供保育，3 歲起提供保育和玩雪相結合的項目。 請根據您的住宿方式使用 2 小時至 1 天的托兒服務。")}</p>
               </motion.div>
             </div>
 
@@ -1492,7 +1264,7 @@ function TomamuCoursePage() {
               <div className="relative w-full aspect-[3/2] overflow-hidden rounded-sm border border-[#e2e8f0]">
                 <img loading="lazy" decoding="async"
                   src="/Course/tomamu/course-tomamu-007-nursery.jpeg"
-                  alt="GAO育兒與玩雪托兒服務"
+                  alt={t("GAO育兒與玩雪托兒服務")}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
               </div>
@@ -1500,13 +1272,13 @@ function TomamuCoursePage() {
                 {daycareServices.map((service) => (
                   <div key={service.title} className="border-b border-[#e2e8f0] pb-6 last:border-b-0 last:pb-0">
                     <div className="px-1 pb-3 text-lg font-semibold text-[#1f2937] font-display">
-                      {service.title}
+                      {t(service.title)}
                     </div>
                     <div className="divide-y divide-[#e2e8f0] text-sm text-[#475569]">
                       {service.rows.map((row) => (
                         <div key={row[0]} className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 px-1 py-3">
-                          <div className="font-semibold text-[#1f2937]">{row[0]}</div>
-                          <div className="leading-relaxed">{row[1]}</div>
+                          <div className="font-semibold text-[#1f2937]">{t(row[0])}</div>
+                          <div className="leading-relaxed">{t(row[1])}</div>
                         </div>
                       ))}
                     </div>
@@ -1517,11 +1289,9 @@ function TomamuCoursePage() {
 
             <div className="pt-6">
               <ul className="mx-auto max-w-2xl space-y-2 list-disc pl-5 text-sm text-[#475569] leading-relaxed">
-                <li>提供網路預約，當日現場不接受報名採完全預約制。</li>
-                <li>詳細價格及開放時間請參考官網資訊。</li>
-                <li>
-                  請參考星野TOMAMU官方網站預約資訊：
-                  <a
+                <li>{t("提供網路預約，當日現場不接受報名採完全預約制。")}</li>
+                <li>{t("詳細價格及開放時間請參考官網資訊。")}</li>
+                <li>{t("請參考星野TOMAMU官方網站預約資訊：")}<a
                     href="https://www.snowtomamu.jp/winter/cn/hotel/nursery/"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1544,9 +1314,7 @@ function TomamuCoursePage() {
                 <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
                   Access
                 </p>
-                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                  交通方式
-                </h2>
+                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("交通方式")}</h2>
               </div>
             </div>
 
@@ -1558,9 +1326,7 @@ function TomamuCoursePage() {
                 viewport={{ amount: 0.4, once: true }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
               >
-                <p className="max-w-xl mx-auto text-sm md:text-base text-[#475569] leading-relaxed">
-                  位於北海道中央位置的星野Tomamu，是離新千歲機場最近的度假村，便利的交通方式，不一定要自駕也能輕鬆抵達。
-                </p>
+                <p className="max-w-xl mx-auto text-sm md:text-base text-[#475569] leading-relaxed">{t("位於北海道中央位置的星野Tomamu，是離新千歲機場最近的度假村，便利的交通方式，不一定要自駕也能輕鬆抵達。")}</p>
               </motion.div>
             </div>
             <div className="mt-10 divide-y divide-[#e2e8f0]">
@@ -1575,29 +1341,25 @@ function TomamuCoursePage() {
                   </div>
                   <div className="px-6 md:px-10 lg:pr-16">
                     <div className="max-w-2xl text-[#2b2b2b] text-sm md:text-base leading-relaxed space-y-4">
-                      <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                        搭乘國鐵 (JR)
-                      </h3>
-                      <p className="text-sm md:text-base text-[#475569] leading-relaxed">
-                        一日 10 班以上特急列車運行，Tomamu 站下車後約 5 分鐘可到度假村。
-                      </p>
+                      <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("搭乘國鐵 (JR)")}</h3>
+                      <p className="text-sm md:text-base text-[#475569] leading-relaxed">{t("一日 10 班以上特急列車運行，Tomamu 站下車後約 5 分鐘可到度假村。")}</p>
                       <div className="text-sm text-[#64748b] space-y-1">
-                        <div>路線：特急 Super 十勝 / Super 大空</div>
-                        <div>札幌 ⇔ 南千歲 ⇔ 占冠 ⇔ Tomamu ⇔ 帶廣</div>
-                        <div>札幌 ⇔ 南千歲 ⇔ 占冠 ⇔ Tomamu ⇔ 帶廣 ⇔ 釧路</div>
+                        <div>{t("路線：特急 Super 十勝 / Super 大空")}</div>
+                        <div>{t("札幌 ⇔ 南千歲 ⇔ 占冠 ⇔ Tomamu ⇔ 帶廣")}</div>
+                        <div>{t("札幌 ⇔ 南千歲 ⇔ 占冠 ⇔ Tomamu ⇔ 帶廣 ⇔ 釧路")}</div>
                       </div>
                       <div className="space-y-2 text-xs text-[#94a3b8] leading-relaxed">
-                        <p>2024/03/16 起，停靠 TOMAMU 的列車改為全車指定席。</p>
-                        <p>JR TOMAMU 車站無售票處，建議事先購買回程車票。</p>
-                        <p>※2024/04/01 起根室本線（富良野-新得）停止列車服務。</p>
+                        <p>{t("2024/03/16 起，停靠 TOMAMU 的列車改為全車指定席。")}</p>
+                        <p>{t("JR TOMAMU 車站無售票處，建議事先購買回程車票。")}</p>
+                        <p>{t("※2024/04/01 起根室本線（富良野-新得）停止列車服務。")}</p>
                       </div>
                       <div className="space-y-2 text-sm text-[#64748b]">
-                        <p>購票方式：</p>
+                        <p>{t("購票方式：")}</p>
                         <ul className="space-y-1">
-                          <li>・JR 東日本「<a href="https://www.eki-net.com/personal/top/index" target="_blank" rel="noopener noreferrer" className="text-[#2b5f8f] underline underline-offset-4">eki-net</a>」（日文）</li>
-                          <li>・<a href="https://www.jrhokkaido.co.jp/global/chinese/ticket/reservation/index.html" target="_blank" rel="noopener noreferrer" className="text-[#2b5f8f] underline underline-offset-4">JR 東日本網路訂票系統</a>（海外旅客）</li>
-                          <li>・機場或有站員車站購買</li>
-                          <li>・The Tower 內指定席售票機</li>
+                          <li>{t("・JR 東日本「")}<a href="https://www.eki-net.com/personal/top/index" target="_blank" rel="noopener noreferrer" className="text-[#2b5f8f] underline underline-offset-4">eki-net</a>{t("」（日文）")}</li>
+                          <li>・<a href="https://www.jrhokkaido.co.jp/global/chinese/ticket/reservation/index.html" target="_blank" rel="noopener noreferrer" className="text-[#2b5f8f] underline underline-offset-4">{t("JR 東日本網路訂票系統")}</a>{t("（海外旅客）")}</li>
+                          <li>{t("・機場或有站員車站購買")}</li>
+                          <li>{t("・The Tower 內指定席售票機")}</li>
                         </ul>
                       </div>
                       <a
@@ -1605,14 +1367,10 @@ function TomamuCoursePage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
-                      >
-                        JR 北海道時刻/票價
-                      </a>
+                      >{t("JR 北海道時刻/票價")}</a>
                       <div className="pt-2">
-                        <p className="font-semibold text-[#1f2937]">抵達 Tomamu 站後</p>
-                        <p className="mt-2 text-sm text-[#64748b]">
-                          每班特快列車抵達後皆有免費接駁巴士送往飯店，無需預約。
-                        </p>
+                        <p className="font-semibold text-[#1f2937]">{t("抵達 Tomamu 站後")}</p>
+                        <p className="mt-2 text-sm text-[#64748b]">{t("每班特快列車抵達後皆有免費接駁巴士送往飯店，無需預約。")}</p>
                         <img
                           src="/Course/tomamu/course-tomamu-access2.jpg"
                           alt="Tomamu JR station platform"
@@ -1635,36 +1393,28 @@ function TomamuCoursePage() {
                   </div>
                   <div className="px-6 md:px-10 lg:pr-16">
                     <div className="max-w-2xl text-[#2b2b2b] text-sm md:text-base leading-relaxed space-y-4">
-                      <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                        開車前往
-                      </h3>
-                      <p className="text-sm md:text-base text-[#475569] leading-relaxed">
-                        從 TOMAMU I.C. 到度假村約 5 分鐘。
-                      </p>
+                      <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("開車前往")}</h3>
+                      <p className="text-sm md:text-base text-[#475569] leading-relaxed">{t("從 TOMAMU I.C. 到度假村約 5 分鐘。")}</p>
                       <ul className="space-y-2 text-sm text-[#64748b]">
-                        <li>札幌出發：約 100 分鐘（札幌北 I.C. → TOMAMU I.C.）</li>
-                        <li>新千歲機場出發：約 90 分鐘（千歲東 I.C. → TOMAMU I.C.）</li>
-                        <li>旭川機場出發：約 3 小時</li>
-                        <li>富良野出發：約 90 分鐘</li>
-                        <li>帶廣機場出發：約 60 分鐘（音更帶廣 I.C. → TOMAMU I.C.）</li>
+                        <li>{t("札幌出發：約 100 分鐘（札幌北 I.C. → TOMAMU I.C.）")}</li>
+                        <li>{t("新千歲機場出發：約 90 分鐘（千歲東 I.C. → TOMAMU I.C.）")}</li>
+                        <li>{t("旭川機場出發：約 3 小時")}</li>
+                        <li>{t("富良野出發：約 90 分鐘")}</li>
+                        <li>{t("帶廣機場出發：約 60 分鐘（音更帶廣 I.C. → TOMAMU I.C.）")}</li>
                       </ul>
-                      <div className="space-y-2 text-sm">
+                      <div className="flex flex-col items-start gap-2 text-sm">
                         <a
                           href="https://www.snowtomamu.jp/winter/cn/access/considerations.php"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
-                        >
-                          汽車加油注意事項
-                        </a>
+                          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
+                        >{t("汽車加油注意事項")}</a>
                         <a
                           href="https://www.snowtomamu.jp/winter/cn/access/considerations.php#carnavi"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
-                        >
-                          旭川/富良野方向行車建議
-                        </a>
+                          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
+                        >{t("旭川/富良野方向行車建議")}</a>
                       </div>
                     </div>
                   </div>
@@ -1681,20 +1431,14 @@ function TomamuCoursePage() {
                   </div>
                   <div className="px-6 md:px-10 lg:pr-16">
                     <div className="max-w-2xl text-[#2b2b2b] text-sm md:text-base leading-relaxed space-y-4">
-                      <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">
-                        乘坐巴士
-                      </h3>
-                      <p className="text-sm md:text-base text-[#475569] leading-relaxed">
-                        巴士路線請向北海道交通網絡公司查詢，詳情請見下方連結。
-                      </p>
+                      <h3 className="text-xl md:text-2xl font-semibold text-[#1f2937] font-display">{t("乘坐巴士")}</h3>
+                      <p className="text-sm md:text-base text-[#475569] leading-relaxed">{t("巴士路線請向北海道交通網絡公司查詢，詳情請見下方連結。")}</p>
                       <a
                         href="https://www.snowtomamu.jp/bus_25w/index_cn.html"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
-                      >
-                        直達巴士詳情
-                      </a>
+                      >{t("直達巴士詳情")}</a>
                       <a
                         href="https://www.snowtomamu.jp/bus_25w/index_cn.html"
                         target="_blank"
@@ -1715,7 +1459,7 @@ function TomamuCoursePage() {
             </div>
             <div className="max-w-4xl mx-auto px-6 md:px-10">
               <div className="mt-8 border-y border-[#e2e8f0] py-6">
-                <h4 className="text-base font-semibold text-[#1f2937]">地址資訊</h4>
+                <h4 className="text-base font-semibold text-[#1f2937]">{t("地址資訊")}</h4>
                 <p className="mt-3 text-sm text-[#64748b] leading-relaxed">
                   Naka-Tomamu Shimukappu Yufutsu Hokkaido JAPAN
                   <br />
@@ -1728,9 +1472,7 @@ function TomamuCoursePage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-4 inline-flex items-center text-sm font-semibold text-[#2b5f8f] underline underline-offset-4"
-                >
-                  查看 Google Map
-                </a>
+                >{t("查看 Google Map")}</a>
               </div>
               <div className="mt-10">
                 <div className="aspect-video w-full overflow-hidden rounded-sm bg-[#e2e8f0]">
@@ -1754,9 +1496,7 @@ function TomamuCoursePage() {
       {activeTab !== "滑雪課程" && activeTab !== "雪道介紹" && activeTab !== "雪票" && activeTab !== "住宿" && activeTab !== "租借雪具" && activeTab !== "雪場托兒" && activeTab !== "交通" && null}
       <section className="bg-[#f7f8fa] text-[#1f2937] border-t border-[#e2e8f0]">
         <div className="max-w-6xl mx-auto px-6 py-16">
-          <h2 className="text-2xl font-semibold text-[#1f2937] font-display text-center">
-            查看其他雪場
-          </h2>
+          <h2 className="text-2xl font-semibold text-[#1f2937] font-display text-center">{t("查看其他雪場")}</h2>
           <div className="mt-6">
             <HokkaidoMap resorts={skiResorts} />
           </div>

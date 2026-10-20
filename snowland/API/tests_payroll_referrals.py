@@ -10,6 +10,40 @@ from Coach.payroll import calculate_payroll_statement
 
 
 class CoachReferralPayrollTests(TestCase):
+    def test_cross_month_referral_is_paid_only_in_final_lesson_month(self):
+        from datetime import date
+        self.booking_1.date=date(2027,1,31);self.booking_1.save()
+        self.booking_2.date=date(2027,2,1);self.booking_2.save()
+        january=calculate_payroll_statement(coach=self.coach,campus=self.campus,
+            period_start=date(2027,1,1),period_end=date(2027,1,31))
+        february=calculate_payroll_statement(coach=self.coach,campus=self.campus,
+            period_start=date(2027,2,1),period_end=date(2027,2,28))
+        self.assertEqual(january.referral_commission,0)
+        self.assertEqual(february.referral_commission,900)
+        self.assertEqual(february.lines.filter(line_type='referral').count(),1)
+        self.assertEqual(calculate_payroll_statement(coach=self.coach,campus=self.campus,
+            period_start=date(2027,2,1),period_end=date(2027,2,28)).referral_commission,900)
+
+    def test_multi_reservation_order_waits_for_all_lessons_then_pays_in_last_month(self):
+        from datetime import date
+        from booking.models import Reservation, Booking
+        self.booking_1.date=date(2027,1,30);self.booking_1.save()
+        self.booking_2.date=date(2027,1,31);self.booking_2.save()
+        later=Reservation.objects.create(group=self.group,course_type=self.course_type,
+            preferred_coach=self.teacher,status='manually_assigned',course_fee=5000)
+        Booking.objects.create(reservation=later,date=date(2027,2,1),start_time='09:00',end_time='11:00',course_type='單板')
+        january=calculate_payroll_statement(coach=self.coach,campus=self.campus,
+            period_start=date(2027,1,1),period_end=date(2027,1,31))
+        self.assertEqual(january.referral_commission,0)
+        february=calculate_payroll_statement(coach=self.coach,campus=self.campus,
+            period_start=date(2027,2,1),period_end=date(2027,2,28))
+        self.assertEqual(february.referral_commission,0,'Do not pay an unfinished order')
+        later.status='completed';later.save()
+        february=calculate_payroll_statement(coach=self.coach,campus=self.campus,
+            period_start=date(2027,2,1),period_end=date(2027,2,28))
+        self.assertEqual(february.referral_commission,1400)
+        self.assertEqual(february.lines.filter(line_type='referral').count(),2)
+
     def setUp(self):
         fixtures.OperationsTests.setUp(self)
         self.rule=CoachPayRule.objects.create(coach=self.coach,discipline='snowboard',hourly_rate=1000,

@@ -20,9 +20,9 @@ export function formatAbilityLevel(value: string | null | undefined): string {
   return value ? VALUE_LABELS[value] || value : '未填'
 }
 
-export function formatLearningProgressEntry(key: string, value: unknown): string {
+export function formatLearningProgressEntry(key: string, value: unknown, translate: (source: string) => string = source => source): string {
   const rawValue = String(value ?? '')
-  return `${KEY_LABELS[key] || key}：${VALUE_LABELS[rawValue] || rawValue}`
+  return `${KEY_LABELS[key] ? translate(KEY_LABELS[key]) : key}：${VALUE_LABELS[rawValue] ? translate(VALUE_LABELS[rawValue]) : rawValue}`
 }
 
 export function learningProgressToText(progress: Record<string, unknown>): string {

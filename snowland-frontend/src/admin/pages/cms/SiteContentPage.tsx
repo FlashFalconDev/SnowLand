@@ -505,7 +505,7 @@ const getTenantBasePath = () => {
 
 const buildOfficialPreviewUrl = (locationKey: string, externalId = '') => {
   const route = locationKey === 'course.pricing' && externalId
-    ? { path: `/course/${encodeURIComponent(externalId)}/price` }
+    ? externalId === 'off-piste-guide' ? {path: '/course/off-piste-guide', hash: 'pricing'} : {path: `/course/${encodeURIComponent(externalId)}/price`}
     : ['course.resort-pages','course.areas'].includes(locationKey) && externalId
       ? { path: `/course/${encodeURIComponent(externalId)}` }
     : SITE_PREVIEW_ROUTES[locationKey] || { path: '/' }
@@ -1385,9 +1385,12 @@ function ContentDrawer({
   const isGuideListing = form.location_key === 'guides.articles'
   const isOfferPage = ['offers.earlybird','offers.referral','offers.promo'].includes(form.location_key)
   const guideMode = guideArticleMode(form)
-  const pricingResortOptions = resortOptions.length && form.external_id && !resortOptions.some((option) => option.value === form.external_id)
-    ? [{ value: form.external_id, label: form.external_id }, ...resortOptions]
+  const basePricingResortOptions = resortOptions.length && !resortOptions.some(option => option.value === 'off-piste-guide')
+    ? [...resortOptions, {value: 'off-piste-guide', label: '野雪嚮導'}]
     : resortOptions
+  const pricingResortOptions = basePricingResortOptions.length && form.external_id && !basePricingResortOptions.some((option) => option.value === form.external_id)
+    ? [{ value: form.external_id, label: form.external_id }, ...basePricingResortOptions]
+    : basePricingResortOptions
   const resortPageSlug = String(form.metadata?.slug || form.external_id || '')
   const pricingMetadata = isRecord(form.metadata?.pricing) ? form.metadata.pricing : {}
   const pricingPlans = isRecord(pricingMetadata.plans) ? pricingMetadata.plans : {}

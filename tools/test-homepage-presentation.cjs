@@ -3,11 +3,12 @@ const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequi
 const defaults=JSON.parse(fs.readFileSync(path.join(__dirname,'../snowland/Client/fixtures/homepage_presentation_defaults.json'),'utf8'))
 const compile=source=>ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText
 function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))return node;if(typeof node.type==='function')return find(node.type(node.props),p);for(const c of React.Children.toArray(node.props?.children)){const result=find(c,p);if(result)return result}return null}
-function setup(hero={},intro={},sections={}){
+function setup(hero={},intro={},sections={},language='zh-Hant'){
  let expanded=false,retries=0
  const motion=new Proxy({},{get:(_,tag)=>p=>{const {initial,animate,transition,...props}=p;return React.createElement(tag,props)}})
  const ctx=vm.createContext({exports:{},require:name=>{
    if(name==='react')return{...React,useState:()=>[expanded,v=>expanded=typeof v==='function'?v(expanded):v]}
+   if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React,language)
    if(name==='framer-motion')return{motion}
    if(name==='./SiteLink')return p=>React.createElement('a',{href:'/snowland'+p.to,className:p.className},p.children)
    if(name==='./SiteHeader')return p=>React.createElement('header',{'data-dark':String(p.forceDarkText)})
@@ -28,7 +29,7 @@ const custom={...defaults[0],title:'QA全新標題\n第二行',summary:'QA說明
 html=renderToStaticMarkup(setup({items:[custom]}).render());assert.ok(html.includes('QA全新標題'));assert.ok(html.includes('/snowland/contact'));assert.ok(!html.includes('<iframe'));assert.ok(html.includes('src="/vite.svg"'));assert.ok(!html.includes('官方許可滑雪學校'))
 html=renderToStaticMarkup(setup({items:[]},{items:[]}).render());assert.ok(!html.includes('官方許可'));assert.ok(!html.includes('<iframe'));assert.ok(html.includes('data-dark="true"'))
 html=renderToStaticMarkup(setup({isLoading:true,items:[]},{items:[]}).render());assert.ok(html.includes('正在載入'));assert.ok(!html.includes('官方許可'))
-app=setup({error:Error('QA'),items:[]});const retry=find(app.render(),n=>n.type==='button'&&n.props.children[0]==='重新載入');assert.ok(retry);retry.props.onClick();assert.equal(app.retries(),1)
+app=setup({error:Error('QA'),items:[]});const retry=find(app.render(),n=>n.type==='button'&&String(n.props.children).startsWith('重新載入'));assert.ok(retry);retry.props.onClick();assert.equal(app.retries(),1)
 html=renderToStaticMarkup(setup({items:[{...custom,metadata:{media_type:'youtube',youtube_id:'bad"<script>'}}]}).render());assert.ok(!html.includes('<iframe'))
 const changedIntro={...defaults[1],image_url:'',link_url:'',metadata:{...defaults[1].metadata,image_asset:'',opening_text:'<script>只當文字</script>',extra_paragraphs:[]}}
 html=renderToStaticMarkup(setup({items:[]},{items:[changedIntro]}).render());assert.ok(!html.includes('<img'));assert.ok(html.includes('&lt;script&gt;只當文字'));assert.ok(!html.includes('展開'))
@@ -58,7 +59,7 @@ const homeSource=fs.readFileSync(path.join(root,'src/pages/site/HomePage.jsx'),'
 let dots
 function findDots(node){if(ts.isJsxElement(node)&&node.openingElement.attributes.getText(homeAst).includes('mt-4 flex')&&node.getText(homeAst).includes('coach-dot-'))dots??=node;ts.forEachChild(node,findDots)}
 findDots(homeAst);assert.ok(dots)
-const dotCtx=vm.createContext({React,exports:{},coachCards:Array.from({length:12},(_,index)=>({name:'QA'+index})),activeCoachIndex:1,scrollToCoachIndex:index=>dotCtx.clicked=index})
+const dotCtx=vm.createContext({React,exports:{},t:require('./helpers/site-locale-harness.cjs')(React).useSiteLocale().t,coachCards:Array.from({length:12},(_,index)=>({name:'QA'+index})),activeCoachIndex:1,scrollToCoachIndex:index=>dotCtx.clicked=index})
 vm.runInContext(compile('exports.render=()=>('+dots.getText(homeAst)+')'),dotCtx)
 const dotsTree=dotCtx.exports.render();assert.ok(dotsTree.props.className.includes('flex-wrap'),'Many 44px coach controls must wrap instead of widening the whole phone page')
 assert.equal(React.Children.toArray(dotsTree.props.children).length,12)

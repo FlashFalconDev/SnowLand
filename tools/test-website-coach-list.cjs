@@ -20,7 +20,7 @@ function harness(failing){
   assert.equal(bad.render().coaches[0].image,'/new.jpg')
   const cancelled=harness(false);cancelled.render();const stop=cancelled.effect();stop();await new Promise(setImmediate)
   assert.equal(cancelled.states[0].coaches.length,0,'Late response cannot restore content after unmount')
-  const notice=vm.createContext({exports:{},require:name=>{if(name==='react')return React;throw new Error(name)}})
+  const notice=vm.createContext({exports:{},require:name=>{if(name==='react')return React;if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React);throw new Error(name)}})
   vm.runInContext(compile(fs.readFileSync(path.join(root,'src/components/site/CoachLoadNotice.jsx'),'utf8')),notice)
   assert.ok(renderToStaticMarkup(React.createElement(notice.exports.default,{isLoading:true})).includes('正在載入'))
   assert.ok(renderToStaticMarkup(React.createElement(notice.exports.default,{count:0})).includes('沒有上架'))

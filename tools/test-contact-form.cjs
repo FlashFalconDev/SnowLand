@@ -5,12 +5,13 @@ const compiled=ts.transpileModule(source,{reportDiagnostics:true,compilerOptions
 assert.equal(compiled.diagnostics.length,0)
 const payload={name:'QA訪客',email:'qa@example.test',phone:'',subject:'QA主旨',message:'QA留言'}
 function find(n,p){if(!n||typeof n!=='object')return null;if(p(n))return n;for(const c of React.Children.toArray(n.props?.children)){const x=find(c,p);if(x)return x}return null}
-function setup({enabled=true,configFail=false,failures=0,deferred=false}={}){
+function setup({enabled=true,configFail=false,failures=0,deferred=false,language='zh-Hant'}={}){
   const states=[],refs=[],effects=[],calls=[];let i=0,r=0,sequence=0,resolvePost
   const api={get:async()=>{if(configFail)throw Error('QA');return{enabled}},post:async(url,data)=>{calls.push({url,data});if(failures-->0)throw{response:{data:{message:['QA請稍後再試']}}};if(deferred)await new Promise(resolve=>resolvePost=resolve);return{ok:true,reference:data.submission_id}}}
   const ctx=vm.createContext({exports:{},crypto:{randomUUID:()=>`00000000-0000-4000-8000-${String(++sequence).padStart(12,'0')}`},require(name){
     if(name==='react')return{...React,useState:initial=>{const x=i++;if(!(x in states))states[x]=initial;return[states[x],v=>states[x]=typeof v==='function'?v(states[x]):v]},useRef:initial=>{const x=r++;return refs[x]||(refs[x]={current:initial})},useEffect:fn=>effects.push(fn)}
     if(name==='../../api/axios')return api
+    if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React,language)
     throw Error(name)
   }})
   vm.runInContext(compiled.outputText,ctx)
@@ -41,5 +42,14 @@ const event={preventDefault(){}}
   find(tree,n=>n.type==='button'&&n.props.children==='重新載入表單').props.onClick();assert.equal(failure.states[2],1)
   assert.ok(app.ctx.exports.contactError({response:{status:429}}).includes('一分鐘'))
   assert.equal(app.ctx.exports.contactError({response:{data:'<html>debug'}}),'目前無法送出，資料已保留，請稍後再試。')
+  for(const language of ['en','ja']){
+    const translated=setup({language});assert.ok(renderToStaticMarkup(translated.render()).includes(language==='en'?'Loading form':'フォームを読み込み中'))
+    await translated.mount();translated.fill();let view=translated.render(),html=renderToStaticMarkup(view)
+    assert.ok(html.includes(language==='en'?'Send message':'送信する'));assert.ok(html.includes(payload.message),'Private message remains original')
+    await find(view,n=>n.type==='form').props.onSubmit(event);html=renderToStaticMarkup(translated.render())
+    assert.ok(html.includes(language==='en'?'Your message has been received':'お問い合わせを受け付けました'));assert.equal(translated.calls[0].data.message,payload.message)
+    const unavailable=setup({language,enabled:false});unavailable.render();await unavailable.mount();view=unavailable.render();assert.ok(renderToStaticMarkup(view).includes(language==='en'?'This form is not enabled':'このフォームは現在ご利用いただけません'))
+    await find(view,n=>n.type==='form').props.onSubmit(event);assert.equal(unavailable.calls.length,0)
+  }
   console.log('PASS contact form actual handlers: disabled/loading/retry, required data, real receipt only, retained errors, same id retry, double click guard, reset and 429')
 })().catch(e=>{console.error(e);process.exit(1)})

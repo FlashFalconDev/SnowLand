@@ -6,6 +6,7 @@ function render(source,page){
  const motion=tag=>({initial,animate,variants,transition,whileInView,viewport,...props})=>React.createElement(tag,props)
  const ctx=vm.createContext({exports:{},require:name=>{
   if(name==='react')return React
+  if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React,'zh-Hant')
   if(name==='framer-motion')return{motion:new Proxy({},{get:(_t,tag)=>motion(tag)}),useReducedMotion:()=>true,useScroll:()=>({}),useTransform(){}}
   if(name.includes('useSiteContent'))return{}
   return{__esModule:true,default:()=>null}

@@ -4,24 +4,28 @@ import SiteHeader from './SiteHeader';
 import SiteLink from './SiteLink';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
 import {useSiteContent} from '../../hooks/useSiteContent';
+import {useSiteLocale} from '../../contexts/SiteLocale';
 
 export function ContentState({result,label}) {
-  if (result.isLoading) return <p role="status" className="px-6 py-32 text-center text-sm text-[#475569]">正在載入{label}…</p>;
-  if (result.error) return <div role="alert" className="px-6 py-32 text-center text-sm text-red-700">{label}載入失敗。<button type="button" className="min-h-11 px-3 underline" onClick={result.refetch}>重新載入{label}</button></div>;
+  const {t} = useSiteLocale();
+  if (result.isLoading) return <p role="status" className="px-6 py-32 text-center text-sm text-[#475569]">{t('正在載入{section}…',{section:t(label)})}</p>;
+  if (result.error) return <div role="alert" className="px-6 py-32 text-center text-sm text-red-700">{t('{section}載入失敗。',{section:t(label)})}<button type="button" className="min-h-11 px-3 underline" onClick={result.refetch}>{t('重新載入{section}',{section:t(label)})}</button></div>;
   return null;
 }
 
 export function HomepageCoachHeading({item}) {
+  const {t} = useSiteLocale();
   return <div className="text-center mb-12 md:mb-16">
     {item.subtitle && <p className="text-xs md:text-sm tracking-[0.3em] uppercase text-[#6b7280] font-medium font-display">{item.subtitle}</p>}
     <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-      {item.link_url ? <SiteLink to={item.link_url} className="no-underline text-[#1f2937] hover:text-[#1f2937]">{item.title}</SiteLink> : item.title}
+      {item.link_url ? <SiteLink to={item.link_url} className="no-underline text-[#1f2937] hover:text-[#1f2937]">{t(item.title)}</SiteLink> : t(item.title)}
     </h2>
     {item.summary && <p className="mt-4 whitespace-pre-line text-sm text-[#6b7280]">{item.summary}</p>}
   </div>;
 }
 
 export function HomepageContactBanner() {
+  const {t} = useSiteLocale();
   const result=useSiteContent('homepage.contact'),item=result.items[0];
   if (!item) return <ContentState result={result} label="首頁諮詢區" />;
   const lines=text=>String(text || '').split('\n').map((line,index)=><span key={index} className="block md:inline">{line}</span>);
@@ -32,7 +36,7 @@ export function HomepageContactBanner() {
         <div className="relative z-10 min-w-0 w-full break-words">
           <h2 className="text-2xl font-semibold text-white font-display">{lines(item.title)}</h2>
           {item.summary && <p className="mt-4 text-sm md:text-base text-white/90 leading-relaxed">{lines(item.summary)}</p>}
-          {item.link_url && item.metadata?.button_text && <div className="mt-8"><SiteLink to={item.link_url} className="min-h-11 inline-flex items-center justify-center rounded-full bg-[#8ec8f0] px-6 py-3 text-sm font-semibold text-white hover:bg-[#7bbbe7] transition-colors">{item.metadata.button_text}</SiteLink></div>}
+          {item.link_url && item.metadata?.button_text && <div className="mt-8"><SiteLink to={item.link_url} className="min-h-11 inline-flex items-center justify-center rounded-full bg-[#8ec8f0] px-6 py-3 text-sm font-semibold text-white hover:bg-[#7bbbe7] transition-colors">{t(item.metadata.button_text)}</SiteLink></div>}
         </div>
       </div>
     </div>
@@ -40,6 +44,7 @@ export function HomepageContactBanner() {
 }
 
 export default function HomepagePresentation({containerRef,y,opacity}) {
+  const {t} = useSiteLocale();
   const heroResult=useSiteContent('homepage.hero'),introResult=useSiteContent('homepage.intro');
   const hero=heroResult.items[0],intro=introResult.items[0];
   const [showAboutMore,setShowAboutMore]=useState(false);
@@ -108,7 +113,7 @@ export default function HomepagePresentation({containerRef,y,opacity}) {
               {/* Shimmer Effect */}
               <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
 
-              <span className="relative z-10">{hero.metadata.button_text}</span>
+              <span className="relative z-10">{t(hero.metadata.button_text)}</span>
               <svg
                 className="w-5 h-5 ml-2 -mr-1 transition-transform duration-300 group-hover:translate-x-1 relative z-10"
                 fill="none"
@@ -124,7 +129,7 @@ export default function HomepagePresentation({containerRef,y,opacity}) {
 
         <a
           href="#about-snowland"
-          aria-label="Scroll down"
+          aria-label={t('向下捲動')}
           className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 text-white/80 hover:text-white transition-colors"
         >
           <div className="w-11 h-11 flex items-center justify-center">
@@ -150,7 +155,7 @@ export default function HomepagePresentation({containerRef,y,opacity}) {
           {(intro.image_url || intro.metadata?.image_asset === 'original-school-photo') && <div className="w-full h-72 md:h-[420px] lg:h-full min-h-[420px]">
             <img loading="eager" decoding="async" fetchpriority="high"
               src={intro.image_url || (intro.metadata?.image_asset === 'original-school-photo' ? aboutSnowland : undefined)}
-              alt="Snowland 滑雪學校"
+              alt={t('Snowland 滑雪學校')}
               className="w-full h-full object-cover"
             />
           </div>}
@@ -182,14 +187,14 @@ export default function HomepagePresentation({containerRef,y,opacity}) {
                 aria-expanded={showAboutMore}
                 className="min-h-11 inline-flex items-center text-sm font-semibold text-[#1f2937] hover:text-[#0f172a] transition-colors underline underline-offset-4"
               >
-                {showAboutMore ? "收起" : "展開"}
+                {t(showAboutMore ? "收起" : "展開")}
               </button>}
               {intro.link_url && intro.metadata?.button_text && <div className="flex justify-center">
                 <SiteLink
                   to={intro.link_url}
                   className="relative z-10 pointer-events-auto min-h-11 inline-flex items-center justify-center px-6 py-2 rounded-full border border-[#1f2937] text-sm font-semibold text-[#1f2937] hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white transition-colors"
                 >
-                  {intro.metadata.button_text}
+                  {t(intro.metadata.button_text)}
                 </SiteLink>
               </div>}
             </div>

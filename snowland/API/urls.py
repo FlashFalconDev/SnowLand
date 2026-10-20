@@ -53,10 +53,12 @@ from .staff_incentives import StaffIncentiveStatementAdminViewSet
 from .member_loyalty import customer_loyalty
 from .website_coach_editor import WebsiteCoachEditorViewSet
 from .contact_inbox import ContactInboxViewSet
+from .instagram_sync import InstagramSyncViewSet
 
 
 # 後台 ViewSet router
 admin_router = DefaultRouter()
+admin_router.register(r'instagram-sync', InstagramSyncViewSet, basename='admin-instagram-sync')
 admin_router.register(r'contact-inbox', ContactInboxViewSet, basename='admin-contact-inbox')
 admin_router.register(r'site-content', SiteContentAdminViewSet, basename='admin-site-content')
 admin_router.register(r'coaches', CoachAdminViewSet, basename='admin-coaches')

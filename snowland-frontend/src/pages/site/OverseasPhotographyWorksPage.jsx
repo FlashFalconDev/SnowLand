@@ -1,3 +1,4 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
@@ -6,6 +7,7 @@ import SiteLink from '../../components/site/SiteLink';
 import { useSiteContent } from '../../hooks/useSiteContent';
 
 function OverseasPhotographyWorksPage() {
+  const {t} = useSiteLocale();
   const baseUrl = import.meta.env.BASE_URL ?? "/";
   const withBaseUrl = (path) => {
     if (typeof path !== 'string' || /[\\\x00-\x1f]/.test(path) || path.startsWith('//')) return '';
@@ -120,21 +122,19 @@ function OverseasPhotographyWorksPage() {
   }, [lightboxIndex, activePhotos.length]);
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
+    <div className="min-h-screen overflow-x-clip bg-[#f7f8fa] text-[#1f2937] flex flex-col">
       <SiteHeader forceTransparent forceDarkText forceLogoColor />
       <main className="max-w-5xl mx-auto px-6 pt-32 pb-24 flex-1 w-full">
         <div className="text-center">
           <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
             Gallery
           </p>
-          <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-            攝影作品
-          </h1>
+          <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">{t("攝影作品")}</h1>
         </div>
-        {isLoading && <p className="py-16 text-center text-sm text-[#64748b]">正在載入攝影作品…</p>}
-        {!isLoading && error && <p className="py-16 text-center text-sm text-red-600">攝影作品暫時無法載入，請稍後再試。</p>}
+        {isLoading && <p className="py-16 text-center text-sm text-[#64748b]">{t("正在載入攝影作品…")}</p>}
+        {!isLoading && error && <p className="py-16 text-center text-sm text-red-600">{t("攝影作品暫時無法載入，請稍後再試。")}</p>}
         {!isLoading && !error && galleryItems.length === 0 && (
-          <p className="py-16 text-center text-sm text-[#64748b]">目前沒有已發布的攝影作品。</p>
+          <p className="py-16 text-center text-sm text-[#64748b]">{t("目前沒有已發布的攝影作品。")}</p>
         )}
         {galleryItems.length > 0 && (
           <>
@@ -166,11 +166,11 @@ function OverseasPhotographyWorksPage() {
                   setIsHoshinoExpanded(false);
                   setActiveCategory(category);
                 }}
-                className={`transition-colors hover:text-[#2b5f8f] ${
+                className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
                   activeCategory === category ? "text-[#2b5f8f]" : ""
                 }`}
               >
-                {category}
+                {t(category === 'All' ? '全部分類' : category)}
               </button>
               {index < categories.length - 1 && (
                 <span className="mx-2 text-[#cbd5e1]">/</span>
@@ -210,7 +210,7 @@ function OverseasPhotographyWorksPage() {
                     }
                     setActiveLocationCategory(category);
                   }}
-                  className={`transition-colors hover:text-[#2b5f8f] ${
+                  className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
                     selectedLocation === category ? "text-[#2b5f8f]" : ""
                   }`}
                 >
@@ -250,7 +250,7 @@ function OverseasPhotographyWorksPage() {
                 <button
                   type="button"
                   onClick={() => setActiveHoshinoCategory(category)}
-                  className={`transition-colors hover:text-[#2b5f8f] ${
+                  className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
                     selectedSection === category ? "text-[#2b5f8f]" : ""
                   }`}
                 >
@@ -287,7 +287,7 @@ function OverseasPhotographyWorksPage() {
                 <button
                   type="button"
                   onClick={() => setActiveShootTypeCategory(category)}
-                  className={`transition-colors hover:text-[#2b5f8f] ${
+                  className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
                     selectedType === category ? "text-[#2b5f8f]" : ""
                   }`}
                 >
@@ -303,12 +303,12 @@ function OverseasPhotographyWorksPage() {
 
         {activeCategory === "影片" && (
           <div className="mt-12">
-            {!selectedVideoId ? <p className="py-12 text-center text-sm text-[#64748b]">目前沒有已發布的影片。</p> : <>
+            {!selectedVideoId ? <p className="py-12 text-center text-sm text-[#64748b]">{t("目前沒有已發布的影片。")}</p> : <>
             <div className="w-full aspect-video bg-black">
               <iframe
                 className="w-full h-full"
                 src={`https://www.youtube.com/embed/${selectedVideoId}`}
-                title="Gallery video player"
+                title={t('作品影片播放器')}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               ></iframe>
@@ -330,7 +330,7 @@ function OverseasPhotographyWorksPage() {
                   />
                   {selectedVideoId === video.id && (
                     <span className="absolute inset-0 bg-black/35 flex items-center justify-center text-xs font-semibold text-white">
-                      Now Playing
+                      {t('目前選取影片')}
                     </span>
                   )}
                 </button>
@@ -342,7 +342,7 @@ function OverseasPhotographyWorksPage() {
 
         {activeCategory !== "影片" && (
           <div className="mt-12">
-            {!activePhotos.length && <p className="py-12 text-center text-sm text-[#64748b]">這個分類目前沒有已發布的照片。</p>}
+            {!activePhotos.length && <p className="py-12 text-center text-sm text-[#64748b]">{t("這個分類目前沒有已發布的照片。")}</p>}
             <div
               className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 ${
                 isFullBleedGallery
@@ -353,14 +353,14 @@ function OverseasPhotographyWorksPage() {
               {activePhotos.map((src, index) => (
                 <button
                   key={`${src}-${index}`}
-                  aria-label={`查看${photoItems.find(item => item.image_url === src)?.title || '攝影作品'}`}
+                  aria-label={t('查看攝影作品：{title}',{title:photoItems.find(item => item.image_url === src)?.title || t('攝影作品')})}
                   type="button"
                   onClick={() => setLightboxIndex(index)}
                   className="group relative overflow-hidden bg-[#e2e8f0] aspect-[4/3]"
                 >
                   <img loading="lazy" decoding="async"
                     src={withBaseUrl(src)}
-                    alt={photoItems.find(item => item.image_url === src)?.title || '攝影作品'}
+                    alt={photoItems.find(item => item.image_url === src)?.title || t('攝影作品')}
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                 </button>
@@ -372,9 +372,7 @@ function OverseasPhotographyWorksPage() {
               <SiteLink
                 to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
-              >
-                預約攝影
-              </SiteLink>
+              >{t("預約攝影")}</SiteLink>
             </div>
           </>
         )}
@@ -382,13 +380,13 @@ function OverseasPhotographyWorksPage() {
       <SiteFooter />
 
       {lightboxIndex !== null && activePhotos[lightboxIndex] && (
-        <div ref={lightboxRef} role="dialog" aria-modal="true" aria-label="攝影作品預覽" className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center px-4">
+        <div ref={lightboxRef} role="dialog" aria-modal="true" aria-label={t("攝影作品預覽")} className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center px-4">
           <button
             ref={closeRef}
             type="button"
             onClick={() => setLightboxIndex(null)}
-            className="absolute top-6 right-6 text-white text-2xl"
-            aria-label="Close"
+            className="absolute top-6 right-6 min-h-11 min-w-11 text-white text-2xl"
+            aria-label={t('關閉')}
           >
             ✕
           </button>
@@ -399,14 +397,14 @@ function OverseasPhotographyWorksPage() {
                 (lightboxIndex - 1 + activePhotos.length) % activePhotos.length
               )
             }
-            className="absolute left-4 md:left-8 text-white text-3xl"
-            aria-label="Previous"
+            className="absolute left-4 md:left-8 min-h-11 min-w-11 text-white text-3xl"
+            aria-label={t('上一張作品')}
           >
             ‹
           </button>
           <img loading="lazy" decoding="async"
             src={withBaseUrl(activePhotos[lightboxIndex])}
-            alt="Gallery preview"
+            alt={t('攝影作品預覽')}
             className="max-h-[80vh] max-w-[90vw] object-contain"
           />
           <button
@@ -414,8 +412,8 @@ function OverseasPhotographyWorksPage() {
             onClick={() =>
               setLightboxIndex((lightboxIndex + 1) % activePhotos.length)
             }
-            className="absolute right-4 md:right-8 text-white text-3xl"
-            aria-label="Next"
+            className="absolute right-4 md:right-8 min-h-11 min-w-11 text-white text-3xl"
+            aria-label={t('下一張作品')}
           >
             ›
           </button>

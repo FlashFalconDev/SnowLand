@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import SiteLink from '../../components/site/SiteLink';
+import SiteLink, { SiteBasePathContext } from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 import { useSiteContent } from '../../hooks/useSiteContent';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 
 function FaqPage() {
+  const { t } = useSiteLocale();
+  const basePath = useContext(SiteBasePathContext);
   const { category } = useParams();
   const navigate = useNavigate();
   const [openItem, setOpenItem] = useState(null);
@@ -89,7 +92,7 @@ function FaqPage() {
               FAQ
             </p>
             <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-              常見問題
+              {t('常見問題')}
             </h1>
           </div>
         </section>
@@ -108,7 +111,7 @@ function FaqPage() {
                       setOpenItem(null);
                       const slug = categorySlugMap[label];
                       if (slug) {
-                        navigate(`/faq/${slug}`);
+                        navigate(`${basePath}/faq/${slug}`);
                       }
                     }}
                     className={`relative pb-4 transition-colors duration-200 group ${
@@ -116,7 +119,7 @@ function FaqPage() {
                     }`}
                     aria-current={isActive ? "page" : undefined}
                   >
-                    {label}
+                    {t(label)}
                     <span
                       className={`absolute left-0 -bottom-[1px] h-0.5 transition-all duration-300 ${
                         isActive ? "w-full bg-[#111827]" : "w-0 bg-[#2b5f8f] group-hover:w-full"
@@ -127,10 +130,10 @@ function FaqPage() {
               })}
             </div>
           </div>
-          {isLoading && <p className="py-12 text-center text-sm text-[#64748b]">正在載入常見問題…</p>}
-          {!isLoading && error && <p className="py-12 text-center text-sm text-red-600">常見問題暫時無法載入，請稍後再試。</p>}
+          {isLoading && <p className="py-12 text-center text-sm text-[#64748b]">{t('正在載入常見問題…')}</p>}
+          {!isLoading && error && <p className="py-12 text-center text-sm text-red-600">{t('常見問題暫時無法載入，請稍後再試。')}</p>}
           {!isLoading && !error && filteredSections.length === 0 && (
-            <p className="py-12 text-center text-sm text-[#64748b]">這個分類目前沒有已發布的問題。</p>
+            <p className="py-12 text-center text-sm text-[#64748b]">{t('這個分類目前沒有已發布的問題。')}</p>
           )}
           {filteredSections.map((section) => {
             const sectionIndex = faqSections.findIndex((entry) => entry.title === section.title);
@@ -147,11 +150,11 @@ function FaqPage() {
                 section.title !== "雪場選擇" &&
                 section.title !== "親子課程" && (
                 <p className="text-base md:text-lg font-semibold text-[#6b7280] font-display">
-                  {categoryLabel}
+                  {t(categoryLabel)}
                 </p>
               )}
               <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                {section.title}
+                {t(section.title)}
               </h2>
               <div className="flex items-center gap-3">
                 <span className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">

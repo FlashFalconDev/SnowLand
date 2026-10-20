@@ -44,7 +44,7 @@ async function main(){
   const preview={requires_bank_account:true,requires_cash_review:false,refund_amount:7500,settlement:{currency:'JPY',refund_amount:33750,original_amount:45000,rate:'4.50000000'}}
   const memberCalls=[]
   let memberStates=[preview,'schedule','QA取消',{bank_name:'QA銀行',account_number:'QA-NOT-REAL',account_holder:'QA會員',overseas_details:''},'',false],mi=0
-  const memberContext=vm.createContext({React,useState(){const i=mi++;return[memberStates[i],value=>memberStates[i]=value]},requestJson:async(url,options)=>{memberCalls.push(JSON.parse(options.body));return{id:5,status:'requested'}}})
+  const memberContext=vm.createContext({React,useSiteLocale:require('./helpers/site-locale-harness.cjs')(React).useSiteLocale,useState(){const i=mi++;return[memberStates[i],value=>memberStates[i]=value]},requestJson:async(url,options)=>{memberCalls.push(JSON.parse(options.body));return{id:5,status:'requested'}}})
   vm.runInContext(ts.transpileModule(memberCode,{fileName:'member.jsx',compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText,memberContext)
   const renderMember=()=>{mi=0;return memberContext.CancellationForm({order:{id:42},onDone(){}})}
   const findMember=(node)=>{if(!node||typeof node!=='object')return null;if(node.type==='button'&&node.props.children==='確認送出')return node;for(const child of React.Children.toArray(node.props?.children)){const found=findMember(child);if(found)return found}return null}

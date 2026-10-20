@@ -61,6 +61,40 @@ def payment_expiration_for(group):
     return timezone.now() + timedelta(days=get_operating_policy(group).unpaid_hold_days)
 
 
+@transaction.atomic
+def sync_group_payment_window(group):
+    """Start once when scheduling is confirmed; never restart a running deadline.
+
+    Callers changing scheduling acquire the tenant lock before course locks.
+    Reported/received money and expired historical orders are never reopened.
+    """
+    from Client.models import Client
+    from .models import Payment
+    Client.objects.select_for_update().get(pk=group.client_id)
+    group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
+    payment = group.payments.select_for_update().order_by('-created_at', '-pk').first()
+    if payment and payment.status != 'unpaid':
+        return payment
+    if group.payments.filter(status__in=['paid', 'pending', 'refunded', 'expired']).exists():
+        return payment
+    active = group.reservations.exclude(status__in=['cancelled', 'deleted'])
+    blocked = active.exclude(status__in=['auto_assigned', 'manually_assigned', 'form_filled', 'completed']).exists()
+    blocked = blocked or active.filter(shared_course_class__status='collecting').exists()
+    if not active.exists() or blocked:
+        if payment and payment.expires_at is not None:
+            payment.expires_at = None
+            payment.save(update_fields=['expires_at'])
+        return payment
+    if payment is None:
+        return Payment.objects.create(reservation_group=group, user=group.user,
+            status='unpaid', payment_method='TT', payment_account=resolve_payment_account(group),
+            expires_at=payment_expiration_for(group), DataJSON={'contact': group.booking_contact})
+    if payment.expires_at is None:
+        payment.expires_at = payment_expiration_for(group)
+        payment.save(update_fields=['expires_at'])
+    return payment
+
+
 def order_snapshot(group):
     return {
         'order_number': group.order_number,

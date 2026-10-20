@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
@@ -168,6 +169,7 @@ const CMS_LOCATION_BY_PAGE_KEY = {
 };
 
 function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = false }) {
+  const { t } = useSiteLocale();
   const cmsLocationKey = CMS_LOCATION_BY_PAGE_KEY[pageKey] ?? `legacy.${pageKey}`;
   const { items: cmsPageItems, isLoading: pageLoading, error: pageError } = useSiteContent(cmsLocationKey, { limit: 20 });
   const { items: articleItems } = useSiteContent('guides.articles');
@@ -178,7 +180,7 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
     <SiteHeader forceTransparent />
     <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
       <p role={pageError ? 'alert' : 'status'} className={`text-sm ${pageError ? 'text-red-600' : 'text-[#64748b]'}`}>
-        {pageError ? '內容暫時無法載入，請稍後再試。' : pageLoading ? '內容載入中。' : aboutUnavailable ? `${pageKey === 'about' ? '學校介紹' : '教練招募'}內容更新中，請稍後再查看。` : '目前沒有已發布的內容。'}
+        {pageError ? t('內容暫時無法載入，請稍後再試。') : pageLoading ? t('內容載入中。') : aboutUnavailable ? t('{section}內容更新中，請稍後再查看。', { section: t(pageKey === 'about' ? '學校介紹' : '教練招募') }) : t('目前沒有已發布的內容。')}
       </p>
     </main><SiteFooter />
   </div>;
@@ -186,6 +188,7 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
 }
 
 function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = false, forceLogoColor = false }) {
+  const { t } = useSiteLocale();
   const isAboutPage = pageKey === "about";
   const j = (key) => page.layout?.values?.[key] ?? "";
   const aboutContent = page.layout;
@@ -515,7 +518,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                   <button
                     key={`join-us-dot-${index}`}
                     type="button"
-                    aria-label={`顯示第 ${index + 1} 張照片`}
+                    aria-label={t('顯示第 {count} 張照片',{count:index+1})}
                     aria-pressed={index === joinUsMobileSlide}
                     onClick={() => {
                       const node = joinUsMobileCarouselRef.current;
@@ -779,7 +782,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                   >
                     {j("join_090")}</SiteLink>
                 </div>
-                {/^https?:\/\//i.test(j("join_apply_url")) && <p data-recruit-notice="true" className="mt-3 text-xs leading-6 text-white">目前開啟外部應徵表單；站內招募表單建置中。</p>}
+                {/^https?:\/\//i.test(j("join_apply_url")) && <p data-recruit-notice="true" className="mt-3 text-xs leading-6 text-white">{t("目前開啟外部應徵表單；站內招募表單建置中。")}</p>}
               </JoinUsFade>
             </div>
           </section>
@@ -1223,15 +1226,13 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                 <aside className="order-first lg:order-none lg:w-64">
                   <div className="w-full border-r border-[#e2e8f0] pr-8 text-left">
                     <div className="flex items-center justify-between gap-4">
-                      <p className="text-sm font-semibold text-[#1f2937] font-display">
-                        目錄
-                      </p>
+                      <p className="text-sm font-semibold text-[#1f2937] font-display">{t("目錄")}</p>
                       <button
                         type="button"
                         onClick={() => setIsTocOpen((prev) => !prev)}
-                        className="text-sm font-semibold text-[#94a3b8] hover:text-[#2b5f8f] transition-colors"
+                        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-sm font-semibold text-[#64748b] hover:text-[#2b5f8f] transition-colors"
                         aria-expanded={isTocOpen}
-                        aria-label={isTocOpen ? "收合目錄" : "展開目錄"}
+                        aria-label={t(isTocOpen ? "收合目錄" : "展開目錄")}
                       >
                         {isTocOpen ? "−" : "+"}
                       </button>
@@ -1270,9 +1271,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
           {preparationRelatedLinks.length > 0 && (
             <section className="max-w-5xl mx-auto px-6 mt-16">
               <div className="flex items-center gap-4">
-                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-                  延伸閱讀
-                </h2>
+                <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("延伸閱讀")}</h2>
                 <div className="h-px flex-1 bg-[#e2e8f0]" />
               </div>
               <div className="mt-8 grid w-full max-w-4xl mx-auto gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -1346,7 +1345,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                       }`}
                       aria-current={isActive ? "page" : undefined}
                     >
-                      {link.label}
+                      {t(link.label)}
                       <span
                         className={`absolute left-0 -bottom-[1px] h-0.5 transition-all duration-300 ${
                           isActive ? "w-full bg-[#111827]" : "w-0 bg-[#2b5f8f] group-hover:w-full"
@@ -1488,9 +1487,7 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
               <SiteLink
                 to="/contact"
                 className="inline-flex items-center justify-center rounded-full bg-[#2b5f8f] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#1f3f5f]"
-              >
-                聯絡我們
-              </SiteLink>
+              >{t("聯絡我們")}</SiteLink>
             </div>
           )}
         </main>

@@ -1,6 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
+from django.db.models import Max, Q
 
 from booking.models import Booking
 
@@ -92,11 +93,15 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
         reservation__group__campus=campus,
         reservation__group__referral_user_id=coach.user_id,
         reservation__status='completed',
-        date__range=(period_start, period_end),
+    ).annotate(referral_completion_date=Max('reservation__group__reservations__bookings__date',
+        filter=~Q(reservation__group__reservations__status__in=['cancelled', 'deleted']))).filter(
+        referral_completion_date__range=(period_start, period_end),
     ).select_related('reservation__course_type__category').order_by('date', 'start_time', 'pk') if coach.user_id else []
     referrals = []
     referred_reservations = set()
     for booking in referral_bookings:
+        if booking.reservation.group.reservations.exclude(status__in=['completed', 'cancelled', 'deleted']).exists():
+            continue
         if booking.reservation_id in referred_reservations:
             continue
         referred_reservations.add(booking.reservation_id)

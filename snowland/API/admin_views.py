@@ -2087,7 +2087,9 @@ class OrderAdminViewSet(ModelViewSet):
                 r.save()
 
             save_payment_status()
-            from booking.operations import record_order_revision
+            from booking.operations import record_order_revision, sync_group_payment_window
+            if coach_changes:
+                sync_group_payment_window(instance)
             record_order_revision(instance, user=request.user, change_type='modify', reason=data.get('reason', '後台修改訂單'))
 
             changed_count = len(coach_changes) + len(booking_changes)
@@ -2798,6 +2800,16 @@ class PayrollStatementAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     def create(self, request, *args, **kwargs):
         return Response({'code': 405, 'msg': '請使用薪資結算操作'}, status=405)
 
+    @action(detail=True, methods=['post'], url_path='settlement')
+    def settlement(self, request, *args, **kwargs):
+        from Coach.payroll_settlement import save_settlement
+        try:
+            statement = save_settlement(self.get_object(), request.data, request.user)
+        except ValueError as exc:
+            return Response({'code': 400, 'msg': str(exc)}, status=400)
+        return Response({'code': 200, 'msg': '已保存稅金與發放幣別核對結果；未進行發款',
+            'data': self.get_serializer(statement).data})
+
     @action(detail=False, methods=['get', 'post'], url_path='document-settings')
     def document_settings(self, request, *args, **kwargs):
         from .payroll_documents import document_settings
@@ -2833,7 +2845,10 @@ class PayrollStatementAdminViewSet(PayrollCsrfMixin, ModelViewSet):
         except (TypeError, ValueError):
             return Response({'code': 400, 'msg': '請選擇正確的確認截止日'}, status=400)
         try:
-            statement = publish_statement(statement, deadline)
+            proof = request.data.get('settlement_reviewed_at')
+            if not isinstance(proof, str) or not proof:
+                raise ValueError('請重新載入並核對最新的稅金與發放幣別')
+            statement = publish_statement(statement, deadline, expected_reviewed_at=proof)
         except ValueError as exc:
             return Response({'code': 400, 'msg': str(exc)}, status=400)
         return Response({'code': 200, 'msg': '已送交教練確認；未進行發款', 'data': self.get_serializer(statement).data})
@@ -3388,6 +3403,8 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
         """Headquarters assigns one qualified coach to every order in a ready shared class."""
         _require_headquarters(request)
         with transaction.atomic():
+            if request.method == 'POST':
+                Client.objects.select_for_update().get(pk=request.tenant.pk)
             shared_class = SharedCourseClass.objects.select_for_update().select_related(
                 'campus', 'resort', 'template__course_type',
             ).filter(
@@ -3485,8 +3502,9 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                     reservation.status = next_status
                 reservation.save(update_fields=['preferred_coach', 'is_preferred_coach', 'status'])
             Booking.objects.filter(pk__in=[booking.id for booking in bookings]).update(is_scheduled=True)
-            from booking.operations import record_order_revision
+            from booking.operations import record_order_revision, sync_group_payment_window
             for group_id in {reservation.group_id for reservation in reservations}:
+                sync_group_payment_window(ReservationGroup.objects.get(pk=group_id))
                 record_order_revision(
                     ReservationGroup.objects.get(pk=group_id), user=request.user,
                     reason=f'跨訂單團體班整班改派教練：{coach.name}',
@@ -4184,6 +4202,7 @@ def coach_pending_confirmations(request, client_code):
 
 @api_view(['POST'])
 @permission_classes([IsTenantCoach])
+@transaction.atomic
 def coach_confirm_course(request, client_code, reservation_id):
     """
     教練接受 / 拒絕指派
@@ -4197,6 +4216,7 @@ def coach_confirm_course(request, client_code, reservation_id):
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
+    Client.objects.select_for_update().get(pk=request.tenant.pk)
     try:
         r = Reservation.objects.get(pk=reservation_id, preferred_coach=coach, group__client=request.tenant)
     except Reservation.DoesNotExist:
@@ -4229,8 +4249,9 @@ def coach_confirm_course(request, client_code, reservation_id):
                 )
                 Booking.objects.filter(reservation_id__in=[item.id for item in siblings]).update(is_scheduled=False)
                 message = '已拒絕整班課程，需由總部重新指派教練'
-            from booking.operations import record_order_revision
+            from booking.operations import record_order_revision, sync_group_payment_window
             for group_id in {item.group_id for item in siblings}:
+                sync_group_payment_window(ReservationGroup.objects.get(pk=group_id))
                 record_order_revision(
                     ReservationGroup.objects.get(pk=group_id), user=request.user,
                     reason=f'教練{message}',
@@ -4255,6 +4276,8 @@ def _confirm_individual_course(request, coach, reservation_id, action):
             return Response({'code': 400, 'msg': '此課程目前狀態不可接受'}, status=400)
         r.status = 'manually_assigned'
         r.save()
+        from booking.operations import sync_group_payment_window
+        sync_group_payment_window(r.group)
         return Response({'code': 200, 'msg': '已接受'})
 
     if action == 'reject':
@@ -4266,6 +4289,8 @@ def _confirm_individual_course(request, coach, reservation_id, action):
         r.is_preferred_coach = False
         r.status = 'created'
         r.save()
+        from booking.operations import sync_group_payment_window
+        sync_group_payment_window(r.group)
         for b in r.bookings.all():
             b.is_scheduled = False
             b.save()
@@ -4277,6 +4302,7 @@ def _confirm_individual_course(request, coach, reservation_id, action):
             with transaction.atomic():
                 reassigned = reassign_single_reservation(r.pk)
             r.refresh_from_db()
+            sync_group_payment_window(r.group)
             if reassigned and r.preferred_coach_id:
                 message = ('已拒絕，已重新安排替代教練，等待對方確認'
                            if r.status == 'pending_coach_confirmation' else '已拒絕，已重新安排可接課教練')
@@ -4513,9 +4539,18 @@ def _coach_leave_policy(request, coach, campus_id):
             raise ValueError('請選擇您所屬的校區')
     elif coach.campuses.count() == 1:
         campus = coach.campuses.first()
-    policy = (OperatingPolicy.objects.filter(client=request.tenant, campus=campus).first() if campus else None)
-    policy = policy or OperatingPolicy.objects.filter(client=request.tenant, campus__isnull=True).first()
-    return campus, policy or OperatingPolicy(client=request.tenant)
+    default = OperatingPolicy.objects.filter(client=request.tenant, campus__isnull=True).first() or OperatingPolicy(client=request.tenant)
+    campuses = list(coach.campuses.filter(client=request.tenant).order_by('pk'))
+    saved = {row.campus_id: row for row in OperatingPolicy.objects.filter(client=request.tenant, campus__in=campuses)}
+    policies = [(item, saved.get(item.pk, default)) for item in campuses] or [(None, default)]
+    # Leave removes the coach from every campus. Selecting one campus must not
+    # bypass another campus's notice period, duration or daily capacity rules.
+    policy = OperatingPolicy(client=request.tenant,
+        leave_advance_days=max(row.leave_advance_days for _, row in policies),
+        leave_max_consecutive_days=min(row.leave_max_consecutive_days for _, row in policies),
+        leave_daily_coach_limit=min(row.leave_daily_coach_limit for _, row in policies))
+    policy.leave_campus_policies = policies
+    return campus, policy
 
 
 @api_view(['GET', 'POST'])
@@ -4550,6 +4585,7 @@ def coach_apply_leave(request, client_code):
 
     from rest_framework.authentication import SessionAuthentication
     SessionAuthentication().enforce_csrf(request)
+    Client.objects.select_for_update().get(pk=request.tenant.pk)
     start_date = request.data.get('start_date')
     end_date = request.data.get('end_date')
     raw_reason = request.data.get('reason')
@@ -4595,13 +4631,14 @@ def coach_apply_leave(request, client_code):
             start_date__lte=day,
             end_date__gte=day,
         )
-        if campus:
-            daily_leaves = daily_leaves.filter(coach__campuses=campus)
-        if daily_leaves.values('coach_id').distinct().count() >= policy.leave_daily_coach_limit:
-            return Response({
-                'code': 400,
-                'msg': f'{day} 已達每日 {policy.leave_daily_coach_limit} 位教練請假上限，請改選日期或聯絡主管',
-            }, status=400)
+        for leave_campus, campus_policy in policy.leave_campus_policies:
+            scoped = daily_leaves.filter(coach__campuses=leave_campus) if leave_campus else daily_leaves
+            if scoped.values('coach_id').distinct().count() >= campus_policy.leave_daily_coach_limit:
+                label = f'（{leave_campus.name}）' if leave_campus else ''
+                return Response({
+                    'code': 400,
+                    'msg': f'{day}{label} 已達每日 {campus_policy.leave_daily_coach_limit} 位教練請假上限，請改選日期或聯絡主管',
+                }, status=400)
         day += timedelta(days=1)
 
     # 檢查是否已有重疊的 pending/approved 請假

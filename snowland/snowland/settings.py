@@ -63,6 +63,13 @@ EMAIL_TIMEOUT = 15
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'webmaster@localhost')
 SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '0') == '1'
 SNOWLAND_CONTACT_RATE = os.getenv('SNOWLAND_CONTACT_RATE', '5/min')
+# Dedicated key is required: do not derive stored OAuth-token encryption from
+# the legacy Django SECRET_KEY or expose these settings to frontend builds.
+SNOWLAND_INSTAGRAM_APP_ID = os.getenv('SNOWLAND_INSTAGRAM_APP_ID', '').strip()
+SNOWLAND_INSTAGRAM_APP_SECRET = os.getenv('SNOWLAND_INSTAGRAM_APP_SECRET', '').strip()
+SNOWLAND_INSTAGRAM_REDIRECT_URI = os.getenv('SNOWLAND_INSTAGRAM_REDIRECT_URI', '').strip()
+SNOWLAND_INSTAGRAM_TOKEN_KEY = os.getenv('SNOWLAND_INSTAGRAM_TOKEN_KEY', '').strip()
+SNOWLAND_INSTAGRAM_API_VERSION = os.getenv('SNOWLAND_INSTAGRAM_API_VERSION', '').strip()
 # Trust forwarded visitor IPs only from explicitly configured reverse proxies.
 SNOWLAND_CONTACT_TRUSTED_PROXY_IPS = [value.strip() for value in os.getenv('SNOWLAND_CONTACT_TRUSTED_PROXY_IPS', '').split(',') if value.strip()]
 GOOGLE_OAUTH_CLIENT_ID = (

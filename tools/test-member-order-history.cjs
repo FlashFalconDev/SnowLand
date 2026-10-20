@@ -18,6 +18,7 @@ const between = (start, end) => source.slice(source.indexOf(start), source.index
 const moneyContext=vm.createContext({React,exports:{},require:()=>require('./helpers/site-locale-harness.cjs')(React)})
 vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/components/booking/SettlementSummary.tsx'),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,moneyContext)
 const context = vm.createContext({ React, Intl, Date, Number,
+  useSiteLocale: require('./helpers/site-locale-harness.cjs')(React).useSiteLocale,
   SettlementSummary:moneyContext.exports.default,settlementAmount:moneyContext.exports.settlementAmount,
   OrderAmendmentBalance: balanceContext.exports.default,
   requestJson: async () => ({ items: [] }),
@@ -27,6 +28,7 @@ const context = vm.createContext({ React, Intl, Date, Number,
   ClassGroupQRImage: () => null, EmptyState: () => null })
 const code = between('const formatDate =', 'const ageOptions =')
   + between('function OrderCard(', 'function CancellationForm(')
+  + between('function SharedClassSummary(', 'function Orders(')
   + between('function Orders(', 'function PreCourseForm(')
 vm.runInContext(ts.transpileModule(code, { fileName: 'membership.jsx', compilerOptions: {
   jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020,
@@ -118,5 +120,18 @@ for (const [name, check] of [
 ]) {
   try { check(); console.log('PASS', name) }
   catch (error) { failed++; console.error('FAIL', name, error.message) }
+}
+for(const [language,button,days] of [['en','Book again','Days'],['ja','再予約','日数']]){
+  try{
+    context.useSiteLocale=require('./helpers/site-locale-harness.cjs')(React,language).useSiteLocale
+    const html=renderToStaticMarkup(React.createElement(context.OrderCard,{order,onQuickRebook(){}}))
+    assert.ok(html.includes(button)&&html.includes(days),`${language}: real OrderCard must use locale context`)
+    assert.ok(html.includes('有效雪場'),'Never machine-translate CMS names')
+    assert.ok(!html.includes('另有 ')&&!html.includes('再次預約'))
+    const shared=renderToStaticMarkup(React.createElement(context.SharedClassSummary,{summary:{status:'ready',registered_students:3,minimum_students:2,other_students:1,ability_level_label:'Lv2'}}))
+    assert.ok(!shared.includes('已報名')&&!shared.includes('同班其他學員'))
+    assert.ok(shared.includes('Lv2'))
+    console.log('PASS member order and shared-class owned UI',language)
+  }catch(error){failed++;console.error('FAIL member locale',language,error.message)}
 }
 if (failed) process.exitCode = 1

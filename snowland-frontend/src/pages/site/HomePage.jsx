@@ -10,8 +10,10 @@ import { fetchSiteContent } from '../../api/booking';
 import SiteFooter from '../../components/site/SiteFooter';
 import HomepagePresentation, {ContentState, HomepageCoachHeading, HomepageContactBanner} from '../../components/site/HomepagePresentation';
 import {useSiteContent} from '../../hooks/useSiteContent';
+import {useSiteLocale} from '../../contexts/SiteLocale';
 
 function HomePage() {
+  const {t} = useSiteLocale();
   const containerRef = useRef(null);
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -51,14 +53,14 @@ function HomePage() {
 
   const reviews = useMemo(() => {
     return cmsReviews.map((item) => ({
-      name: item.title || 'SnowLand 學員',
+      name: item.title || t('SnowLand 學員'),
       initials: item.metadata?.initials || (item.title || 'SL').slice(0, 2).toUpperCase(),
       media: item.image_url ? 'image' : '',
       image: item.image_url || '',
       textPrimary: item.summary || item.body || item.subtitle || '',
       textSecondary: item.summary && item.body ? item.body : '',
     }));
-  }, [cmsReviews]);
+  }, [cmsReviews,t]);
   const reviewsLoop = useMemo(() => [...reviews, ...reviews], [reviews]);
 
   React.useEffect(() => {
@@ -151,7 +153,7 @@ function HomePage() {
               Reviews
             </p>
             <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-              學員好評
+              {t('學員好評')}
             </h2>
             <p className="mt-4 text-sm text-[#6b7280]">
               <a
@@ -160,13 +162,13 @@ function HomePage() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                查看 Google 商家評價
+                {t('查看 Google 商家評價')}
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#2b5f8f] transition-all duration-300 group-hover:w-full"></span>
               </a>
             </p>
-            {reviewsStatus === 'loading' && <p role="status" className="mt-6 text-sm text-[#475569]">正在載入學員評價…</p>}
-            {reviewsStatus === 'error' && <p role="alert" className="mt-6 text-sm text-red-700">學員評價載入失敗。<button type="button" className="ml-2 min-h-11 px-3 underline" onClick={() => setReviewRetry(value => value + 1)}>重試學員評價</button></p>}
-            {reviewsStatus === 'ready' && !reviews.length && <p className="mt-6 text-sm text-[#475569]">目前尚無公開評價。</p>}
+            {reviewsStatus === 'loading' && <p role="status" className="mt-6 text-sm text-[#475569]">{t('正在載入學員評價…')}</p>}
+            {reviewsStatus === 'error' && <p role="alert" className="mt-6 text-sm text-red-700">{t('學員評價載入失敗。')}<button type="button" className="ml-2 min-h-11 px-3 underline" onClick={() => setReviewRetry(value => value + 1)}>{t('重試學員評價')}</button></p>}
+            {reviewsStatus === 'ready' && !reviews.length && <p className="mt-6 text-sm text-[#475569]">{t('目前尚無公開評價。')}</p>}
           </div>
         </div>
 
@@ -295,7 +297,7 @@ function HomePage() {
                   key={`coach-dot-${coach.name}`}
                   type="button"
                   onClick={() => scrollToCoachIndex(index)}
-                  aria-label={`View ${coach.name}`}
+                  aria-label={t('查看教練：{name}',{name:coach.name})}
                   aria-pressed={activeCoachIndex === index}
                   className="min-h-11 min-w-11 inline-flex items-center justify-center"
                 ><span className={`h-2 w-2 rounded-full transition-colors ${activeCoachIndex === index ? "bg-[#2b5f8f]" : "bg-[#cbd5e1]"}`} /></button>

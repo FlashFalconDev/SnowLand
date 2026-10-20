@@ -1058,6 +1058,9 @@ class SharedCourseBookingTests(TestCase):
 
     def test_expiring_one_member_reopens_collecting_for_remaining_orders(self):
         group_ids = [self.book().data['reservation_group_ids'][0] for _ in range(3)]
+        # This fixture mocks the scheduler. Represent actual confirmed scheduling:
+        # the payment window must not expire courses still waiting for assignment.
+        Reservation.objects.filter(group_id__in=group_ids).update(status='auto_assigned')
         payment = Payment.objects.get(reservation_group_id=group_ids[0])
         payment.expires_at = timezone.now() - timedelta(minutes=1)
         payment.save(update_fields=['expires_at'])
