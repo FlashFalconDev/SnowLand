@@ -7,6 +7,7 @@ const find=(node,p)=>{if(!node||typeof node!=='object')return null;if(p(node))re
 const form={id:42,age_range:'25-35y',insurance_data:{full_name:'QA',birth_date:'1995-01-01'},insurance_processing_status:'checking',snowboard_skills:[],ski_skills:[],waiver_signature:'OLD',waiver_completed:false,waiver_resign_required:true,waiver_course_revision:91,media_consent:'decline'}
 const states=[],calls=[];let cursor=0,refreshed=0,reject=false
 const context=vm.createContext({React,exports:{},ageOptions:['25-35y'],ageLabel:value=>value,birthDateStatus:()=>({age:31,error:''}),
+ useSiteLocale:require('./helpers/site-locale-harness.cjs')(React).useSiteLocale,
  useState:initial=>{const index=cursor++;if(!(index in states))states[index]=typeof initial==='function'?initial():initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value]},
  requestJson:async(url,options)=>{calls.push(JSON.parse(options.body));if(reject)throw Error('課程已變更，請重新載入課前資料，再閱讀及簽署聲明書');return{message:'已儲存'}},
 })

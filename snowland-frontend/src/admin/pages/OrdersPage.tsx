@@ -16,6 +16,10 @@ import ClassGroupQRPanel from '../components/ClassGroupQRPanel'
 import CancellationStatusPanel from '../components/CancellationStatusPanel'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
+import OrderCurrencySummary from '../components/OrderCurrencySummary'
+import { settlementAmount } from '../../components/booking/SettlementSummary'
+import { quoteJpyPreview } from '../../utils/settlementPreview'
+import { useAdminDialog } from '../hooks/useAdminDialog'
 
 const PRIMARY = '#8b5cf6'
 
@@ -305,11 +309,11 @@ function FullOrdersPage() {
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div className="min-w-0"><div className="text-xs text-gray-500 dark:text-gray-400">學員</div><div className="truncate font-medium text-gray-900 dark:text-white">{order.user_name}</div></div>
-                  <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">NT$ {(order.total_fee || 0).toLocaleString()}</div></div>
+                    <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">{settlementAmount(order.settlement,order.total_fee || 0)}</div>{order.settlement?.currency==='JPY'&&<div className="text-xs text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</div>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
-                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} NT$ {Math.abs(order.amendment_balance.amount).toLocaleString()}</span>}
+                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString()}</span>}
                   <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
                 </div>
               </div>
@@ -358,13 +362,13 @@ function FullOrdersPage() {
                           </>
                         ) : '—'}
                       </td>
-                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">NT$ {(order.total_fee || 0).toLocaleString()}</td>
+                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{settlementAmount(order.settlement,order.total_fee || 0)}{order.settlement?.currency==='JPY'&&<div className="text-xs font-normal text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</td>
                       <td className="px-5 py-3 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
                       </td>
                       <td className="px-5 py-3 hidden md:table-cell whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
-                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} NT$ {Math.abs(order.amendment_balance.amount).toLocaleString()}</div>}
+                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString()}</div>}
                       </td>
                       <td className="px-5 py-2 text-right">
                         <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"><Eye size={16} /></button>
@@ -552,6 +556,9 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   })
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(order.payment_status)
   const [editing, setEditing] = useState(false)
+  const [jpyReceiptConfirmed,setJpyReceiptConfirmed]=useState(false)
+  const requiresJpyReceipt=paymentStatus==='paid'&&order.payment_status!=='paid'&&order.settlement?.currency==='JPY'
+  useEffect(()=>{setJpyReceiptConfirmed(false)},[order.id,order.payment_status,order.settlement?.amount,editing])
   const [groupLinkDraft, setGroupLinkDraft] = useState(order.line_group_url || '')
   const [groupLinkError, setGroupLinkError] = useState('')
   useEffect(() => { setGroupLinkDraft(order.line_group_url || ''); setGroupLinkError('') }, [order.id, order.line_group_url])
@@ -585,7 +592,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const [paymentLink, setPaymentLink] = useState('')
   useEffect(() => setPaymentLink(''), [order.id])
   const [cancelOpen, setCancelOpen] = useState(false)
-  const [cancelForm, setCancelForm] = useState({ reason: 'schedule', reason_note: '', bank_name: '', account_number: '', account_holder: '' })
+  const [cancelForm, setCancelForm] = useState({ reason: 'schedule', reason_note: '', bank_name: '', account_number: '', account_holder: '',overseas_details:'' })
   const [refundChoice, setRefundChoice] = useState('auto')
   const [manualRefund, setManualRefund] = useState('')
   const { data: refundPreview } = useQuery({ queryKey: ['admin', 'orders', order.id, 'refund-preview'], queryFn: () => previewOrderRefund(order.id), enabled: cancelOpen })
@@ -594,6 +601,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const displayedRefund = refundChoice === 'manual' ? (manualRefundValid ? Number(manualRefund) : null) : selectedRule && refundPreview
     ? Math.max(0, Math.round(refundPreview.original_amount * (selectedRule.refund_percent - Number(refundPreview.handling_fee_percent)) / 100))
     : (refundPreview?.refund_amount ?? null)
+  const nativeRefund=refundPreview?.settlement?.currency==='JPY'&&displayedRefund!==null
+    ? quoteJpyPreview([displayedRefund],[0],refundPreview.settlement.rate,true)?.amounts[0]??null:null
+  const refundLabel=refundPreview?.settlement?.currency==='JPY'
+    ? nativeRefund===null?'請確認日幣退款金額':`日幣 JPY ¥ ${nativeRefund.toLocaleString()}`
+    : displayedRefund===null?'請輸入有效金額':`NT$ ${displayedRefund.toLocaleString()}`
   const [emailForm, setEmailForm] = useState({
     recipient_email: order.user_email || '',
     subject: `[${order.sn}] 課程通知`,
@@ -656,7 +668,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
       notify.error('無法自動複製；請點連結欄位後按 Ctrl+C')
     }
   }
-  const cancelMutation = useMutation({ mutationFn: () => requestOrderCancellation(order.id, { reason: cancelForm.reason, reason_note: cancelForm.reason_note, refund_bank: { bank_name: cancelForm.bank_name, account_number: cancelForm.account_number, account_holder: cancelForm.account_holder }, ...(!refundPreview?.requires_cash_review && refundChoice === 'manual' ? { manual_refund_amount: Number(manualRefund) } : !refundPreview?.requires_cash_review && refundChoice.startsWith('rule:') ? { selected_rule_days_before: Number(refundChoice.slice(5)) } : {}) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); setCancelOpen(false); notify.success('取消申請已建立，請到訂單內確認退款金額') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '建立取消申請失敗') })
+  const cancelMutation = useMutation({ mutationFn: () => requestOrderCancellation(order.id, { reason: cancelForm.reason, reason_note: cancelForm.reason_note, refund_bank: { bank_name: cancelForm.bank_name, account_number: cancelForm.account_number, account_holder: cancelForm.account_holder,overseas_details:cancelForm.overseas_details }, ...(refundPreview?.settlement?.currency==='JPY'?{currency:'JPY' as const,expected_refund_amount:refundPreview.requires_cash_review?null:nativeRefund}:{}),...(!refundPreview?.requires_cash_review && refundChoice === 'manual' ? { manual_refund_amount: Number(manualRefund) } : !refundPreview?.requires_cash_review && refundChoice.startsWith('rule:') ? { selected_rule_days_before: Number(refundChoice.slice(5)) } : {}) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); setCancelOpen(false); notify.success('取消申請已建立，請到訂單內確認退款金額') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '建立取消申請失敗') })
+  const cancelDialog=useAdminDialog(cancelOpen,cancelMutation.isPending,()=>setCancelOpen(false))
   const completeCourse = useMutation({
     mutationFn: (reservationId: number) => completeOrderCourse(order.id, reservationId),
     onSuccess: (response) => {
@@ -692,6 +705,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
       return updateOrder(order.id, {
         action,
         payment_status: paymentStatus !== order.payment_status ? paymentStatus : undefined,
+        payment_currency:requiresJpyReceipt&&jpyReceiptConfirmed?'JPY':undefined,
+        payment_received_amount:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.amount:undefined,
         reservation_updates: updates,
         booking_updates: bookingUpdates,
       })
@@ -778,7 +793,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
           </div>
-          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} NT$ {Math.abs(order.amendment_balance.amount).toLocaleString('zh-TW')}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
+          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString('zh-TW')}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
           {!readOnly&&<AmendmentBalancesPanel orderId={order.id} cancellationStatus={order.cancellation?.status}/>}
 
           <section>
@@ -945,13 +960,15 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
 
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><CreditCard size={14} style={{ color: PRIMARY }} />付款資訊</h3>
+            <OrderCurrencySummary settlement={order.settlement} receivedSettlement={order.received_settlement} confirmationRequired={editing&&requiresJpyReceipt} confirmed={jpyReceiptConfirmed} onConfirmChange={setJpyReceiptConfirmed} busy={saveMutation.isPending} />
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-2 text-sm">
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">付款狀態</span>
                 {editing && !sharedPaymentHeld ? (
                   <select
+                    aria-label="訂單付款狀態"
                     value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                    onChange={(e) => {setJpyReceiptConfirmed(false);setPaymentStatus(e.target.value as PaymentStatus)}}
                     className="px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                   >
                     {Object.entries(PAYMENT_LABEL).map(([k, v]) => (
@@ -1012,7 +1029,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               </button>
               <button
                 onClick={() => saveMutation.mutate('save')}
-                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking)}
+                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-[#8b5cf6] text-sm font-medium rounded-lg hover:bg-[#8b5cf6]/5 disabled:opacity-50 flex items-center gap-2"
                 style={{ color: PRIMARY }}
               >
@@ -1021,7 +1038,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               </button>
               <button
                 onClick={() => saveMutation.mutate('schedule')}
-                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking)}
+                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 style={{ backgroundColor: PRIMARY }}
               >
@@ -1037,7 +1054,54 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
 
       {amending && <OrderAmendmentDialog orderId={order.id} onClose={() => setAmending(false)} />}
       {/* Email Modal */}
-      {cancelOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 animate-fadeIn"><div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800"><div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}><div><h3 className="text-lg font-semibold">取消訂單與退款試算</h3><p className="mt-0.5 text-xs text-white/80">{order.sn}</p></div><button onClick={() => setCancelOpen(false)} aria-label="關閉" className="rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div><div className="space-y-4 overflow-y-auto p-6">{refundPreview && <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300"><b className="text-lg">{refundPreview.requires_cash_review?'退款金額待核對實收款':`預計退款 ${displayedRefund === null ? '請輸入有效金額' : `NT$ ${displayedRefund.toLocaleString()}`}`}</b><p className="mt-1">{refundPreview.requires_cash_review ? '訂單有未結清差額。先建立取消申請，再核對原款、已收補款與已退款；不會自動算入尚未收款的補款。' : refundChoice === 'manual' ? '特殊金額，請在補充說明記錄原因' : `距課程 ${refundPreview.days_before} 天 · 退 ${selectedRule?.refund_percent ?? refundPreview.refund_percent}% · 再扣原價的 ${refundPreview.handling_fee_percent}% 手續費`}</p></div>}<div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">退款方案</label><select aria-label="退款方案" disabled={refundPreview?.requires_cash_review} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" value={refundChoice} onChange={e => setRefundChoice(e.target.value)}><option value="auto">{refundPreview?.requires_cash_review?'待核對實收款（建立後人工確認）':'依上課日期自動計算'}</option>{refundPreview?.available_rules.map(rule => <option key={rule.days_before} value={`rule:${rule.days_before}`}>課前至少 {rule.days_before} 天：退 {rule.refund_percent}%</option>)}<option value="manual">特殊情況：手動輸入金額</option></select>{!refundPreview?.requires_cash_review && refundChoice === 'manual' && <label className="mt-2 block text-sm text-gray-700 dark:text-gray-300">退款金額（不可超過 NT$ {refundPreview?.original_amount.toLocaleString() ?? '—'}）<input aria-label="手動退款金額" type="number" min="0" max={refundPreview?.original_amount} step="1" className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white" value={manualRefund} onChange={e => setManualRefund(e.target.value)} /></label>}</div><div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">取消原因</label><select className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" value={cancelForm.reason} onChange={e => setCancelForm({ ...cancelForm, reason: e.target.value })}><option value="schedule">行程變更</option><option value="health">健康因素</option><option value="weather">天候因素</option><option value="duplicate">重複訂單</option><option value="other">其他</option></select></div><div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">補充說明</label><textarea className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" rows={3} placeholder="請說明取消原因" value={cancelForm.reason_note} onChange={e => setCancelForm({ ...cancelForm, reason_note: e.target.value })} /></div>{(refundPreview?.requires_cash_review || !['newebpay', 'credit_card', 'apple_pay', 'google_pay'].includes(order.payment_method)) && <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700"><p className="text-sm font-semibold text-gray-900 dark:text-white">退款帳戶</p><input className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款銀行" value={cancelForm.bank_name} onChange={e => setCancelForm({ ...cancelForm, bank_name: e.target.value })} /><input className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款帳號" value={cancelForm.account_number} onChange={e => setCancelForm({ ...cancelForm, account_number: e.target.value })} /><input className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款戶名" value={cancelForm.account_holder} onChange={e => setCancelForm({ ...cancelForm, account_holder: e.target.value })} /></div>}</div><div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"><button onClick={() => setCancelOpen(false)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">返回</button><button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending || !refundPreview || ((refundPreview.requires_cash_review || !['newebpay','credit_card','apple_pay','google_pay'].includes(order.payment_method)) && ![cancelForm.bank_name,cancelForm.account_number,cancelForm.account_holder].every(value=>value.trim())) || (!refundPreview?.requires_cash_review && refundChoice === 'manual' && !manualRefundValid)} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{cancelMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認建立取消申請</button></div></div></div>}
+      {cancelOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 animate-fadeIn">
+<div ref={node=>{cancelDialog.current=node}} role="dialog" aria-modal="true" aria-label="取消訂單與退款試算" aria-busy={cancelMutation.isPending} tabIndex={-1} className="flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl outline-none dark:bg-gray-800">
+<div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
+<div>
+<h3 className="text-lg font-semibold">取消訂單與退款試算</h3>
+<p className="mt-0.5 text-xs text-white/80">{order.sn}</p>
+</div>
+<button disabled={cancelMutation.isPending} onClick={() => setCancelOpen(false)} aria-label="關閉" className="min-h-11 min-w-11 rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-40">
+<X size={18} />
+</button>
+</div>
+<div className="space-y-4 overflow-y-auto p-6">{refundPreview && <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300">
+<b className="text-lg">{refundPreview.requires_cash_review?'退款金額待核對實收款':`預計退款 ${refundLabel}`}</b>
+{refundPreview.settlement&&<p className="mt-2 text-xs leading-6">沿用訂單匯率1 TWD＝{refundPreview.settlement.rate} JPY；台幣退款基準 {displayedRefund===null?'待核對':`NT$ ${displayedRefund.toLocaleString()}`}。實際退日幣，不是另退台幣。</p>}
+<p className="mt-1">{refundPreview.requires_cash_review ? '訂單有未結清差額。先建立取消申請，再核對原款、已收補款與已退款；不會自動算入尚未收款的補款。' : refundChoice === 'manual' ? '特殊金額，請在補充說明記錄原因' : `距課程 ${refundPreview.days_before} 天 · 退 ${selectedRule?.refund_percent ?? refundPreview.refund_percent}% · 再扣原價的 ${refundPreview.handling_fee_percent}% 手續費`}</p>
+</div>}<div>
+{cancelMutation.isError&&<p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">{(cancelMutation.error as any)?.response?.data?.msg||'建立取消申請失敗；請保留草稿，重新確認最新試算後再操作。'}</p>}
+<label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">退款方案</label>
+<select aria-label="退款方案" disabled={cancelMutation.isPending||refundPreview?.requires_cash_review} className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" value={refundChoice} onChange={e => setRefundChoice(e.target.value)}>
+<option value="auto">{refundPreview?.requires_cash_review?'待核對實收款（建立後人工確認）':'依上課日期自動計算'}</option>{refundPreview?.available_rules.map(rule => <option key={rule.days_before} value={`rule:${rule.days_before}`}>課前至少 {rule.days_before} 天：退 {rule.refund_percent}%</option>)}<option value="manual">特殊情況：手動輸入金額</option>
+</select>{!refundPreview?.requires_cash_review && refundChoice === 'manual' && <label className="mt-2 block text-sm text-gray-700 dark:text-gray-300">{refundPreview?.settlement?'台幣計價基準退款金額':'退款金額'}（不可超過 NT$ {refundPreview?.original_amount.toLocaleString() ?? '—'}）<input aria-label="手動退款金額" type="number" min="0" max={refundPreview?.original_amount} step="1" className="mt-1 min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white" value={manualRefund} onChange={e => setManualRefund(e.target.value)} />
+</label>}</div>
+<div>
+<label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">取消原因</label>
+<select className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" value={cancelForm.reason} onChange={e => setCancelForm({ ...cancelForm, reason: e.target.value })}>
+<option value="schedule">行程變更</option>
+<option value="health">健康因素</option>
+<option value="weather">天候因素</option>
+<option value="duplicate">重複訂單</option>
+<option value="other">其他</option>
+</select>
+</div>
+<div>
+<label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">補充說明</label>
+<textarea className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-violet-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" rows={3} placeholder="請說明取消原因" value={cancelForm.reason_note} onChange={e => setCancelForm({ ...cancelForm, reason_note: e.target.value })} />
+</div>{(refundPreview?.requires_cash_review || !['newebpay', 'credit_card', 'apple_pay', 'google_pay'].includes(order.payment_method)) && <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+<p className="text-sm font-semibold text-gray-900 dark:text-white">退款帳戶</p>
+<input aria-label="退款銀行" disabled={cancelMutation.isPending} maxLength={100} className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款銀行" value={cancelForm.bank_name} onChange={e => setCancelForm({ ...cancelForm, bank_name: e.target.value })} />
+<input aria-label="退款帳號" disabled={cancelMutation.isPending} maxLength={100} className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款帳號" value={cancelForm.account_number} onChange={e => setCancelForm({ ...cancelForm, account_number: e.target.value })} />
+<input aria-label="退款戶名" disabled={cancelMutation.isPending} maxLength={100} className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款戶名" value={cancelForm.account_holder} onChange={e => setCancelForm({ ...cancelForm, account_holder: e.target.value })} />
+{refundPreview?.settlement?.currency==='JPY'&&<label className="block text-sm text-gray-700 dark:text-gray-300">海外退款資料（選填）<textarea disabled={cancelMutation.isPending} maxLength={1000} value={cancelForm.overseas_details} onChange={e=>setCancelForm({...cancelForm,overseas_details:e.target.value})} className="mt-1 min-h-24 w-full rounded-lg border border-gray-200 bg-gray-50 p-3 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"/></label>}
+</div>}</div>
+<div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+<button disabled={cancelMutation.isPending} onClick={() => setCancelOpen(false)} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">返回</button>
+<button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending || !refundPreview || (refundPreview.settlement?.currency==='JPY'&&!refundPreview.requires_cash_review&&nativeRefund===null) || ((refundPreview.requires_cash_review || !['newebpay','credit_card','apple_pay','google_pay'].includes(order.payment_method)) && ![cancelForm.bank_name,cancelForm.account_number,cancelForm.account_holder].every(value=>value.trim())) || (!refundPreview?.requires_cash_review && refundChoice === 'manual' && !manualRefundValid)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{cancelMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認建立取消申請</button>
+</div>
+</div>
+</div>}
       {composingNotice && <ManualNotificationComposer initialTarget={{ kind: 'order', id: order.id, label: order.sn }} onClose={() => setComposingNotice(false)} />}
       {emailOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 animate-fadeIn">

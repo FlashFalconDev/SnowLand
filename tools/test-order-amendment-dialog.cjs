@@ -25,6 +25,12 @@ async function main(){
   const previewHtml=localRequire('react-dom/server').renderToStaticMarkup(ui.render())
   assert.match(previewHtml,/舊簽署留底/)
   assert.match(previewHtml,/本次須重新簽署：2 位；投保重新核對：1 位/)
+  const nativeQuote={...quote,settlement:{currency:'JPY',rate:'4.50000000',previous_total:42750,new_total:51750,difference_amount:9000,balance_amount:9000}}
+  const nativeUi=harness([1,draft,nativeQuote,null,'QA原因',true,false,false,'',false])
+  const nativeHtml=localRequire('react-dom/server').renderToStaticMarkup(nativeUi.render())
+  assert.match(nativeHtml,/JPY ¥ 51,750/)
+  assert.match(nativeHtml,/JPY ¥ 9,000/)
+  assert.match(nativeHtml,/台幣計價基準/)
   assert.equal(ui.button('確認保存修改').props.disabled,false)
   await ui.button('確認保存修改').props.onClick()
   assert.equal(ui.calls[0][1],42);assert.equal(ui.calls[0][2].changes[0],draft)

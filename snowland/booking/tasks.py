@@ -28,6 +28,9 @@ def expire_unpaid_payment(payment_id, now=None):
         payment = Payment.objects.select_for_update().filter(pk=payment_id, reservation_group=group).first()
         if payment is None or payment.status != 'unpaid':
             return 0, 0
+        active = group.reservations.exclude(status__in=['cancelled', 'deleted', 'completed'])
+        if active.exclude(status__in=['auto_assigned', 'manually_assigned', 'form_filled']).exists():
+            return 0, 0
         deadline = payment.expires_at
         if deadline is None:
             days = hold_days if hold_days is not None else get_operating_policy(group).unpaid_hold_days

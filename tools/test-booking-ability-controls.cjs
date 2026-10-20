@@ -1,9 +1,10 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm')
 const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript')
 const source=fs.readFileSync(path.join(root,'src/pages/BookingFlowPage.tsx'),'utf8')
-const fragment=source.match(/<select\s+aria-label=\{`\$\{level\.name\}學員人數`\}[\s\S]*?<\/select>/)?.[0]
+const fragment=source.match(/<select\s+aria-label=\{t\('\{level\}學員人數',\{level:t\(level\.name\)\}\)\}[\s\S]*?<\/select>/)?.[0]
 assert.ok(fragment,'The actual booking grade selector must have an accessible name')
-const changes=[],ctx=vm.createContext({React,exports:{},count:2,maxSelectable:4,level:{id:'no_exp',name:'等級 0'},actions:{setAbilityLevelCount:(...args)=>changes.push(args)}})
+const locale=require('./helpers/site-locale-harness.cjs')(React)
+const changes=[],ctx=vm.createContext({React,exports:{},t:(text,values)=>locale.translateSiteText('zh-Hant',text,values),count:2,maxSelectable:4,level:{id:'no_exp',name:'等級 0'},actions:{setAbilityLevelCount:(...args)=>changes.push(args)}})
 vm.runInContext(ts.transpileModule(`exports.control=(${fragment})`,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,ctx)
 const node=ctx.exports.control
 assert.equal(node.props['aria-label'],'等級 0學員人數')

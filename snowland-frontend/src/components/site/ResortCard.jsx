@@ -1,8 +1,10 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from './SiteLink';
 
 function ResortCard({ resort }) {
+  const {t} = useSiteLocale();
   const resortRoute = resort.route || `/course/${resort.slug}`;
   const heroImage = resort.heroImage || resort.imagePlaceholder;
 
@@ -21,7 +23,7 @@ function ResortCard({ resort }) {
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="text-[10px] font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
-          {resort.region}
+          {t(resort.region)}
         </div>
         <div>
           <h3 className="text-sm font-semibold text-[#1f2937]">{resort.nameChinese}</h3>
@@ -33,13 +35,11 @@ function ResortCard({ resort }) {
               key={tag}
               className="rounded-full bg-[#e2e8f0] px-2.5 py-0.5 text-[11px] font-semibold text-[#475569]"
             >
-              {tag}
+              {t(tag)}
             </span>
           ))}
         </div>
-        <span className="mt-3 inline-flex items-center justify-center rounded-full border border-[#1f2937] px-3 py-1.5 text-xs font-semibold text-[#1f2937] transition-colors duration-200 group-hover:bg-[#1f2937] group-hover:text-white">
-          查看雪場資訊
-        </span>
+        <span className="mt-3 inline-flex items-center justify-center rounded-full border border-[#1f2937] px-3 py-1.5 text-xs font-semibold text-[#1f2937] transition-colors duration-200 group-hover:bg-[#1f2937] group-hover:text-white">{t("查看雪場資訊")}</span>
       </div>
     </SiteLink>
   );

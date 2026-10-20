@@ -14,6 +14,7 @@ class RefundAccountInput(StrictInput):
     bank_name=serializers.CharField(max_length=100)
     account_number=serializers.CharField(max_length=80)
     account_holder=serializers.CharField(max_length=100)
+    overseas_details=serializers.CharField(max_length=1000,required=False,allow_blank=True)
 
 
 class BalanceActionInput(StrictInput):
@@ -25,12 +26,14 @@ class BalanceActionInput(StrictInput):
     bank=RefundAccountInput(required=False)
     note=serializers.CharField(max_length=1000,required=False)
     confirmed=serializers.BooleanField(required=False)
+    currency=serializers.ChoiceField(choices=['TWD','JPY'],required=False)
+    expected_amount=WholeNumber(min_value=0,max_value=9007199254740991,required=False)
 
 
 def balance_data(row, *, staff=False):
     from .amendment_notifications import notice_receipt
     latest_event=row.events.order_by('-created_at','-pk').first()
-    result={'id':row.pk,'version':row.revision.version,'previous_total':row.previous_total,'new_total':row.new_total,
+    result={**({'settlement':row.currency_snapshot} if row.currency_snapshot else {}),'id':row.pk,'version':row.revision.version,'previous_total':row.previous_total,'new_total':row.new_total,
         'difference_amount':row.difference_amount,'balance_amount':row.balance_amount,'status':row.status,
         'updated_at':row.updated_at,'settled_at':row.settled_at,'bank_snapshot':row.bank_snapshot,
         'topup_reference':row.topup_reference,'refund_bank':row.refund_bank,'notification':notice_receipt(row,latest_event)}
@@ -65,6 +68,12 @@ def process_balance(group, actor, data, *, staff=False, scope=None):
     if group.cancellation_requests.filter(status__in=['requested','approved','refunded']).exists():
         raise NotificationConflict('訂單已有取消／退款流程，請先由 SnowLand 核對，不會重複處理差額')
     if row.updated_at!=data['expected_updated_at']:raise NotificationConflict('差額狀態已更新，請重新載入後核對')
+    settlement=row.currency_snapshot or {}
+    if settlement.get('currency')=='JPY':
+        if data.get('currency')!='JPY' or data.get('expected_amount')!=abs(settlement['balance_amount']):
+            raise NotificationConflict('請重新核對本筆日幣差額的幣別及金額；這次未記錄收退款')
+    elif data.get('currency','TWD')!='TWD':
+        raise NotificationConflict('此差額是台幣，請重新載入確認幣別後再處理')
     action=data['action'];old=row.status
     if not staff and action not in {'report_topup','refund_account'}:raise PermissionDenied('會員只能回報補款或退款帳戶，不能自行核對結清')
     if set(data)&({'reference','bank'} if staff else {'note','confirmed'}):
@@ -93,6 +102,9 @@ def process_balance(group, actor, data, *, staff=False, scope=None):
     row.updated_at=timezone.now()
     row.save(update_fields=['status','topup_reference','refund_bank','updated_at','settled_at','settled_by'])
     payload={key:data[key] for key in ['reference','bank','note'] if key in data}
+    if settlement:
+        payload['settlement']={'currency':'JPY','amount':abs(settlement['balance_amount']),'rate':settlement['rate'],
+            'base_currency':'TWD','base_amount':abs(row.balance_amount),'recorded_at':timezone.now().isoformat()}
     try:
         with transaction.atomic():
             event=OrderAmendmentEvent.objects.create(amendment=row,request_key=data['request_key'],request_fingerprint=fingerprint,

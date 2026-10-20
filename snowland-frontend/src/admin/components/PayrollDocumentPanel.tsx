@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { generatePayrollDocument, uploadPayrollSignature, type PayrollStatement } from '../api/operations'
 import { payrollCalculation, payrollDescription } from '@/utils/payrollLineText'
+import { PayrollSettlementSummary } from './PayrollSettlementPanel'
 
 export default function PayrollDocumentPanel({statement,coachView=false}:{statement:PayrollStatement;coachView?:boolean}) {
   const qc = useQueryClient(); const input = useRef<HTMLInputElement>(null)
@@ -18,7 +19,7 @@ export default function PayrollDocumentPanel({statement,coachView=false}:{statem
       <details className="mt-3 rounded-lg border border-gray-200 p-3 dark:border-gray-600"><summary className="cursor-pointer font-semibold">查看 {doc.title}</summary><article className="mt-3 space-y-3">
         <h4 className="font-semibold">{doc.title}</h4><p>{doc.coach_name} · {doc.campus_name} · {doc.period_start}～{doc.period_end}</p>
         <p className="whitespace-pre-wrap break-words">{doc.body}</p><div>{doc.lines?.map((line,index)=><div key={index} className="break-words border-t border-gray-200 py-2 dark:border-gray-600"><p>{payrollDescription(line.description)}</p><p>{payrollCalculation(line,doc.currency||'TWD')}</p></div>)}</div>
-        <p className="font-semibold">應付合計 {doc.currency} {doc.total_amount?.toLocaleString()}</p><p className="text-xs text-gray-500 dark:text-gray-400">此為產生時保存的內容，後台範本變更不影響本文件。文件簽署與發款是不同流程。</p>
+        <p className="font-semibold">扣款前計薪合計 {doc.currency} {doc.total_amount?.toLocaleString()}</p><PayrollSettlementSummary snapshot={doc.settlement}/><p className="text-xs text-gray-500 dark:text-gray-400">此為產生時保存的內容，後台範本變更不影響本文件。文件簽署與發款是不同流程。</p>
       </article></details>
       {statement.signed_at?<div className="mt-3"><p className="font-semibold">已簽署：{statement.signer_name} · {new Date(statement.signed_at).toLocaleString('zh-TW')}</p><img src={statement.signature_file_url} alt="已保存的本人簽名" className="mt-2 max-h-40 max-w-full rounded-lg border border-gray-300 bg-white object-contain" onError={()=>setError('簽名圖片載入失敗，請重新載入確認權限')} /><p className="mt-2 text-xs text-gray-500 dark:text-gray-400">簽名及原始文件已保留，不能直接覆蓋。</p></div>:coachView&&<div className="mt-3 space-y-3">
         <p>請先展開上方文件，核對後選擇本人的簽名圖片。PNG／JPEG／WebP，5 MB以內；上傳後不能自行覆蓋。</p>

@@ -3,15 +3,18 @@ const root=path.resolve(__dirname,'..'),frontend=path.join(root,'snowland-fronte
 const React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
 const definitions=JSON.parse(fs.readFileSync(path.join(root,'snowland/Client/fixtures/photography_page_defaults.json'),'utf8'))
 const crypto=require('node:crypto')
-// Rendered from the original layouts at 65a90808, with only the approved
-// booking/FAQ destination fixes normalized. These also run without tmp files.
-const layoutHashes={winter:'8c0733269ceb941261aaa8b8862374cc729d13de53cd244a8335f8326045c874',summer:'26f13c63366bb4269729c773bd7b3da5b1867d23df120be9c3a7c38c3b5571b0'}
+// Reviewed layout snapshots include localized controls,44px targets, independent
+// carousel dots and the opaque compact header. CMS prose and prices stay original.
+const layoutHashes={winter:'ac7deb1ccc77522aa83fea5604353cec43407faea4e8e2bf1e1b5154f63ceeb3',summer:'4f8f2a4f1d5edba09aefc1d4a8649aefe053a995faf8c43dd443030151f2d558'}
 const canonical=html=>html.replace(/<([a-z0-9]+)((?:\s+[^\s=>]+(?:="[^"]*")?)*)>/gi,(_tag,name,attrs)=>'<'+name+(attrs?' '+(attrs.match(/[^\s=]+="[^"]*"|[^\s=]+/g)||[]).sort().join(' '):'')+'>')
-function render(source,content){
+function render(source,content,faqIndex=0){
+  let stateIndex=0
+  const hooks={...React,useState(value){const [state,setState]=React.useState(value);return[stateIndex++===(content.season==='winter'?6:5)?faqIndex:state,setState]}}
   const link=({to,...props})=>React.createElement('a',{...props,href:to})
   const motion=tag=>({initial,animate,variants,transition,whileInView,viewport,...props})=>React.createElement(tag,props)
   const ctx=vm.createContext({exports:{},require:name=>{
-    if(name==='react')return React
+    if(name==='react')return hooks
+    if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React)
     if(name==='framer-motion')return{motion:{div:motion('div'),img:motion('img')},useReducedMotion:()=>true,useScroll:()=>({}),useTransform(){}}
     if(name==='react-router-dom')return{Link:link}
     if(name.endsWith('SiteLink'))return link
@@ -31,16 +34,16 @@ for(const definition of definitions){
   assert.equal(new Set(keys).size,Object.keys(values).length,'每個版型欄位必須有對應後台資料')
   assert.ok(keys.every(key=>key in values))
   const content={season,version:1,values},html=render(source,content)
-  assert.equal(crypto.createHash('sha256').update(canonical(html)).digest('hex'),layoutHashes[season],'原版型、文案或樣式發生未核對的變更')
-  const before=path.join(root,`tmp/${season}-photography-before-cms.jsx`)
-  if(fs.existsSync(before)){
-    const original=canonical(render(fs.readFileSync(before,'utf8')).replace(/href="#(?:booking-flow)?"/g,'href="/booking?service=photo"').replace(/href="\/course\/tomamu"/g,'href="/booking?service=ski"').replace(/<a([^>]*)>查看更多常見問題<\/a>/g,(_all,attrs)=>'<a'+attrs.replace('href="/booking?service=photo"','href="/faq"')+'>查看更多常見問題</a>')),actual=canonical(html)
-    if(actual!==original){let i=0;while(actual[i]===original[i]&&i<Math.min(actual.length,original.length))i++;throw Error(`${season} layout changed at ${i}: original=${original.slice(i,i+100)} new=${actual.slice(i,i+100)}`)}
+  const allFaqHtml=html+render(source,content,1)+render(source,content,2)
+  for(const field of definition.sections.flatMap(section=>section.fields).filter(field=>field.kind==='text'&&field.value)){
+    const encoded=renderToStaticMarkup(React.createElement('span',null,field.value)).slice(6,-7)
+    assert.ok(allFaqHtml.includes(encoded),`CMS文字不可因操作介面修改而遺失：${field.key}`)
   }
+  assert.equal(crypto.createHash('sha256').update(canonical(html)).digest('hex'),layoutHashes[season],'原版型、文案或樣式發生未核對的變更')
   const image=definition.sections.flatMap(s=>s.fields).find(f=>f.kind==='image')
   const text=definition.sections.flatMap(s=>s.fields).find(f=>f.kind==='text'&&f.value.includes('NT$'))
   const updated=render(source,{...content,values:{...values,[image.key]:'https://example.test/qa-photo.jpg',[text.key]:'QA官網展示價格'}})
   assert.ok(updated.includes('src="https://example.test/qa-photo.jpg"'));assert.ok(!updated.includes('/https://'))
   assert.ok(updated.includes('QA官網展示價格'));assert.ok(!source.includes('href="#"'))
-  console.log(`PASS ${season}: ${keys.length} backend bindings, original layout/copy parity, dynamic image/price and real booking CTA`)
+  console.log(`PASS ${season}: ${keys.length} backend bindings, reviewed layout snapshot/all original CMS copy across3FAQstates, dynamic image/price and canonical booking CTA`)
 }

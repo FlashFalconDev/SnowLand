@@ -3,7 +3,7 @@ const root=path.resolve(__dirname,'..'),front=path.join(root,'snowland-frontend'
 const original=JSON.parse(fs.readFileSync(path.join(root,'snowland/Client/fixtures/site_content_defaults.json'),'utf8')).find(r=>r.location_key==='about.join-us').metadata.page
 function render(source,page){
  const motion=tag=>({initial,animate,variants,transition,whileInView,viewport,...props})=>React.createElement(tag,props)
- const ctx=vm.createContext({exports:{},require:name=>name==='react'?React:name==='framer-motion'?{motion:new Proxy({},{get:(_t,tag)=>motion(tag)}),useReducedMotion:()=>true,useScroll:()=>({}),useTransform(){}}:name.includes('useSiteContent')?{}:name.endsWith('SiteLink')?{__esModule:true,default:({to,...props})=>React.createElement('a',{...props,href:to})}:{__esModule:true,default:()=>null}})
+ const ctx=vm.createContext({exports:{},require:name=>name==='react'?React:name.includes('contexts/SiteLocale')?require('./helpers/site-locale-harness.cjs')(React,'zh-Hant'):name==='framer-motion'?{motion:new Proxy({},{get:(_t,tag)=>motion(tag)}),useReducedMotion:()=>true,useScroll:()=>({}),useTransform(){}}:name.includes('useSiteContent')?{}:name.endsWith('SiteLink')?{__esModule:true,default:({to,...props})=>React.createElement('a',{...props,href:to})}:{__esModule:true,default:()=>null}})
  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText+'\nexports.Layout=LegacyContentLayout;',ctx)
  return req('react-dom/server').renderToStaticMarkup(React.createElement(ctx.exports.Layout,{pageKey:'join-us',page,guidesArticles:[]}))
 }

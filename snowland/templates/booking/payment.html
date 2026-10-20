@@ -150,7 +150,7 @@
                     </div>
                     <div class="total-amount">
                         <span>總金額：</span>
-                        <span id="totalAmount" class="amount">NT$ {{ total_amount }}</span>
+                        <span id="totalAmount" class="amount">{{ settlement_label }} {{ settlement_amount }}</span>
                     </div>
                 </div>
 
@@ -187,7 +187,7 @@
                         </div>
                         <div class="detail-item">
                             <span class="detail-label">匯款金額</span>
-                            <span class="detail-value amount" id="transferAmount">NT$ {{ total_amount }}</span>
+                            <span class="detail-value amount" id="transferAmount">{{ settlement_label }} {{ settlement_amount }}</span>
                         </div>
                     </div>
                 </div>
@@ -252,6 +252,8 @@
                         reservation_group_pk: paymentData.reservation_group_pk,
                         access_token: paymentData.access_token,
                         paymentType: paymentType,
+                        currency: paymentData.currency,
+                        expected_amount: paymentData.expected_amount,
                         ...additionalData
                     })
                 });

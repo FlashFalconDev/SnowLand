@@ -96,6 +96,16 @@ class CampusAdminSerializer(TenantRelationValidationMixin, serializers.ModelSeri
 
 
 class PaymentAccountAdminSerializer(TenantRelationValidationMixin, serializers.ModelSerializer):
+    def validate_currency(self, value):
+        if self.instance and self.instance.currency != value:
+            used = self.instance.payments.exists() or ReservationGroup.objects.filter(
+                client=self.instance.client,
+                currency_snapshot__bank_info__account_id=self.instance.pk,
+            ).exists()
+            if used:
+                raise serializers.ValidationError('此帳戶已有訂單使用，不能更改幣別；請新增另一幣別的帳戶')
+        return value
+
     campus_ids = serializers.PrimaryKeyRelatedField(
         source='campuses', many=True, queryset=Campus.objects.all(), required=False
     )
@@ -107,7 +117,7 @@ class PaymentAccountAdminSerializer(TenantRelationValidationMixin, serializers.M
         model = PaymentAccount
         fields = [
             'id', 'name', 'bank_name', 'bank_branch', 'account_number', 'account_holder',
-            'overseas_details', 'campus_ids', 'resort_ids', 'is_default', 'is_active',
+            'overseas_details', 'currency', 'campus_ids', 'resort_ids', 'is_default', 'is_active',
             'display_order', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -1638,6 +1648,16 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
 
 class OrderAdminSerializer(serializers.ModelSerializer):
     """訂單 = ReservationGroup 為主，附帶旗下的 Reservation 與 Booking"""
+    settlement = serializers.SerializerMethodField()
+    received_settlement = serializers.SerializerMethodField()
+
+    def get_received_settlement(self, obj):
+        from booking.currency import received_settlement_summary
+        return received_settlement_summary(obj)
+
+    def get_settlement(self, obj):
+        from booking.currency import settlement_summary
+        return settlement_summary(obj)
     user_name = serializers.SerializerMethodField()
     user_email = serializers.SerializerMethodField()
     booking_contact = serializers.SerializerMethodField()
@@ -1664,7 +1684,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             'id', 'sn', 'order_number', 'name', 'user', 'user_name', 'user_email', 'booking_contact',
             'campus', 'campus_name', 'marketing_source', 'marketing_source_detail', 'line_group_url', 'line_group_qr_url',
             'reservations', 'total_fee', 'payment_status', 'payment_method',
-            'bank_account', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
+            'bank_account', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
         ]
         read_only_fields = fields
 
@@ -1703,7 +1723,10 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     def get_amendment_balance(self, obj):
         pending=list(obj.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
         if not pending:return None
-        return {'amount':sum(row.balance_amount for row in pending),'statuses':sorted({row.status for row in pending})}
+        result={'amount':sum(row.balance_amount for row in pending),'statuses':sorted({row.status for row in pending})}
+        if (obj.currency_snapshot or {}).get('currency')=='JPY':
+            result['settlement']={'currency':'JPY','amount':sum(row.currency_snapshot['balance_amount'] for row in pending)}
+        return result
 
     def get_user_name(self, obj):
         return (obj.user.get_full_name() or obj.user.username) if obj.user else (obj.name or '訪客')
@@ -1872,14 +1895,14 @@ class CancellationRequestAdminSerializer(serializers.ModelSerializer):
             'days_before', 'refund_percent', 'handling_fee_percent', 'refund_amount',
             'calculation_mode', 'selected_rule_days_before',
             'requires_cash_review','actual_received_amount','cash_review_note','cash_review_snapshot',
-            'refund_bank_name', 'refund_account_number', 'refund_account_holder',
+            'refund_bank_name', 'refund_account_number', 'refund_account_holder','refund_overseas_details','currency_snapshot',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'order_number', 'original_amount', 'days_before', 'refund_percent',
             'handling_fee_percent', 'refund_amount', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
             'calculation_mode', 'selected_rule_days_before',
-            'requires_cash_review','actual_received_amount','cash_review_note','cash_review_snapshot',
+            'requires_cash_review','actual_received_amount','cash_review_note','cash_review_snapshot','currency_snapshot',
         ]
 
 
@@ -2311,6 +2334,7 @@ class PayrollLineAdminSerializer(serializers.ModelSerializer):
 
 
 class PayrollStatementAdminSerializer(serializers.ModelSerializer):
+    settlement_snapshot = serializers.JSONField(read_only=True)
     coach_name = serializers.CharField(source='coach.name', read_only=True)
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     lines = PayrollLineAdminSerializer(many=True, read_only=True)
@@ -2335,7 +2359,7 @@ class PayrollStatementAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PayrollStatement
-        fields = ['id', 'coach', 'coach_name', 'campus', 'campus_name', 'period_start', 'period_end', 'course_pay', 'specified_fees', 'referral_commission', 'assistance_pay', 'supervisor_allowance', 'adjustment', 'total_amount', 'status', 'notes', 'lines', 'published_at', 'confirmation_deadline', 'review_token', 'confirmed_at', 'confirmation_method', 'confirmation_timezone', 'document_snapshot', 'document_digest', 'signature_file_url', 'signer_name', 'signed_at', 'created_at', 'updated_at']
+        fields = ['id', 'coach', 'coach_name', 'campus', 'campus_name', 'period_start', 'period_end', 'course_pay', 'specified_fees', 'referral_commission', 'assistance_pay', 'supervisor_allowance', 'adjustment', 'total_amount', 'settlement_snapshot', 'status', 'notes', 'lines', 'published_at', 'confirmation_deadline', 'review_token', 'confirmed_at', 'confirmation_method', 'confirmation_timezone', 'document_snapshot', 'document_digest', 'signature_file_url', 'signer_name', 'signed_at', 'created_at', 'updated_at']
         read_only_fields = fields
 
     def validate(self, attrs):

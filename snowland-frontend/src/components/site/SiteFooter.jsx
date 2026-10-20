@@ -6,8 +6,10 @@ import { homepageAssetBase } from '../../data/site/assetPaths';
 import { faqLink } from '../../data/site/navigationLinks';
 import { useSiteContent } from '../../hooks/useSiteContent';
 import { footerSettings } from '../../data/site/footerSettings';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 
 function SiteFooter() {
+  const {t} = useSiteLocale();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const {items, isLoading, error, refetch} = useSiteContent('site.footer', {limit:1});
@@ -26,8 +28,8 @@ function SiteFooter() {
   return (
     <footer id="site-footer" className="scroll-mt-24 bg-gradient-to-br from-[#2b5f8f] via-[#3c78b6] to-[#5aa6c9] border-t border-[#275680] text-white">
       <div className="max-w-6xl mx-auto px-6 md:px-10 py-14 md:py-20">
-        {isLoading && <p role="status" className="mb-4 text-sm">載入聯絡資訊…</p>}
-        {error && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm"><span>聯絡資訊暫時無法載入</span><button type="button" onClick={refetch} className="min-h-11 rounded border border-white/60 px-3">重新載入聯絡資訊</button></div>}
+        {isLoading && <p role="status" className="mb-4 text-sm">{t('載入聯絡資訊…')}</p>}
+        {error && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm"><span>{t('聯絡資訊暫時無法載入')}</span><button type="button" onClick={refetch} className="min-h-11 rounded border border-white/60 px-3">{t('重新載入聯絡資訊')}</button></div>}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-16 text-sm text-white/85 text-left">
           <div className="space-y-6 flex flex-col items-start">
             <div className="w-36">
@@ -60,7 +62,7 @@ function SiteFooter() {
                   &gt;
                 </span>
                 <span className="transition-colors duration-200 group-hover:text-white">
-                  {item.label}
+                  {t(item.label)}
                 </span>
               </SiteLink>
             ))}
@@ -81,7 +83,7 @@ function SiteFooter() {
                   &gt;
                 </span>
                 <span className="transition-colors duration-200 group-hover:text-white">
-                  {item.label}
+                  {t(item.label)}
                 </span>
               </SiteLink>
             ))}
@@ -89,7 +91,7 @@ function SiteFooter() {
         </div>
 
         <div className="mt-12 border-t border-white/20 pt-10 grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
-          <div aria-label="官方社群" className="flex flex-wrap items-center gap-2">
+          <div aria-label={t('官方社群')} className="flex flex-wrap items-center gap-2">
             {settings.links.map(({key,label,icon,href}) => <a key={key} href={href} target="_blank" rel="noopener noreferrer" aria-label={label} className="inline-flex h-11 w-11 items-center justify-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
               <img loading="lazy" decoding="async" src={`${homepageAssetBase}/${icon}`} alt="" className="h-7 w-7" />
             </a>)}
@@ -114,7 +116,7 @@ function SiteFooter() {
                 exit={{ opacity: 0, y: 16 }}
                 transition={{ duration: 0.2 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-white/60 text-[#1f2937] shadow-lg transition hover:-translate-y-0.5 hover:bg-white"
-                aria-label="開啟客服連結"
+                aria-label={t('開啟客服連結')}
                 aria-expanded={isChatOpen}
               >
                 <svg
@@ -138,7 +140,7 @@ function SiteFooter() {
                     transition={{ duration: 0.2 }}
                     className="absolute bottom-14 right-0 flex flex-col gap-2 bg-[#2b5f8f] p-3 shadow-lg"
                   >
-                    {chatLinks.map(({key,label,icon,href}) => <a key={key} href={href} target="_blank" rel="noopener noreferrer" aria-label={`客服 ${label}`} className="inline-flex h-11 w-11 items-center justify-center rounded text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+                    {chatLinks.map(({key,label,icon,href}) => <a key={key} href={href} target="_blank" rel="noopener noreferrer" aria-label={t('客服 {channel}', {channel:label})} className="inline-flex h-11 w-11 items-center justify-center rounded text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
                       <img loading="lazy" decoding="async" src={`${homepageAssetBase}/${icon}`} alt="" className="h-5 w-5" />
                     </a>)}
                   </motion.div>
@@ -153,7 +155,7 @@ function SiteFooter() {
               exit={{ opacity: 0, y: 16 }}
               transition={{ duration: 0.2 }}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/60 text-[#1f2937] shadow-lg transition hover:-translate-y-0.5 hover:bg-white"
-              aria-label="回到頂部"
+              aria-label={t('回到頂部')}
             >
               <svg
                 className="h-5 w-5"

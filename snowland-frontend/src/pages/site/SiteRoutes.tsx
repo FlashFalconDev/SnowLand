@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ScrollToTop from '@/components/site/ScrollToTop'
+import { useSiteLocale } from '@/contexts/SiteLocale'
 
 // HomePage is loaded eagerly — it's the first thing users see
 import HomePage from './HomePage'
@@ -54,6 +55,7 @@ function usePreloadPages() {
 
 // Loading spinner shown while lazy pages load
 function PageLoading() {
+  const { t } = useSiteLocale()
   return (
     <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="text-center">
@@ -62,7 +64,7 @@ function PageLoading() {
           <div className="absolute inset-0 rounded-full border-2 border-t-[#2b5f8f] animate-spin" />
         </div>
         <p className="text-sm text-[#6b7280] font-display tracking-wide">
-          載入中...
+          {t('載入中…')}
         </p>
       </div>
     </div>

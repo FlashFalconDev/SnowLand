@@ -975,11 +975,21 @@ class PaymentAccountAdminViewSet(ModelViewSet):
     permission_classes = [IsTenantManager]
     permission_key = 'payment_settings'
 
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
+
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
             return PaymentAccount.objects.none()
         qs = PaymentAccount.objects.filter(client=tenant).prefetch_related('campuses', 'resorts')
+        if self.request.method in {'PUT','PATCH','DELETE'}:
+            qs = qs.select_for_update()
         if not getattr(self.request, 'can_view_all_campuses', False):
             qs = qs.filter(campuses__id__in=_campus_ids(self.request)).distinct()
         return qs.order_by('display_order', 'id')
@@ -1797,6 +1807,7 @@ class OrderAdminViewSet(ModelViewSet):
                 user=request.user,
                 selected_rule_days_before=request.data.get('selected_rule_days_before'),
                 manual_refund_amount=request.data.get('manual_refund_amount'),
+                currency=request.data.get('currency'),expected_refund_amount=request.data.get('expected_refund_amount'),
             )
         except ValueError as exc:
             return Response({'code': 400, 'msg': str(exc)}, status=400)
@@ -1869,6 +1880,15 @@ class OrderAdminViewSet(ModelViewSet):
             return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
         if payment_status and payment_status not in dict(Payment.STATUS_CHOICES):
             return Response({'code': 400, 'msg': '無效的付款狀態'}, status=400)
+        jpy_receipt = None
+        if payment_status == 'paid' and (instance.currency_snapshot or {}).get('currency') == 'JPY':
+            prior_payment=instance.payments.select_for_update().order_by('-created_at','-pk').first()
+            if not prior_payment or prior_payment.status != 'paid':
+                from booking.currency import order_settlement
+                expected=order_settlement(instance)
+                if data.get('payment_currency') != 'JPY' or type(data.get('payment_received_amount')) is not int or data['payment_received_amount'] != expected['amount']:
+                    return Response({'code':400,'msg':'請核對銀行實收日幣金額，確認幣別及金額與本單相同後再標記已付款'},status=400)
+                jpy_receipt={**expected,'confirmed_at':timezone.now().isoformat(),'confirmed_by_id':request.user.pk}
         if payment_status and instance.reservations.filter(shared_course_class__status='collecting').exists():
             return Response({'code': 400, 'msg': '團體班仍在湊班中，成班後才能修改付款狀態'}, status=400)
         if not isinstance(reservation_updates, list) or not isinstance(booking_updates, list):
@@ -2001,6 +2021,11 @@ class OrderAdminViewSet(ModelViewSet):
                     user=instance.user,
                 )
             payment.status = payment_status
+            if jpy_receipt is not None:
+                payload=payment.DataJSON if isinstance(payment.DataJSON,dict) else {}
+                confirmations=list(payload.get('settlement_confirmations',[]))
+                confirmations.append(jpy_receipt)
+                payment.DataJSON={**payload,'settlement':jpy_receipt,'settlement_confirmations':confirmations}
             payment.save()
             if payment_status == 'paid':
                 from booking.operations import schedule_group_notifications
@@ -2062,7 +2087,9 @@ class OrderAdminViewSet(ModelViewSet):
                 r.save()
 
             save_payment_status()
-            from booking.operations import record_order_revision
+            from booking.operations import record_order_revision, sync_group_payment_window
+            if coach_changes:
+                sync_group_payment_window(instance)
             record_order_revision(instance, user=request.user, change_type='modify', reason=data.get('reason', '後台修改訂單'))
 
             changed_count = len(coach_changes) + len(booking_changes)
@@ -2266,15 +2293,28 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             'refunded': set(),
         }
         from booking.operations import outstanding_amendments
-        pending=list(outstanding_amendments(group).values('id','balance_amount','status'))
+        pending=list(outstanding_amendments(group).values('id','balance_amount','status','currency_snapshot'))
         requires_review=cancellation.requires_cash_review or bool(pending)
         review_pending=requires_review and cancellation.actual_received_amount is None
         legacy_review=next_status=='approved' and cancellation.status=='approved' and review_pending
         if next_status not in allowed.get(cancellation.status, set()) and not legacy_review:
             return Response({'code': 400, 'msg': f'「{cancellation.get_status_display()}」不能改為這個狀態'}, status=400)
         review_fields={'actual_received_amount','refund_amount','cash_review_note','confirmed_received'}
-        if set(request.data)-({'status'}|review_fields):
+        native_review_fields={'actual_received_currency_amount','refund_currency_amount'} if (cancellation.currency_snapshot or {}).get('currency')=='JPY' else set()
+        native_fields={'currency','expected_refund_amount','confirmed_refund'} if cancellation.currency_snapshot else set()
+        if set(request.data)-({'status'}|review_fields|native_fields|native_review_fields):
             return Response({'code':400,'msg':'取消處理包含不支援的欄位'},status=400)
+        if set(request.data)&native_review_fields and not (next_status=='approved' and review_pending):
+            return Response({'code':400,'msg':'只有待實收款核對的取消申請可填寫原幣實收及退款金額'},status=400)
+        native=cancellation.currency_snapshot or {}
+        if native.get('currency')=='JPY' and next_status in {'approved','refunded'}:
+            if review_pending and next_status!='approved':
+                return Response({'code':400,'msg':'日幣實收款尚待核對，請先確認原款及補退差額，不能直接核准退款'},status=400)
+            expected=request.data.get('expected_refund_amount')
+            if request.data.get('currency')!='JPY' or (not review_pending and (type(expected) is not int or expected!=native['refund_amount'])):
+                return Response({'code':400,'msg':'請重新核對本筆日幣退款幣別與金額'},status=400)
+            if next_status=='refunded' and request.data.get('confirmed_refund') is not True:
+                return Response({'code':400,'msg':'請先核對日幣金額，確認已在系統外完成退款'},status=400)
         if next_status=='refunded' and review_pending:
             return Response({'code':400,'msg':'請先核對實收款及退款金額，不能直接記錄退款完成'},status=400)
         update_fields=['status','reviewed_by','reviewed_at','updated_at']
@@ -2286,11 +2326,30 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
                 refund_amount=WholeNumber(min_value=0,max_value=2147483647)
                 cash_review_note=serializers.CharField(max_length=1000)
                 confirmed_received=serializers.BooleanField()
-            review=CashReviewInput(data={key:request.data[key] for key in review_fields if key in request.data})
+                if native.get('currency')=='JPY':
+                    actual_received_currency_amount=WholeNumber(min_value=0,max_value=9007199254740991)
+                    refund_currency_amount=WholeNumber(min_value=0,max_value=9007199254740991)
+            review=CashReviewInput(data={key:request.data[key] for key in review_fields|native_review_fields if key in request.data})
             review.is_valid(raise_exception=True)
             values=review.validated_data
             if not values['confirmed_received'] or values['refund_amount']>values['actual_received_amount']:
                 return Response({'code':400,'msg':'請確認銀行實收紀錄；退款不可超過核對後的實收款'},status=400)
+            if native.get('currency')=='JPY':
+                native_received=values['actual_received_currency_amount']
+                native_refund=values['refund_currency_amount']
+                if native_refund>native_received or type(request.data.get('expected_refund_amount')) is not int or request.data['expected_refund_amount']!=native_refund:
+                    return Response({'code':400,'msg':'請確認日幣實收與退款金額；日幣退款不可超過實收款，確認金額須一致'},status=400)
+                if native_received == 0 and values['actual_received_amount'] != 0:
+                    return Response({'code':400,'msg':'日幣實收為0但台幣帳務不為0，請先交行政核對帳外差異'},status=400)
+                # Integer HALF_UP: use the reviewed original receipts, never today's FX.
+                proportional_refund = ((2 * values['actual_received_amount'] * native_refund + native_received) // (2 * native_received)) if native_received else 0
+                if values['refund_amount'] != proportional_refund:
+                    return Response({'code':400,'msg':'台幣退款帳務須按原實收比例計算，請重新核對；帳外差異請交行政處理'},status=400)
+                native={**native,'actual_received_amount':native_received,'refund_amount':native_refund,
+                    'cash_review':{'accounting_mode':'original_receipt_ratio','currency':'JPY','base_currency':'TWD',
+                        'actual_received_amount':native_received,'refund_amount':native_refund,
+                        'actual_received_base_amount':values['actual_received_amount'],'refund_base_amount':values['refund_amount'],
+                        'note':values['cash_review_note'],'reviewed_by':request.user.pk,'reviewed_at':timezone.now().isoformat()}}
             cancellation.requires_cash_review=True
             cancellation.actual_received_amount=values['actual_received_amount']
             cancellation.refund_amount=values['refund_amount']
@@ -2306,6 +2365,10 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         cancellation.status = next_status
         cancellation.reviewed_by = request.user
         cancellation.reviewed_at = timezone.now()
+        if native.get('currency')=='JPY' and next_status in {'approved','refunded'}:
+            receipt={'currency':'JPY','amount':native['refund_amount'],'confirmed_by_id':request.user.pk,'confirmed_at':timezone.now().isoformat()}
+            cancellation.currency_snapshot={**native,'approval' if next_status=='approved' else 'refund_receipt':receipt}
+            update_fields.append('currency_snapshot')
         cancellation.save(update_fields=update_fields)
         if next_status in ('approved', 'refunded'):
             shared_class_ids = cancellation.group.reservations.filter(
@@ -2737,6 +2800,16 @@ class PayrollStatementAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     def create(self, request, *args, **kwargs):
         return Response({'code': 405, 'msg': '請使用薪資結算操作'}, status=405)
 
+    @action(detail=True, methods=['post'], url_path='settlement')
+    def settlement(self, request, *args, **kwargs):
+        from Coach.payroll_settlement import save_settlement
+        try:
+            statement = save_settlement(self.get_object(), request.data, request.user)
+        except ValueError as exc:
+            return Response({'code': 400, 'msg': str(exc)}, status=400)
+        return Response({'code': 200, 'msg': '已保存稅金與發放幣別核對結果；未進行發款',
+            'data': self.get_serializer(statement).data})
+
     @action(detail=False, methods=['get', 'post'], url_path='document-settings')
     def document_settings(self, request, *args, **kwargs):
         from .payroll_documents import document_settings
@@ -2772,7 +2845,10 @@ class PayrollStatementAdminViewSet(PayrollCsrfMixin, ModelViewSet):
         except (TypeError, ValueError):
             return Response({'code': 400, 'msg': '請選擇正確的確認截止日'}, status=400)
         try:
-            statement = publish_statement(statement, deadline)
+            proof = request.data.get('settlement_reviewed_at')
+            if not isinstance(proof, str) or not proof:
+                raise ValueError('請重新載入並核對最新的稅金與發放幣別')
+            statement = publish_statement(statement, deadline, expected_reviewed_at=proof)
         except ValueError as exc:
             return Response({'code': 400, 'msg': str(exc)}, status=400)
         return Response({'code': 200, 'msg': '已送交教練確認；未進行發款', 'data': self.get_serializer(statement).data})
@@ -3327,6 +3403,8 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
         """Headquarters assigns one qualified coach to every order in a ready shared class."""
         _require_headquarters(request)
         with transaction.atomic():
+            if request.method == 'POST':
+                Client.objects.select_for_update().get(pk=request.tenant.pk)
             shared_class = SharedCourseClass.objects.select_for_update().select_related(
                 'campus', 'resort', 'template__course_type',
             ).filter(
@@ -3424,8 +3502,9 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                     reservation.status = next_status
                 reservation.save(update_fields=['preferred_coach', 'is_preferred_coach', 'status'])
             Booking.objects.filter(pk__in=[booking.id for booking in bookings]).update(is_scheduled=True)
-            from booking.operations import record_order_revision
+            from booking.operations import record_order_revision, sync_group_payment_window
             for group_id in {reservation.group_id for reservation in reservations}:
+                sync_group_payment_window(ReservationGroup.objects.get(pk=group_id))
                 record_order_revision(
                     ReservationGroup.objects.get(pk=group_id), user=request.user,
                     reason=f'跨訂單團體班整班改派教練：{coach.name}',
@@ -4123,6 +4202,7 @@ def coach_pending_confirmations(request, client_code):
 
 @api_view(['POST'])
 @permission_classes([IsTenantCoach])
+@transaction.atomic
 def coach_confirm_course(request, client_code, reservation_id):
     """
     教練接受 / 拒絕指派
@@ -4136,6 +4216,7 @@ def coach_confirm_course(request, client_code, reservation_id):
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
+    Client.objects.select_for_update().get(pk=request.tenant.pk)
     try:
         r = Reservation.objects.get(pk=reservation_id, preferred_coach=coach, group__client=request.tenant)
     except Reservation.DoesNotExist:
@@ -4168,8 +4249,9 @@ def coach_confirm_course(request, client_code, reservation_id):
                 )
                 Booking.objects.filter(reservation_id__in=[item.id for item in siblings]).update(is_scheduled=False)
                 message = '已拒絕整班課程，需由總部重新指派教練'
-            from booking.operations import record_order_revision
+            from booking.operations import record_order_revision, sync_group_payment_window
             for group_id in {item.group_id for item in siblings}:
+                sync_group_payment_window(ReservationGroup.objects.get(pk=group_id))
                 record_order_revision(
                     ReservationGroup.objects.get(pk=group_id), user=request.user,
                     reason=f'教練{message}',
@@ -4194,6 +4276,8 @@ def _confirm_individual_course(request, coach, reservation_id, action):
             return Response({'code': 400, 'msg': '此課程目前狀態不可接受'}, status=400)
         r.status = 'manually_assigned'
         r.save()
+        from booking.operations import sync_group_payment_window
+        sync_group_payment_window(r.group)
         return Response({'code': 200, 'msg': '已接受'})
 
     if action == 'reject':
@@ -4205,6 +4289,8 @@ def _confirm_individual_course(request, coach, reservation_id, action):
         r.is_preferred_coach = False
         r.status = 'created'
         r.save()
+        from booking.operations import sync_group_payment_window
+        sync_group_payment_window(r.group)
         for b in r.bookings.all():
             b.is_scheduled = False
             b.save()
@@ -4216,6 +4302,7 @@ def _confirm_individual_course(request, coach, reservation_id, action):
             with transaction.atomic():
                 reassigned = reassign_single_reservation(r.pk)
             r.refresh_from_db()
+            sync_group_payment_window(r.group)
             if reassigned and r.preferred_coach_id:
                 message = ('已拒絕，已重新安排替代教練，等待對方確認'
                            if r.status == 'pending_coach_confirmation' else '已拒絕，已重新安排可接課教練')
@@ -4452,9 +4539,18 @@ def _coach_leave_policy(request, coach, campus_id):
             raise ValueError('請選擇您所屬的校區')
     elif coach.campuses.count() == 1:
         campus = coach.campuses.first()
-    policy = (OperatingPolicy.objects.filter(client=request.tenant, campus=campus).first() if campus else None)
-    policy = policy or OperatingPolicy.objects.filter(client=request.tenant, campus__isnull=True).first()
-    return campus, policy or OperatingPolicy(client=request.tenant)
+    default = OperatingPolicy.objects.filter(client=request.tenant, campus__isnull=True).first() or OperatingPolicy(client=request.tenant)
+    campuses = list(coach.campuses.filter(client=request.tenant).order_by('pk'))
+    saved = {row.campus_id: row for row in OperatingPolicy.objects.filter(client=request.tenant, campus__in=campuses)}
+    policies = [(item, saved.get(item.pk, default)) for item in campuses] or [(None, default)]
+    # Leave removes the coach from every campus. Selecting one campus must not
+    # bypass another campus's notice period, duration or daily capacity rules.
+    policy = OperatingPolicy(client=request.tenant,
+        leave_advance_days=max(row.leave_advance_days for _, row in policies),
+        leave_max_consecutive_days=min(row.leave_max_consecutive_days for _, row in policies),
+        leave_daily_coach_limit=min(row.leave_daily_coach_limit for _, row in policies))
+    policy.leave_campus_policies = policies
+    return campus, policy
 
 
 @api_view(['GET', 'POST'])
@@ -4489,6 +4585,7 @@ def coach_apply_leave(request, client_code):
 
     from rest_framework.authentication import SessionAuthentication
     SessionAuthentication().enforce_csrf(request)
+    Client.objects.select_for_update().get(pk=request.tenant.pk)
     start_date = request.data.get('start_date')
     end_date = request.data.get('end_date')
     raw_reason = request.data.get('reason')
@@ -4534,13 +4631,14 @@ def coach_apply_leave(request, client_code):
             start_date__lte=day,
             end_date__gte=day,
         )
-        if campus:
-            daily_leaves = daily_leaves.filter(coach__campuses=campus)
-        if daily_leaves.values('coach_id').distinct().count() >= policy.leave_daily_coach_limit:
-            return Response({
-                'code': 400,
-                'msg': f'{day} 已達每日 {policy.leave_daily_coach_limit} 位教練請假上限，請改選日期或聯絡主管',
-            }, status=400)
+        for leave_campus, campus_policy in policy.leave_campus_policies:
+            scoped = daily_leaves.filter(coach__campuses=leave_campus) if leave_campus else daily_leaves
+            if scoped.values('coach_id').distinct().count() >= campus_policy.leave_daily_coach_limit:
+                label = f'（{leave_campus.name}）' if leave_campus else ''
+                return Response({
+                    'code': 400,
+                    'msg': f'{day}{label} 已達每日 {campus_policy.leave_daily_coach_limit} 位教練請假上限，請改選日期或聯絡主管',
+                }, status=400)
         day += timedelta(days=1)
 
     # 檢查是否已有重疊的 pending/approved 請假
@@ -4813,6 +4911,7 @@ def _save_booking_form_options(tenant, payload):
 
 @api_view(['GET', 'PUT'])
 @permission_classes([IsTenantManager])
+@transaction.atomic
 def payment_settings_view(request, client_code=None):
     denied = _require_admin_permission(request, 'payment_settings')
     if denied:
@@ -4829,6 +4928,7 @@ def payment_settings_view(request, client_code=None):
 
     if request.method == 'GET':
         form_options = _get_booking_form_options(tenant)
+        from booking.currency import currency_settings_payload
         return Response({
             'code': 200, 'msg': 'OK',
             'data': {
@@ -4836,17 +4936,28 @@ def payment_settings_view(request, client_code=None):
                 'bank_branch': tenant.bank_branch,
                 'bank_account_number': tenant.bank_account_number,
                 'bank_account_holder': tenant.bank_account_holder,
+                'currency_settings': currency_settings_payload(tenant),
                 **form_options,
             },
         })
 
     # PUT
     payload = request.data or {}
+    from booking.currency import currency_settings_payload, validate_currency_settings
+    currency_values = None
+    if 'currency_settings' in payload:
+        try:
+            currency_values = validate_currency_settings(payload['currency_settings'])
+        except ValueError as exc:
+            return Response({'code': 400, 'msg': str(exc)}, status=400)
     for f in ('bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder'):
         if f in payload:
             setattr(tenant, f, (payload[f] or '').strip())
     tenant.save()
     form_options = _save_booking_form_options(tenant, payload)
+    if currency_values is not None:
+        from Resorts.models import PaymentCurrencySettings
+        PaymentCurrencySettings.objects.update_or_create(client=tenant, defaults=currency_values)
     return Response({
         'code': 200, 'msg': '已更新',
         'data': {
@@ -4854,6 +4965,7 @@ def payment_settings_view(request, client_code=None):
             'bank_branch': tenant.bank_branch,
             'bank_account_number': tenant.bank_account_number,
             'bank_account_holder': tenant.bank_account_holder,
+            'currency_settings': currency_settings_payload(tenant),
             **form_options,
         },
     })

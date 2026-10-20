@@ -56,6 +56,7 @@ class ReservationGroup(models.Model):
     source_country = models.CharField(max_length=2, blank=True, default='', verbose_name='下單國家')
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, verbose_name='使用者')
     booking_contact = models.JSONField(default=dict, blank=True, verbose_name='訂課聯絡資料')
+    currency_snapshot = models.JSONField(default=dict, blank=True, editable=False, verbose_name='成立時收款幣別與匯率')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='建立時間')
 
     def __str__(self):
@@ -655,6 +656,7 @@ class OrderAmendment(models.Model):
     new_total=models.PositiveIntegerField()
     difference_amount=models.IntegerField()
     balance_amount=models.IntegerField(default=0)
+    currency_snapshot=models.JSONField(default=dict,blank=True,editable=False,verbose_name='修改時原幣金額與待收退差額')
     status=models.CharField(max_length=24,choices=STATUS_CHOICES,default='no_difference')
     before_snapshot=models.JSONField(default=dict)
     participant_changes=models.JSONField(default=dict)
@@ -707,6 +709,8 @@ class CancellationRequest(models.Model):
     actual_received_amount = models.PositiveIntegerField(null=True, blank=True)
     cash_review_note = models.TextField(blank=True, default='')
     cash_review_snapshot = models.JSONField(default=dict, blank=True)
+    currency_snapshot = models.JSONField(default=dict,blank=True,editable=False,verbose_name='取消時原幣退款快照')
+    refund_overseas_details = models.TextField(blank=True,default='')
     selected_rule_days_before = models.IntegerField(null=True, blank=True)
     refund_bank_name = models.CharField(max_length=100, blank=True, default='')
     refund_account_number = models.CharField(max_length=100, blank=True, default='')

@@ -45,8 +45,12 @@ for(const status of ['created','manually_assigned','completed','cancelled','dele
 }
 const disabled=scheduleButton.openingElement.attributes.properties.find(prop=>prop.name?.text==='disabled').initializer.expression
 ctx.saveMutation={isPending:false};ctx.hasOrderChanges=false;ctx.invalidBooking=null;ctx.canScheduleUnassigned=true
+ctx.requiresJpyReceipt=false;ctx.jpyReceiptConfirmed=false
 vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,false,'An unassigned saved course can be scheduled without a fake edit')
 ctx.canScheduleUnassigned=false;vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,true)
 ctx.canScheduleUnassigned=true;ctx.saveMutation.isPending=true;vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,true)
+ctx.saveMutation.isPending=false;ctx.requiresJpyReceipt=true;ctx.jpyReceiptConfirmed=false
+vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,true,'JPY cannot be marked paid without explicit receipt confirmation')
+ctx.jpyReceiptConfirmed=true;vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,false)
 for(const text of ['不指定（等待排課）','不會在背景立即重排','人工排定已鎖定教練'])assert.ok(source.includes(text))
 console.log('PASS actual order drawer: saved payment badge remains authoritative; rejected edits keep a persistent unsaved error')

@@ -27,7 +27,11 @@ class PayrollReviewTests(TestCase):
         self.deadline = today + timedelta(days=2)
 
     def publish(self):
-        response = self.api.post(self.admin_url+'publish/', {'confirmation_deadline': self.deadline.isoformat()}, format='json')
+        from Coach.payroll_settlement import save_settlement
+        self.statement.refresh_from_db()
+        save_settlement(self.statement, {'currency':'TWD','rate':'1','base_amount':self.statement.total_amount,'deductions':[],'reviewed':True,'expected_reviewed_at':self.statement.settlement_snapshot.get('reviewed_at')}, self.hq)
+        self.statement.refresh_from_db()
+        response = self.api.post(self.admin_url+'publish/', {'confirmation_deadline': self.deadline.isoformat(),'settlement_reviewed_at':self.statement.settlement_snapshot['reviewed_at']}, format='json')
         self.assertEqual(response.status_code, 200, getattr(response, 'data', 'not an API response'))
         self.statement.refresh_from_db()
         return response
@@ -144,6 +148,9 @@ class PayrollReviewTests(TestCase):
         data = {'confirmation_deadline':self.deadline.isoformat()}
         self.assertEqual(admin.post(self.admin_url+'publish/',data).status_code, 403)
         self.assertEqual(admin.get(self.admin_url).status_code, 200)
+        payload={'currency':'TWD','rate':'1','base_amount':self.statement.total_amount,'deductions':[],'reviewed':True}
+        self.assertEqual(admin.post(self.admin_url+'settlement/',payload,content_type='application/json',HTTP_X_CSRFTOKEN=admin.cookies['csrftoken'].value).status_code,200)
+        self.statement.refresh_from_db();data['settlement_reviewed_at']=self.statement.settlement_snapshot['reviewed_at']
         self.assertEqual(admin.post(self.admin_url+'publish/',data,HTTP_X_CSRFTOKEN=admin.cookies['csrftoken'].value).status_code, 200)
         coach = BrowserClient(enforce_csrf_checks=True); coach.force_login(self.coach_user)
         self.statement.refresh_from_db(); data = {'review_token':str(self.statement.review_token)}

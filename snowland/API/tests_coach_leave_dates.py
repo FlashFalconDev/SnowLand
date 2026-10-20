@@ -13,6 +13,33 @@ from booking.models import Booking, Reservation, ReservationGroup
 
 @override_settings(TIME_ZONE='Asia/Taipei')
 class CoachLeaveCalendarDateTests(TestCase):
+    def test_cross_campus_leave_enforces_strictest_rules_even_with_selected_campus(self):
+        other=Campus.objects.create(client=self.tenant,code='b',name='B')
+        self.coach.campuses.add(other)
+        OperatingPolicy.objects.create(client=self.tenant,campus=other,leave_advance_days=5,
+            leave_max_consecutive_days=1,leave_daily_coach_limit=1)
+        rules=self.api.get(self.url,{'campus_id':self.campus.pk}).data['data']
+        self.assertEqual(rules['leave_advance_days'],5)
+        self.assertEqual(rules['leave_max_consecutive_days'],1)
+        rejected=self.post(campus_id=self.campus.pk)
+        self.assertEqual(rejected.status_code,400)
+        self.assertIn('提前 5 天',rejected.data['msg'])
+        self.assertEqual(self.post(start_date='2026-10-23',end_date='2026-10-24').status_code,400)
+        self.assertEqual(self.post(start_date='2026-10-23',end_date='2026-10-23').status_code,200)
+
+    def test_cross_campus_daily_limit_uses_each_campus_separately(self):
+        other=Campus.objects.create(client=self.tenant,code='b',name='B')
+        self.coach.campuses.add(other)
+        OperatingPolicy.objects.create(client=self.tenant,campus=other,leave_advance_days=3,
+            leave_max_consecutive_days=2,leave_daily_coach_limit=1)
+        colleague=Coach.objects.create(client=self.tenant,name='B colleague')
+        colleague.campuses.add(other)
+        CoachLeaveRequest.objects.create(coach=colleague,start_date='2026-10-21',end_date='2026-10-21',reason='QA',status='approved')
+        response=self.post(campus_id=self.campus.pk)
+        self.assertEqual(response.status_code,400)
+        self.assertIn('（B）',response.data['msg'])
+        self.assertFalse(CoachLeaveRequest.objects.filter(coach=self.coach).exists())
+
     def setUp(self):
         self.tenant=Client.objects.create(name='SnowLand',internal_code='snowland')
         self.campus=Campus.objects.create(client=self.tenant,code='a',name='A')

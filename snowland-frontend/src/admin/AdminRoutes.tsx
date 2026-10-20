@@ -3,6 +3,7 @@ import AdminLayout from './layout/AdminLayout'
 import RoleGuard from './components/RoleGuard'
 import DashboardPage from './pages/DashboardPage'
 import ContactInboxPage from './pages/ContactInboxPage'
+import SocialSyncPage from './pages/SocialSyncPage'
 import CoachesPage from './pages/CoachesPage'
 import ResortsPage from './pages/ResortsPage'
 import CampusesPage from './pages/CampusesPage'
@@ -97,6 +98,7 @@ export default function AdminRoutes() {
 
           {/* CMS */}
           <Route element={<RoleGuard permission="cms" />}>
+            <Route path="social-sync" element={<SocialSyncPage />} />
             <Route path="cms/homepage" element={<SiteContentPage initialGroup="homepage" />} />
             <Route path="cms/courses" element={<SiteContentPage initialGroup="courses" />} />
             <Route path="cms/photography" element={<SiteContentPage initialGroup="photography" />} />

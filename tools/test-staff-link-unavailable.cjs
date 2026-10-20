@@ -5,7 +5,8 @@ let guard
 function walk(node){if(ts.isIfStatement(node)&&node.expression.getText(ast).includes("staffLinkStatus !== 'valid'"))guard=node;ts.forEachChild(node,walk)}
 walk(ast);assert.ok(guard)
 for(const status of ['invalid','loading','valid']){
- const ctx=vm.createContext({React,exports:{},staffLinkToken:'qa-only-token',staffLinkStatus:status,window:{location:{pathname:'/snowland/booking'}},SiteHeader:()=>null,SiteFooter:()=>null})
+ const locale=require('./helpers/site-locale-harness.cjs')(React)
+ const ctx=vm.createContext({React,t:locale.useSiteLocale().t,exports:{},staffLinkToken:'qa-only-token',staffLinkStatus:status,window:{location:{pathname:'/snowland/booking'}},SiteHeader:()=>null,SiteFooter:()=>null})
  vm.runInContext(ts.transpileModule('exports.render=()=>{'+guard.getText(ast)+'}',{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS}}).outputText,ctx)
  const html=renderToStaticMarkup(ctx.exports.render())
  if(status==='invalid'){assert.ok(html.includes('代客訂課連結已失效'));assert.ok(html.includes('role="alert"'));assert.ok(html.includes('href="/snowland/booking"'));assert.ok(html.includes('min-h-11'));assert.ok(!html.includes('qa-only-token'));assert.ok(!html.includes('<form'))}

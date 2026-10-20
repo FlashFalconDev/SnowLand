@@ -36,6 +36,7 @@ function homepage(status,rows=[]){
   const hooks={...React,useMemo:fn=>fn(),useEffect:(fn,deps)=>effects.push({fn,deps}),useRef:()=>({current:null}),useState:initial=>{const i=cursor++;if(!(i in states))states[i]=typeof initial==='function'?initial():initial;return[states[i],value=>states[i]=typeof value==='function'?value(states[i]):value]}}
   const ctx=vm.createContext({exports:{},require:name=>{
     if(name==='react')return hooks
+    if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React)
     if(name==='react-router-dom')return{Link:()=>null}
     if(name==='framer-motion')return{useScroll:()=>({scrollYProgress:0}),useTransform:()=>0,motion:new Proxy({},{get:()=>props=>React.createElement('div',null,props.children)})}
     if(name==='../../api/websiteCoaches')return{useWebsiteCoachCards:()=>({coaches:[],isLoading:false,error:false,retry(){}})}

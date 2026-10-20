@@ -15,7 +15,11 @@ vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,
   jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true,
 } }).outputText, balanceContext)
 const between = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)))
+const moneyContext=vm.createContext({React,exports:{},require:()=>require('./helpers/site-locale-harness.cjs')(React)})
+vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/components/booking/SettlementSummary.tsx'),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,moneyContext)
 const context = vm.createContext({ React, Intl, Date, Number,
+  useSiteLocale: require('./helpers/site-locale-harness.cjs')(React).useSiteLocale,
+  SettlementSummary:moneyContext.exports.default,settlementAmount:moneyContext.exports.settlementAmount,
   OrderAmendmentBalance: balanceContext.exports.default,
   requestJson: async () => ({ items: [] }),
   useLocation: () => ({ pathname: '/membership/orders/1' }),
@@ -24,6 +28,7 @@ const context = vm.createContext({ React, Intl, Date, Number,
   ClassGroupQRImage: () => null, EmptyState: () => null })
 const code = between('const formatDate =', 'const ageOptions =')
   + between('function OrderCard(', 'function CancellationForm(')
+  + between('function SharedClassSummary(', 'function Orders(')
   + between('function Orders(', 'function PreCourseForm(')
 vm.runInContext(ts.transpileModule(code, { fileName: 'membership.jsx', compilerOptions: {
   jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020,
@@ -84,6 +89,21 @@ for (const [name, check] of [
     assert.ok(html.includes('QA教練'),'Photography keeps its actually assigned photographer name')
     assert.ok(!html.includes('>教練</span>') && !html.includes('>人數</span>'))
   }],
+  ['cancelled JPY history uses the frozen original amount instead of active zero', () => {
+    const html=renderCard({...order,reservations:[cancelled],total_amount:0,cancellation:{status:'approved',original_amount:9500,refund_amount:7125,
+      settlement:{currency:'JPY',original_amount:42750,refund_amount:32063,rate:'4.50000000'}}})
+    assert.ok(html.includes('日幣 JPY ¥ 42,750'))
+    assert.ok(html.includes('日幣 JPY ¥ 32,063'))
+    assert.ok(!html.includes('JPY ¥ 0'))
+  }],
+  ['JPY member card distinguishes locked settlement from the TWD pricing basis', () => {
+    const html=renderCard({...order,settlement:{currency:'JPY',base_currency:'TWD',amount:45000,base_amount:10000,rate:'4.50000000',locked_at:'2026-10-19T03:00:00Z'}})
+    assert.ok(html.includes('日幣 JPY ¥ 45,000'))
+    assert.ok(html.includes('台幣計價基準 NT$ 10,000'))
+    assert.ok(!html.includes('請使用日幣匯款'),'An order listing is not payment authorization while waiting for a coach')
+    const detail=renderToStaticMarkup(React.createElement(context.Orders,{data:{orders:[{...order,settlement:{currency:'JPY',base_currency:'TWD',amount:45000,base_amount:10000,rate:'4.50000000'}}]}}))
+    assert.equal((detail.match(/aria-label="付款幣別與金額"/g)||[]).length,1,'Detail must not duplicate the same currency summary')
+  }],
   ['detail marks cancelled course instead of presenting it as active', () => {
     const html = renderToStaticMarkup(React.createElement(context.Orders, { data: { orders: [order] } }))
     assert.ok(html.includes('歷史雪場'))
@@ -100,5 +120,18 @@ for (const [name, check] of [
 ]) {
   try { check(); console.log('PASS', name) }
   catch (error) { failed++; console.error('FAIL', name, error.message) }
+}
+for(const [language,button,days] of [['en','Book again','Days'],['ja','再予約','日数']]){
+  try{
+    context.useSiteLocale=require('./helpers/site-locale-harness.cjs')(React,language).useSiteLocale
+    const html=renderToStaticMarkup(React.createElement(context.OrderCard,{order,onQuickRebook(){}}))
+    assert.ok(html.includes(button)&&html.includes(days),`${language}: real OrderCard must use locale context`)
+    assert.ok(html.includes('有效雪場'),'Never machine-translate CMS names')
+    assert.ok(!html.includes('另有 ')&&!html.includes('再次預約'))
+    const shared=renderToStaticMarkup(React.createElement(context.SharedClassSummary,{summary:{status:'ready',registered_students:3,minimum_students:2,other_students:1,ability_level_label:'Lv2'}}))
+    assert.ok(!shared.includes('已報名')&&!shared.includes('同班其他學員'))
+    assert.ok(shared.includes('Lv2'))
+    console.log('PASS member order and shared-class owned UI',language)
+  }catch(error){failed++;console.error('FAIL member locale',language,error.message)}
 }
 if (failed) process.exitCode = 1

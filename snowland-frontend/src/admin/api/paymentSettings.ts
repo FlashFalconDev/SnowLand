@@ -1,6 +1,7 @@
 import adminApi from './axios'
 
 export interface PaymentSettings {
+  currency_settings?: { jpy_enabled: boolean; jpy_per_twd: string }
   bank_name: string
   bank_branch: string
   bank_account_number: string
@@ -10,6 +11,7 @@ export interface PaymentSettings {
 }
 
 export interface PaymentAccount {
+  currency?: 'TWD' | 'JPY'
   id: number
   name: string
   bank_name: string

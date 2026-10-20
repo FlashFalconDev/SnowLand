@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import SiteLink from './SiteLink';
 import { useSiteContent } from '../../hooks/useSiteContent';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 
 export default function PopularCourses() {
+  const { t } = useSiteLocale();
   const [expandedCourses, setExpandedCourses] = useState({});
   const { items, isLoading, error, refetch } = useSiteContent('homepage.courses', { contentType: 'page' });
   const resortCards = items.map(item => ({id: item.id, title: item.title, description: item.summary || item.body || '', image: item.image_url, href: item.link_url, cta: item.subtitle || '立即查看課程'}));
@@ -13,11 +15,11 @@ export default function PopularCourses() {
               Course
             </p>
             <h2 className="text-2xl font-semibold text-[#1f2937] mt-4 font-display">
-              熱門課程
+              {t('熱門課程')}
             </h2>
           </div>
 
-          {isLoading ? <p role="status" className="text-center text-sm text-[#475569]">正在載入熱門課程…</p> : error ? <p role="alert" className="text-center text-sm text-red-700">熱門課程載入失敗。<button type="button" className="ml-2 min-h-11 underline" onClick={refetch}>重試熱門課程</button></p> : !resortCards.length ? <p className="text-center text-sm text-[#475569]">目前尚無公開熱門課程。</p> : null}
+          {isLoading ? <p role="status" className="text-center text-sm text-[#475569]">{t('正在載入熱門課程…')}</p> : error ? <p role="alert" className="text-center text-sm text-red-700">{t('熱門課程載入失敗。')}<button type="button" className="ml-2 min-h-11 underline" onClick={refetch}>{t('重試熱門課程')}</button></p> : !resortCards.length ? <p className="text-center text-sm text-[#475569]">{t('目前尚無公開熱門課程。')}</p> : null}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 md:gap-16">
             {resortCards.map((resort) => (
               <article
@@ -64,7 +66,7 @@ export default function PopularCourses() {
                     }
                     aria-expanded={!!expandedCourses[resort.id]} className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[#1f2937] hover:text-[#0f172a] transition-colors underline underline-offset-4"
                   >
-                    {expandedCourses[resort.id] ? "收起" : "展開"}
+                    {t(expandedCourses[resort.id] ? "收起" : "展開")}
                   </button>
                   <div className="w-12 h-px bg-[#c4c4c4] my-6 mx-auto"></div>
                   <div className="mt-6 text-center">
@@ -72,7 +74,7 @@ export default function PopularCourses() {
                       to={resort.href}
                       className="inline-flex min-h-11 items-center justify-center px-8 py-2 rounded-full border border-[#1f2937] text-sm font-semibold text-[#1f2937] hover:border-[#4A6B8A] hover:bg-[#4A6B8A] hover:text-white transition-colors"
                     >
-                      {resort.cta}
+                      {t(resort.cta)}
                     </SiteLink>
                   </div>
                 </div>

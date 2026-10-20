@@ -1,5 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),Module=require('node:module')
 const root=path.resolve(__dirname,'../snowland-frontend'),req=Module.createRequire(path.join(root,'package.json')),ts=req('typescript')
+const locale=vm.createContext({exports:{}})
+vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/utils/siteLocale.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,locale)
 const source=fs.readFileSync(path.join(root,'src/pages/site/MembershipPage.jsx'),'utf8'),ast=ts.createSourceFile('MembershipPage.jsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JSX)
 const component=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='MembershipPage')
 const logout=component.body.statements.find(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(ast)==='logout'))
@@ -64,7 +66,7 @@ function harness(response={code:200},failure){
   walk(component);assert.ok(button)
   const React=req('react')
   for(const busy of [false,true]){
-    const ctx=vm.createContext({React,LogOut:()=>null,logout(){},loggingOut:busy})
+    const ctx=vm.createContext({React,LogOut:()=>null,logout(){},loggingOut:busy,t:source=>locale.exports.translateSiteText('zh-Hant',source)})
     vm.runInContext(ts.transpileModule('const button='+button.getText(ast),{compilerOptions:{jsx:ts.JsxEmit.React}}).outputText+';this.result=button',ctx)
     assert.equal(ctx.result.props.disabled,busy);assert.equal(ctx.result.props['aria-busy'],busy);assert.match(ctx.result.props.className,/min-h-11/)
     assert.ok(React.Children.toArray(ctx.result.props.children).includes(busy?'登出中…':'登出'))

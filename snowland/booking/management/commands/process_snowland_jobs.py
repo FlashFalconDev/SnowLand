@@ -77,6 +77,16 @@ class Command(BaseCommand):
             sent+=amendment_sent;failed+=amendment_failed
 
         mode = 'DRY RUN' if dry_run else 'DONE'
+        # Reuse this deployment-owned job instead of creating a second scheduler.
+        # Authorization is opt-in and each connection checks its hourly due time.
+        if not dry_run:
+            from Client.models import InstagramConnection
+            from Client.instagram_sync import InstagramError, run_sync
+            for connection_id in InstagramConnection.objects.filter(enabled=True).values_list('pk', flat=True):
+                try:
+                    run_sync(connection_id, due_only=True)
+                except InstagramError:
+                    self.stderr.write('Instagram sync failed; see the headquarters social-sync page. Other jobs continue.')
         self.stdout.write(self.style.SUCCESS(
             f'{mode}: expired={expired_count}, evaluations={evaluation_count}, scheduled={scheduled_count}, sent={sent}, failed={failed}, payroll_confirmed={payroll_confirmed}'
         ))

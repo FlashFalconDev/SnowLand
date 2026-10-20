@@ -1,4 +1,5 @@
 import React, { useContext } from 'react';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import SiteLink, { SiteBasePathContext } from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
@@ -6,6 +7,7 @@ import SiteHeader from '../../components/site/SiteHeader';
 import { GUIDE_CATEGORIES, guideArticleTarget, siteContentToArticle, siteContentToPage, useSiteContent } from '../../hooks/useSiteContent';
 
 function GuidesCollectionPage() {
+  const { t } = useSiteLocale();
   const { category } = useParams();
   const navigate = useNavigate();
   const basePath = useContext(SiteBasePathContext);
@@ -62,7 +64,7 @@ function GuidesCollectionPage() {
             {page?.subtitle ?? "Guides"}
           </p>
           <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display inline-flex flex-col items-center group">
-            <span>{page?.title ?? "滑雪精選文章"}</span>
+            <span>{t(page?.title ?? "滑雪精選文章")}</span>
             <span className="mt-3 h-0.5 w-0 bg-[#111827] transition-all duration-300 group-hover:w-full" />
           </h1>
         </div>
@@ -87,7 +89,7 @@ function GuidesCollectionPage() {
                   }`}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  {label}
+                  {t(label === 'All' ? '全部分類' : label)}
                   <span
                     className={`absolute left-0 -bottom-[1px] h-0.5 transition-all duration-300 ${
                       isActive ? "w-full bg-[#111827]" : "w-0 bg-[#2b5f8f] group-hover:w-full"
@@ -101,17 +103,17 @@ function GuidesCollectionPage() {
         <section className="mt-12 grid w-full max-w-4xl mx-auto gap-6 md:grid-cols-2 lg:grid-cols-3">
           {isLoading && (
             <p className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-[#64748b]">
-              正在載入文章…
+              {t('正在載入文章…')}
             </p>
           )}
           {!isLoading && error && (
             <div role="alert" className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-red-600">
-              <p>文章暫時無法載入，請稍後再試。</p><button type="button" onClick={refetch} className="mt-3 min-h-11 rounded-full border border-current px-6">重新載入</button>
+              <p>{t('文章暫時無法載入，請稍後再試。')}</p><button type="button" onClick={refetch} className="mt-3 min-h-11 rounded-full border border-current px-6">{t('重新載入')}</button>
             </div>
           )}
           {!isLoading && !error && cards.length === 0 && (
             <p className="md:col-span-2 lg:col-span-3 py-16 text-center text-sm text-[#64748b]">
-              目前沒有已發布的文章。
+              {t('目前沒有已發布的文章。')}
             </p>
           )}
           {cards.map((card) => {
@@ -137,7 +139,7 @@ function GuidesCollectionPage() {
                   <span
                     className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold tracking-[0.2em] uppercase font-display ${categoryBadgeStyles[card.category] || "bg-[#e2e8f0] text-[#475569]"}`}
                   >
-                    {card.category}
+                    {t(card.category)}
                   </span>
                 )}
                 {card.date && (

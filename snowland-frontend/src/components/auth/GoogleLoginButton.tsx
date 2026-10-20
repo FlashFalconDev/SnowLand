@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSiteLocale } from '../../contexts/SiteLocale'
 
 interface GoogleLoginButtonProps {
   onLogin?: () => void
@@ -16,6 +17,7 @@ let googleSdkInitialized = false
 let activeCredentialHandler: ((response: any) => void) | null = null
 
 export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
+  const {locale,t}=useSiteLocale()
   const googleButtonRef = useRef<HTMLDivElement>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,7 +98,7 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
         size: 'large',
         width,
         text: 'signin_with',
-        locale: 'zh_TW',
+        locale: locale==='zh-Hant'?'zh_TW':locale,
       })
       renderedWidth = width
     }
@@ -129,7 +131,7 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
       if (retryTimer) clearTimeout(retryTimer)
       resizeObserver.disconnect()
     }
-  }, [])
+  }, [locale])
 
   return (
     <div className="w-full">
@@ -139,14 +141,14 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
       {/* 載入狀態 */}
       {isLoading && (
         <div className="mt-4 text-center text-sm text-gray-600">
-          登入中,請稍候...
+          {t('登入中,請稍候...')}
         </div>
       )}
 
       {/* 錯誤訊息 */}
       {error && (
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-          {error}
+          {t(error)}
         </div>
       )}
     </div>

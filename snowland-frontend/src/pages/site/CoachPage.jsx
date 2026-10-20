@@ -1,3 +1,4 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
@@ -289,6 +290,7 @@ function CashPhotoCarousel({ images, mediaSurfaceClass, mediaShadowClass, label 
 }
 
 function CoachPage() {
+  const {t} = useSiteLocale();
   const { slug } = useParams();
   const [coach, setCoach] = useState(null);
   const [coachStatus, setCoachStatus] = useState('loading');
@@ -427,7 +429,7 @@ function CoachPage() {
   });
   const cashReviewPageSize = 4;
   const cashReviewPageCount = Math.max(1, Math.ceil(cashStudentReviews.length / cashReviewPageSize));
-  const cashReviewCountLabel = `${cashStudentReviews.length} 則已評價`;
+  const cashReviewCountLabel = t('{count} 則已評價',{count:cashStudentReviews.length});
   const visibleCashStudentReviews = cashStudentReviews.slice(
     (cashReviewPage - 1) * cashReviewPageSize,
     cashReviewPage * cashReviewPageSize
@@ -589,7 +591,7 @@ function CoachPage() {
           images={card.media}
           mediaSurfaceClass={card.mediaSurfaceClass}
           mediaShadowClass={card.mediaShadowClass}
-          label={`${card.title}-photos`}
+          label={t('{title} 照片，按 Enter 或空白鍵切換',{title:t(card.title)})}
         />
       );
     }
@@ -905,8 +907,8 @@ function CoachPage() {
     return <div className="min-h-screen bg-[#f6f8fb] flex flex-col">
       <SiteHeader forceTransparent forceDarkText forceLogoColor />
       <main className="flex-1 px-6 pt-36 pb-16 text-center text-[#1f2937]" aria-live="polite">
-        <h1 className="text-2xl font-semibold">{coachStatus === 'loading' ? '正在載入教練介紹…' : '教練介紹載入失敗'}</h1>
-        {coachStatus === 'error' && <><p className="mt-4">請稍後重試，不會顯示過期的教練資料。</p><button type="button" onClick={() => setCoachRetry(value => value + 1)} className="mt-6 rounded-xl bg-brand-orange px-6 py-3 font-semibold text-white">重新載入</button></>}
+        <h1 className="text-2xl font-semibold">{coachStatus === 'loading' ? t("正在載入教練介紹…") : t("教練介紹載入失敗")}</h1>
+        {coachStatus === 'error' && <><p className="mt-4">{t("請稍後重試，不會顯示過期的教練資料。")}</p><button type="button" onClick={() => setCoachRetry(value => value + 1)} className="mt-6 rounded-xl bg-brand-orange px-6 py-3 font-semibold text-white">{t("重新載入")}</button></>}
       </main><SiteFooter />
     </div>;
   }
@@ -917,14 +919,12 @@ function CoachPage() {
         <SiteHeader forceTransparent forceDarkText forceLogoColor />
         <main className="flex-1 flex items-center justify-center px-6 pt-28 pb-16">
           <div className="text-center">
-            <h1 className="text-2xl font-semibold text-[#1f2937] font-display">找不到教練頁面</h1>
-            <p className="mt-4 text-[#6b7280]">請返回首頁選擇其他教練。</p>
+            <h1 className="text-2xl font-semibold text-[#1f2937] font-display">{t("找不到教練頁面")}</h1>
+            <p className="mt-4 text-[#6b7280]">{t("請返回首頁選擇其他教練。")}</p>
             <SiteLink
               to="/"
               className="mt-6 inline-flex items-center justify-center px-6 py-3 rounded-xl bg-brand-orange text-white font-semibold"
-            >
-              回到首頁
-            </SiteLink>
+            >{t("回到首頁")}</SiteLink>
           </div>
         </main>
         <SiteFooter />
@@ -948,13 +948,9 @@ function CoachPage() {
                     className="text-sm font-semibold text-[#1f2937] font-display"
                   >
                     <div className="inline-flex items-center gap-1">
-                      <SiteLink to="/" className="transition-colors hover:text-[#2b5f8f]">
-                        首頁
-                      </SiteLink>
+                      <SiteLink to="/" className="transition-colors hover:text-[#2b5f8f]">{t("首頁")}</SiteLink>
                       <span className="text-[#cbd5e1]">/</span>
-                      <SiteLink to="/coach" className="transition-colors hover:text-[#2b5f8f]">
-                        教練團隊
-                      </SiteLink>
+                      <SiteLink to="/coach" className="transition-colors hover:text-[#2b5f8f]">{t("教練團隊")}</SiteLink>
                       <span className="text-[#cbd5e1]">/</span>
                       <span className="text-[#1f2937]">{coach.name}</span>
                     </div>
@@ -971,7 +967,7 @@ function CoachPage() {
                       src={coachDetailImage}
                       alt={coach.name}
                       className="block h-auto w-full object-cover object-top lg:h-full lg:w-auto lg:max-w-none lg:object-contain"
-                    /> : <div role="img" aria-label="尚未提供教練照片" className="flex min-h-64 items-center justify-center px-8 text-[#475569]">教練照片準備中</div>}
+                    /> : <div role="img" aria-label={t("尚未提供教練照片")} className="flex min-h-64 items-center justify-center px-8 text-[#475569]">{t("教練照片準備中")}</div>}
                   </CashFadeIn>
 
                   <CashFadeIn as="div" delay={120} className="space-y-8 text-center lg:pt-10">
@@ -980,7 +976,7 @@ function CoachPage() {
                         {coach.name}
                       </CashFadeIn>
                       {coach.cardBio && <p className={cashBodyClass}>{coach.cardBio}</p>}
-                      {!coach.sections.some(section => !['專業證照', '滑雪證照'].includes(section.title)) && <p className="text-sm text-[#6b7280]">詳細介紹整理中，課程資訊請以預約頁為準。</p>}
+                      {!coach.sections.some(section => !['專業證照', '滑雪證照'].includes(section.title)) && <p className="text-sm text-[#6b7280]">{t("詳細介紹整理中，課程資訊請以預約頁為準。")}</p>}
                       <CashFadeIn
                         as="p"
                         delay={240}
@@ -1056,7 +1052,7 @@ function CoachPage() {
                           section.title === "個人經歷" ? "text-left" : "text-center"
                         }`}
                       >
-                        <h3 className={cashHeadingClass}>{section.title}</h3>
+                        <h3 className={cashHeadingClass}>{t(section.title)}</h3>
                         {sectionHasBullets || section.title === "個人經歷" ? (
                           <ul className="space-y-3 pl-5 text-left list-disc">
                             {section.lines.map((line, lineIndex) => (
@@ -1087,7 +1083,7 @@ function CoachPage() {
                           <div className="px-6 md:px-8 py-5 md:py-6 space-y-5">
                             <div className="space-y-4">
                               <h3 className={`${cashHeadingClass} ${cashTeachingCard.textClass} text-center`}>
-                                {cashTeachingCard.title}
+                                {t(cashTeachingCard.title)}
                               </h3>
                               {cashTeachingCard.lead ? (
                                 <p className={`${cashTeachingCard.bodyClass} mx-auto max-w-xl text-center`}>
@@ -1121,7 +1117,7 @@ function CoachPage() {
               >
                 {cashCertificateSection ? (
                   <CashFadeIn as="div" className="space-y-4">
-                    <h2 className={cashHeadingClass}>{cashCertificateSection.title}</h2>
+                    <h2 className={cashHeadingClass}>{t(cashCertificateSection.title)}</h2>
                     <ul className={`space-y-3 ${cashBodyClass}`}>
                       {cashCertificateSection.lines.map((line, index) => (
                         <li key={`cash-cert-${index}`} className="flex gap-2">
@@ -1151,9 +1147,7 @@ function CoachPage() {
                             loading="lazy"
                           />
                         </div>
-                        <h3 className="text-lg md:text-xl font-semibold text-[#1f2937] font-display">
-                          Snowboard 單板
-                        </h3>
+                        <h3 className="text-lg md:text-xl font-semibold text-[#1f2937] font-display">{t("Snowboard 單板")}</h3>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {heroAbilityTags.snowboard.map((tag) => (
@@ -1183,9 +1177,7 @@ function CoachPage() {
                             loading="lazy"
                           />
                         </div>
-                        <h3 className="text-lg md:text-xl font-semibold text-[#1f2937] font-display">
-                          Ski 雙板
-                        </h3>
+                        <h3 className="text-lg md:text-xl font-semibold text-[#1f2937] font-display">{t("Ski 雙板")}</h3>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {heroAbilityTags.ski.map((tag) => (
@@ -1239,9 +1231,7 @@ function CoachPage() {
                           <div className="flex items-center justify-between">
                             <p
                               className={`text-xs font-semibold tracking-[0.35em] uppercase font-display ${renderCard.metaClass}`}
-                            >
-                              教練介紹
-                            </p>
+                            >{t("教練介紹")}</p>
                             <p
                               className={`text-xs font-semibold tracking-[0.3em] uppercase font-display ${renderCard.metaClass}`}
                             >
@@ -1256,7 +1246,7 @@ function CoachPage() {
                                   {renderStackCardMedia(renderCard)}
                                 </div>
                                 <h3 className={`${cashHeroTitleClass} ${renderCard.textClass}`}>
-                                  {renderCard.title}
+                                  {t(renderCard.title)}
                                 </h3>
                               </div>
                             </div>
@@ -1287,7 +1277,7 @@ function CoachPage() {
                                       renderCard.type === "teaching" ? "text-center" : ""
                                     }`}
                                   >
-                                    {renderCard.title}
+                                    {t(renderCard.title)}
                                   </h3>
                                   {renderCard.type !== "intro" && renderCard.type !== "ski-experience" && renderCard.lead ? (
                                     <p
@@ -1325,15 +1315,15 @@ function CoachPage() {
             <section className="max-w-6xl mx-auto px-6 md:px-10 py-14 md:py-16 border-t border-[#d7dde3]">
               <div className="space-y-6">
                 <CashFadeIn as="div" className="space-y-3 text-center">
-                  <h2 className={cashHeroTitleClass}>影音短片</h2>
+                  <h2 className={cashHeroTitleClass}>{t("影音短片")}</h2>
                 </CashFadeIn>
                 <CashFadeIn as="div" delay={80} className="flex items-center justify-end gap-4 pt-1">
                   <button
                     type="button"
                     onClick={() => scrollCashVideoCarousel(-1)}
                     disabled={cashVideoActiveIndex === 0}
-                    aria-label="上一部影片"
-                    className="text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
+                    aria-label={t("上一部影片")}
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
                   >
                     <svg
                       aria-hidden="true"
@@ -1352,8 +1342,8 @@ function CoachPage() {
                     type="button"
                     onClick={() => scrollCashVideoCarousel(1)}
                     disabled={cashVideoActiveIndex === cashVideoSlides.length - 1}
-                    aria-label="下一部影片"
-                    className="text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
+                    aria-label={t("下一部影片")}
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
                   >
                     <svg
                       aria-hidden="true"
@@ -1436,7 +1426,7 @@ function CoachPage() {
             <section className="bg-[#eef3f8]">
               <div className="max-w-6xl mx-auto px-6 md:px-10 py-14 md:py-16 space-y-8">
                 <CashFadeIn as="div" className="space-y-4 text-center">
-                  <h2 className={cashHeroTitleClass}>學員評價</h2>
+                  <h2 className={cashHeroTitleClass}>{t("學員評價")}</h2>
                   {cashStudentReviews.length > 0 ? (
                     <div className="flex flex-col items-center gap-2">
                       <div className="flex items-center gap-1 text-[#f5c542]">
@@ -1506,7 +1496,7 @@ function CoachPage() {
                                   <span className="inline-flex items-center gap-1 text-xs font-semibold tracking-[0.2em] uppercase text-[#94a3b8]">
                                     <span>{review.time}</span>
                                     {review.pinned ? (
-                                      <span className="inline-flex items-center text-[#2b5f8f]" aria-label="釘選">
+                                      <span className="inline-flex items-center text-[#2b5f8f]" aria-label={t("釘選")}>
                                         {pinIcon}
                                       </span>
                                     ) : null}
@@ -1532,7 +1522,7 @@ function CoachPage() {
                               </p>
                               {cashReviewHasMoreMap[`${review.name}-${review.time}`] ? (
                                 <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#94a3b8] font-lora leading-none">
-                                  VIEW MORE
+                                  {t('查看完整評價')}
                                 </p>
                               ) : null}
                             </div>
@@ -1548,15 +1538,15 @@ function CoachPage() {
                                         event.stopPropagation();
                                         setSelectedCashReviewPhoto({
                                           src: photo.src,
-                                          alt: photo.alt ?? `${review.name} 評價照片 ${photoIndex + 1}`,
+                                          alt: photo.alt ?? t('{name} 評價照片 {number}',{name:review.name,number:photoIndex+1}),
                                         });
                                       }}
-                                      className="h-10 w-10 overflow-hidden rounded-sm border border-[#d7dde3] bg-[#f8fafc] shadow-sm transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-md md:h-12 md:w-12"
-                                      aria-label={`放大 ${review.name} 的評價照片 ${photoIndex + 1}`}
+                                      className="h-11 w-11 overflow-hidden rounded-sm border border-[#d7dde3] bg-[#f8fafc] shadow-sm transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-md md:h-12 md:w-12"
+                                      aria-label={t('放大 {name} 的評價照片 {number}',{name:review.name,number:photoIndex+1})}
                                     >
                                       <img
                                         src={photo.src}
-                                        alt={photo.alt ?? `${review.name} 評價照片 ${photoIndex + 1}`}
+                                        alt={photo.alt ?? t('{name} 評價照片 {number}',{name:review.name,number:photoIndex+1})}
                                         className="h-full w-full object-cover"
                                         loading="lazy"
                                       />
@@ -1570,13 +1560,13 @@ function CoachPage() {
                       ))}
                     </div>
 
-                    <div className="mt-2 flex items-center justify-center gap-4">
+                    <div className="mt-2 flex flex-wrap items-center justify-center gap-4">
                       <button
                         type="button"
                         onClick={() => setCashReviewPaging({ slug, page: Math.max(1, cashReviewPage - 1) })}
                         disabled={cashReviewPage === 1}
-                        aria-label="上一頁評價"
-                        className="text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
+                        aria-label={t("上一頁評價")}
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
                       >
                         <svg
                           aria-hidden="true"
@@ -1592,7 +1582,7 @@ function CoachPage() {
                         </svg>
                       </button>
 
-                      <div className="flex items-center gap-2 whitespace-nowrap text-[10px] font-semibold tracking-[0.3em] text-[#94a3b8] font-display">
+                      <div className="flex max-w-full flex-wrap items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.3em] text-[#94a3b8] font-display">
                         {cashReviewPageItems.map((item, index) => {
                           if (item === "ellipsis") {
                             return (
@@ -1608,7 +1598,8 @@ function CoachPage() {
                               type="button"
                               onClick={() => setCashReviewPaging({ slug, page: item })}
                               aria-current={cashReviewPage === item ? "page" : undefined}
-                              className={`transition-colors ${
+                              aria-label={t('評價第 {number} 頁',{number:item})}
+                              className={`min-h-11 min-w-11 transition-colors ${
                                 cashReviewPage === item ? "text-[#1f2937]" : "text-[#94a3b8] hover:text-[#2b5f8f]"
                               }`}
                             >
@@ -1622,8 +1613,8 @@ function CoachPage() {
                         type="button"
                         onClick={() => setCashReviewPaging({ slug, page: Math.min(cashReviewPageCount, cashReviewPage + 1) })}
                         disabled={cashReviewPage === cashReviewPageCount}
-                        aria-label="下一頁評價"
-                        className="text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
+                        aria-label={t("下一頁評價")}
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center text-[#1f2937] transition-colors hover:text-[#2b5f8f] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
                       >
                         <svg
                           aria-hidden="true"
@@ -1645,15 +1636,11 @@ function CoachPage() {
                     as="div"
                     className="mx-auto flex max-w-2xl flex-col items-center gap-5 rounded-sm border border-dashed border-[#cfd8e8] bg-white px-6 py-10 text-center shadow-[0_12px_30px_rgba(15,23,42,0.04)]"
                   >
-                    <p className="text-base md:text-lg leading-relaxed text-[#475569]">
-                      尚未有評價，立即登入為您喜歡的教練留下評價
-                    </p>
+                    <p className="text-base md:text-lg leading-relaxed text-[#475569]">{t("尚未有評價，立即登入為您喜歡的教練留下評價")}</p>
                     <SiteLink
                       to="/membership"
                       className="inline-flex items-center justify-center rounded-full bg-[#a8d8f4] px-6 py-3 text-sm font-semibold text-[#1f3a57] shadow-[0_12px_30px_rgba(43,95,143,0.14)] transition-colors duration-200 hover:bg-[#94cdee]"
-                    >
-                      會員登入
-                    </SiteLink>
+                    >{t("會員登入")}</SiteLink>
                   </CashFadeIn>
                 )}
               </div>
@@ -1664,7 +1651,7 @@ function CoachPage() {
                 className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8"
                 role="dialog"
                 aria-modal="true"
-                aria-label="學員評價詳情"
+                aria-label={t("學員評價詳情")}
                 ref={reviewDialogRef}
                 tabIndex={-1}
                 onClick={() => setSelectedCashReview(null)}
@@ -1673,9 +1660,7 @@ function CoachPage() {
                   type="button"
                   className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
                   onClick={() => setSelectedCashReview(null)}
-                >
-                  關閉
-                </button>
+                >{t("關閉")}</button>
                 <div
                   className="max-h-[88vh] w-full max-w-3xl overflow-hidden rounded-sm bg-white text-left shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
                   onClick={(event) => event.stopPropagation()}
@@ -1693,7 +1678,7 @@ function CoachPage() {
                           <span className="inline-flex items-center gap-1 text-xs font-semibold tracking-[0.2em] uppercase text-[#94a3b8]">
                             <span>{selectedCashReview.time}</span>
                             {selectedCashReview.pinned ? (
-                              <span className="inline-flex items-center text-[#2b5f8f]" aria-label="釘選">
+                              <span className="inline-flex items-center text-[#2b5f8f]" aria-label={t("釘選")}>
                                 {pinIcon}
                               </span>
                             ) : null}
@@ -1718,15 +1703,15 @@ function CoachPage() {
                             onClick={() =>
                               setSelectedCashReviewPhoto({
                                 src: photo.src,
-                                alt: photo.alt ?? `${selectedCashReview.name} 評價照片 ${photoIndex + 1}`,
+                                alt: photo.alt ?? t('{name} 評價照片 {number}',{name:selectedCashReview.name,number:photoIndex+1}),
                               })
                             }
                             className="aspect-square overflow-hidden rounded-sm border border-[#d7dde3] bg-[#f8fafc]"
-                            aria-label={`放大 ${selectedCashReview.name} 的評價照片 ${photoIndex + 1}`}
+                            aria-label={t('放大 {name} 的評價照片 {number}',{name:selectedCashReview.name,number:photoIndex+1})}
                           >
                             <img
                               src={photo.src}
-                              alt={photo.alt ?? `${selectedCashReview.name} 評價照片 ${photoIndex + 1}`}
+                              alt={photo.alt ?? t('{name} 評價照片 {number}',{name:selectedCashReview.name,number:photoIndex+1})}
                               className="h-full w-full object-cover"
                               loading="lazy"
                             />
@@ -1744,7 +1729,7 @@ function CoachPage() {
                 className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 px-4 py-8"
                 role="dialog"
                 aria-modal="true"
-                aria-label="評價照片預覽"
+                aria-label={t("評價照片預覽")}
                 ref={reviewPhotoDialogRef}
                 tabIndex={-1}
                 onClick={() => setSelectedCashReviewPhoto(null)}
@@ -1753,9 +1738,7 @@ function CoachPage() {
                   type="button"
                   className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
                   onClick={() => setSelectedCashReviewPhoto(null)}
-                >
-                  關閉
-                </button>
+                >{t("關閉")}</button>
                 <button
                   type="button"
                   className="max-h-[85vh] max-w-[92vw] overflow-hidden rounded-sm bg-white shadow-[0_24px_80px_rgba(0,0,0,0.45)]"

@@ -2339,6 +2339,10 @@ class CreateReservationAPI(APIView):
                 created_reservations.append(reservation)
                 reservation_groups.append(group)
 
+            from .currency import initialize_order_currency
+            for created_group in reservation_groups:
+                initialize_order_currency(created_group, request.data.get('currency', 'TWD'), expected_rate=request.data.get('currency_rate'))
+
             shared_classes = {
                 reservation.shared_course_class_id: reservation.shared_course_class
                 for reservation in created_reservations if reservation.shared_course_class_id
@@ -2965,6 +2969,7 @@ class MemberCenterAPI(APIView):
                     payment_hold_status = 'scheduling_failed'
                 elif payment and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
                     payment_hold_status = 'payment_records_review'
+            from .currency import settlement_summary, received_settlement_summary, public_cancellation_settlement
             orders.append({
                 'id': group.id,
                 'line_group_url': class_group_url,
@@ -2975,12 +2980,15 @@ class MemberCenterAPI(APIView):
                 'created_at': group.created_at.isoformat(),
                 'payment_status': payment.status if payment else 'unpaid',
                 'payment_hold_status': payment_hold_status,
+                'settlement': settlement_summary(group),
+                'received_settlement': received_settlement_summary(group),
                 'cancellation': {
                     'status': cancellation.status,
                     'original_amount': cancellation.original_amount,
                     'refund_amount': None if cancellation.requires_cash_review and cancellation.actual_received_amount is None else cancellation.refund_amount,
                     'requires_cash_review': cancellation.requires_cash_review,
                     'cash_review_pending': cancellation.requires_cash_review and cancellation.actual_received_amount is None,
+                    **({'settlement':public_cancellation_settlement(cancellation)} if cancellation.currency_snapshot else {}),
                 } if cancellation else None,
                 'total_amount': sum(
                     reservation.payment_amount
@@ -3663,6 +3671,12 @@ class MemberCancellationAPI(APIView):
             return error
         existing = group.cancellation_requests.order_by('-created_at').first()
         preview = calculate_refund(group)
+        if existing and existing.currency_snapshot and existing.status in {'requested','approved','refunded'}:
+            from .currency import public_cancellation_settlement
+            preview.update({'settlement':public_cancellation_settlement(existing),'original_amount':existing.original_amount,
+                'refund_amount':None if existing.requires_cash_review and existing.actual_received_amount is None else existing.refund_amount,
+                'requires_cash_review':existing.requires_cash_review,'refund_percent':existing.refund_percent,
+                'handling_fee_percent':existing.handling_fee_percent,'days_before':existing.days_before})
         payment = group.payments.order_by('-created_at').first()
         return Response({
             **preview,
@@ -3683,13 +3697,14 @@ class MemberCancellationAPI(APIView):
             cancellation = request_cancellation(
                 group, reason=reason,
                 reason_note=request.data.get('reason_note') or '',
-                bank={key: request.data.get(key, '') for key in ('bank_name', 'account_number', 'account_holder')},
+                bank={key: request.data.get(key, '') for key in ('bank_name', 'account_number', 'account_holder','overseas_details')},
                 user=request.user,
                 expected_user_id=request.user.pk, expected_client_id=group.client_id, require_paid=True,
+                currency=request.data.get('currency'),expected_refund_amount=request.data.get('expected_refund_amount'),
             )
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
-        return Response({'id': cancellation.id, 'status': cancellation.status,
+        return Response({**({'settlement':cancellation.currency_snapshot} if cancellation.currency_snapshot else {}),'id': cancellation.id, 'status': cancellation.status,
             'requires_cash_review':cancellation.requires_cash_review,
             'refund_amount':None if cancellation.requires_cash_review else cancellation.refund_amount}, status=201)
 
@@ -3798,6 +3813,10 @@ class SuperScheduleAPI(APIView):
                         charge_equipment_fee=(course_index == 0),
                     )
                     created_reservations.append(reservation)
+
+            from .currency import initialize_order_currency
+            for created_group in created_groups:
+                initialize_order_currency(created_group, request.data.get('currency', 'TWD'), expected_rate=request.data.get('currency_rate'))
 
             # 檢查哪些預約需要排課
             reservations_need_scheduling = []
@@ -4034,6 +4053,29 @@ class SuperScheduleAPI(APIView):
         return reservation
 
 
+class CurrencyOptionsAPI(APIView):
+    permission_classes = []
+
+    def get(self, request, client_code=None):
+        from decimal import Decimal
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error':str(exc)},status=404)
+        from .currency import currency_settings_payload
+        from Resorts.models import PaymentAccount
+        config = currency_settings_payload(tenant)
+        currencies = [{'code':'TWD','rate':'1.00000000'}]
+        complete_accounts = PaymentAccount.objects.filter(client=tenant,is_active=True,currency='JPY')
+        for field in ('bank_name','bank_branch','account_number','account_holder'):
+            complete_accounts = complete_accounts.exclude(**{field:''})
+        if config['jpy_enabled'] and config['jpy_per_twd'] and Decimal(config['jpy_per_twd']) > 0 and complete_accounts.exists():
+            currencies.append({'code':'JPY','rate':config['jpy_per_twd']})
+        response = Response({'base_currency':'TWD','currencies':currencies})
+        response['Cache-Control']='no-store'
+        return response
+
+
 class PaymentInfoAPI(APIView):
     """
     GET /api/payment-info/
@@ -4166,16 +4208,21 @@ class PaymentInfoAPI(APIView):
                         'bank_account_number': c.bank_account_number,
                         'bank_account_holder': c.bank_account_holder,
                     }
+            from .currency import order_settlement
+            settlement = order_settlement(group, base_amount=total_amount)
+            if settlement['currency'] == 'JPY':
+                bank_info = settlement['bank_info']
             is_taiwan = (group.source_country or 'TW') == 'TW'
             payment_methods = []
             if all(bank_info.get(field) for field in ('bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder')):
                 payment_methods.append('bank_transfer')
-            if not is_taiwan and all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
+            if settlement['currency'] == 'TWD' and not is_taiwan and all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
                 payment_methods.append('newebpay')
 
             return Response({
                 'reservation_group_id': int(reservation_group_id),
                 'total_amount': total_amount,
+                'settlement': settlement,
                 'payment_status': payment_status,
                 'order_details': order_details,
                 'bank_info': bank_info,
@@ -4406,6 +4453,14 @@ class ProcessPaymentAPI(APIView):
                 message = {'paid':'此訂單已付款，請勿重複提交','expired':'付款期限已結束，請聯絡客服','refunded':'此訂單已退款，不能重新回報付款'}.get(current_payment.status,'付款狀態不允許回報，請聯繫客服')
                 return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
 
+            from .currency import order_settlement
+            settlement = order_settlement(group)
+            if settlement['currency'] == 'JPY':
+                if payment_type != 'bank_transfer':
+                    return Response({'error':'日幣訂單僅提供日幣銀行匯款'}, status=400)
+                if request.data.get('currency') != 'JPY' or type(request.data.get('expected_amount')) is not int or request.data['expected_amount'] != settlement['amount']:
+                    return Response({'error':'請重新載入並確認日幣應付金額後回報匯款'}, status=409)
+
             if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
                 return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4421,6 +4476,9 @@ class ProcessPaymentAPI(APIView):
                     if account else
                     (tenant.bank_name, tenant.bank_branch, tenant.bank_account_number, tenant.bank_account_holder)
                 )
+                if settlement['currency'] == 'JPY':
+                    snapshot_bank = settlement['bank_info']
+                    bank_fields = tuple(snapshot_bank.get(key) for key in ('bank_name','bank_branch','bank_account_number','bank_account_holder'))
                 if not all(bank_fields):
                     return Response({'error': '收款帳戶尚未設定完整，請聯繫客服'}, status=status.HTTP_400_BAD_REQUEST)
                 return self._process_bank_transfer(request, group)
@@ -4509,6 +4567,8 @@ class ProcessPaymentAPI(APIView):
         payment.bank_account = sender_account
         payment.user = user
         payment.payment_method = 'TT'
+        from .currency import order_settlement
+        payment.DataJSON = {**(payment.DataJSON if isinstance(payment.DataJSON, dict) else {}), 'settlement':order_settlement(group)}
         payment.save()
 
         return Response({

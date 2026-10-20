@@ -8,7 +8,7 @@ for(const invalid of ['javascript:alert(1)','//example.test','http://example.tes
 assert.equal(settings.safeFooterLink('https://example.test/a?b=1&c=2'),'https://example.test/a?b=1&c=2')
 function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))return node;if(typeof node.type==='function')return find(node.type(node.props),p);for(const child of React.Children.toArray(node.props?.children)){const match=find(child,p);if(match)return match}return null}
 const defaults=JSON.parse(fs.readFileSync(path.join(__dirname,'../snowland/Client/fixtures/site_footer_defaults.json'),'utf8'))
-function setup(result={items:[defaults]},scrolled=false){
+function setup(result={items:[defaults]},scrolled=false,language='zh-Hant'){
  let index=0,open=false,retries=0,topCalls=0
  const motion=new Proxy({},{get:(_,tag)=>p=>{const{initial,animate,exit,transition,...props}=p;return React.createElement(tag,props)}})
  const ctx=vm.createContext({exports:{},window:{scrollTo:()=>topCalls++},require:name=>{
@@ -19,6 +19,7 @@ function setup(result={items:[defaults]},scrolled=false){
   if(name.includes('assetPaths'))return{homepageAssetBase:'/homepage'}
   if(name.includes('navigationLinks'))return{faqLink:'/faq'}
   if(name.includes('footerSettings'))return settings
+  if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React,language)
   if(name.includes('useSiteContent'))return{useSiteContent:(key,options)=>{assert.equal(key,'site.footer');assert.equal(options.limit,1);return{isLoading:false,error:null,...result,refetch:()=>retries++}}}
   throw Error(name)
  }})
@@ -37,6 +38,12 @@ app=setup({items:[]},true);html=renderToStaticMarkup(app.render());assert.ok(!ht
 html=renderToStaticMarkup(setup({items:[],isLoading:true}).render());assert.ok(html.includes('載入聯絡資訊'));assert.ok(!html.includes('snowlandcz'))
 app=setup({items:[],error:Error('QA')});html=renderToStaticMarkup(app.render());assert.ok(html.includes('聯絡資訊暫時無法載入'));find(app.render(),n=>n.type==='button'&&n.props.children==='重新載入聯絡資訊').props.onClick();assert.equal(app.retries(),1)
 html=renderToStaticMarkup(setup({items:[{metadata:{social_links:{line:'javascript:alert(1)'},email:'bad\nBcc:x'}}]},true).render());assert.ok(!html.includes('javascript:'));assert.ok(!html.includes('mailto:'));assert.ok(!html.includes('開啟客服連結'))
+for(const language of ['en','ja']){
+  const translated=renderToStaticMarkup(setup({items:[custom]},true,language).render())
+  assert.ok(translated.includes(language==='en'?'Privacy policy':'プライバシーポリシー'))
+  assert.ok(translated.includes(language==='en'?'Open support links':'お問い合わせ先を開く'))
+  assert.ok(translated.includes('QA新公司')&&translated.includes('https://instagram.com/qa/'),'Do not translate customer company names or social URLs')
+}
 let form={title:'頁尾',metadata:{...custom.metadata,custom:'保留'}}
 const editor=vm.createContext({exports:{},React,require:name=>{if(name.includes('footerSettings'))return settings;throw Error(name)}})
 vm.runInContext(compile(fs.readFileSync(path.join(root,'src/admin/components/SiteFooterFields.tsx'),'utf8')),editor)

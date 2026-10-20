@@ -5,6 +5,7 @@ const source = fs.readFileSync(path.join(root, 'src/pages/site/ContactPage.jsx')
 function render(item, extra = {}) {
   const ctx = vm.createContext({exports: {}, require(name) {
     if (name === 'react') return React
+    if (name.includes('contexts/SiteLocale')) return require('./helpers/site-locale-harness.cjs')(React)
     if (name.includes('ContactForm')) return () => React.createElement('div', {'data-testid':'contact-form'})
     if (name === 'framer-motion') return {motion: {img: 'img'}, useReducedMotion: () => true, useScroll: () => ({}), useTransform() {}}
     if (name.includes('SiteHeader') || name.includes('SiteFooter')) return () => null

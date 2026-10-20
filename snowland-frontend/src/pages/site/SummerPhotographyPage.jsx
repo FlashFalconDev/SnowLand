@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
@@ -7,6 +8,7 @@ import PhotographyContentGate from '../../components/site/PhotographyContentGate
 import SiteHeader from '../../components/site/SiteHeader';
 
 function SummerPhotographyLayout({ content }) {
+  const { t } = useSiteLocale();
   const c = (key) => content.values[key] ?? '';
   const scrollerRef = useRef(null);
   const itemRefs = useRef([]);
@@ -195,7 +197,7 @@ function SummerPhotographyLayout({ content }) {
 
   return (
     <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
-      <SiteHeader forceTransparent forceDarkText forceLogoColor />
+      <SiteHeader forceCompact forceDarkText forceLogoColor />
       <main className="max-w-5xl mx-auto px-6 pt-32 pb-24 flex-1 w-full">
         <div className="text-center">
           <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
@@ -244,16 +246,16 @@ function SummerPhotographyLayout({ content }) {
             <button
               type="button"
               onClick={() => scrollToIndex(activeIndex - 1)}
-              className="absolute left-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
-              aria-label="Previous photo"
+              className="absolute left-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
+              aria-label={t('上一張照片')}
             >
               ←
             </button>
             <button
               type="button"
               onClick={() => scrollToIndex(activeIndex + 1)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
-              aria-label="Next photo"
+              className="absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
+              aria-label={t('下一張照片')}
             >
               →
             </button>
@@ -287,7 +289,7 @@ function SummerPhotographyLayout({ content }) {
               <SiteLink to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                {c("summer_021")}</SiteLink>
+                {t(c("summer_021"))}</SiteLink>
             </div>
           </div>
         </section>
@@ -365,15 +367,16 @@ function SummerPhotographyLayout({ content }) {
               </div>
               <div className="mt-6 grid gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start">
                 <div>
-                  <button
+                  <div className="relative">
+                    <button
                     type="button"
                     onClick={() =>
                       setCustomTravelSlideIndex(
                         (customTravelSlideIndex + 1) % customTravelPhotos.length
                       )
                     }
-                    className="relative aspect-[3/2] w-full overflow-hidden text-left"
-                    aria-label="切換旅拍照片"
+                    className="relative block aspect-[3/2] w-full overflow-hidden text-left"
+                    aria-label={t("切換旅拍照片")}
                   >
                     {customTravelPhotos.map((src, index) => (
                       <img loading="lazy" decoding="async"
@@ -385,22 +388,23 @@ function SummerPhotographyLayout({ content }) {
                         }`}
                       />
                     ))}
-                    <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-2">
+                    </button>
+                    <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-2">
                       {customTravelPhotos.map((_, index) => (
                         <button
                           key={`dot-${index}`}
                           type="button"
                           onClick={() => setCustomTravelSlideIndex(index)}
-                          className={`h-2.5 w-2.5 rounded-full border border-white/80 ${
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                          aria-label={t('切換到第 {count} 張', {count:index+1})} aria-pressed={index === customTravelSlideIndex}
+                        ><span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full border border-white/80 ${
                             index === customTravelSlideIndex
                               ? "bg-white"
                               : "bg-white/40"
-                          }`}
-                          aria-label={`切換到第 ${index + 1} 張`}
-                        />
+                          }`} /></button>
                       ))}
                     </div>
-                  </button>
+                  </div>
                 </div>
                 <div className="text-[#475569]">
                   <div className="space-y-6">
@@ -469,15 +473,16 @@ function SummerPhotographyLayout({ content }) {
               </div>
               <div className="mt-6 grid gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start">
                 <div>
-                  <button
+                  <div className="relative">
+                    <button
                     type="button"
                     onClick={() =>
                       setLightWeddingSlideIndex(
                         (lightWeddingSlideIndex + 1) % lightWeddingPhotos.length
                       )
                     }
-                    className="relative w-full text-left"
-                    aria-label="切換旅拍輕婚紗照片"
+                    className="relative block w-full text-left"
+                    aria-label={t("切換旅拍輕婚紗照片")}
                   >
                     <img loading="lazy" decoding="async"
                       src={withBaseUrl(lightWeddingPhotos[0])}
@@ -495,7 +500,8 @@ function SummerPhotographyLayout({ content }) {
                         }`}
                       />
                     ))}
-                    <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-2">
+                    </button>
+                    <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-2">
                       {lightWeddingPhotos.map((_, index) => (
                         <button
                           key={`light-dot-${index}`}
@@ -504,16 +510,16 @@ function SummerPhotographyLayout({ content }) {
                             event.stopPropagation();
                             setLightWeddingSlideIndex(index);
                           }}
-                          className={`h-2.5 w-2.5 rounded-full border border-white/80 ${
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                          aria-label={t('切換到第 {count} 張', {count:index+1})} aria-pressed={index === lightWeddingSlideIndex}
+                        ><span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full border border-white/80 ${
                             index === lightWeddingSlideIndex
                               ? "bg-white"
                               : "bg-white/40"
-                          }`}
-                          aria-label={`切換到第 ${index + 1} 張`}
-                        />
+                          }`} /></button>
                       ))}
                     </div>
-                  </button>
+                  </div>
                 </div>
                 <div className="text-[#475569]">
                   <div className="space-y-6">
@@ -564,13 +570,14 @@ function SummerPhotographyLayout({ content }) {
               </div>
               <div className="mt-6 grid gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start">
                 <div>
-                  <button
+                  <div className="relative">
+                    <button
                     type="button"
                     onClick={() =>
                       setWeddingSlideIndex((weddingSlideIndex + 1) % weddingPhotos.length)
                     }
-                    className="relative w-full text-left"
-                    aria-label="切換旅拍婚紗照片"
+                    className="relative block w-full text-left"
+                    aria-label={t("切換旅拍婚紗照片")}
                   >
                     <img loading="lazy" decoding="async"
                       src={withBaseUrl(weddingPhotos[0])}
@@ -588,7 +595,8 @@ function SummerPhotographyLayout({ content }) {
                         }`}
                       />
                     ))}
-                    <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-2">
+                    </button>
+                    <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-2">
                       {weddingPhotos.map((_, index) => (
                         <button
                           key={`wedding-dot-${index}`}
@@ -597,16 +605,16 @@ function SummerPhotographyLayout({ content }) {
                             event.stopPropagation();
                             setWeddingSlideIndex(index);
                           }}
-                          className={`h-2.5 w-2.5 rounded-full border border-white/80 ${
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                          aria-label={t('切換到第 {count} 張', {count:index+1})} aria-pressed={index === weddingSlideIndex}
+                        ><span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full border border-white/80 ${
                             index === weddingSlideIndex
                               ? "bg-white"
                               : "bg-white/40"
-                          }`}
-                          aria-label={`切換到第 ${index + 1} 張`}
-                        />
+                          }`} /></button>
                       ))}
                     </div>
-                  </button>
+                  </div>
                 </div>
                 <div className="text-[#475569]">
                   <div className="space-y-6">
@@ -735,7 +743,7 @@ function SummerPhotographyLayout({ content }) {
                       <line x1="16" y1="2.5" x2="16" y2="6" />
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
-                    {c("summer_107")}</SiteLink>
+                    {t(c("summer_107"))}</SiteLink>
                   <a
                     href="#faq"
                     className="flex items-center justify-center gap-3 border-t border-[#d7dde3] px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc] md:border-t-0 md:border-l"
@@ -841,7 +849,7 @@ function SummerPhotographyLayout({ content }) {
                 to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                {c("summer_119")}</SiteLink>
+                {t(c("summer_119"))}</SiteLink>
             </div>
           </div>
         </section>
@@ -901,7 +909,7 @@ function SummerPhotographyLayout({ content }) {
                     to="/faq"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    {c("summer_127")}</SiteLink>
+                    {t(c("summer_127"))}</SiteLink>
                 </div>
               </div>
             </div>

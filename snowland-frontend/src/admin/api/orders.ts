@@ -2,6 +2,7 @@
  * 訂單管理 API
  */
 import adminApi from './axios'
+import type { OrderSettlement } from '../../components/booking/SettlementSummary'
 
 export type ReservationStatus =
   | 'created' | 'cancelled' | 'auto_assigned' | 'manually_assigned'
@@ -63,6 +64,8 @@ export interface OrderRevisionSnapshot {
 }
 
 export interface Order {
+  settlement?: OrderSettlement
+  received_settlement?: OrderSettlement | null
   id: number
   sn: string
   name: string
@@ -73,7 +76,7 @@ export interface Order {
   reservations: OrderReservation[]
   total_fee: number
   payment_status: PaymentStatus
-  amendment_balance?: { amount: number; statuses: string[] } | null
+  amendment_balance?: { amount: number; statuses: string[];settlement?:{currency:'JPY';amount:number} } | null
   payment_method: string
   bank_account?: string | null
   created_at: string
@@ -85,7 +88,7 @@ export interface Order {
   line_group_url?: string
   line_group_qr_url?: string
   revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string; snapshot?: OrderRevisionSnapshot }[]
-  cancellation?: { id: number; status: string; reason: string; refund_amount: number | null; refund_percent: string; handling_fee_percent: string; calculation_mode: 'auto' | 'rule' | 'manual'; selected_rule_days_before: number | null; requires_cash_review:boolean;actual_received_amount:number|null;cash_review_note:string } | null
+  cancellation?: { id: number; status: string; reason: string; refund_amount: number | null; refund_percent: string; handling_fee_percent: string; calculation_mode: 'auto' | 'rule' | 'manual'; selected_rule_days_before: number | null; requires_cash_review:boolean;actual_received_amount:number|null;cash_review_note:string;currency_snapshot?:CancellationSettlement;refund_bank_name?:string;refund_account_number?:string;refund_account_holder?:string;refund_overseas_details?:string } | null
 }
 
 interface ListResp {
@@ -187,6 +190,8 @@ export async function updateOrder(
   payload: {
     action: 'save' | 'schedule'
     payment_status?: PaymentStatus
+    payment_currency?: 'TWD' | 'JPY'
+    payment_received_amount?: number
     reservation_updates?: { reservation_id: number; coach_id: number | null }[]
     booking_updates?: { booking_id: number; date: string; start_time: string; end_time: string }[]
   }
@@ -211,6 +216,7 @@ export interface OrderAmendmentItem {
   courses: OrderAmendmentCourse[]
 }
 export interface OrderAmendmentQuote {
+  settlement?: AmendmentSettlement
   previous_total: number; new_total: number; difference_amount: number
   status: 'preview_only'; notice: string; quote_token: string
   items: {
@@ -250,6 +256,7 @@ export async function fetchOrderAmendmentOptions(orderId: number): Promise<{ ite
   return result.data
 }
 export interface OrderAmendmentResult {
+  settlement?: AmendmentSettlement
   id: number; version: number; previous_total: number; new_total: number
   difference_amount: number; balance_amount: number
   status: 'included_in_order' | 'no_difference' | 'topup_due' | 'topup_reported' | 'refund_account_due' | 'refund_due' | 'settled' | 'superseded' | 'cancelled'
@@ -264,7 +271,12 @@ export async function confirmOrderAmendment(orderId: number, payload: OrderAmend
   return result.data
 }
 
+export interface AmendmentSettlement {
+  currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null
+  previous_total:number;new_total:number;difference_amount:number;balance_amount:number
+}
 export interface AmendmentBalance {
+  settlement?: AmendmentSettlement
   id: number; version: number; previous_total: number; new_total: number; difference_amount: number; balance_amount: number
   status: OrderAmendmentResult['status']; updated_at: string; settled_at: string | null
   bank_snapshot: Record<string,string>; refund_bank: Record<string,string>; topup_reference: string; review_message: string
@@ -272,6 +284,7 @@ export interface AmendmentBalance {
   events: { action: string; previous_status: string; status: string; note: string; reference: string; created_at: string; actor: string }[]
 }
 export interface AmendmentBalanceAction {
+  currency?:'TWD'|'JPY';expected_amount?:number
   amendment_id: number; expected_updated_at: string; request_key: string
   action: 'confirm_topup' | 'reject_topup' | 'confirm_refund'; note: string; confirmed?: boolean
 }
@@ -300,17 +313,19 @@ export async function saveClassGroupQR(orderId: number, file: File | null, onPro
   }) as any
 }
 
-export interface RefundPreview { original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
+export interface CancellationSettlement { currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null;original_amount:number;refund_amount:number|null;actual_received_amount?:number;cash_review?:{accounting_mode:'original_receipt_ratio';actual_received_amount:number;refund_amount:number;actual_received_base_amount:number;refund_base_amount:number} }
+export interface RefundPreview { settlement?:CancellationSettlement;original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
 export async function previewOrderRefund(id: number): Promise<RefundPreview> {
   const res = await adminApi.get(`/orders/${id}/refund-preview/`) as any
   return res.data
 }
 
-export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string }; selected_rule_days_before?: number; manual_refund_amount?: number }): Promise<void> {
+export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string;overseas_details?:string }; selected_rule_days_before?: number; manual_refund_amount?: number;currency?:'JPY';expected_refund_amount?:number|null }): Promise<void> {
   await adminApi.post(`/orders/${id}/cancel/`, payload)
 }
 
 export interface CancellationCashReview { actual_received_amount:number;refund_amount:number;cash_review_note:string;confirmed_received:boolean }
-export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded', review?:CancellationCashReview): Promise<void> {
+export type CancellationReviewPayload=Partial<CancellationCashReview>&{currency?:'JPY';expected_refund_amount?:number|null;confirmed_refund?:boolean;actual_received_currency_amount?:number;refund_currency_amount?:number}
+export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded', review?:CancellationReviewPayload): Promise<void> {
   await adminApi.post(`/cancellations/${cancellationId}/process/`, { status, ...review })
 }

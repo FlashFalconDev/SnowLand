@@ -33,7 +33,7 @@ class AmendmentConfirmInput(AmendmentQuoteInput):
 def amendment_summary(row,duplicate=False):
     from booking.amendment_notifications import notice_receipt
     document_notice=' 課程變更的舊文件已留底；已簽學員須重新簽署，已投保者請行政重新核對。' if row.revision.member_document_revisions.exists() else ''
-    return {'id':row.pk,'version':row.revision.version,'previous_total':row.previous_total,'new_total':row.new_total,
+    return {**({'settlement':row.currency_snapshot} if row.currency_snapshot else {}),'id':row.pk,'version':row.revision.version,'previous_total':row.previous_total,'new_total':row.new_total,
         'difference_amount':row.difference_amount,'balance_amount':row.balance_amount,'status':row.status,
         'participant_changes':row.participant_changes,'bank_snapshot':row.bank_snapshot,'duplicate':duplicate,
         'notification_status':notice_receipt(row)['email'],'notification':notice_receipt(row),
@@ -132,8 +132,21 @@ def confirm_order_amendment(request,group_id,data,scope):
     if any(row.status=='topup_reported' for row in pending):raise NotificationConflict('已有回報補款待核對，請先確認實際收款再修改')
     balance=quote['difference_amount']+sum(row.balance_amount for row in pending) if previous and previous.status=='paid' else 0
     status=('topup_due' if balance>0 else 'refund_account_due' if balance<0 else 'no_difference') if previous and previous.status=='paid' else 'included_in_order'
-    bank=resolve_payment_account(group) if balance>0 else None
-    if balance>0 and (not bank or not all([bank.bank_name,bank.account_number,bank.account_holder])):
+    from booking.currency import amendment_settlement
+    try:settlement=amendment_settlement(group,quote['previous_total'],quote['new_total'],pending=pending)
+    except ValueError as error:raise serializers.ValidationError({'settlement':str(error)})
+    if settlement:
+        if previous and previous.status=='paid':
+            native_balance=settlement['balance_amount']
+            status='topup_due' if native_balance>0 else 'refund_account_due' if native_balance<0 else 'no_difference'
+        else:settlement['balance_amount']=0
+    bank=resolve_payment_account(group) if balance>0 and not settlement else None
+    bank_snapshot={key:getattr(bank,key) for key in ['name','bank_name','bank_branch','account_number','account_holder','overseas_details']} if bank else {}
+    if settlement and settlement['balance_amount']>0:
+        original=group.currency_snapshot.get('bank_info',{})
+        bank_snapshot={'currency':'JPY','bank_name':original.get('bank_name',''),'bank_branch':original.get('bank_branch',''),
+            'account_number':original.get('bank_account_number',''),'account_holder':original.get('bank_account_holder',''),'overseas_details':original.get('overseas_details','')}
+    if status=='topup_due' and not all(bank_snapshot.get(key) for key in ['bank_name','account_number','account_holder']):
         raise serializers.ValidationError({'bank_snapshot':'補款前請先在後台設定此校區可用的銀行、帳號及戶名'})
     changed_ids={item['reservation_id'] for item in quote['items']}
     coach_ids={row.preferred_coach_id for row in reservations.values() if row.pk in changed_ids and row.preferred_coach_id}
@@ -199,7 +212,7 @@ def confirm_order_amendment(request,group_id,data,scope):
             amendment=OrderAmendment.objects.create(group=group,revision=revision,request_key=data['request_key'],request_fingerprint=fingerprint,
                 reason=data['reason'],previous_total=quote['previous_total'],new_total=quote['new_total'],difference_amount=quote['difference_amount'],
                 balance_amount=balance,status=status,before_snapshot=before,participant_changes=participants,created_by=request.user,
-                bank_snapshot={key:getattr(bank,key) for key in ['name','bank_name','bank_branch','account_number','account_holder','overseas_details']} if bank else {})
+                bank_snapshot=bank_snapshot,currency_snapshot=settlement)
     except IntegrityError:raise NotificationConflict('修改識別碼已使用，原訂單未重複修改，請重新載入確認')
     save_course_documents(document_archives,revision,request.user)
     from booking.amendment_notifications import prepare_amendment_notice

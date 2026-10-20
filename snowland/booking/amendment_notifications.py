@@ -26,7 +26,10 @@ def _order_url(group):
 
 
 def _content(row,event=None):
-    amount=f'NT$ {abs(row.balance_amount):,}'
+    settlement=row.currency_snapshot or {}
+    native=settlement.get('currency')=='JPY'
+    balance_amount=settlement['balance_amount'] if native else row.balance_amount
+    amount=f'JPY ¥ {abs(balance_amount):,}' if native else f'NT$ {abs(balance_amount):,}'
     if event:
         title,text={
             'report_topup':('補款資料已收到',f'已收到您回報的補款資料，金額{amount}。目前等待 SnowLand 核對，請勿重複匯款。'),
@@ -37,10 +40,12 @@ def _content(row,event=None):
         }[event.action]
     else:
         title='訂單課程已修改'
-        balance=('請至訂單詳情查看收款帳戶並回報補款。' if row.balance_amount>0 else '請至訂單詳情填寫退款銀行、帳號及戶名；尚未實際退款。')
+        balance=('請至訂單詳情查看收款帳戶並回報補款。' if balance_amount>0 else '請至訂單詳情填寫退款銀行、帳號及戶名；尚未實際退款。')
         if row.status=='included_in_order':balance='尚未付款的訂單，請依新版總額付款，這不是另外再收一次原單金額。'
-        elif not row.balance_amount:balance='目前沒有待收退差額。'
+        elif not balance_amount:balance='目前沒有待收退差額。'
         text=f'原訂單金額：NT$ {row.previous_total:,}\n新訂單金額：NT$ {row.new_total:,}\n本次價差：NT$ {row.difference_amount:+,}\n待收退差額：{amount}\n{balance}'
+        if native:
+            text=f'台幣計價基準\n{text}\n日幣原總額：JPY ¥ {settlement["previous_total"]:,}\n日幣新總額：JPY ¥ {settlement["new_total"]:,}\n本次日幣價差：JPY ¥ {settlement["difference_amount"]:+,}\n沿用訂單匯率1 TWD＝{settlement["rate"]} JPY，請勿把台幣基準當成另一筆應付金額。'
         for reservation in row.revision.snapshot.get('reservations',[]):
             if reservation.get('status') in {'cancelled','deleted'}:continue
             for booking in reservation.get('bookings',[]):

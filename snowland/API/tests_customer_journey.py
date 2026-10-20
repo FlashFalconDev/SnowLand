@@ -91,6 +91,84 @@ class CustomerJourneyTests(TestCase):
         self.assertEqual(ReservationGroup.objects.count(), 1)
         self.assertNotEqual(checkout_policy_acknowledgement()['policy_acceptance']['privacy_version'], receipt['privacy']['version'])
 
+    def test_jpy_checkout_locks_rate_and_bank_before_coach_acceptance(self):
+        from Resorts.models import PaymentCurrencySettings
+        config = PaymentCurrencySettings.objects.create(client=self.tenant, jpy_enabled=True, jpy_per_twd='4.5')
+        bank = PaymentAccount.objects.create(client=self.tenant, name='QA日幣', currency='JPY',
+            bank_name='QA日幣銀行', bank_branch='QA分行', account_number='QA-JPY-NOT-REAL', account_holder='QA戶名')
+        reservation = self.create_order({'currency': 'JPY', 'currency_rate':'4.50000000',
+            'currency_snapshot':{'currency':'JPY','rate':'0.00001','amount':1}})
+        relabel = self.hq.patch(f'/api/admin/snowland/payment-accounts/{bank.pk}/',{'currency':'TWD'},format='json')
+        self.assertEqual(relabel.status_code,400,relabel.data)
+        member_order=next(row for row in self.api.get(self.center).data['orders'] if row['id']==reservation.group_id)
+        self.assertEqual(member_order['settlement']['currency'],'JPY')
+        self.assertEqual(member_order['settlement']['amount'],45000)
+        self.assertNotIn('bank_info',member_order['settlement'])
+        admin_order=self.hq.get(f'/api/admin/snowland/orders/{reservation.group_id}/').data['data']
+        self.assertEqual(admin_order['settlement']['amount'],45000)
+        self.assertNotIn('bank_info',admin_order['settlement'])
+        config.jpy_per_twd='9';config.jpy_enabled=False;config.save()
+        bank.account_number='QA-CHANGED';bank.save()
+        accepted = self.coach_api.post(f'/api/admin/snowland/coach/confirm/{reservation.pk}/', {'action': 'accept'}, format='json')
+        self.assertEqual(accepted.status_code, 200, accepted.data)
+        info = self.api.get('/booking/snowland/api/payment-info/', {'reservation_group': reservation.group_id})
+        self.assertEqual(info.status_code, 200, info.data)
+        self.assertEqual(info.data['total_amount'], 10000)
+        self.assertEqual(info.data['settlement']['currency'], 'JPY')
+        self.assertEqual(info.data['settlement']['amount'], 45000)
+        self.assertEqual(info.data['settlement']['rate'], '4.50000000')
+        self.assertEqual(info.data['bank_info']['bank_account_number'], 'QA-JPY-NOT-REAL')
+        self.assertEqual(APIClient().get('/booking/snowland/api/payment-info/',{'reservation_group':reservation.group_id}).status_code,404)
+        wrong = self.api.post('/booking/snowland/api/process-payment/', {'reservation_group_id':reservation.group_id,
+            'payment_type':'bank_transfer','sender_account':'12345','currency':'TWD','expected_amount':10000}, format='json')
+        self.assertEqual(wrong.status_code,409,wrong.data)
+        reported = self.api.post('/booking/snowland/api/process-payment/', {'reservation_group_id':reservation.group_id,
+            'payment_type':'bank_transfer','sender_account':'12345','currency':'JPY','expected_amount':45000}, format='json')
+        self.assertEqual(reported.status_code,200,reported.data)
+        self.assertEqual(self.api.get('/booking/snowland/api/payment-info/', {'reservation_group':reservation.group_id}).data['payment_status'],'pending')
+        unsafe=self.hq.patch(f'/api/admin/snowland/orders/{reservation.group_id}/',{'action':'save','payment_status':'paid'},format='json')
+        self.assertEqual(unsafe.status_code,400,unsafe.data)
+        mismatch=self.hq.patch(f'/api/admin/snowland/orders/{reservation.group_id}/',{'action':'save','payment_status':'paid',
+            'payment_currency':'TWD','payment_received_amount':10000},format='json')
+        self.assertEqual(mismatch.status_code,400,mismatch.data)
+        confirmed=self.hq.patch(f'/api/admin/snowland/orders/{reservation.group_id}/',{'action':'save','payment_status':'paid',
+            'payment_currency':'JPY','payment_received_amount':45000},format='json')
+        self.assertEqual(confirmed.status_code,200,confirmed.data)
+        receipt=self.hq.get(f'/api/admin/snowland/orders/{reservation.group_id}/').data['data']['received_settlement']
+        self.assertEqual(receipt['currency'],'JPY')
+        self.assertEqual(receipt['amount'],45000)
+        member_receipt=next(row for row in self.api.get(self.center).data['orders'] if row['id']==reservation.group_id)['received_settlement']
+        self.assertEqual(member_receipt,receipt)
+        self.assertNotIn('bank_info',member_receipt)
+
+    def test_jpy_disabled_missing_account_and_unknown_currency_roll_back_checkout(self):
+        from Resorts.models import PaymentCurrencySettings
+        for endpoint in ('create-reservation','super-schedule'):
+            self.create_order({'currency':'JPY'},endpoint=endpoint,expected_status=400)
+            self.create_order({'currency':'USD'},endpoint=endpoint,expected_status=400)
+        self.assertFalse(ReservationGroup.objects.exists())
+        PaymentCurrencySettings.objects.create(client=self.tenant,jpy_enabled=True,jpy_per_twd='4.5')
+        self.create_order({'currency':'JPY'},expected_status=400)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_jpy_checkout_rounds_half_yen_up_once_on_order_total(self):
+        from Resorts.models import PaymentCurrencySettings
+        PaymentCurrencySettings.objects.create(client=self.tenant,jpy_enabled=True,jpy_per_twd='4.50005')
+        PaymentAccount.objects.create(client=self.tenant,name='QA日幣',currency='JPY',bank_name='QA銀行',bank_branch='QA分行',account_number='QA-ONLY',account_holder='QA戶名')
+        reservation=self.create_order({'currency':'JPY','currency_rate':'4.50005000'})
+        accepted=self.coach_api.post(f'/api/admin/snowland/coach/confirm/{reservation.pk}/',{'action':'accept'},format='json')
+        self.assertEqual(accepted.status_code,200,accepted.data)
+        info=self.api.get('/booking/snowland/api/payment-info/',{'reservation_group':reservation.group_id})
+        self.assertEqual(info.status_code,200,info.data)
+        self.assertEqual(info.data['settlement']['amount'],45001)
+
+    def test_jpy_checkout_rejects_a_stale_displayed_rate_before_creating_any_order(self):
+        from Resorts.models import PaymentCurrencySettings
+        PaymentCurrencySettings.objects.create(client=self.tenant,jpy_enabled=True,jpy_per_twd='4.5')
+        PaymentAccount.objects.create(client=self.tenant,name='QA日幣',currency='JPY',bank_name='QA銀行',bank_branch='QA分行',account_number='QA-ONLY',account_holder='QA戶名')
+        self.create_order({'currency':'JPY','currency_rate':'4.6'},expected_status=400)
+        self.assertFalse(ReservationGroup.objects.exists())
+
     def test_completed_course_days_do_not_wait_for_coach_to_finish_evaluation(self):
         from booking.models import Booking
         reservation=self.create_order()

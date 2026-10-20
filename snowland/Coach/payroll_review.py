@@ -8,7 +8,7 @@ from .models import PayrollStatement
 
 
 @transaction.atomic
-def publish_statement(statement, deadline):
+def publish_statement(statement, deadline, expected_reviewed_at=None):
     statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('只能送出草稿薪資單，請重新載入目前狀態')
@@ -16,6 +16,12 @@ def publish_statement(statement, deadline):
         raise ValueError('確認截止日不能早於今天，且必須晚於結算結束日')
     if not statement.lines.exists() or statement.total_amount < 0:
         raise ValueError('請先完成薪資計算並核對明細後再送出')
+    if not statement.settlement_snapshot:
+        raise ValueError('請先保存稅金與發放幣別核對結果；無扣項也須明確確認')
+    if statement.settlement_snapshot.get('base_amount') != statement.total_amount:
+        raise ValueError('薪資已變更，請重新核對稅金與發放幣別後再送出')
+    if expected_reviewed_at is not None and expected_reviewed_at != statement.settlement_snapshot.get('reviewed_at'):
+        raise ValueError('稅金核對版本已變更，請重新載入核對後再送出')
     statement.status = 'review'
     statement.published_at = timezone.now()
     statement.confirmation_deadline = deadline

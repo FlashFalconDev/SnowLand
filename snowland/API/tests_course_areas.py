@@ -25,6 +25,9 @@ class CourseAreaTests(TestCase):
         self.api.force_authenticate(User.objects.create_superuser('areas-hq',password='qa-only'))
 
     def test_preview_source_groups_and_preserve_edits(self):
+        # Fresh migration ordering may supply unrelated tenant campuses. Compare
+        # the complete baseline, not an assumption that this is the only campus.
+        before_campuses = list(Campus.objects.order_by('pk').values())
         self.initialize(); self.assertFalse(SiteContent.objects.filter(location_key='course.areas').exists())
         self.initialize(True)
         result=self.api.get(self.url)
@@ -34,7 +37,8 @@ class CourseAreaTests(TestCase):
         row=SiteContent.objects.get(external_id='rusutsu-area'); row.title='自訂名稱';row.status='hidden';row.metadata={'resort_slugs':['tomamu'],'custom':'保留'};row.save()
         self.initialize(True);row.refresh_from_db()
         self.assertEqual(row.title,'自訂名稱');self.assertEqual(row.status,'hidden');self.assertEqual(row.metadata['custom'],'保留')
-        self.assertEqual(Campus.objects.count(),1);self.campus.refresh_from_db();self.assertEqual(self.campus.name,'營運校區不變')
+        self.assertEqual(list(Campus.objects.order_by('pk').values()),before_campuses)
+        self.campus.refresh_from_db();self.assertEqual(self.campus.name,'營運校區不變')
 
     def test_cms_update_order_public_scope_and_hidden(self):
         self.initialize(True);self.login()

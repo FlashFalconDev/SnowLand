@@ -24,7 +24,8 @@ def build_document_snapshot(statement):
     return {'version': 1, 'title': settings.title, 'body': settings.body, 'template_updated_at': settings.updated_at.isoformat(),
         'statement_id': statement.pk, 'coach_name': statement.coach.name, 'campus_name': statement.campus.name,
         'period_start': statement.period_start.isoformat(), 'period_end': statement.period_end.isoformat(),
-        'currency': 'TWD', 'total_amount': statement.total_amount, 'generated_at': timezone.now().isoformat(),
+        'currency': 'TWD', 'total_amount': statement.total_amount, 'settlement': statement.settlement_snapshot,
+        'generated_at': timezone.now().isoformat(),
         'lines': list(statement.lines.order_by('pk').values('line_type', 'description', 'quantity', 'unit_amount', 'total_amount'))}
 
 

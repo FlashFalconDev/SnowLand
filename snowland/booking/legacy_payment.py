@@ -33,6 +33,8 @@ def process_legacy_payment(request):
         'reservation_group_id':group_id,
         'payment_type':{'TT':'bank_transfer','newebpay':'newebpay'}.get(method) if isinstance(method,str) else None,
         'sender_account':request.data.get('senderAccount'),
+        'currency':request.data.get('currency','TWD'),
+        'expected_amount':request.data.get('expected_amount'),
         'access_token':request.data.get('access_token',''),
     }
     # Keep the original session/CSRF context; only legacy field names are adapted.

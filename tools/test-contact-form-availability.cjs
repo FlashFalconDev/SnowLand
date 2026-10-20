@@ -5,6 +5,7 @@ const compiled=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,
 function render(page,state={}){
   const context=vm.createContext({exports:{},require:name=>{
     if(name==='react')return React
+    if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React)
     if(name==='framer-motion')return{motion:{img:props=>React.createElement('img',props)},useReducedMotion:()=>true,useScroll:()=>({scrollY:0}),useTransform:()=>undefined}
     if(name.includes('/hooks/useSiteContent'))return{useSiteContent:()=>({items:page?[page]:[],isLoading:false,error:null,...state}),siteContentToPage:row=>row}
     if(name.includes('assetPaths'))return{homepageAssetBase:'/assets'}

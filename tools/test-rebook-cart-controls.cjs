@@ -4,8 +4,10 @@ let cart=[];const edits=[]
 const serviceModule=new Module(path.join(root,'src/utils/cartService.ts'),module)
 serviceModule._compile(ts.transpileModule(fs.readFileSync(path.join(root,'src/utils/cartService.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,serviceModule.id)
 const hooks={...React,useState:initial=>[initial,()=>{}]}
+let language='zh-Hant'
 const context=vm.createContext({React,exports:{},require:name=>{
   if(name==='react')return hooks
+  if(name==='@/contexts/SiteLocale')return {useSiteLocale:()=>require('./helpers/site-locale-harness.cjs')(hooks,language).useSiteLocale()}
   if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
   if(name==='@/store/bookingStore')return{useBookingStore:select=>select({cart,removeFromCart(){},removeCourseFromGroup(){}})}
   if(name==='@/utils/cartService')return serviceModule.exports
@@ -31,3 +33,17 @@ const photoTree=JSON.stringify(render(15123,15123,{serviceType:'photo',courseCat
 assert.match(photoTree,/攝影師/);assert.match(photoTree,/預約數量/)
 assert.ok(!photoTree.includes('滑雪程度'))
 for(const label of ['能力','裝備','語言','教練'])assert.ok(!photoTree.includes(`"label":"${label}"`),`攝影購物車不應顯示${label}`)
+for(language of ['en','ja']){
+  const tree=render(100,100),text=JSON.stringify(tree)
+  assert.ok(text.includes(language==='en'?'Booking group 1':'予約グループ1'))
+  assert.ok(text.includes(language==='en'?'Confirm booking':'予約を確認'))
+  assert.ok(text.includes('QA半天')&&text.includes('QA雪場'),'CMS names remain unchanged')
+  assert.ok(text.includes('NT$ 100'),'Translation does not convert the cart currency')
+  assert.equal(find(tree,node=>node.type==='button'&&node.props.children===(language==='en'?'Confirm booking':'予約を確認')).props.disabled,false)
+  const pending=JSON.stringify(render(null,null))
+  assert.ok(pending.includes(language==='en'?'Recalculate the price first':'先に料金を再計算してください'))
+  assert.ok(!text.includes('移除整組'))
+  const ability=JSON.stringify(render(100,100,{abilityLevelCounts:{no_exp:1,level2:1},abilityLevelName:'等級 0 1 人、等級 2 1 人'}))
+  assert.ok(ability.includes(language==='en'?'Level 0: 1 / Level 2: 1':'レベル0：1名 / レベル2：1名'))
+}
+console.log('PASS ja/en cart labels, interpolated counts, pending-price lock, original CMS names and original TWD amount')

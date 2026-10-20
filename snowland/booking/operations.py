@@ -36,9 +36,12 @@ def get_operating_policy(group):
     return OperatingPolicy.objects.filter(client=group.client, campus__isnull=True).first() or OperatingPolicy.objects.create(client=group.client)
 
 
-def resolve_payment_account(group):
+def resolve_payment_account(group, *, currency=None, lock=False):
+    currency = currency or (group.currency_snapshot or {}).get('currency', 'TWD')
     resort_ids = list(group.reservations.exclude(resort_id=None).values_list('resort_id', flat=True))
-    candidates = PaymentAccount.objects.filter(client=group.client, is_active=True)
+    candidates = PaymentAccount.objects.filter(client=group.client, is_active=True, currency=currency)
+    if lock:
+        candidates = candidates.select_for_update()
     pools = (
         (candidates.filter(campuses=group.campus), candidates.filter(campuses__isnull=True))
         if group.campus_id else (candidates,)
@@ -56,6 +59,40 @@ def resolve_payment_account(group):
 
 def payment_expiration_for(group):
     return timezone.now() + timedelta(days=get_operating_policy(group).unpaid_hold_days)
+
+
+@transaction.atomic
+def sync_group_payment_window(group):
+    """Start once when scheduling is confirmed; never restart a running deadline.
+
+    Callers changing scheduling acquire the tenant lock before course locks.
+    Reported/received money and expired historical orders are never reopened.
+    """
+    from Client.models import Client
+    from .models import Payment
+    Client.objects.select_for_update().get(pk=group.client_id)
+    group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
+    payment = group.payments.select_for_update().order_by('-created_at', '-pk').first()
+    if payment and payment.status != 'unpaid':
+        return payment
+    if group.payments.filter(status__in=['paid', 'pending', 'refunded', 'expired']).exists():
+        return payment
+    active = group.reservations.exclude(status__in=['cancelled', 'deleted'])
+    blocked = active.exclude(status__in=['auto_assigned', 'manually_assigned', 'form_filled', 'completed']).exists()
+    blocked = blocked or active.filter(shared_course_class__status='collecting').exists()
+    if not active.exists() or blocked:
+        if payment and payment.expires_at is not None:
+            payment.expires_at = None
+            payment.save(update_fields=['expires_at'])
+        return payment
+    if payment is None:
+        return Payment.objects.create(reservation_group=group, user=group.user,
+            status='unpaid', payment_method='TT', payment_account=resolve_payment_account(group),
+            expires_at=payment_expiration_for(group), DataJSON={'contact': group.booking_contact})
+    if payment.expires_at is None:
+        payment.expires_at = payment_expiration_for(group)
+        payment.save(update_fields=['expires_at'])
+    return payment
 
 
 def order_snapshot(group):
@@ -142,7 +179,11 @@ def calculate_refund(group):
     handling_fee = Decimal(original_amount) * Decimal(policy.cancellation_fee_percent) / Decimal(100)
     refund_amount = max(Decimal(0), refundable - handling_fee).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
     requires_cash_review = outstanding_amendments(group).exists()
-    return {
+    if (group.currency_snapshot or {}).get('currency')=='JPY':
+        from .currency import received_settlement_summary
+        receipt=received_settlement_summary(group)
+        requires_cash_review=requires_cash_review or receipt is None or receipt['base_amount'] != original_amount
+    result = {
         'original_amount': original_amount,
         'days_before': days_before,
         'refund_percent': refund_percent,
@@ -151,12 +192,19 @@ def calculate_refund(group):
         'requires_cash_review': requires_cash_review,
         'available_rules': rules,
     }
+    from .currency import cancellation_settlement
+    settlement=cancellation_settlement(group,original_amount,result['refund_amount'])
+    if settlement and 'refund_base_amount' in settlement:
+        result['refund_amount']=settlement['refund_base_amount']
+    if settlement:result['settlement']=settlement
+    return result
 
 
 @transaction.atomic
 def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
                          selected_rule_days_before=None, manual_refund_amount=None,
-                         expected_user_id=None, expected_client_id=None, require_paid=False):
+                         expected_user_id=None, expected_client_id=None, require_paid=False,
+                         currency=None,expected_refund_amount=None):
     # Serialize with refund processing; never trust a caller's cached order/payment.
     group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
     if ((expected_user_id is not None and group.user_id != expected_user_id)
@@ -181,8 +229,12 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         value = bank.get(key, '')
         if not isinstance(value, str) or len(value) > 100:
             raise ValueError('退款銀行、帳號及戶名須為100字以內的文字')
+    overseas=bank.get('overseas_details','')
+    if not isinstance(overseas,str) or len(overseas)>1000:raise ValueError('海外退款資料須為1000字以內的文字')
+    overseas=overseas.strip()
     bank = {key: bank.get(key, '').strip() for key in ('bank_name', 'account_number', 'account_holder')}
     preview = calculate_refund(group)
+    preview.pop('settlement',None)
     rules = preview.pop('available_rules')
     values = preview
     if preview['requires_cash_review']:
@@ -191,7 +243,7 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         # Zero is only a storage placeholder, never a quoted or approved refund.
         values['refund_amount'] = 0
         values['cash_review_snapshot'] = {'outstanding_amendments': list(
-            outstanding_amendments(group).values('id','balance_amount','status'))}
+            outstanding_amendments(group).values('id','balance_amount','status','currency_snapshot'))}
     calculation_mode = 'auto'
     if manual_refund_amount is not None and selected_rule_days_before is not None:
         raise ValueError('指定方案與手動金額只能選一種')
@@ -226,6 +278,19 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
     if payment and (preview['requires_cash_review'] or payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay')):
         if not all(bank.get(key) for key in ('bank_name', 'account_number', 'account_holder')):
             raise ValueError('匯款訂單必須填寫退款銀行、帳號與戶名')
+    from .currency import cancellation_settlement
+    # Keep the quoted native amount; converting the rounded proportional TWD
+    # reversal back to JPY could change a yen on low-rate orders.
+    settlement=(preview['settlement'] if preview.get('settlement') and manual_refund_amount is None and selected_rule_days_before is None
+        else cancellation_settlement(group,values['original_amount'],None if values['requires_cash_review'] else values['refund_amount']))
+    if settlement and 'refund_base_amount' in settlement:
+        values['refund_amount']=settlement['refund_base_amount']
+    if settlement:
+        native_refund=settlement['refund_amount']
+        if currency!='JPY' or expected_refund_amount!=native_refund or (native_refund is not None and type(expected_refund_amount) is not int):
+            raise ValueError('日幣退款金額或幣別尚未確認，請重新載入最新試算後送出；這次未建立取消申請')
+    elif currency not in (None,'TWD'):
+        raise ValueError('此訂單是台幣，請重新確認退款幣別')
     cancellation = CancellationRequest.objects.create(
         group=group,
         reason=reason,
@@ -235,6 +300,7 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         refund_account_holder=bank.get('account_holder', ''),
         calculation_mode=calculation_mode,
         selected_rule_days_before=selected_rule_days_before if calculation_mode == 'rule' else None,
+        currency_snapshot=settlement,refund_overseas_details=overseas,
         **values,
     )
     record_order_revision(group, user=user, change_type='cancel', reason=reason_note or reason)

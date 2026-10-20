@@ -6,6 +6,7 @@ const hooks={...React,useState:hook('state'),useRef:hook('ref'),useMemo:hook('me
 function SiteLinkQa({to,children,...props}){return React.createElement('a',{...props,href:'/snowland'+to},children)}
 const ctx=vm.createContext({React:hooks,exports:{},require:name=>{
  if(name==='react')return hooks
+ if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(hooks,'zh-Hant')
  if(name==='react-router-dom')return{Link:()=>null}
  if(name.includes('SiteLink'))return{__esModule:true,default:SiteLinkQa}
  if(name==='framer-motion')return{motion:new Proxy({},{get:()=>()=>null}),useReducedMotion:hook('reduced'),useScroll:hook('scroll'),useTransform:hook('transform')}
