@@ -40,6 +40,10 @@ export default function SchedulingFailedModal({
   const suggestions = Object.entries(conflictDetails?.suggestions || {})
     .filter(([date]) => !isSuggestionBookable || isSuggestionBookable(date))
   const hasSuggestions = suggestions.length > 0 && Boolean(onSelectSuggestion)
+  const identifierParts = conflictDetails?.identifier?.match(/^於「([\s\S]*)」的「([\s\S]*)」$/)
+  const identifier = identifierParts
+    ? t('於「{resort}」的「{course}」', { resort: identifierParts[1], course: identifierParts[2] })
+    : conflictDetails?.identifier
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
@@ -90,7 +94,7 @@ export default function SchedulingFailedModal({
               </h3>
               <div className="rounded-lg bg-gray-50 p-3 border border-gray-200">
                 <p className="text-sm text-gray-800">
-                  {conflictDetails.identifier}
+                  {identifier}
                 </p>
               </div>
             </div>

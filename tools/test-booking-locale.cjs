@@ -53,6 +53,8 @@ for(const language of ['en','ja']){
  checkoutHtml=render(ctx.Step3Confirmation({...props,submittedReservation:{total_amount:1000,reservation_group_ids:[42],payment_methods:['bank_transfer'],payment_expires_at:'2026-12-01T01:00:00Z',payment_infos:[{reservation_group_id:42,total_amount:1000,settlement:{currency:'JPY',amount:4500},bank_info:{bank_name:'QA銀行',bank_account_holder:'QA戶名',bank_account_number:'QA-NOT-REAL'}}]},paymentMethod:'bank'}))
  assert.ok(checkoutHtml.includes('QA銀行')&&checkoutHtml.includes('QA-NOT-REAL'))
  assert.ok(checkoutHtml.includes(language==='en'?'Complete the transfer by':'までにお振り込みください'))
+ assert.ok(checkoutHtml.includes(language==='en'?'TWD pricing basis':'台湾ドルの計算基準'),'Submitted JPY order must label the NT$ subtotal as pricing basis, not amount payable')
+ assert.ok(!checkoutHtml.includes(language==='en'?'Amount due</span>':'お支払い額</span>'),'Do not label the TWD base amount as payable for JPY orders')
  assert.ok(!checkoutHtml.includes('前完成匯款'))
  console.log('PASS actual checkout locale: editable/submitted JPY states, private/CMS/bank preservation, native/TWD totals and payment deadline',language)
 }

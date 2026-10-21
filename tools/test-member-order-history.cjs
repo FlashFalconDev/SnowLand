@@ -117,6 +117,13 @@ for (const [name, check] of [
     const detail=renderToStaticMarkup(React.createElement(context.Orders,{data:{orders:[review]}}))
     assert.ok(detail.includes('請勿再次付款'));assert.ok(!detail.includes('前往付款'))
   }],
+  ['elapsed deadline hides payment links and explains the hold', () => {
+    const expired={...order,payment_status:'unpaid',payment_hold_status:'expired'}
+    assert.ok(!renderCard(expired).includes('前往付款'))
+    const detail=renderToStaticMarkup(React.createElement(context.Orders,{data:{orders:[expired]}}))
+    assert.ok(detail.includes('付款保留期已結束'))
+    assert.ok(!detail.includes('前往付款'))
+  }],
 ]) {
   try { check(); console.log('PASS', name) }
   catch (error) { failed++; console.error('FAIL', name, error.message) }
