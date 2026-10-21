@@ -3959,7 +3959,7 @@ function Step3Confirmation({
 
         <div className="space-y-3 mb-6">
           <div className="flex justify-between text-sm">
-            <span className="text-[#6b7280]">{t(isPaid ? '本筆應付' : '課程費用')}</span>
+            <span className="text-[#6b7280]">{t(isPaid && currencyIsJpy ? '台幣計價基準' : isPaid ? '本筆應付' : '課程費用')}</span>
             <span className="text-[#1f2937]">{pricePending ? t("價格待確認") : `NT$ ${cartSubtotal.toLocaleString()}`}</span>
           </div>
 

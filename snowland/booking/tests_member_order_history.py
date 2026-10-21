@@ -50,3 +50,17 @@ class MemberOrderHistoryTests(TestCase):
         response = self.api.get('/booking/snowland/api/member-center/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['orders'], [])
+
+    def test_elapsed_unpaid_deadline_is_displayed_expired_without_mutating_payment(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.reservation.status = 'manually_assigned'
+        self.reservation.save(update_fields=['status'])
+        payment = self.group.payments.get()
+        payment.status = 'unpaid'
+        payment.expires_at = timezone.now() - timedelta(seconds=1)
+        payment.save(update_fields=['status', 'expires_at'])
+        row = self.read_order()
+        self.assertEqual(row['payment_hold_status'], 'expired')
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, 'unpaid', 'Only the expiry job releases reservations and changes payment state')

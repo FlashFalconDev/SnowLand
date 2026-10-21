@@ -18,6 +18,11 @@ for(const language of ['en','ja']){
  const empty=render(Failed({...props,conflictDetails:{},onChangeDate:undefined,onTrySuperSchedule:undefined}))
  assert.ok(empty.includes(language==='en'?'No alternative times are available':'候補の時間帯はありません'))
  assert.ok(!empty.includes(language==='en'?'Choose another date</button>':'別の日付を選ぶ</button>'))
+ const actualFailure=render(Failed({...props,message:'訂單已建立但自動排課失敗，請等待課服聯繫或改選其他日期',conflictDetails:{identifier:'於「QA雪場」的「QA單板」',reason:'符合條件的教練都被排除（語言/雪場/課程/能力等級任一項不符）'}}))
+ assert.ok(!actualFailure.includes('訂單已建立但自動排課失敗'))
+ assert.ok(!actualFailure.includes('符合條件的教練都被排除'))
+ assert.ok(!actualFailure.includes('於「QA雪場」的「QA單板」'))
+ assert.ok(actualFailure.includes('QA雪場')&&actualFailure.includes('QA單板'),'Keep original resort/course names')
  const transitions=[],ctx={React,t:locale.useSiteLocale().t,ConfirmModal:Confirm,superConfirmOpen:true,setSuperConfirmOpen:value=>transitions.push(value),setSchedulingFailed:fn=>transitions.push(fn({isOpen:false}).isOpen)}
  vm.runInNewContext(ts.transpileModule('function dialog(){return ('+advanced.getText(booking)+')}',{fileName:'dialog.tsx',compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText,ctx)
  const confirmProps=ctx.dialog().props,confirmHtml=render(React.createElement(Confirm,confirmProps))

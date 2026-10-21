@@ -33,7 +33,7 @@ const formatDate = (value) => value
   : '日期安排中';
 
 const paymentLabels = { payment_records_review: '付款紀錄待核對', unpaid: '待付款', pending: '付款確認中', paid: '已付款', expired: '付款已逾期', refunded: '已退款', all_cancelled: '已取消', collecting_class: '待成班', pending_coach_approval: '待教練確認', scheduling_failed: '待安排課程' };
-const paymentHoldMessages = { payment_records_review: '此訂單有既有收款或退款紀錄，請先聯絡客服核對；請勿再次付款。', all_cancelled: '此訂單已取消，無需付款。', collecting_class: '團體班尚未成班，滿人後才會開放付款。', pending_coach_approval: '等待教練確認接課，確認前不需要付款。', scheduling_failed: '課程正在重新安排，確認排課前不需要付款。' };
+const paymentHoldMessages = { expired: '付款保留期已結束，請聯絡客服改期或取消', payment_records_review: '此訂單有既有收款或退款紀錄，請先聯絡客服核對；請勿再次付款。', all_cancelled: '此訂單已取消，無需付款。', collecting_class: '團體班尚未成班，滿人後才會開放付款。', pending_coach_approval: '等待教練確認接課，確認前不需要付款。', scheduling_failed: '課程正在重新安排，確認排課前不需要付款。' };
 const cancellationLabels = { requested: '取消審核中', approved: '已取消・退款處理中', rejected: '取消申請未通過', refunded: '已退款' };
 const refundMoney=(base,settlement,t)=>settlement?.currency==='JPY'
   ? settlement.refund_amount==null?(t?t('待核對實收款'):'待核對實收款')

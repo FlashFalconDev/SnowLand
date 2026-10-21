@@ -2969,6 +2969,10 @@ class MemberCenterAPI(APIView):
                     payment_hold_status = 'scheduling_failed'
                 elif payment and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
                     payment_hold_status = 'payment_records_review'
+                elif payment and payment.expires_at and payment.expires_at <= timezone.now():
+                    # Display the elapsed deadline immediately, even before the
+                    # expiry job atomically releases the reserved lessons.
+                    payment_hold_status = 'expired'
             from .currency import settlement_summary, received_settlement_summary, public_cancellation_settlement
             orders.append({
                 'id': group.id,
