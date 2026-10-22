@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useBookingStore } from '@/store/bookingStore'
 import { fetchCourseSessions, calculatePrice } from '@/api/booking'
-import { Course } from '@/types/booking'
+import { Course, CourseSession } from '@/types/booking'
 import { Clock, CheckCircle, Plus, ShoppingCart } from 'lucide-react'
 import Toast from '@/components/ui/Toast'
 import { useToast } from '@/hooks/useToast'
@@ -11,13 +11,6 @@ interface TimeSlotSelectorProps {
   onBack: () => void
   onComplete: () => void // 完成並加入購物車
   goToStep: (step: 1 | 2 | 3 | 4 | 5) => void
-}
-
-interface CourseSession {
-  id: number
-  start_time: string
-  end_time: string
-  is_active: boolean
 }
 
 export default function TimeSlotSelector({

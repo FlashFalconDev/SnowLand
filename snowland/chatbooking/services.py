@@ -66,19 +66,21 @@ def highest_ability_level(counts):
     return selected[-1] if selected else "no_exp"
 
 
-def _available_date_payload(template_id, month):
+def _available_date_payload(client, template_id, month):
     response = CourseAvailableDatesAPI().get(
         RequestProxy(query={"month": month}),
         template_id=template_id,
+        client_code=client.internal_code,
     )
     if response.status_code >= 400:
         raise ValueError(response.data.get("error") or "無法查詢可預約日期")
     return response.data
 
 
-def _session_payload(template_id, selected_date):
+def _session_payload(client, template_id, selected_date):
     response = CourseSessionListAPI().get(
         RequestProxy(query={"template_id": template_id, "date": selected_date}),
+        client_code=client.internal_code,
     )
     if response.status_code >= 400:
         raise ValueError(response.data.get("error") or "無法查詢課程時段")
@@ -98,7 +100,7 @@ def available_dates_for_values(client, values, month=None):
     if not month:
         first_date = (values.get("course_dates") or [None])[0]
         month = str(first_date)[:7] if first_date else timezone.localdate().strftime("%Y-%m")
-    return _available_date_payload(template_id, month)
+    return _available_date_payload(client, template_id, month)
 
 
 def course_catalog_payload(
@@ -314,7 +316,7 @@ def option_payload(client, values, field, month=None):
             is_active=True,
         ).exists():
             raise ValueError("找不到此客戶的課程方案")
-        sessions_by_date = {selected_date: _session_payload(values["template_id"], selected_date) for selected_date in dates}
+        sessions_by_date = {selected_date: _session_payload(client, values["template_id"], selected_date) for selected_date in dates}
         common_ids = None
         for sessions in sessions_by_date.values():
             usable = {item["id"] for item in sessions if not item.get("is_full")}
@@ -436,10 +438,10 @@ def _validate_relations(client, values):
         raise ValueError("課程時段與課程方案不符")
 
     for selected_date in values["course_dates"]:
-        payload = _available_date_payload(template.id, selected_date[:7])
+        payload = _available_date_payload(client, template.id, selected_date[:7])
         if selected_date not in payload["available_dates"]:
             raise ValueError(f"{selected_date} 不在可預約日期內")
-        available_sessions = _session_payload(template.id, selected_date)
+        available_sessions = _session_payload(client, template.id, selected_date)
         match = next((item for item in available_sessions if item["id"] == session.id), None)
         if not match or match.get("is_full"):
             raise ValueError(f"{selected_date} 的所選時段已不可預約")
@@ -580,7 +582,7 @@ def build_contact(session):
         "phone": values["contact_phone"],
         "messengerType": "LINE" if session.channel == "line" else "AI客服",
         "messengerId": messenger_id,
-        "referralSource": values.get("referral_source", ""),
+        "referralSource": values.get("referral_source") or ("LINE 客服" if session.channel == "line" else "AI 客服"),
     }
 
 
@@ -950,9 +952,14 @@ def commit_draft(session, request_user):
             "cart": checkout_cart(draft.cart),
             "contact": draft.contact,
             "discount_code": draft.discount_code,
+            "accepted_policy": (session.slot_values or {}).get("policy_accepted") is True,
         },
         user=request_user,
     )
+    # Preserve the existing chat's explicit conversational cancellation consent.
+    # This server-only attribute cannot be supplied by a public JSON request and
+    # must not be represented as having read both website checkout documents.
+    proxy.checkout_consent_channel = 'legacy_chat'
     class CommitRejected(Exception):
         pass
 

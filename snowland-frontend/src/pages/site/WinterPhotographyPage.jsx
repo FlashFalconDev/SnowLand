@@ -3,10 +3,14 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
 import SiteFooter from '../../components/site/SiteFooter';
+import PhotographyContentGate from '../../components/site/PhotographyContentGate';
 import SiteHeader from '../../components/site/SiteHeader';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 
-function WinterPhotographyPage() {
+function WinterPhotographyLayout({ content }) {
+  const { t } = useSiteLocale();
+  const c = (key) => content.values[key] ?? '';
   const scrollerRef = useRef(null);
   const itemRefs = useRef([]);
   const introRef = useRef(null);
@@ -25,13 +29,13 @@ function WinterPhotographyPage() {
   const hasAutoScrolledRef = useRef(false);
   const prefersReducedMotion = useReducedMotion();
   const photos = [
-    "/photography-gallery/gallery-019.jpg",
-    "/photography-gallery/gallery-074.jpg",
-    "/photography-gallery/gallery-048.jpg",
+    c("winter_001"),
+    c("winter_002"),
+    c("winter_003"),
   ];
   const baseUrl = import.meta.env.BASE_URL ?? "/";
   const withBaseUrl = (path) =>
-    `${baseUrl}${path.startsWith("/") ? path.slice(1) : path}`;
+    /^https?:\/\//i.test(path) ? path : `${baseUrl}${path.startsWith("/") ? path.slice(1) : path}`;
   const totalPhotos = photos.length;
   const { scrollYProgress: stageScrollYProgress } = useScroll({
     target: stageSectionRef,
@@ -164,15 +168,13 @@ function WinterPhotographyPage() {
 
   return (
     <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
-      <SiteHeader forceTransparent forceDarkText forceLogoColor />
+      <SiteHeader forceCompact forceDarkText forceLogoColor />
       <main className="max-w-5xl mx-auto px-6 pt-32 pb-24 flex-1 w-full">
         <div className="text-center">
           <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
-            Winter Photography
-          </p>
+            {c("winter_004")}</p>
           <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-            冬季雪地攝影
-          </h1>
+            {c("winter_005")}</h1>
         </div>
         <section className="mt-4 w-screen relative left-1/2 -translate-x-1/2">
           <div className="relative">
@@ -206,7 +208,7 @@ function WinterPhotographyPage() {
                 >
                   <img loading="lazy" decoding="async"
                     src={withBaseUrl(src)}
-                    alt="Winter photography"
+                    alt={c("winter_006")}
                     className="h-full w-full object-cover"
                   />
                 </figure>
@@ -215,16 +217,16 @@ function WinterPhotographyPage() {
             <button
               type="button"
               onClick={() => scrollToIndex(activeIndex - 1)}
-              className="absolute left-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
-              aria-label="Previous photo"
+              className="absolute left-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
+              aria-label={t('上一張照片')}
             >
               ←
             </button>
             <button
               type="button"
               onClick={() => scrollToIndex(activeIndex + 1)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
-              aria-label="Next photo"
+              className="absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors"
+              aria-label={t('下一張照片')}
             >
               →
             </button>
@@ -248,23 +250,18 @@ function WinterPhotographyPage() {
             }`}
           >
             <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-              紀錄每個感動瞬間
-            </h2>
+              {c("winter_007")}</h2>
             <p className="mt-4 max-w-xl mx-auto text-base md:text-lg leading-relaxed text-[#475569]">
               <span className="block">
-                為滑雪愛好者打造多彩的雪地體驗。
-              </span>
+                {c("winter_008")}</span>
               <span className="block">
-                無論是滑雪課程側拍、個人滑雪寫真、全家福合影，或便服婚紗，我們完整記錄每一份感動，帶回專屬你的雪地故事。
-              </span>
+                {c("winter_009")}</span>
             </p>
             <div className="mt-8 flex justify-center">
-              <a
-                href="#"
+              <SiteLink to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                報名雪地攝影
-              </a>
+                {t(c("winter_010"))}</SiteLink>
             </div>
           </div>
         </section>
@@ -275,9 +272,9 @@ function WinterPhotographyPage() {
           <div className="relative aspect-[3/4] w-full overflow-hidden md:aspect-auto md:h-screen">
             <motion.img
               src={withBaseUrl(
-                "/photography-gallery/gallery-053.jpg"
+                c("winter_011")
               )}
-              alt="SnowLand x THE STAGE"
+              alt={c("winter_012")}
               className="absolute inset-0 h-full w-full object-cover scale-[1.06] md:scale-[1.1] object-center"
               style={
                 prefersReducedMotion ? undefined : { y: stageImageY }
@@ -293,8 +290,7 @@ function WinterPhotographyPage() {
                 }
               >
                 <p className="text-base md:text-lg leading-relaxed">
-                  SnowLand 的雪地攝影由經驗豐富的攝影團隊為您服務。我們運用專業的視覺敘事、引導能力與美學視角，呈現更細膩、更具故事感的雪地攝影風格。
-                </p>
+                  {c("winter_013")}</p>
               </motion.div>
             </div>
           </div>
@@ -304,25 +300,23 @@ function WinterPhotographyPage() {
             <div className="aspect-[3/4] w-full overflow-hidden bg-[#e2e8f0]">
               <img loading="lazy" decoding="async"
                 src={withBaseUrl(
-                  "/photography-gallery/gallery-020.jpg"
+                  c("winter_014")
                 )}
-                alt="Snowland services"
+                alt={c("winter_015")}
                 className="h-full w-full object-cover"
               />
             </div>
             <div className="space-y-6 px-6 text-[#475569] md:pr-12">
               <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                服務內容
-              </h2>
+                {c("winter_016")}</h2>
               <p className="text-base md:text-lg leading-relaxed">
-                捕捉你在北海道雪地的每個精彩瞬間。滑行抓拍帥氣時刻、家人溫暖的笑容、情侶甜蜜合影，或是帶著自由感又不失浪漫的便服婚紗，都能為你量身打造專屬雪地寫真。
-              </p>
+                {c("winter_017")}</p>
               <div className="grid gap-2 text-base md:text-lg text-[#1f2937]">
-                <span>▸ 滑雪課程側拍</span>
-                <span>▸ 全家福寫真</span>
-                <span>▸ 個人寫真</span>
-                <span>▸ 情侶寫真</span>
-                <span>▸ 便服婚紗</span>
+                <span>{c("winter_018")}</span>
+                <span>{c("winter_019")}</span>
+                <span>{c("winter_020")}</span>
+                <span>{c("winter_021")}</span>
+                <span>{c("winter_022")}</span>
               </div>
             </div>
           </div>
@@ -331,20 +325,18 @@ function WinterPhotographyPage() {
           <div className="max-w-6xl mx-auto px-6 md:px-10 py-16 md:py-24">
             <div className="text-center">
             <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-              服務方案
-            </h2>
+              {c("winter_023")}</h2>
             <p className="mt-3 text-sm md:text-base text-[#64748b]">
-              ⚲ 地點：星野 Tomamu・富良野 Furano
-            </p>
+              {c("winter_024")}</p>
           </div>
           <div className="mt-12 grid gap-10 md:grid-cols-3">
             <div className="overflow-hidden bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
               <div className="group aspect-square w-full overflow-hidden bg-[#e2e8f0]">
                 <img loading="lazy" decoding="async"
                   src={withBaseUrl(
-                    "/photography-gallery/gallery-049.jpg"
+                    c("winter_025")
                   )}
-                  alt="1 小時快閃旅行"
+                  alt={c("winter_026")}
                   className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
                 />
               </div>
@@ -355,22 +347,19 @@ function WinterPhotographyPage() {
                 </div>
                 <div className="space-y-3">
                   <h3 className="text-lg font-semibold text-[#1f2937] font-display">
-                    1 小時快閃旅行
-                  </h3>
+                    {c("winter_027")}</h3>
                   <p className="text-lg font-semibold text-[#1f2937] font-display">
-                    NT$15,000
-                  </p>
+                    {c("winter_028")}</p>
                   <div className="space-y-2 text-sm text-[#475569] max-w-[16rem]">
-                    <p>・毛片全給</p>
-                    <p>・保證至少 30 張照片</p>
-                    <p>・適合單一地點拍攝</p>
+                    <p>{c("winter_029")}</p>
+                    <p>{c("winter_030")}</p>
+                    <p>{c("winter_031")}</p>
                   </div>
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    立即預約 →
-                  </SiteLink>
+                    {t(c("winter_032"))}</SiteLink>
                 </div>
               </div>
             </div>
@@ -378,46 +367,42 @@ function WinterPhotographyPage() {
               <div className="group aspect-square w-full overflow-hidden bg-[#e2e8f0]">
                 <img loading="lazy" decoding="async"
                   src={withBaseUrl(
-                    "/photography-gallery/gallery-030.jpg"
+                    c("winter_033")
                   )}
-                  alt="2 小時經典旅行"
+                  alt={c("winter_034")}
                   className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
                 />
               </div>
               <div className="relative flex gap-5 px-6 py-8 text-left">
                 <div className="absolute right-4 top-4 h-10 w-10 bg-[#f59e0b] text-[10px] font-semibold text-white flex items-center justify-center text-center leading-tight px-1">
-                  最熱門
-                </div>
+                  {c("winter_035")}</div>
                 <div className="flex flex-col items-center gap-4">
                   <span className="h-10 w-10 opacity-0" aria-hidden="true" />
                   <span className="w-px flex-1 bg-[#e2e8f0]" aria-hidden="true" />
                 </div>
                 <div className="space-y-3">
                   <h3 className="text-lg font-semibold text-[#1f2937] font-display">
-                    2 小時經典旅行
-                  </h3>
+                    {c("winter_036")}</h3>
                   <p className="text-lg font-semibold text-[#1f2937] font-display">
-                    NT$24,000
-                  </p>
+                    {c("winter_037")}</p>
                   <div className="space-y-2 text-sm text-[#475569] max-w-[16rem]">
-                    <p>・毛片全給</p>
-                    <p>・保證至少 60 張</p>
-                    <p>・適合家庭、情侶或多場景拍攝</p>
+                    <p>{c("winter_038")}</p>
+                    <p>{c("winter_039")}</p>
+                    <p>{c("winter_040")}</p>
                   </div>
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    立即預約 →
-                  </SiteLink>
+                    {t(c("winter_041"))}</SiteLink>
                 </div>
               </div>
             </div>
             <div className="overflow-hidden bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
               <div className="group aspect-square w-full overflow-hidden bg-[#e2e8f0]">
                 <img loading="lazy" decoding="async"
-                  src={withBaseUrl("/photography-gallery/gallery-073.jpg")}
-                  alt="3 小時半日樂活"
+                  src={withBaseUrl(c("winter_042"))}
+                  alt={c("winter_043")}
                   className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
                 />
               </div>
@@ -428,35 +413,31 @@ function WinterPhotographyPage() {
                 </div>
                 <div className="space-y-3">
                   <h3 className="text-lg font-semibold text-[#1f2937] font-display">
-                    3 小時半日樂活
-                  </h3>
+                    {c("winter_044")}</h3>
                   <p className="text-lg font-semibold text-[#1f2937] font-display">
-                    NT$32,000
-                  </p>
+                    {c("winter_045")}</p>
                   <div className="space-y-2 text-sm text-[#475569] max-w-[16rem]">
-                    <p>・毛片全給</p>
-                    <p>・保證至少 90 張</p>
-                    <p>・適合滑雪側拍 + 外景寫真</p>
+                    <p>{c("winter_046")}</p>
+                    <p>{c("winter_047")}</p>
+                    <p>{c("winter_048")}</p>
                   </div>
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/booking?service=photo"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    立即預約 →
-                  </SiteLink>
+                    {t(c("winter_049"))}</SiteLink>
                 </div>
               </div>
             </div>
           </div>
           <div className="mt-12 text-center text-sm md:text-base text-[#475569]">
-            <p className="font-semibold text-[#1f2937]">加購服務</p>
+            <p className="font-semibold text-[#1f2937]">{c("winter_050")}</p>
             <p>
               <span
                 ref={addOnUnderlineRef}
                 className="relative inline-flex items-center"
               >
-                ▸ 精修照片：NT$1,000 / 張
-                <span
+                {c("winter_051")}<span
                   className={`absolute -bottom-1 left-0 h-0.5 bg-[#f59e0b] transition-all duration-500 ${
                     addOnUnderlineVisible ? "w-full" : "w-0"
                   }`}
@@ -470,18 +451,15 @@ function WinterPhotographyPage() {
           <div className="grid w-full gap-8 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:items-center">
             <div className="order-2 space-y-4 px-6 text-center text-[#475569] md:order-1 md:text-left md:pr-6 md:pl-[calc(2rem+10rem)] lg:pl-[calc(2rem+12rem)]">
               <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                滑雪課程加購優惠
-              </h2>
+                {c("winter_052")}</h2>
               <p className="text-base md:text-lg leading-relaxed">
-                預約滑雪課程加購雪地攝影
-              </p>
+                {c("winter_053")}</p>
               <p className="text-base md:text-lg leading-relaxed">
                 <span
                   ref={discountUnderlineRef}
                   className="relative inline-flex items-center"
                 >
-                  ▸ 每小時折扣 NT$ 3000
-                  <span
+                  {c("winter_054")}<span
                     className={`absolute -bottom-1 left-0 h-0.5 bg-[#f59e0b] transition-all duration-500 ${
                       discountUnderlineVisible ? "w-full" : "w-0"
                     }`}
@@ -492,9 +470,9 @@ function WinterPhotographyPage() {
             <div className="order-1 aspect-[4/3] w-full overflow-hidden bg-[#e2e8f0] md:order-2 md:aspect-auto md:h-screen">
               <img loading="lazy" decoding="async"
                 src={withBaseUrl(
-                  "/photography-gallery/gallery-075.jpg"
+                  c("winter_055")
                 )}
-                alt="滑雪課程加購優惠"
+                alt={c("winter_056")}
                 className="h-full w-full object-cover"
               />
             </div>
@@ -507,15 +485,14 @@ function WinterPhotographyPage() {
           >
             <div className="max-w-xl mx-auto text-left">
               <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                為什麼選擇 SnowLand
-              </h2>
+                {c("winter_057")}</h2>
               <div className="mt-6 text-base md:text-lg text-[#475569] space-y-2">
                 {[
-                  "✓ 專業雪地攝影團隊",
-                  "✓ 親子友善・多場景拍攝",
-                  "✓ 毛片全給不加價",
-                  "✓ 每小時至少 30 張以上",
-                  "✓ 7 日內雲端交件",
+                  c("winter_058"),
+                  c("winter_059"),
+                  c("winter_060"),
+                  c("winter_061"),
+                  c("winter_062"),
                 ].map((item, index) => (
                   <p
                     key={item}
@@ -530,8 +507,7 @@ function WinterPhotographyPage() {
               </div>
               <div className="mt-10">
                 <div className="grid overflow-hidden md:grid-cols-3">
-                  <a
-                    href="#booking-flow"
+                  <SiteLink to="/booking?service=photo"
                     className="flex items-center justify-center gap-3 px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc]"
                   >
                     <svg
@@ -549,8 +525,7 @@ function WinterPhotographyPage() {
                       <line x1="16" y1="2.5" x2="16" y2="6" />
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
-                    預約流程
-                  </a>
+                    {t(c("winter_063"))}</SiteLink>
                   <a
                     href="#faq"
                     className="flex items-center justify-center gap-3 border-t border-[#d7dde3] px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc] md:border-t-0 md:border-l"
@@ -569,8 +544,7 @@ function WinterPhotographyPage() {
                       <path d="M9.5 9.5a2.5 2.5 0 1 1 4.2 1.8c-.9.6-1.2 1-1.2 2" />
                       <circle cx="12" cy="17" r="0.8" />
                     </svg>
-                    精選Q&amp;A
-                  </a>
+                    {c("winter_064")}</a>
                   <a
                     href="#related-content"
                     className="flex items-center justify-center gap-3 border-t border-[#d7dde3] px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc] md:border-t-0 md:border-l"
@@ -588,8 +562,7 @@ function WinterPhotographyPage() {
                       <path d="M10 13a5 5 0 0 1 0-7l1.4-1.4a5 5 0 0 1 7 7L17 12" />
                       <path d="M14 11a5 5 0 0 1 0 7L12.6 20.4a5 5 0 0 1-7-7L7 12" />
                     </svg>
-                    相關內容
-                  </a>
+                    {c("winter_065")}</a>
                 </div>
               </div>
             </div>
@@ -599,8 +572,7 @@ function WinterPhotographyPage() {
           <div className="max-w-5xl mx-auto px-6 md:px-12 py-12 md:py-16">
             <div className="text-center">
               <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                預約流程
-              </h2>
+                {c("winter_066")}</h2>
             </div>
             <div className="mt-12">
               <div className="relative">
@@ -609,24 +581,24 @@ function WinterPhotographyPage() {
                   {[
                     {
                       number: "01",
-                      title: "1. 預約雪地攝影",
+                      title: c("winter_067"),
                       body:
-                        "選擇拍攝的雪場地點及時間，及確定是否預訂滑雪課程享專案優惠(需提供課程訂單號碼)。",
+                        c("winter_068"),
                     },
                     {
                       number: "02",
-                      title: "2. 預約確認",
-                      body: "收到預約後，我們的客服將會與您聯繫確認。",
+                      title: c("winter_069"),
+                      body: c("winter_070"),
                     },
                     {
                       number: "03",
-                      title: "3. 線上付款",
-                      body: "銀行匯款轉帳支付",
+                      title: c("winter_071"),
+                      body: c("winter_072"),
                     },
                     {
                       number: "04",
-                      title: "4. 預約成功",
-                      body: "與攝影師討論拍攝需求，並享受屬於您的滑雪攝影。",
+                      title: c("winter_073"),
+                      body: c("winter_074"),
                     },
                   ].map((step) => (
                     <motion.div
@@ -655,11 +627,10 @@ function WinterPhotographyPage() {
             </div>
             <div className="mt-10 flex justify-center">
               <SiteLink
-                to="/photography/how-to-book"
+                to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                查看預約流程細節
-              </SiteLink>
+                {t(c("winter_075"))}</SiteLink>
             </div>
           </div>
         </section>
@@ -668,55 +639,49 @@ function WinterPhotographyPage() {
             <div className="grid gap-10 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)]">
               <div>
                 <h2 className="text-2xl font-semibold tracking-wide text-[#1f2937] font-display">
-                  精選常見問題
-                </h2>
+                  {c("winter_076")}</h2>
               </div>
               <div className="space-y-6 text-[#475569]">
                 {[
                   {
-                    question: "拍攝後多久可以收到照片？",
+                    question: c("winter_077"),
                     answer: (
                       <p className="text-sm md:text-base leading-relaxed">
-                        7 天內透過雲端交件。
-                      </p>
+                        {c("winter_078")}</p>
                     ),
                   },
                   {
-                    question: "服務內容包括影片？",
+                    question: c("winter_079"),
                     answer: (
                       <p className="text-sm md:text-base leading-relaxed">
-                        目前僅提供靜態平面攝影，並不包含動態影片，側拍影片僅作為行銷用途，並不包含在滑雪攝影服務內。當您購買雪地攝影服務即視為同意我們將拍攝的畫面用於 SnowLand 滑雪學校的推廣，分享您的英姿，傳遞北海道滑雪的樂趣與喜悅！
-                      </p>
+                        {c("winter_080")}</p>
                     ),
                   },
                   {
-                    question: "滑雪騎馬冰釣費用包含在內？",
+                    question: c("winter_081"),
                     answer: (
                       <div className="space-y-4 text-sm md:text-base leading-relaxed">
                         <p>
-                          A：雪地攝影服務費用僅包含照相，騎馬釣魚等活動需自行於星野官方網站預約付費。
-                        </p>
+                          {c("winter_082")}</p>
                         <div>
-                          <p className="font-semibold text-[#1f2937]">雪地騎馬體驗</p>
+                          <p className="font-semibold text-[#1f2937]">{c("winter_083")}</p>
                           <a
-                            href="https://www.snowtomamu.jp/winter/cn/activity/10444"
+                            href={c("winter_084")}
                             target="_blank"
                             rel="noreferrer"
                             className="text-[#1f2937] underline underline-offset-4"
                           >
-                            https://www.snowtomamu.jp/winter/cn/activity/10444
-                          </a>
+                            {c("winter_085")}</a>
                         </div>
                         <div>
-                          <p className="font-semibold text-[#1f2937]">湖上野餐和冰上的魚</p>
+                          <p className="font-semibold text-[#1f2937]">{c("winter_086")}</p>
                           <a
-                            href="https://www.snowtomamu.jp/winter/cn/activity/10782"
+                            href={c("winter_087")}
                             target="_blank"
                             rel="noreferrer"
                             className="text-[#1f2937] underline underline-offset-4"
                           >
-                            https://www.snowtomamu.jp/winter/cn/activity/10782
-                          </a>
+                            {c("winter_088")}</a>
                         </div>
                       </div>
                     ),
@@ -744,11 +709,10 @@ function WinterPhotographyPage() {
                 })}
                 <div className="pt-4">
                   <SiteLink
-                    to="/photography/how-to-book"
+                    to="/faq"
                     className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
                   >
-                    查看更多常見問題
-                  </SiteLink>
+                    {t(c("winter_089"))}</SiteLink>
                 </div>
               </div>
             </div>
@@ -763,32 +727,30 @@ function WinterPhotographyPage() {
               >
                 <img loading="lazy" decoding="async"
                   src={withBaseUrl(
-                    "/photography-gallery/gallery-009.jpg"
+                    c("winter_090")
                   )}
-                  alt="攝影作品"
+                  alt={c("winter_091")}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent transition-opacity duration-300 group-hover:opacity-90" />
                 <div className="absolute bottom-0 left-0 p-6">
                   <h3 className="text-lg md:text-xl font-semibold tracking-wide drop-shadow">
-                    攝影作品 →
-                  </h3>
+                    {c("winter_092")}</h3>
                 </div>
               </SiteLink>
               <SiteLink
-                to="/course/tomamu"
+                to="/booking?service=ski"
                 className="group relative overflow-hidden aspect-[4/3] bg-[#1d4ed8] text-white"
               >
                 <img loading="lazy" decoding="async"
                   src={aboutSnowland}
-                  alt="預約滑雪課程"
+                  alt={c("winter_093")}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent transition-opacity duration-300 group-hover:opacity-90" />
                 <div className="absolute bottom-0 left-0 p-6">
                   <h3 className="text-lg md:text-xl font-semibold tracking-wide drop-shadow">
-                    預約滑雪課程 →
-                  </h3>
+                    {c("winter_094")}</h3>
                 </div>
               </SiteLink>
               <SiteLink
@@ -796,15 +758,14 @@ function WinterPhotographyPage() {
                 className="group relative overflow-hidden aspect-[4/3] bg-[#1d4ed8] text-white"
               >
                 <img loading="lazy" decoding="async"
-                  src={withBaseUrl("/legacy/photography-summer/image-02.jpg")}
-                  alt="查看夏季旅拍攝影"
+                  src={withBaseUrl(c("winter_095"))}
+                  alt={c("winter_096")}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent transition-opacity duration-300 group-hover:opacity-90" />
                 <div className="absolute bottom-0 left-0 p-6">
                   <h3 className="text-lg md:text-xl font-semibold tracking-wide drop-shadow">
-                    查看夏季旅拍攝影 →
-                  </h3>
+                    {c("winter_097")}</h3>
                 </div>
               </SiteLink>
             </div>
@@ -812,14 +773,17 @@ function WinterPhotographyPage() {
         </section>
       </main>
       <div className="max-w-6xl mx-auto px-6 md:px-12 pb-12 -mt-6 text-xs md:text-sm text-[#94a3b8] leading-relaxed">
-        <p className="font-semibold text-[#64748b]">※授權聲明：</p>
+        <p className="font-semibold text-[#64748b]">{c("winter_098")}</p>
         <p>
-          購買雪地攝影服務即視為同意我們將拍攝的畫面用於 SnowLand 滑雪學校的推廣，分享您的雪地英姿，傳遞北海道滑雪的樂趣與喜悅！
-        </p>
+          {c("winter_099")}</p>
       </div>
       <SiteFooter />
     </div>
   );
+}
+
+function WinterPhotographyPage() {
+  return <PhotographyContentGate season="winter">{content => <WinterPhotographyLayout content={content} />}</PhotographyContentGate>;
 }
 
 export default WinterPhotographyPage;

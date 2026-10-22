@@ -3,11 +3,40 @@ from django.contrib.auth.hashers import make_password, check_password as django_
 from django.utils import timezone
 from datetime import timedelta
 import hashlib
+from django.conf import settings
 
 
 def one_month_later():
     """預設服務期限：一個月後"""
     return timezone.now() + timedelta(days=30)
+
+
+class ContactInboxSettings(models.Model):
+    client = models.OneToOneField('Client', on_delete=models.CASCADE, related_name='contact_inbox_settings')
+    enabled = models.BooleanField(default=False)
+    notify_enabled = models.BooleanField(default=False)
+    notify_emails = models.JSONField(default=list, blank=True)
+
+
+class ContactMessage(models.Model):
+    client = models.ForeignKey('Client', on_delete=models.CASCADE, related_name='contact_messages')
+    submission_id = models.UUIDField()
+    name = models.CharField(max_length=100)
+    email = models.EmailField()
+    phone = models.CharField(max_length=50, blank=True, default='')
+    subject = models.CharField(max_length=200)
+    message = models.TextField()
+    status = models.CharField(max_length=20, default='new', choices=[('new', '未處理'), ('processing', '處理中'), ('resolved', '已處理')])
+    admin_note = models.TextField(blank=True, default='')
+    notification_status = models.CharField(max_length=20, default='off', choices=[('off', '未啟用'), ('pending', '待發送'), ('sent', '已發送'), ('failed', '發送失敗')])
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='updated_contact_messages')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        constraints = [models.UniqueConstraint(fields=['client', 'submission_id'], name='unique_contact_submission')]
+        indexes = [models.Index(fields=['client', 'status', '-created_at'], name='contact_inbox_status_idx')]
 
 
 class Client(models.Model):
@@ -340,6 +369,19 @@ class PageColor(models.Model):
         return f"{self.client.name} - {self.page.page_name}"
 
 
+class InstagramConnection(models.Model):
+    client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name='instagram_connection')
+    expected_username = models.CharField(max_length=30, blank=True, default='')
+    username = models.CharField(max_length=30, blank=True, default='')
+    account_id = models.CharField(max_length=40, blank=True, default='')
+    encrypted_token = models.TextField(blank=True, default='', editable=False)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    token_refreshed_at = models.DateTimeField(null=True, blank=True)
+    enabled = models.BooleanField(default=False)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=200, blank=True, default='')
+
+
 class SiteContent(models.Model):
     """
     官網可編輯內容。
@@ -385,7 +427,7 @@ class SiteContent(models.Model):
     subtitle = models.CharField(max_length=300, blank=True, default='', verbose_name='副標題')
     summary = models.TextField(blank=True, default='', verbose_name='摘要')
     body = models.TextField(blank=True, default='', verbose_name='內容')
-    image_url = models.CharField(max_length=500, blank=True, default='', verbose_name='圖片網址')
+    image_url = models.CharField(max_length=2000, blank=True, default='', verbose_name='圖片網址')
     link_url = models.CharField(max_length=500, blank=True, default='', verbose_name='連結網址')
     source = models.CharField(max_length=50, blank=True, default='', verbose_name='來源')
     external_id = models.CharField(max_length=120, blank=True, default='', verbose_name='外部 ID')

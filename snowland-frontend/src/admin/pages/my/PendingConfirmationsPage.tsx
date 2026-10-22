@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Calendar, Check, X, Loader2, AlertCircle, MapPin, User, BookOpen } from 'lucide-react'
 import { fetchCoachPending, coachConfirm } from '../../api/extras'
 import { useNotification } from '../../context'
+import { formatAbilityLevel } from '@/utils/learningProgress'
 
 const PRIMARY = '#8b5cf6'
 
@@ -13,7 +14,7 @@ export default function PendingConfirmationsPage() {
   const notify = useNotification()
   const qc = useQueryClient()
 
-  const { data: items = [], isLoading, error } = useQuery({
+  const { data: items = [], isLoading, error, refetch } = useQuery({
     queryKey: ['admin', 'coach-pending'],
     queryFn: fetchCoachPending,
   })
@@ -21,8 +22,10 @@ export default function PendingConfirmationsPage() {
   const confirmMutation = useMutation({
     mutationFn: ({ id, action }: { id: number; action: 'accept' | 'reject' }) => coachConfirm(id, action),
     onSuccess: (res, vars) => {
-      qc.invalidateQueries({ queryKey: ['admin', 'coach-pending'] })
       if (res.code === 200) {
+        for (const key of ['coach-pending', 'my-courses', 'my-calendar', 'my-course-monthly-stats']) {
+          qc.invalidateQueries({ queryKey: ['admin', key] })
+        }
         notify.success(vars.action === 'accept' ? '已接受課程' : res.msg || '已拒絕')
       } else {
         notify.error(res.msg)
@@ -33,14 +36,14 @@ export default function PendingConfirmationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">待確認課程</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">系統指派給您的課程，請確認接受或拒絕</p>
           <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">顯示所有需要您確認的課程，請即時接受或拒絕</p>
         </div>
         {items.length > 0 && (
-          <div className="px-3 py-1.5 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 rounded-full text-sm font-medium flex items-center gap-2">
+          <div className="px-3 py-1.5 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 rounded-full text-sm font-medium flex shrink-0 items-center gap-2 whitespace-nowrap">
             <AlertCircle size={14} />{items.length} 筆待處理
           </div>
         )}
@@ -52,6 +55,7 @@ export default function PendingConfirmationsPage() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
           <AlertCircle size={32} className="mx-auto mb-3 text-red-500" />
           <p className="text-sm text-red-600">載入失敗</p>
+          <button type="button" onClick={() => refetch()} className="mt-3 min-h-11 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200">重新載入</button>
         </div>
       ) : items.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-16 text-center">
@@ -63,7 +67,7 @@ export default function PendingConfirmationsPage() {
         <div className="space-y-3">
           {items.map((item) => (
             <div key={item.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-              <div className="flex items-start justify-between mb-4">
+              <div className="mb-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <BookOpen size={16} style={{ color: PRIMARY }} />
@@ -76,10 +80,7 @@ export default function PendingConfirmationsPage() {
                     <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" />{item.resort}</div>
                     <div className="flex items-center gap-1"><User size={12} className="text-gray-400" />{item.user_name} · {item.number_of_people} 人</div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-gray-500 dark:text-gray-400">課程費用</div>
-                  <div className="text-lg font-bold" style={{ color: PRIMARY }}>NT$ {(item.total_fee || 0).toLocaleString()}</div>
+                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">程度：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.filter(Boolean).join('、') || '未填'}</div>
                 </div>
               </div>
 
@@ -101,8 +102,7 @@ export default function PendingConfirmationsPage() {
 
               {/* 其他資訊 */}
               <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mb-4">
-                <div>能力等級：{item.ability_level || '—'}</div>
-                <div>教學語言：{item.language}</div>
+                <div>教學語言：{item.language_label || '未填'}</div>
               </div>
 
               {/* 動作按鈕 */}
@@ -110,7 +110,7 @@ export default function PendingConfirmationsPage() {
                 <button
                   onClick={() => confirmMutation.mutate({ id: item.id, action: 'accept' })}
                   disabled={confirmMutation.isPending}
-                  className="flex-1 px-4 py-2 bg-green-500 text-white text-sm font-medium rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="min-h-11 flex-1 px-4 py-2 bg-green-500 text-white text-sm font-medium rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {confirmMutation.isPending && confirmMutation.variables?.id === item.id && <Loader2 size={14} className="animate-spin" />}
                   <Check size={16} />接受課程
@@ -122,7 +122,7 @@ export default function PendingConfirmationsPage() {
                     }
                   }}
                   disabled={confirmMutation.isPending}
-                  className="flex-1 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="min-h-11 flex-1 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <X size={16} />拒絕
                 </button>

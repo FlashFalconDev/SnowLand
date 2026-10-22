@@ -15,14 +15,14 @@ interface BookingStore extends BookingState {
 
   // Actions - 前置選項
   setSelectedCourseCategory: (id: number, name: string) => void
-  setSelectedResort: (resort: string | null, resortName: string | null) => void
+  setSelectedResort: (resort: string | null, resortName: string | null, campusId?: number | null, campusName?: string | null) => void
   setSelectedCourseType: (id: number | null) => void
   setPeopleCount: (count: number) => void
   setHasUnder6: (has: boolean) => void
   setUnder7CanSelfSki: (can: boolean) => void
   setAbilityLevelCount: (level: string, count: number) => void
   setSelectedAbilityLevel: (level: string) => void
-  setSelectedCoach: (id: number | null) => void
+  setSelectedCoach: (id: number | null, name?: string | null) => void
   setSelectedCourseTemplate: (id: number | null) => void
   setSelectedDate: (date: string | null) => void
   setSelectedTimeSlot: (id: number | null) => void
@@ -38,9 +38,9 @@ interface BookingStore extends BookingState {
   }) => void
 
   // 預約組操作
-  startNewReservationGroup: () => void
+  startNewReservationGroup: (serviceType?: 'ski' | 'photo') => void
   addCourseToCurrentGroup: (course: Course) => void
-  finishCurrentGroupAndAddToCart: () => void
+  finishCurrentGroupAndAddToCart: (replaceGroupId?: string) => void
 
   // 購物車操作
   replaceCart: (cart: CartItem[]) => void
@@ -56,6 +56,8 @@ interface BookingStore extends BookingState {
 const initialState: BookingState = {
   selectedCourseCategory: null,
   selectedResort: null,
+  selectedCampusId: null,
+  selectedCampusName: null,
   selectedCourseType: null,
   peopleCount: 1,
   hasUnder6: false,
@@ -63,6 +65,7 @@ const initialState: BookingState = {
   abilityLevelCounts: {},
   selectedAbilityLevel: 'no_exp',
   selectedCoach: null,
+  selectedCoachName: null,
   selectedCourseTemplate: null,
   selectedDate: null,
   selectedTimeSlot: null,
@@ -89,7 +92,12 @@ export const useBookingStore = create<BookingStore>()(
 
       // 前置選項設定
       setSelectedCourseCategory: (id, name) => set({ selectedCourseCategory: id, selectedCourseCategoryName: name }),
-      setSelectedResort: (resort, resortName) => set({ selectedResort: resort, selectedResortName: resortName }),
+      setSelectedResort: (resort, resortName, campusId = null, campusName = null) => set({
+        selectedResort: resort,
+        selectedResortName: resortName,
+        selectedCampusId: campusId,
+        selectedCampusName: campusName,
+      }),
   setSelectedCourseType: (id) => set({ selectedCourseType: id }),
   setPeopleCount: (count) => set({ peopleCount: count, abilityLevelCounts: {}, selectedAbilityLevel: 'no_exp' }),
   setHasUnder6: (has) => set((state) => ({
@@ -109,7 +117,10 @@ export const useBookingStore = create<BookingStore>()(
     }
   }),
   setSelectedAbilityLevel: (level) => set({ selectedAbilityLevel: level }),
-  setSelectedCoach: (id) => set({ selectedCoach: id }),
+  setSelectedCoach: (id, name = null) => set({
+    selectedCoach: id,
+    selectedCoachName: id ? name : null,
+  }),
   setSelectedCourseTemplate: (id) => set({ selectedCourseTemplate: id }),
   setSelectedDate: (date) => set({ selectedDate: date }),
   setSelectedTimeSlot: (id) => set({ selectedTimeSlot: id }),
@@ -122,12 +133,15 @@ export const useBookingStore = create<BookingStore>()(
   }),
 
       // 開始新的預約組（當前置選項完成時調用）
-      startNewReservationGroup: () => {
+      startNewReservationGroup: (serviceType) => {
         const state = get()
         const newGroup: ReservationGroup = {
           id: `group-${Date.now()}`,
+          ...(serviceType ? { serviceType } : {}),
           coach: state.selectedCoach || 'any',
-          coachName: state.selectedCoach ? `教練 #${state.selectedCoach}` : '不指定',
+          coachName: state.selectedCoach
+            ? (state.selectedCoachName || `教練 #${state.selectedCoach}`)
+            : '不指定',
           peopleCount: state.peopleCount,
           abilityLevel: state.selectedAbilityLevel,
           abilityLevelName: getAbilityLevelSummary(state.abilityLevelCounts) || getAbilityLevelName(state.selectedAbilityLevel),
@@ -139,6 +153,8 @@ export const useBookingStore = create<BookingStore>()(
           language: state.selectedLanguage,
           resort: state.selectedResort || '',
           resortName: state.selectedResortName || state.selectedResort || '',
+          campusId: state.selectedCampusId || 0,
+          campusName: state.selectedCampusName || '',
           courseCategory: state.selectedCourseCategoryName || '未指定', // 使用儲存的名稱
           courseFee: 0,
           coachFee: 0,
@@ -181,14 +197,24 @@ export const useBookingStore = create<BookingStore>()(
     })
   },
 
-  finishCurrentGroupAndAddToCart: () => {
+  finishCurrentGroupAndAddToCart: (replaceGroupId) => {
     set((state) => {
       if (!state.currentReservationGroup || state.currentReservationGroup.courses.length === 0) {
         return state
       }
+      if (replaceGroupId && !state.cart.some(group => group.id === replaceGroupId)) return state
 
       return {
-        cart: [...state.cart, state.currentReservationGroup],
+        cart: replaceGroupId
+          ? state.cart.map(group => group.id === replaceGroupId
+            ? { ...state.currentReservationGroup!, id: replaceGroupId,
+                ...(group.rebookSource
+                  ? group.rebookSource.peopleCount === state.currentReservationGroup!.peopleCount
+                    ? { rebookSource: group.rebookSource }
+                    : { rebookLearnersReset: true }
+                  : group.rebookLearnersReset ? { rebookLearnersReset: true } : {}),
+              } : group)
+          : [...state.cart, state.currentReservationGroup],
         currentReservationGroup: null,
       }
     })

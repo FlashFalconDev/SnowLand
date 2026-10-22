@@ -1,3 +1,4 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
@@ -5,10 +6,14 @@ import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
 import HokkaidoMap from '../../components/site/HokkaidoMap';
 import ResortGrid from '../../components/site/ResortGrid';
-import skiResorts from '../../data/site/skiResorts';
-import guidesArticles from '../../data/site/guidesArticles';
+import { siteContentToArticle, siteContentToResort, useSiteContent } from '../../hooks/useSiteContent';
 
 function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
+  const {t} = useSiteLocale();
+  const { items: resortItems, isLoading: resortsLoading, error: resortsError } = useSiteContent('course.resorts');
+  const { items: articleItems } = useSiteContent('guides.articles');
+  const skiResorts = resortItems.map(siteContentToResort);
+  const guidesArticles = articleItems.map(siteContentToArticle);
   const categoryBadgeStyles = {
     "滑雪初心者": "bg-[var(--tag-beginner-bg)] text-[var(--tag-beginner-text)]",
     "北海道滑雪場": "bg-[var(--tag-resort-bg)] text-[var(--tag-resort-text)]",
@@ -18,7 +23,7 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
     限時活動: "bg-[var(--tag-promo-bg)] text-[var(--tag-promo-text)]"
   };
   const dateToNumber = (value = "") => {
-    const parts = value.split(".").map((part) => part.trim());
+    const parts = value.split(/[.-]/).map((part) => part.trim());
     if (parts.length < 3) return 0;
     const [year, month, day] = parts.map((part) => Number.parseInt(part, 10) || 0);
     return year * 10000 + month * 100 + day;
@@ -43,35 +48,41 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
             Hokkaido Ski Resorts
           </p>
           <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-            {title}
+            {t(title)}
           </h1>
         </section>
 
         <section className="mt-12">
           <div className="mt-6">
-            <HokkaidoMap resorts={skiResorts} initialActiveSlug={initialActiveSlug} />
+            {resortsLoading && <p className="py-16 text-center text-sm text-[#64748b]">{t("正在載入雪場…")}</p>}
+            {!resortsLoading && resortsError && <p className="py-16 text-center text-sm text-red-600">{t("雪場資料暫時無法載入，請稍後再試。")}</p>}
+            {!resortsLoading && !resortsError && skiResorts.length > 0 && (
+              <HokkaidoMap resorts={skiResorts} initialActiveSlug={initialActiveSlug} />
+            )}
           </div>
         </section>
 
         <section className="mt-16 border-t border-[#e2e8f0] pt-12">
           <div className="text-center">
-            <h2 className="text-2xl font-semibold text-[#1f2937] font-display">雪場列表總覽</h2>
+            <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("雪場列表總覽")}</h2>
           </div>
           <div className="mt-6">
-            <ResortGrid resorts={skiResorts} />
+            {skiResorts.length > 0 ? (
+              <ResortGrid resorts={skiResorts} />
+            ) : !resortsLoading && !resortsError ? (
+              <p className="py-12 text-center text-sm text-[#64748b]">{t("目前沒有已發布的雪場資料。")}</p>
+            ) : null}
           </div>
         </section>
 
         <section className="mt-16">
           <div className="flex items-center gap-4">
-            <h2 className="text-2xl font-semibold text-[#1f2937] font-display">
-              延伸閱讀
-            </h2>
+            <h2 className="text-2xl font-semibold text-[#1f2937] font-display">{t("延伸閱讀")}</h2>
             <div className="h-px flex-1 bg-[#e2e8f0]" />
           </div>
           <div className="mt-8 grid w-full max-w-4xl mx-auto gap-6 md:grid-cols-2 lg:grid-cols-3">
             {relatedArticles.map((article) => {
-              const localRoute = localArticleRoutes[article.url];
+              const localRoute = article.url.startsWith('/') ? article.url : localArticleRoutes[article.url];
               const CardWrapper = localRoute ? SiteLink : "a";
               const wrapperProps = localRoute
                 ? { to: localRoute }
@@ -88,7 +99,6 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
                       src={article.image}
                       alt={article.title}
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                      loading="lazy"
                     />
                   </div>
                   <div className="p-5 space-y-3">
@@ -96,7 +106,7 @@ function SkiResortsPage({ title = "雪場攻略", initialActiveSlug }) {
                       <span
                         className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold tracking-[0.2em] uppercase font-display ${categoryBadgeStyles[article.category] || "bg-[#e2e8f0] text-[#475569]"}`}
                       >
-                        {article.category}
+                        {t(article.category)}
                       </span>
                     )}
                     {article.date && (

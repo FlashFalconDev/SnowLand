@@ -14,7 +14,7 @@ from datetime import timedelta
 from pathlib import Path
 import os
 import platform
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 import pymysql
 import boto3
 import logging
@@ -47,8 +47,49 @@ SECRET_KEY = "django-insecure-6m9s&&mrr%$5oie!_2wc-byua$@8c*oggvsef(94lkoil0j4i*
 # SECURITY WARNING: don't run with debug turned on in production!
 # if platform.system() == 'Windows':
 DEBUG = True
+LOCAL_AUTH_BYPASS = os.getenv('SNOWLAND_LOCAL_AUTH_BYPASS', '0') == '1'
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND') or (
+    'django.core.mail.backends.console.EmailBackend'
+    if os.getenv('Mysql_HOST') in {'127.0.0.1', 'localhost'} and os.getenv('Mysql_NAME') == 'test_snowland'
+    else 'django.core.mail.backends.smtp.EmailBackend'
+)
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', '0') == '1'
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', '0') == '1'
+EMAIL_TIMEOUT = 15
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'webmaster@localhost')
+SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '0') == '1'
+SNOWLAND_CONTACT_RATE = os.getenv('SNOWLAND_CONTACT_RATE', '5/min')
+# Dedicated key is required: do not derive stored OAuth-token encryption from
+# the legacy Django SECRET_KEY or expose these settings to frontend builds.
+SNOWLAND_INSTAGRAM_APP_ID = os.getenv('SNOWLAND_INSTAGRAM_APP_ID', '').strip()
+SNOWLAND_INSTAGRAM_APP_SECRET = os.getenv('SNOWLAND_INSTAGRAM_APP_SECRET', '').strip()
+SNOWLAND_INSTAGRAM_REDIRECT_URI = os.getenv('SNOWLAND_INSTAGRAM_REDIRECT_URI', '').strip()
+SNOWLAND_INSTAGRAM_TOKEN_KEY = os.getenv('SNOWLAND_INSTAGRAM_TOKEN_KEY', '').strip()
+SNOWLAND_INSTAGRAM_API_VERSION = os.getenv('SNOWLAND_INSTAGRAM_API_VERSION', '').strip()
+# Trust forwarded visitor IPs only from explicitly configured reverse proxies.
+SNOWLAND_CONTACT_TRUSTED_PROXY_IPS = [value.strip() for value in os.getenv('SNOWLAND_CONTACT_TRUSTED_PROXY_IPS', '').split(',') if value.strip()]
+GOOGLE_OAUTH_CLIENT_ID = (
+    os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
+    or (dotenv_values(BASE_DIR.parent / '.env').get('VITE_GOOGLE_CLIENT_ID') or '').strip()
+    or '754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com'
+)
+NEWEBPAY_MERCHANT_ID = os.getenv('NEWEBPAY_MERCHANT_ID', '').strip()
+NEWEBPAY_HASH_KEY = os.getenv('NEWEBPAY_HASH_KEY', '').strip()
+NEWEBPAY_HASH_IV = os.getenv('NEWEBPAY_HASH_IV', '').strip()
 RUN_HOST = 'https://dev.flashfalcon.info'
 PAYMENT_HOST = 'https://dev.flashfalcon.info/booking/payment/'
+SNOWLAND_PUBLIC_PAYMENT_URL = os.getenv('SNOWLAND_PUBLIC_PAYMENT_URL', '').strip() or (
+    'http://127.0.0.1:3000/snowland/payment'
+    if os.getenv('Mysql_HOST') in {'127.0.0.1', 'localhost'} and os.getenv('Mysql_NAME') == 'test_snowland'
+    else ''
+)
+PRIVATE_COURSE_MEDIA_ROOT = Path(os.getenv('SNOWLAND_PRIVATE_COURSE_MEDIA_ROOT', '').strip() or BASE_DIR / 'private_course_media')
+COURSE_MEDIA_MAX_PHOTO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_PHOTO_BYTES') or 20 * 1024 * 1024)
+COURSE_MEDIA_MAX_VIDEO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_VIDEO_BYTES') or 100 * 1024 * 1024)
 # else:
 #     DEBUG = False
 #     RUN_HOST = 'https://www.flashfalcon.info'
@@ -116,6 +157,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "snowland.middleware.LocalAuthBypassMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
@@ -130,6 +172,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8999',
     'http://127.0.0.1:8999',
     'http://localhost:3000',  # 前端開發服務器
+    'http://127.0.0.1:3000',  # 同一套前端的 loopback IP 網址
 ]
 
 # CORS 設定：允許前端跨域請求
@@ -185,6 +228,14 @@ CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = False
 # CSRF_COOKIE_DOMAIN = None  # 🔥 不設定，讓 Cookie 只綁定到設定它的域名
 
+# 本機純 HTTP 的測試網址不能儲存 Secure Cookie；僅在明確啟用時放寬。
+if DEBUG and os.getenv('SNOWLAND_LOCAL_HTTP') == '1':
+    SESSION_COOKIE_NAME = 'snowland_local_sessionid'
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SECURE = False
+
 # 🔥 Django REST Framework 設定
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -232,7 +283,7 @@ DATABASES = {
         'USER': os.getenv('Mysql_USER'),
         'PASSWORD': os.getenv('Mysql_PASSWORD'),
         'HOST': os.getenv('Mysql_HOST'),
-        'PORT': '3306',
+        'PORT': os.getenv('Mysql_PORT', '3306'),
         'OPTIONS': {
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES', default_storage_engine=INNODB"

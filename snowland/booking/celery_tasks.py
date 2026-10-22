@@ -2,7 +2,7 @@
 Celery 定時任務配置
 
 用途：
-1. 自動檢查未付款預約（每 10 分鐘檢查，超過 24 小時才取消）
+1. 自動檢查未付款預約（每 10 分鐘檢查，依訂單保留期限取消）
 2. 清除過期快取（每天凌晨 3 點執行）
 
 使用前需先安裝：
@@ -20,7 +20,7 @@ def scheduled_auto_cancel_reservations():
     """
     定時任務：自動取消未付款預約
 
-    執行頻率：每 10 分鐘檢查一次；實際取消條件由 tasks.py 的 24 小時規則判斷。
+    執行頻率：每 10 分鐘檢查一次；實際取消條件由訂單的到期時間判斷。
     """
     try:
         auto_cancel_unpaid_reservations()
@@ -60,7 +60,7 @@ CELERY_TIMEZONE = 'Asia/Taipei'
 CELERY_BEAT_SCHEDULE = {
     'auto-cancel-unpaid-reservations': {
         'task': 'booking.celery_tasks.scheduled_auto_cancel_reservations',
-        'schedule': 600.0,  # 每 10 分鐘檢查一次；未付款滿 24 小時才取消
+        'schedule': 600.0,  # 每 10 分鐘檢查一次；依訂單保留期限取消
     },
     'clear-expired-cache': {
         'task': 'booking.celery_tasks.scheduled_clear_expired_cache',

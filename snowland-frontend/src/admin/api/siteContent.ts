@@ -1,5 +1,30 @@
 import adminApi from './axios'
 
+export interface AboutSchema {
+  version: number; page_key: 'about' | 'join-us'; title: string
+  sections: { id: string; label: string; fields: { key: string; kind: 'text' | 'image' | 'link'; label: string; value: string; source_heading?: string; source_first?: boolean; source_contains?: string }[] }[]
+}
+
+export async function fetchAboutSchema(): Promise<AboutSchema> {
+  const res = (await adminApi.get('/site-content/about-schema/')) as unknown as { data: AboutSchema }
+  return res.data
+}
+
+export async function fetchJoinSchema(): Promise<AboutSchema> {
+  const res = (await adminApi.get('/site-content/join-schema/')) as unknown as { data: AboutSchema }
+  return res.data
+}
+
+export interface PhotographySchema {
+  season: 'winter' | 'summer'; version: number; title: string
+  sections: { id: string; label: string; fields: { key: string; kind: 'text' | 'image' | 'link'; label: string; value: string }[] }[]
+}
+
+export async function fetchPhotographySchema(season: 'winter' | 'summer'): Promise<PhotographySchema> {
+  const res = (await adminApi.get('/site-content/photography-schema/', { params: { season } })) as unknown as { data: PhotographySchema }
+  return res.data
+}
+
 export type SiteContentType =
   | 'page'
   | 'offer'
@@ -40,6 +65,22 @@ export type SiteContentWriteData = Omit<SiteContentItem, 'id' | 'computed_status
 
 interface ListResp<T> { code: number; msg: string; data: { list: T[]; total: number } }
 interface DetailResp<T> { code: number; msg: string; data: T }
+
+export async function fetchCurrentWaiver(): Promise<{title:string;body:string;version:string;source_url:string;is_draft:boolean}> {
+  const response = await adminApi.get('/site-content/waiver-current/') as unknown as DetailResp<{title:string;body:string;version:string;source_url:string;is_draft:boolean}>
+  return response.data
+}
+
+export async function fetchReviewContentGroups(): Promise<unknown[]> {
+  const res = (await adminApi.get('/site-content/review-locations/')) as unknown as {data: {groups: unknown[]}}
+  return res.data?.groups || []
+}
+
+export interface ReviewCoachChoice { id: number; name: string; website_enabled: boolean }
+export async function fetchReviewCoachChoices(): Promise<ReviewCoachChoice[]> {
+  const res = (await adminApi.get('/site-content/review-coaches/')) as unknown as {data: {list: ReviewCoachChoice[]}}
+  return res.data?.list || []
+}
 
 export async function fetchSiteContents(params?: {
   content_type?: SiteContentType

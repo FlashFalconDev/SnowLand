@@ -1,8 +1,21 @@
 import api from './axios'
 import { CourseCategory, Resort, CourseType, CourseTemplate } from '@/types/booking'
+import type { CourseSession } from '@/types/booking'
 
 const DISCOUNT_PREVIEW_TIMEOUT_MS = 30000
 const RESERVATION_SUBMIT_TIMEOUT_MS = 120000
+
+export interface CheckoutPolicyAcceptance {
+  terms: boolean
+  privacy: boolean
+  terms_version: string
+  privacy_version: string
+}
+export interface CheckoutPolicies {
+  documents: Record<'terms' | 'privacy', { title: string; body: string; version: string }>
+  pages: Record<string, { title: string; body: string; html: string }>
+}
+export const fetchCheckoutPolicies = async (): Promise<CheckoutPolicies> => api.get('/checkout-policies/')
 
 export interface SiteContentItem {
   id: number
@@ -26,11 +39,13 @@ export interface SiteContentItem {
 }
 
 export const fetchSiteContent = async (params?: {
+  content_id?: string | number
   content_type?: string
   location_key?: string
   tag?: string
   limit?: number
   include_ended?: boolean
+  view?: 'cards'
 }): Promise<SiteContentItem[]> => {
   return api.get('/site-content/', { params })
 }
@@ -62,8 +77,8 @@ export const fetchCoaches = async (params: {
   courseTemplate?: number | string
   courseDates?: string
   timeSlot?: number | string
-}) => {
-  return api.get('/coaches/', { params })
+}): Promise<{ coach_list: any[]; courses?: any[] }> => {
+  return await api.get('/coaches/', { params }) as unknown as { coach_list: any[]; courses?: any[] }
 }
 
 // 從 Django 獲取課程模板
@@ -75,17 +90,27 @@ export const fetchCourseTemplates = async (params?: {
 }
 
 // 從 Django 獲取課程時段（可選帶 date 檢查容量+合規範）
-export const fetchCourseSessions = async (templateId?: number, date?: string) => {
+export interface SharedClassLookup {
+  campus_id?: number | null
+  resort?: string | null
+  ability_level?: string | null
+  language?: string | null
+  people_count?: number
+}
+
+export const fetchCourseSessions = async (templateId?: number, date?: string, lookup?: SharedClassLookup): Promise<CourseSession[]> => {
   const params: any = {}
   if (templateId) params.template_id = templateId
   if (date) params.date = date
-  return api.get('/course-sessions/', { params })
+  if (lookup) Object.assign(params, lookup)
+  return await api.get('/course-sessions/', { params }) as unknown as CourseSession[]
 }
 
 // 取得某模板某月的可預約日期清單
 export const fetchAvailableDates = async (
   templateId: number,
-  month?: string  // YYYY-MM
+  month?: string,  // YYYY-MM
+  lookup?: SharedClassLookup,
 ): Promise<{
   template_id: number
   month: string
@@ -94,8 +119,16 @@ export const fetchAvailableDates = async (
   course_start_date: string | null
   course_end_date: string | null
   available_dates: string[]
+  shared_class_dates: Record<string, Array<{
+    start_time: string
+    end_time: string
+    status: 'collecting' | 'ready'
+    registered_students: number
+    minimum_students: number
+    remaining_capacity: number
+  }>>
 }> => {
-  const params = month ? { month } : {}
+  const params = { ...(month ? { month } : {}), ...lookup }
   return (await api.get(`/course-templates/${templateId}/available-dates/`, { params })) as any
 }
 
@@ -122,6 +155,8 @@ export interface CalculatePriceResponse {
   course_type_name?: string
   course_template_name?: string
   duration_hours?: number
+  billing_mode?: 'private' | 'per_person'
+  billing_mode_label?: string
 }
 
 export const calculatePrice = async (params: CalculatePriceParams): Promise<CalculatePriceResponse> => {
@@ -130,6 +165,11 @@ export const calculatePrice = async (params: CalculatePriceParams): Promise<Calc
 
 // 創建預約
 export interface CreateReservationParams {
+  currency?: 'TWD' | 'JPY'
+  currency_rate?: string
+  staff_link?: string
+  accepted_policy?: boolean
+  policy_acceptance?: CheckoutPolicyAcceptance | null
   contact?: {
     name?: string
     email?: string
@@ -178,6 +218,10 @@ export interface CreateReservationParams {
   }>
 }
 
+export async function resolveStaffBookingLink(token: string): Promise<{ token: string; title: string; campus: { id: number; name: string }; created_by: string; cart_snapshot: import('@/types/booking').CartItem[] }> {
+  return await api.get(`/staff-booking-link/${token}/`) as unknown as { token: string; title: string; campus: { id: number; name: string }; created_by: string; cart_snapshot: import('@/types/booking').CartItem[] }
+}
+
 export interface DiscountPreviewDiscount {
   id: number
   code: string
@@ -214,6 +258,7 @@ export interface CreateReservationResponse {
   pending_coach_confirmation?: boolean
   conflict_details?: any
   requires_payment?: boolean
+  shared_class_status?: 'collecting' | 'ready'
   payment_url?: string  // 單一預約組的付款URL
   payment_urls?: Array<{  // 多個預約組的付款URLs
     reservation_group_id: number

@@ -14,6 +14,10 @@ export interface AdminUser {
   is_manager?: boolean
   is_coach?: boolean
   permissions?: string[]
+  role?: string
+  assigned_campus_ids?: number[]
+  campuses?: { id: number; name: string; code: string; is_active: boolean }[]
+  can_view_all_campuses?: boolean
 }
 
 export interface AdminMeResult {

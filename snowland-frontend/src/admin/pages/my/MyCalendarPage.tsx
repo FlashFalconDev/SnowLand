@@ -1,11 +1,13 @@
 /**
  * 教練我的月曆
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2 } from 'lucide-react'
 import { fetchMyCalendar, type MyCalendarBooking } from '../../api/extras'
+import { useSiteLink } from '@/hooks/useSiteBasePath'
+import { formatAbilityLevel } from '@/utils/learningProgress'
 
 const PRIMARY = '#8b5cf6'
 const EQUIPMENT_COLOR = '#d97706'
@@ -38,6 +40,8 @@ const getCoachRequestLabel = (booking: MyCalendarBooking) =>
 
 export default function MyCalendarPage() {
   const navigate = useNavigate()
+  const myCoursesUrl = useSiteLink('/console/my/courses')
+  const dayDetailRef = useRef<HTMLDivElement>(null)
   const today = new Date()
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1))
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
@@ -66,6 +70,12 @@ export default function MyCalendarPage() {
   const getBookingsForDate = (dateStr: string) => bookings.filter((b) => b.date === dateStr)
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const selectedBookings = selectedDate ? getBookingsForDate(selectedDate) : []
+  const selectDate = (date: string) => {
+    setSelectedDate(date)
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      requestAnimationFrame(() => dayDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    }
+  }
   const openMyCourse = (booking: MyCalendarBooking) => {
     setSelectedDate(booking.date)
     const courseDate = booking.linked_course_date || booking.date
@@ -74,7 +84,7 @@ export default function MyCalendarPage() {
       date_to: courseDate,
     })
     if (booking.reservation_id) params.set('reservation_id', String(booking.reservation_id))
-    navigate(`../courses?${params.toString()}`)
+    navigate(`${myCoursesUrl}?${params.toString()}`)
   }
 
   return (
@@ -82,7 +92,7 @@ export default function MyCalendarPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">我的月曆</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">您本月的課程行事曆</p>
-        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">可查看過往與未來課程，切換月份即可確認該月排程</p>
+        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">僅列已回報付款或已付款課程；尚未回報付款的不顯示。可查過往課程；未來依教練設定（一般為10天）。</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
@@ -91,9 +101,9 @@ export default function MyCalendarPage() {
             <h3 className="font-semibold text-gray-900 dark:text-white text-lg">{year} 年 {month + 1} 月</h3>
             <div className="flex items-center gap-2">
               <button onClick={() => { setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelectedDate(todayStr) }}
-                className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
-              <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
-              <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
+                className="min-h-11 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">今天</button>
+              <button aria-label="月曆上一個月" onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="min-h-11 min-w-11 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronLeft size={16} /></button>
+              <button aria-label="月曆下一個月" onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="min-h-11 min-w-11 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><ChevronRight size={16} /></button>
             </div>
           </div>
 
@@ -108,7 +118,7 @@ export default function MyCalendarPage() {
               </div>
               <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
                 {cells.map((cell, i) => {
-                  if (!cell.date) return <div key={i} className="bg-gray-50 dark:bg-gray-900 min-h-[100px]" />
+                  if (!cell.date) return <div key={i} className="min-h-[68px] bg-gray-50 dark:bg-gray-900 sm:min-h-[100px]" />
                   const dayBookings = getBookingsForDate(cell.dateStr)
                   const isToday = cell.dateStr === todayStr
                   const isSelected = cell.dateStr === selectedDate
@@ -116,20 +126,24 @@ export default function MyCalendarPage() {
                   return (
                     <div
                       key={i}
-                      onClick={() => setSelectedDate(cell.dateStr)}
+                      onClick={() => selectDate(cell.dateStr)}
                       role="button"
+                      aria-label={`${cell.dateStr}，${dayBookings.length} 項課程`}
                       tabIndex={0}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') setSelectedDate(cell.dateStr)
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          selectDate(cell.dateStr)
+                        }
                       }}
-                      className={`bg-white dark:bg-gray-800 min-h-[100px] p-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${isSelected ? 'ring-2 ring-inset' : ''}`}
+                      className={`min-h-[68px] bg-white p-1 text-left transition-colors hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 sm:min-h-[100px] sm:p-2 ${isSelected ? 'ring-2 ring-inset' : ''}`}
                       style={isSelected ? ({ '--tw-ring-color': PRIMARY } as any) : undefined}>
                       <div className="flex items-center justify-between">
                         <span className={`text-sm font-medium ${isToday ? 'text-white rounded-full w-6 h-6 flex items-center justify-center' : 'text-gray-900 dark:text-white'}`}
                           style={isToday ? { backgroundColor: PRIMARY } : undefined}>{cell.date.getDate()}</span>
-                        {dayBookings.length > 0 && <span className="text-xs text-gray-500">{dayBookings.length} 項</span>}
+                        {dayBookings.length > 0 && <span className="text-[10px] text-violet-600 dark:text-violet-300 sm:text-xs sm:text-gray-500">{dayBookings.length} 項</span>}
                       </div>
-                      <div className="mt-1 space-y-0.5">
+                      <div className="mt-1 hidden space-y-0.5 sm:block">
                         {dayBookings.slice(0, 2).map((b) => {
                           const eventColor = getEventColor(b.event_type)
                           return (
@@ -158,7 +172,7 @@ export default function MyCalendarPage() {
           )}
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div ref={dayDetailRef} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
             <CalendarIcon size={16} style={{ color: PRIMARY }} />
             <h3 className="font-semibold text-gray-900 dark:text-white text-sm">{selectedDate || '選擇一天查看'}</h3>
@@ -201,7 +215,7 @@ export default function MyCalendarPage() {
                       <div><span className="text-gray-400">課程</span> {b.course_type || '-'}</div>
                       <div><span className="text-gray-400">人數</span> {b.number_of_people} 人</div>
                       <div><span className="text-gray-400">雪場</span> {b.resort || '-'}</div>
-                      <div><span className="text-gray-400">程度</span> {b.ability_level || '-'}</div>
+                      <div><span className="text-gray-400">程度</span> {formatAbilityLevel(b.ability_level)}</div>
                     </div>
                     <div className="text-xs text-gray-500 mt-1 space-y-0.5">
                       <div>學員：{b.user_name}（{b.number_of_people} 人）</div>

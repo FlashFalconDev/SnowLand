@@ -5,6 +5,8 @@ import path from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // 本機啟動腳本將 SnowLand 的公開 OAuth Client ID 放在專案根目錄 .env.local。
+  envDir: path.resolve(__dirname, '..'),
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -14,15 +16,15 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:8999',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8999',
         changeOrigin: true,
       },
       '/booking': {
-        target: 'http://localhost:8999',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8999',
         changeOrigin: true,
       },
       '/control': {
-        target: 'http://localhost:8999',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8999',
         changeOrigin: true,
       },
     },

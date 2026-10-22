@@ -69,8 +69,8 @@ export default function CoachSelector({ onNext, onBack }: CoachSelectorProps) {
     return matchesSearch && matchesLanguage
   })
 
-  const handleSelectCoach = (coachId: number | null) => {
-    setSelectedCoach(coachId)
+  const handleSelectCoach = (coachId: number | null, coachName?: string) => {
+    setSelectedCoach(coachId, coachName)
     onNext()
   }
 
@@ -163,7 +163,7 @@ export default function CoachSelector({ onNext, onBack }: CoachSelectorProps) {
             filteredCoaches.map((coach) => (
               <button
                 key={coach.id}
-                onClick={() => handleSelectCoach(coach.id)}
+                onClick={() => handleSelectCoach(coach.id, coach.name)}
                 className="w-full rounded-xl border-2 border-gray-200 bg-white p-4 text-left transition-all hover:border-primary-500 hover:shadow-lg"
               >
                 <div className="flex items-center gap-4">

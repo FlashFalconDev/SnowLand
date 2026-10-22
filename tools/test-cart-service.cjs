@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path'), Module = require('node:module'), vm = require('node:vm')
+const root = path.resolve(__dirname, '../snowland-frontend'), req = Module.createRequire(path.join(root, 'package.json')), ts = req('typescript')
+const ctx = vm.createContext({exports:{}})
+vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root, 'src/utils/cartService.ts'), 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText, ctx)
+const photo = ctx.exports.isPhotoCartGroup
+assert.equal(photo({serviceType:'photo',courseCategory:'QA影像方案',courses:[]}),true)
+assert.equal(photo({serviceType:'ski',courseCategory:'滑雪攝影介紹',courses:[]}),false,'明確服務設定優先於名稱')
+for(const name of ['攝影', '旅拍', 'Photography', 'Photo']) assert.equal(photo({courseCategory:name,courses:[]}),true)
+assert.equal(photo({courseCategory:'單板',courses:[]}),false)
+assert.equal(photo({courses:[{courseTypeName:'家庭旅拍',courseTemplateName:'一小時'}]}),true)
+assert.equal(photo({}),false)
+console.log('PASS cart service: explicit type, renamed categories, legacy names, missing data and ski priority')

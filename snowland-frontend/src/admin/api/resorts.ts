@@ -65,7 +65,10 @@ export interface Resort {
   id: number
   name: string
   display_name: string
+  campus_assignments?: { id: number; name: string; is_active: boolean }[]
   auto_scheduling_enabled: boolean
+  trail_names?: string[]
+  can_manage?: boolean
   fees: ResortFee[]
   equipment_tiers: EquipmentPricingTier[]
   equipment_rental_items: EquipmentRentalItem[]
@@ -76,10 +79,19 @@ export interface ResortWriteData {
   name: string
   display_name: string
   auto_scheduling_enabled: boolean
+  trail_names?: string[]
   fees_input?: ResortFee[]
   equipment_tiers_input?: EquipmentPricingTier[]
   equipment_rental_items_input?: EquipmentRentalItem[]
   equipment_time_slots_input?: EquipmentAssistanceTimeSlot[]
+}
+
+export interface ResortCourseTemplateOption {
+  id: number
+  name: string
+  course_type_name: string
+  duration_hours: number
+  resorts: number[]
 }
 
 interface ListResp { code: number; msg: string; data: { list: Resort[]; total: number } }
@@ -87,6 +99,18 @@ interface DetailResp { code: number; msg: string; data: Resort }
 
 export async function fetchResorts(): Promise<Resort[]> {
   const res = (await adminApi.get('/resorts/')) as unknown as ListResp
+  return res.data?.list || []
+}
+
+export async function fetchAllAccessibleResorts(): Promise<Resort[]> {
+  const res = (await adminApi.get('/resorts/', { headers: { 'X-Campus-ID': 'all' } })) as unknown as ListResp
+  return res.data?.list || []
+}
+
+export async function fetchResortCourseTemplateOptions(): Promise<ResortCourseTemplateOption[]> {
+  const res = (await adminApi.get('/resorts/course-template-options/')) as unknown as {
+    data: { list: ResortCourseTemplateOption[] }
+  }
   return res.data?.list || []
 }
 

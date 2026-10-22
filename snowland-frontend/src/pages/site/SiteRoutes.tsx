@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ScrollToTop from '@/components/site/ScrollToTop'
+import { useSiteLocale } from '@/contexts/SiteLocale'
 
 // HomePage is loaded eagerly — it's the first thing users see
 import HomePage from './HomePage'
@@ -17,10 +18,12 @@ const NewsPage = lazy(() => import('./NewsPage'))
 const TomamuCoursePage = lazy(() => import('./TomamuCoursePage'))
 const HokkaidoCoursePage = lazy(() => import('./HokkaidoCoursePage'))
 const ResortCoursePage = lazy(() => import('./ResortCoursePage'))
+const CourseAreaPage = lazy(() => import('../../components/site/CourseAreaPage'))
 const OffPisteGuidePage = lazy(() => import('./OffPisteGuidePage'))
 const CourseHowToBookPage = lazy(() => import('./CourseHowToBookPage'))
 const SkiResortsPage = lazy(() => import('./SkiResortsPage'))
 const GuidesCollectionPage = lazy(() => import('./GuidesCollectionPage'))
+const GuideArticlePage = lazy(() => import('./GuideArticlePage'))
 const BestHokkaidoTreeRunsPage = lazy(() => import('./BestHokkaidoTreeRunsPage'))
 const PackingChecklistPage = lazy(() => import('./PackingChecklistPage'))
 const LegacyContentPage = lazy(() => import('./LegacyContentPage'))
@@ -52,6 +55,7 @@ function usePreloadPages() {
 
 // Loading spinner shown while lazy pages load
 function PageLoading() {
+  const { t } = useSiteLocale()
   return (
     <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="text-center">
@@ -60,7 +64,7 @@ function PageLoading() {
           <div className="absolute inset-0 rounded-full border-2 border-t-[#2b5f8f] animate-spin" />
         </div>
         <p className="text-sm text-[#6b7280] font-display tracking-wide">
-          載入中...
+          {t('載入中…')}
         </p>
       </div>
     </div>
@@ -73,6 +77,11 @@ function SapporoRedirect() {
     ? `/course/sapporo-kokusai/${section}`
     : '/course/sapporo-kokusai'
   return <Navigate to={target} replace />
+}
+
+function ResortOrAreaPage() {
+  const {resort} = useParams()
+  return resort?.endsWith('-area') ? <CourseAreaPage /> : <ResortCoursePage />
 }
 
 export default function SiteRoutes() {
@@ -98,7 +107,7 @@ export default function SiteRoutes() {
           <Route path="/course/sapporo/:section" element={<SapporoRedirect />} />
           <Route path="/course/off-piste-guide" element={<OffPisteGuidePage />} />
           <Route path="/course/hokkaido" element={<HokkaidoCoursePage />} />
-          <Route path="/course/:resort" element={<ResortCoursePage />} />
+          <Route path="/course/:resort" element={<ResortOrAreaPage />} />
           <Route path="/course/:resort/:section" element={<ResortCoursePage />} />
           <Route path="/course/how-to-book" element={<CourseHowToBookPage />} />
 
@@ -113,6 +122,7 @@ export default function SiteRoutes() {
           <Route path="/guides/preparation" element={<LegacyContentPage key="guides-preparation" pageKey="guides-preparation" />} />
           <Route path="/guides/faq" element={<LegacyContentPage key="guides-faq" pageKey="guides-faq" />} />
           <Route path="/guides" element={<GuidesCollectionPage />} />
+          <Route path="/guides/articles/:articleId" element={<GuideArticlePage />} />
           <Route path="/guides/:category" element={<GuidesCollectionPage />} />
           <Route path="/guides/best-hokkaido-tree-runs" element={<BestHokkaidoTreeRunsPage />} />
           <Route path="/guides/packing-checklist" element={<PackingChecklistPage />} />

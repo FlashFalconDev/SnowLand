@@ -1,17 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-const KNOWN_COACH_SLUGS = [
-  { slug: 'cash', tokens: ['cash'] },
-  { slug: 'lily', tokens: ['lily'] },
-  { slug: 'qizhen', tokens: ['七針', 'qizhen'] },
-  { slug: 'dylan', tokens: ['dylan'] },
-  { slug: 'eric', tokens: ['eric'] },
-  { slug: 'vicky', tokens: ['vicky'] },
-  { slug: 'lin', tokens: ['小霖', 'lin'] },
-  { slug: 'karen', tokens: ['karen'] },
-  { slug: 'naomi', tokens: ['naomi'] },
-  { slug: 'bernie', tokens: ['bernie'] },
-];
 
 function getClientCode() {
   const pathParts = window.location.pathname.split('/').filter(Boolean);
@@ -19,9 +7,12 @@ function getClientCode() {
   return localStorage.getItem('client_code') || 'snowland';
 }
 
-export async function fetchWebsiteCoaches() {
+export async function fetchWebsiteCoaches({ includeProfile = false, slug = '' } = {}) {
   const clientCode = getClientCode();
-  const response = await fetch(`/booking/${encodeURIComponent(clientCode)}/api/website-coaches/`, {
+  const params = new URLSearchParams();
+  if (includeProfile) params.set('include_profile', '1');
+  if (slug) params.set('slug', slug);
+  const response = await fetch(`/booking/${encodeURIComponent(clientCode)}/api/website-coaches/${params.size ? '?' + params.toString() : ''}`, {
     credentials: 'include',
   });
 
@@ -33,92 +24,66 @@ export async function fetchWebsiteCoaches() {
   return payload?.data?.list || [];
 }
 
-function normalizeText(value) {
-  return `${value || ''}`.trim().toLowerCase();
-}
 
 function normalizeImage(value) {
   const image = `${value || ''}`.trim();
   return image.toLowerCase() === 'none' ? '' : image;
 }
 
-function inferSlug(coach) {
-  const name = normalizeText(coach?.name);
-  const slug = normalizeText(coach?.slug);
-  const match = KNOWN_COACH_SLUGS.find((item) =>
-    item.slug === slug || item.tokens.some((token) => name.includes(normalizeText(token)))
-  );
-
-  return match?.slug || coach?.slug || '';
-}
-
-function getStaticCoach(coach, staticBySlug, staticByName) {
-  const inferredSlug = inferSlug(coach);
-  return staticBySlug.get(inferredSlug) || staticByName.get(coach?.name) || null;
-}
-
-function withLegacyImage(coach, legacyImageByName) {
+export function websiteCoachDetail(coach) {
+  const profile = coach?.profile && typeof coach.profile === 'object' && !Array.isArray(coach.profile) ? coach.profile : {};
+  const strings = value => Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
+  const images = value => Array.isArray(value) ? value.filter(item => item && typeof item.src === 'string' && /^(https?:\/\/|\/(?!\/))/.test(item.src)).map(item => ({ ...item, alt: typeof item.alt === 'string' ? item.alt : '' })) : [];
+  const sections = Array.isArray(profile.sections) ? profile.sections.filter(section => section && typeof section.title === 'string').map(section => ({ ...section, lines: strings(section.lines), media: images(section.media), lead: typeof section.lead === 'string' ? section.lead : '' })) : [];
+  const certifications = Array.isArray(coach.certifications) ? coach.certifications.filter(item => item && typeof item.text === 'string') : [];
+  const certificateLines = certifications.map(item => item.text).filter(Boolean);
   return {
-    ...coach,
-    image: legacyImageByName.get(coach.name) || coach.image,
+    ...profile,
+    name: coach.name || '',
+    slug: coach.slug || '',
+    image: normalizeImage(coach.image),
+    detailImage: normalizeImage(coach.image) === normalizeImage(profile.image) ? normalizeImage(profile.detailImage) || normalizeImage(coach.image) : normalizeImage(coach.image),
+    coachType: coach.coach_type || '',
+    cardBio: coach.card_bio || '',
+    languages: coach.languages_text || (coach.languages_display || []).join(' / '),
+    sections: [...sections.filter(section => !['專業證照', '滑雪證照'].includes(section.title)), ...(certificateLines.length ? [{ title: '專業證照', lines: certificateLines }] : [])],
+    videos: Array.isArray(profile.videos) ? profile.videos.filter(item => item && typeof item.src === 'string' && /^https?:\/\//.test(item.src)).map(item => ({ ...item, title: typeof item.title === 'string' ? item.title : '課程影片' })) : [],
+    reviews: Array.isArray(profile.reviews) ? profile.reviews.filter(item => item && typeof item === 'object').map(item => ({ ...item, name: typeof item.name === 'string' ? item.name : '', time: typeof item.time === 'string' ? item.time : '', paragraphs: strings(item.paragraphs), photos: images(item.photos) })) : [],
+    heroBadges: strings(profile.heroBadges),
+    abilityTags: { snowboard: strings(profile.abilityTags?.snowboard), ski: strings(profile.abilityTags?.ski) },
+    certifications,
   };
 }
 
-export function getFallbackCoachCards(staticCoaches, legacyImageByName = new Map()) {
-  return staticCoaches.map((coach) => withLegacyImage(coach, legacyImageByName));
+export function websiteCoachCards(apiCoaches) {
+  return apiCoaches.map(coach => ({
+    websiteCoachId: coach.id,
+    name: coach.name || '',
+    slug: coach.slug || '',
+    image: normalizeImage(coach.image),
+    alt: coach.name || 'Coach portrait',
+    coachType: coach.coach_type || '',
+    certifications: Array.isArray(coach.certifications) ? coach.certifications : [],
+    certificationText: coach.certification_text || '',
+    cardBio: coach.card_bio || '',
+    languages: coach.languages_text || (coach.languages_display || []).join(' / '),
+  }));
 }
 
-export function mergeWebsiteCoachesWithStatic(apiCoaches, staticCoaches, legacyImageByName = new Map()) {
-  const staticBySlug = new Map(staticCoaches.map((coach) => [coach.slug, coach]));
-  const staticByName = new Map(staticCoaches.map((coach) => [coach.name, coach]));
-
-  return apiCoaches.map((coach) => {
-    const staticCoach = getStaticCoach(coach, staticBySlug, staticByName);
-    const languagesText = coach.languages_text || (coach.languages_display || []).join(' / ');
-    const certifications = Array.isArray(coach.certifications) ? coach.certifications : [];
-    const certificationText = coach.certification_text || certifications.map((item) => item.text).filter(Boolean).join(' / ');
-
-    return {
-      ...(staticCoach || {}),
-      name: coach.name || staticCoach?.name || '',
-      slug: staticCoach?.slug || coach.slug || '',
-      image: normalizeImage(coach.image) || staticCoach?.image || '',
-      alt: coach.name || staticCoach?.name || 'Coach portrait',
-      coachType: coach.coach_type || staticCoach?.coachType || '',
-      certifications,
-      certificationText,
-      cardBio: coach.card_bio || staticCoach?.cardBio || '',
-      languages: languagesText || staticCoach?.languages || '',
-      websiteCoachId: coach.id,
-    };
-  }).map((coach) => withLegacyImage(coach, legacyImageByName));
-}
-
-export function useWebsiteCoachCards(staticCoaches, legacyImageByName = new Map()) {
-  const fallbackCards = useMemo(
-    () => getFallbackCoachCards(staticCoaches, legacyImageByName),
-    [staticCoaches, legacyImageByName],
-  );
-  const [coachCards, setCoachCards] = useState([]);
-
+export function useWebsiteCoachCards() {
+  const [state, setState] = useState({ coaches: [], isLoading: true, error: false });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    setCoachCards([]);
-
+    setState({ coaches: [], isLoading: true, error: false });
     fetchWebsiteCoaches()
-      .then((apiCoaches) => {
-        if (!active) return;
-        setCoachCards(mergeWebsiteCoachesWithStatic(apiCoaches, staticCoaches, legacyImageByName));
+      .then(apiCoaches => {
+        if (active) setState({ coaches: websiteCoachCards(apiCoaches), isLoading: false, error: false });
       })
       .catch(() => {
-        if (!active) return;
-        setCoachCards(fallbackCards);
+        if (active) setState({ coaches: [], isLoading: false, error: true });
       });
-
-    return () => {
-      active = false;
-    };
-  }, [fallbackCards, staticCoaches, legacyImageByName]);
-
-  return coachCards;
+    return () => { active = false; };
+  }, [attempt]);
+  return { ...state, retry: () => setAttempt(value => value + 1) };
 }

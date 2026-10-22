@@ -2,15 +2,19 @@
  * 會員管理（接 API）
  */
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Eye, Mail, Phone, X, Loader2, AlertCircle, Shield, Save } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { Search, Eye, Mail, Phone, X, Loader2, AlertCircle, Shield } from 'lucide-react'
 import { fetchCustomers, type Customer } from '../api/customers'
-import { updateCustomerPermission } from '../api/extras'
-import { useNotification } from '../context'
+import { fetchAdminMe } from '../api/auth'
+import { hasAdminPermission } from '../permissions'
+import ManualNotificationComposer from '../components/ManualNotificationComposer'
+import MemberLoyaltyPanel from '../components/MemberLoyaltyPanel'
 
 const PRIMARY = '#8b5cf6'
 
 export default function CustomersPage() {
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const { data: customers = [], isLoading, error } = useQuery({
     queryKey: ['admin', 'customers'],
     queryFn: fetchCustomers,
@@ -24,12 +28,14 @@ export default function CustomersPage() {
   )
 
   const viewing = viewingId ? customers.find((c) => c.id === viewingId) : null
+  const canManageStaff = !!adminMe?.user && hasAdminPermission(adminMe.user, 'staff')
+    && (adminMe.user.is_superuser || adminMe.user.role === 'hq_admin')
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">會員管理</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">管理所有會員資料、預約紀錄與滑雪程度</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">查看目前校區範圍內的會員資料、預約紀錄與滑雪程度</p>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -79,7 +85,7 @@ export default function CustomersPage() {
                     <td className="px-5 py-3 font-medium text-gray-900 dark:text-white hidden md:table-cell whitespace-nowrap">NT$ {c.total_spent.toLocaleString()}</td>
                     <td className="px-5 py-3 text-gray-600 dark:text-gray-300 hidden xl:table-cell whitespace-nowrap">{c.last_visit || '—'}</td>
                     <td className="px-5 py-3 text-right">
-                      <button onClick={() => setViewingId(c.id)} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><Eye size={16} /></button>
+                      <button aria-label={`查看會員 ${c.name}`} onClick={() => setViewingId(c.id)} className="min-h-11 min-w-11 p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><Eye size={16} /></button>
                     </td>
                   </tr>
                 ))}
@@ -95,41 +101,29 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {viewing && <CustomerDetailDrawer customer={viewing} onClose={() => setViewingId(null)} />}
+      {viewing && <CustomerDetailDrawer customer={viewing} canManageStaff={canManageStaff} onClose={() => setViewingId(null)} />}
     </div>
   )
 }
 
-function CustomerDetailDrawer({ customer, onClose }: { customer: Customer; onClose: () => void }) {
-  const notify = useNotification()
-  const qc = useQueryClient()
-  const [isManager, setIsManager] = useState(!!customer.is_manager)
-  const [isCoach, setIsCoach] = useState(!!customer.is_coach)
-  const dirty = isManager !== !!customer.is_manager || isCoach !== !!customer.is_coach
-
-  const permMutation = useMutation({
-    mutationFn: () => updateCustomerPermission(customer.id, { is_manager: isManager, is_coach: isCoach }),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['admin', 'customers'] })
-      if (res.code === 200) {
-        notify.success('權限已更新')
-      } else {
-        notify.error(res.msg)
-      }
-    },
-    onError: (e: any) => notify.error(e.response?.data?.msg || '更新失敗'),
-  })
-
+function CustomerDetailDrawer({ customer, canManageStaff, onClose }: { customer: Customer; canManageStaff: boolean; onClose: () => void }) {
+  const [composing, setComposing] = useState(false)
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
+  const canNotify = hasAdminPermission(adminMe?.user, 'notifications') && hasAdminPermission(adminMe?.user, 'customers')
+    && !['campus_manager', 'campus_principal'].includes(adminMe?.user?.role || '')
   return (
     <>
+      {composing && <ManualNotificationComposer initialTarget={{ kind: 'member', id: customer.id, label: customer.name }} onClose={() => setComposing(false)} />}
       <div className="fixed inset-0 z-40 bg-black/50 animate-fadeIn" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl bg-white dark:bg-gray-800 shadow-2xl flex flex-col animate-slideIn">
+      <div role="dialog" aria-modal="true" aria-label={`${customer.name}的會員資料`} className="fixed inset-y-0 right-0 z-50 w-full max-w-xl bg-white dark:bg-gray-800 shadow-2xl flex flex-col animate-slideIn">
         <div className="px-6 py-4 flex items-center justify-between text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
           <h2 className="text-lg font-semibold">{customer.name}</h2>
-          <button onClick={onClose} className="text-white/80 hover:text-white"><X size={20} /></button>
+          <button onClick={onClose} aria-label="關閉會員資料" className="text-white/80 hover:text-white"><X size={20} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {canNotify && <button onClick={() => setComposing(true)} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white">發送站內通知給此會員</button>}
+          {(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin') && <MemberLoyaltyPanel userId={customer.id} />}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
               <div className="text-xs text-gray-500 dark:text-gray-400">總預約次數</div>
@@ -177,51 +171,15 @@ function CustomerDetailDrawer({ customer, onClose }: { customer: Customer; onClo
             <div className="text-xs text-gray-500 text-center pt-4 border-t border-gray-200 dark:border-gray-700">最近上課：{customer.last_visit}</div>
           )}
 
-          {/* 後台權限 */}
-          <section>
+          {canManageStaff && <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
               <Shield size={14} style={{ color: PRIMARY }} />後台權限
             </h3>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isManager}
-                  onChange={(e) => setIsManager(e.target.checked)}
-                  className="w-4 h-4 rounded"
-                  style={{ accentColor: PRIMARY }}
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">管理員</div>
-                  <div className="text-xs text-gray-500">可進入後台管理所有資料</div>
-                </div>
-              </label>
-              <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isCoach}
-                  onChange={(e) => setIsCoach(e.target.checked)}
-                  className="w-4 h-4 rounded"
-                  style={{ accentColor: PRIMARY }}
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">教練</div>
-                  <div className="text-xs text-gray-500">可看自己的課程與請假申請</div>
-                </div>
-              </label>
-            </div>
-            {dirty && (
-              <button
-                onClick={() => permMutation.mutate()}
-                disabled={permMutation.isPending}
-                className="mt-3 w-full px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
-                style={{ backgroundColor: PRIMARY }}
-              >
-                {permMutation.isPending && <Loader2 size={14} className="animate-spin" />}
-                <Save size={14} />儲存權限變更
-              </button>
-            )}
-          </section>
+            <p className="text-sm text-gray-500 dark:text-gray-400">角色、負責校區及功能權限請在員工權限一起設定，避免漏掉必要範圍。</p>
+            <Link to={`../staff?q=${encodeURIComponent(customer.email)}`} className="mt-3 inline-flex min-h-11 items-center rounded-lg px-4 py-2 text-sm font-medium text-white hover:opacity-90" style={{ backgroundColor: PRIMARY }}>
+              前往員工權限設定此人
+            </Link>
+          </section>}
         </div>
       </div>
     </>

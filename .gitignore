@@ -5,6 +5,12 @@ tmp/
 /.agents/
 /.codex/
 
+# Local SnowLand database credentials
+.env.local
+snowland/.venv/
+/test_*.sqlite3
+snowland/private_course_media/
+
 # Caddy runtime state and downloaded binary
 tools/caddy/caddy.exe
 tools/caddy/config/

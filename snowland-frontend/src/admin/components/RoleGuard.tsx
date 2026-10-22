@@ -46,7 +46,8 @@ const PATH_PERMISSION_MAP: Array<[string, string]> = [
 
 function inferPermissionFromPath(pathname: string): string {
   const match = PATH_PERMISSION_MAP.find(([path]) => pathname.includes(path))
-  return match?.[1] || 'analytics'
+  // Outer manager guard checks the role; each child route checks its own module permission.
+  return match?.[1] || ''
 }
 
 export default function RoleGuard({ requireManager, requireCoach, permission }: Props) {
@@ -56,8 +57,25 @@ export default function RoleGuard({ requireManager, requireCoach, permission }: 
   const [user, setUser] = useState<AdminUser | null | undefined>(undefined)
 
   useEffect(() => {
-    fetchAdminMe().then((res) => setUser(res.user))
-  }, [])
+    let active = true
+    let revision = 0
+    setUser(undefined)
+    const refreshAccess = () => {
+      const current = ++revision
+      void fetchAdminMe().then(result => { if (active && current === revision) setUser(result.user) })
+    }
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshAccess() }
+    refreshAccess()
+    window.addEventListener('focus', refreshAccess)
+    window.addEventListener('snowland:campuses-updated', refreshAccess)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener('focus', refreshAccess)
+      window.removeEventListener('snowland:campuses-updated', refreshAccess)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [location.pathname])
 
   if (user === undefined) {
     return (
@@ -99,14 +117,14 @@ export default function RoleGuard({ requireManager, requireCoach, permission }: 
     return (
       <NoAccess
         title="沒有功能權限"
-        message="這個帳號尚未開啟此後台模組，請由 Superuser 到員工權限調整。"
+        message="這個帳號沒有此功能權限。如需使用，請聯絡總部管理員。"
         onAction={() => navigate(`${basePath}/console`)}
         actionLabel="回到後台首頁"
       />
     )
   }
 
-  if (requireCoach && !isSuperuser && !isCoach) {
+  if (requireCoach && !isCoach) {
     return (
       <NoAccess
         title="無權限存取"
@@ -136,7 +154,7 @@ function NoAccess({ title, message, onAction, actionLabel }: {
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <button
           onClick={onAction}
-          className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+          className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
           style={{ backgroundColor: PRIMARY }}
         >
           {actionLabel}

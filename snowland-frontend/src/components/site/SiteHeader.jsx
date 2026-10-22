@@ -1,10 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import SiteLink from './SiteLink';
 import { AnimatePresence, motion } from 'framer-motion';
 import logo from '../../assets/site/logo-white.png';
 import { homepageAssetBase } from '../../data/site/assetPaths';
 import { faqLink } from '../../data/site/navigationLinks';
+import { useSiteContent } from '../../hooks/useSiteContent';
+import { useSiteLocale } from '../../contexts/SiteLocale';
+import SiteLanguageSelect from './SiteLanguageSelect';
 
 function CartIcon() {
   return (
@@ -57,12 +60,18 @@ function SiteHeader({
     }
     return window.scrollY > 80;
   });
-  const [isLangOpen, setIsLangOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [openMobileSection, setOpenMobileSection] = useState(null);
   const [openDesktopSection, setOpenDesktopSection] = useState(null);
-  const langMenuRef = useRef(null);
+  const {t}=useSiteLocale();
   const location = useLocation();
+  const courseAreas = useSiteContent('course.areas', {contentType:'page'});
+  const courseMenuItems = [
+    ...courseAreas.items.filter(item => /^[a-z0-9]+(?:-[a-z0-9]+)*-area$/.test(item.external_id)).map(item => ({label:item.title,to:`/course/${item.external_id}`,contentLabel:true})),
+    {label:'北海道所有雪場',to:'/course/hokkaido'},
+    {label:'野雪嚮導',to:'/course/off-piste-guide'},
+    {label:'預約流程',to:'/course/how-to-book'},
+  ];
   const pathParts = location.pathname.replace(/\/+$/, '').split('/');
   const isHome = location.pathname === "/" || (pathParts.length === 2 && pathParts[0] === '');
   const trackCompactState = forceTransparent || isHome;
@@ -84,18 +93,6 @@ function SiteHeader({
     return () => window.removeEventListener("scroll", onScroll);
   }, [trackCompactState]);
 
-  useEffect(() => {
-    const onClickOutside = (event) => {
-      if (langMenuRef.current && !langMenuRef.current.contains(event.target)) {
-        setIsLangOpen(false);
-      }
-    };
-    if (isLangOpen) {
-      document.addEventListener("mousedown", onClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [isLangOpen]);
-
   const navItems = [
     { label: "滑雪課程" },
     { label: "海外攝影" },
@@ -111,10 +108,7 @@ function SiteHeader({
   const mobileNavItems = visibleNavItems.filter((item) => item.label !== memberItem.label);
   const mobileSubItems = {
     滑雪課程: [
-      { label: "星野滑雪課程", to: "/course/tomamu" },
-      { label: "野雪嚮導", to: "/course/off-piste-guide" },
-      { label: "北海道其他雪場課程", to: "/course/hokkaido" },
-      { label: "預約流程", to: "/course/how-to-book" },
+      ...courseMenuItems,
     ],
     海外攝影: [
       { label: "冬季雪地攝影", to: "/photography/winter" },
@@ -168,70 +162,22 @@ function SiteHeader({
           />
         </SiteLink>
 
-        <nav className="hidden md:flex flex-col items-end gap-3">
-          {!isNavCompact && (
-            <div className="relative flex items-center justify-end gap-3 self-end" ref={langMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsLangOpen((prev) => !prev)}
-                className={`text-[10px] tracking-widest font-medium transition-colors duration-300 font-display ${
-                  useDarkText ? "text-[#1f2937]" : "text-white/90 drop-shadow-sm"
-                }`}
-                aria-expanded={isLangOpen}
-                aria-label="Language menu"
-              >
-                Language
-              </button>
-              {isLangOpen && (
-                <motion.div
-                  className={`flex items-center gap-2 text-[10px] font-medium tracking-widest font-display ${
-                    useDarkText ? "text-[#1f2937]" : "text-white/90"
-                  }`}
-                  initial="hidden"
-                  animate="visible"
-                  variants={{
-                    hidden: { opacity: 0 },
-                    visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
-                  }}
-                >
-                  {["中文", "日本語", "EN"].map((lang, index) => (
-                    <motion.span
-                      key={lang}
-                      className="flex items-center gap-2"
-                      variants={{
-                        hidden: { opacity: 0, x: -16 },
-                        visible: { opacity: 1, x: 0 },
-                      }}
-                      transition={{ duration: 0.35, ease: "easeOut" }}
-                    >
-                      <button
-                        type="button"
-                        className={`transition-colors duration-200 ${
-                          useDarkText ? "hover:text-[#0f172a]" : "hover:text-white"
-                        } ${lang === "中文" ? "underline underline-offset-4" : ""}`}
-                      >
-                        {lang}
-                      </button>
-                      {index < 2 && (
-                        <span className={useDarkText ? "text-[#cbd5e1]" : "text-white/60"}>/</span>
-                      )}
-                    </motion.span>
-                  ))}
-                </motion.div>
-              )}
+        <nav className={`hidden xl:flex ${isNavCompact?'flex-row items-center gap-4':'flex-col items-end gap-3'}`}>
+            <div className={`relative flex items-center justify-end gap-3 ${isNavCompact?'self-center':'self-end'}`}>
+              <SiteLanguageSelect darkText={useDarkText}/>
               {memberAuthenticated && (
                 <div className="flex items-center gap-3">
                   <SiteLink
                     to={bookingUrl}
                     className={`inline-flex items-center justify-center transition-opacity duration-300 hover:opacity-80 ${headerControlClass}`}
-                    aria-label="購物車"
+                    aria-label={t('購物車')}
                   >
                     <CartIcon />
                   </SiteLink>
                   <SiteLink
                     to="/membership"
                     className={`inline-flex items-center justify-center overflow-hidden transition-opacity duration-300 hover:opacity-80 ${headerControlClass}`}
-                    aria-label="會員頭像"
+                    aria-label={t('會員頭像')}
                   >
                     <span className="flex h-5 w-5 items-center justify-center overflow-hidden">
                       <MemberAvatarIcon src={memberAvatarSrc} />
@@ -240,7 +186,6 @@ function SiteHeader({
                 </div>
               )}
             </div>
-          )}
           <div className="flex flex-wrap items-center gap-4 lg:gap-6">
             {visibleNavItems.map((item) => {
               const isDesktopSectionOpen = openDesktopSection === item.label;
@@ -249,6 +194,10 @@ function SiteHeader({
               <div
                 key={item.label}
                 className={`relative ${item.variant ? "" : "group"}`}
+                onMouseEnter={() => {if (!item.to) setOpenDesktopSection(item.label);}}
+                onMouseLeave={() => setOpenDesktopSection(null)}
+                onBlur={event => {if (!event.currentTarget.contains(event.relatedTarget)) setOpenDesktopSection(null);}}
+                onKeyDown={event => { if (event.key === 'Escape') {setOpenDesktopSection(null);event.currentTarget.querySelector('button')?.focus();} }}
               >
                 {item.to ? (
                   <SiteLink
@@ -263,14 +212,15 @@ function SiteHeader({
                           : "text-white/90 hover:text-white text-xs md:text-sm font-medium tracking-wide transition-colors duration-300 drop-shadow-sm font-display relative group"
                     }
                   >
-                    {item.label}
+                    {t(item.label)}
                   </SiteLink>
                 ) : (
                   <button
                     type="button"
+                    aria-expanded={isDesktopSectionOpen}
                     onClick={() => {
                       if (["海外攝影", "滑雪課程", "滑雪攻略", "最新消息", "關於Snowland"].includes(item.label)) {
-                        setOpenDesktopSection((prev) => (prev === item.label ? null : item.label));
+                        setOpenDesktopSection(item.label);
                       }
                     }}
                     onBlur={() => {
@@ -292,7 +242,7 @@ function SiteHeader({
                           : "text-white/90 hover:text-white text-xs md:text-sm font-medium tracking-wide transition-colors duration-300 drop-shadow-sm font-display relative group"
                     }
                     >
-                      {item.label}
+                      {t(item.label)}
                       {!item.highlight && !item.variant && (
                         <span
                         className={`absolute -bottom-1 left-0 w-0 h-0.5 transition-all duration-300 group-hover:w-full ${isNavCompact ? "bg-[#1f2937]" : "bg-brand-orange"}`}
@@ -305,12 +255,14 @@ function SiteHeader({
                     data-desktop-nav={item.label}
                     className={`absolute left-0 top-full pt-3 transition-all duration-200 ${
                       isDesktopSectionOpen
-                        ? "opacity-100 translate-y-0 pointer-events-auto"
-                        : "opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto"
+                        ? "visible opacity-100 translate-y-0 pointer-events-auto"
+                        : "invisible opacity-0 translate-y-2 pointer-events-none"
                     }`}
                     onMouseLeave={() => setOpenDesktopSection(null)}
                   >
-                    <div className="w-48 bg-white text-[#1f2937] font-display">
+                    <div className="w-64 bg-white text-[#1f2937] font-display">
+                      {item.label === '滑雪課程' && courseAreas.isLoading && <p role="status" className="px-4 py-3 text-xs text-[#64748b]">{t('校區載入中…')}</p>}
+                      {item.label === '滑雪課程' && courseAreas.error && <button type="button" onClick={courseAreas.refetch} className="min-h-11 px-4 text-left text-xs text-red-700">{t('校區載入失敗，點此重試')}</button>}
                       {(item.label === "海外攝影"
                         ? [
                             { label: "冬季雪地攝影", to: "/photography/winter" },
@@ -319,12 +271,7 @@ function SiteHeader({
                             { label: "預約攝影流程", to: "/photography/how-to-book" },
                           ]
                         : item.label === "滑雪課程"
-                          ? [
-                                { label: "星野滑雪課程", to: "/course/tomamu" },
-                              { label: "野雪嚮導", to: "/course/off-piste-guide" },
-                              { label: "北海道其他雪場課程", to: "/course/hokkaido" },
-                              { label: "預約流程", to: "/course/how-to-book" },
-                            ]
+                          ? courseMenuItems
                           : item.label === "滑雪攻略"
                             ? [
                                 { label: "雪場攻略", to: "/guides/skiresorts" },
@@ -351,9 +298,9 @@ function SiteHeader({
                               key={label}
                               to={to}
                               onClick={() => setOpenDesktopSection(null)}
-                              className="block px-4 py-2 text-sm font-medium font-display hover:bg-[#f3f4f6]"
+                              className="flex min-h-11 items-center px-4 py-2 text-sm font-medium font-display hover:bg-[#f3f4f6]"
                             >
-                              {label}
+                              {entry.contentLabel?label:t(label)}
                             </SiteLink>
                           );
                         }
@@ -364,7 +311,7 @@ function SiteHeader({
                             href="#"
                             className="block px-4 py-2 text-sm font-medium font-display hover:bg-[#f3f4f6]"
                           >
-                            {label}
+                            {t(label)}
                           </a>
                         );
                       })}
@@ -383,13 +330,13 @@ function SiteHeader({
                     : "text-white text-xs md:text-sm font-semibold tracking-wide transition-colors duration-300 drop-shadow-sm font-display rounded-full px-4 py-2 bg-[#2b5f8f] hover:bg-[#8ec8f0]"
                 }
               >
-                預約課程
+                {t('預約課程')}
               </SiteLink>
             )}
           </div>
         </nav>
 
-        <div className="md:hidden flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="xl:hidden flex shrink-0 items-center gap-2 sm:gap-3">
           {memberAuthenticated && (
             <div className="flex items-center gap-2 sm:gap-3">
               <SiteLink
@@ -399,7 +346,7 @@ function SiteHeader({
                   setOpenMobileSection(null);
                 }}
                 className={`inline-flex items-center justify-center transition-opacity duration-300 hover:opacity-80 ${headerControlClass}`}
-                aria-label="購物車"
+                aria-label={t('購物車')}
               >
                 <CartIcon />
               </SiteLink>
@@ -410,7 +357,7 @@ function SiteHeader({
                   setOpenMobileSection(null);
                 }}
                 className={`inline-flex items-center justify-center overflow-hidden transition-opacity duration-300 hover:opacity-80 ${headerControlClass}`}
-                aria-label="會員頭像"
+                aria-label={t('會員頭像')}
               >
                 <span className="flex h-5 w-5 items-center justify-center overflow-hidden">
                   <MemberAvatarIcon src={memberAvatarSrc} />
@@ -424,8 +371,8 @@ function SiteHeader({
               setIsMobileMenuOpen(true);
               setOpenMobileSection(null);
             }}
-            className={`cursor-pointer ${useDarkText ? "text-[#1f2937]" : "text-white"}`}
-            aria-label="Open menu"
+            className={`cursor-pointer min-h-11 min-w-11 flex items-center justify-center ${useDarkText ? "text-[#1f2937]" : "text-white"}`}
+            aria-label={t('開啟選單')}
           >
             <svg className="h-7 w-7 sm:h-8 sm:w-8 drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"></path>
@@ -452,7 +399,7 @@ function SiteHeader({
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", stiffness: 320, damping: 28 }}
-              className="fixed right-0 top-0 z-[60] h-full w-[min(18rem,calc(100vw-1rem))] bg-white px-5 py-8 shadow-2xl font-display"
+              className="fixed right-0 top-0 z-[60] h-full overflow-y-auto w-[min(18rem,calc(100vw-1rem))] bg-white px-5 py-8 shadow-2xl font-display"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold tracking-[0.3em] text-[#94a3b8] font-display">
@@ -460,12 +407,12 @@ function SiteHeader({
                 </span>
                 <button
                   type="button"
-                  className="text-[#1f2937]"
+                  className="min-h-11 min-w-11 text-[#1f2937]"
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     setOpenMobileSection(null);
                   }}
-                  aria-label="Close menu"
+                  aria-label={t('關閉選單')}
                 >
                   ✕
                 </button>
@@ -475,29 +422,31 @@ function SiteHeader({
                   <div key={item.label} className="flex flex-col gap-2">
                     <button
                       type="button"
-                      className="flex items-center justify-between text-base font-medium text-[#1f2937] font-display"
+                      className="flex min-h-11 items-center justify-between text-base font-medium text-[#1f2937] font-display"
                       aria-expanded={openMobileSection === item.label}
                       onClick={() => {
                         setOpenMobileSection((prev) => (prev === item.label ? null : item.label));
                       }}
                     >
-                      {item.label}
+                      {t(item.label)}
                       <span className="text-lg leading-none text-[#94a3b8]">
                         {openMobileSection === item.label ? "−" : "+"}
                       </span>
                     </button>
+                    {openMobileSection === item.label && item.label === '滑雪課程' && courseAreas.isLoading && <p role="status" className="text-xs text-[#64748b]">{t('校區載入中…')}</p>}
+                    {openMobileSection === item.label && item.label === '滑雪課程' && courseAreas.error && <button type="button" onClick={courseAreas.refetch} className="min-h-11 text-left text-xs text-red-700">{t('校區載入失敗，點此重試')}</button>}
                     {openMobileSection === item.label &&
                       (mobileSubItems[item.label] ?? []).map((subItem) => (
                         <SiteLink
                           key={subItem.label}
                           to={subItem.to}
-                          className="pl-3 text-sm font-medium text-[#475569] font-display"
+                          className="flex min-h-11 items-center pl-3 text-sm font-medium text-[#475569] font-display"
                           onClick={() => {
                             setIsMobileMenuOpen(false);
                             setOpenMobileSection(null);
                           }}
                         >
-                          {subItem.label}
+                          {subItem.contentLabel?subItem.label:t(subItem.label)}
                         </SiteLink>
                       ))}
                   </div>
@@ -507,19 +456,7 @@ function SiteHeader({
                 <p className="text-xs font-semibold tracking-[0.3em] text-[#94a3b8] font-display">
                   LANGUAGE
                 </p>
-                <div className="mt-4 flex flex-col gap-2 text-sm font-semibold text-[#1f2937]">
-                  <div className="flex flex-col gap-2 text-sm text-[#475569]">
-                    {["中文", "EN", "日本語"].map((lang) => (
-                      <button
-                        key={lang}
-                        type="button"
-                        className={lang === "中文" ? "text-left underline underline-offset-4 text-[#1f2937]" : "text-left"}
-                      >
-                        {lang}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <div className="mt-4"><SiteLanguageSelect/></div>
               </div>
               <div className="mt-8 flex flex-col items-start gap-3">
                 {!memberAuthenticated && (
@@ -531,7 +468,7 @@ function SiteHeader({
                     }}
                     className="inline-flex items-center justify-start rounded-full border-[0.5px] border-[#111827] px-4 py-1.5 text-base font-semibold text-[#111827]"
                   >
-                    {memberItem.label}
+                    {t(memberItem.label)}
                   </SiteLink>
                 )}
                 {!hideBookingCta && (
@@ -543,7 +480,7 @@ function SiteHeader({
                     }}
                     className="inline-flex items-center justify-start rounded-full bg-[#2b5f8f] px-4 py-1.5 text-base font-semibold text-white"
                   >
-                    預約課程
+                    {t('預約課程')}
                   </SiteLink>
                 )}
               </div>

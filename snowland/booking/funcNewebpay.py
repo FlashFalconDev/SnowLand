@@ -70,9 +70,6 @@ def neweb_pay_request(data):
     body_data = data['body']
     url = "https://core.newebpay.com/MPG/mpg_gateway"  # 藍新金流正試環境的 URL
     # url = "https://ccore.newebpay.com/MPG/mpg_gateway"  # 藍新金流測式環境的 URL
-    # MerchantID = "MS348421888"
-    # HashKey = "tXnG2aLtEnVzACrJY3CW0SLCLyFYZDEf"
-    # HashIV = "PKmJnNJCcJyXpqcC"
     # 商店的 API 資訊
     MerchantID = store_data['MerchantID']  # 商店代號
     HashKey = store_data['HashKey']

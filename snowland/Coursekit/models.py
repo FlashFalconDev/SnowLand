@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 # Create your models here.
 
@@ -81,9 +82,22 @@ class CourseTemplate(models.Model):
     course_type = models.ForeignKey(CourseType, on_delete=models.CASCADE, related_name='templates', verbose_name="所屬課程類型")
     name = models.CharField(max_length=100, verbose_name="課程模板名稱", help_text="例如：4小時初學者課程")
     duration_hours = models.PositiveIntegerField(verbose_name="課程時長(小時)", help_text="例如：4")
+    payroll_hours = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, default=None,
+        validators=[MinValueValidator(0), MaxValueValidator(24)], verbose_name='每堂計薪時數',
+        help_text='留空依上課時段計算；填0不計課程時薪，不影響排課或客人價格')
     max_capacity = models.PositiveIntegerField(default=6, verbose_name="預設最大容量", help_text="此課程模板的預設人數限制")
     display_order = models.IntegerField(default=0, verbose_name="顯示順序", help_text="數字越小，前台排序越前面")
     is_active = models.BooleanField(default=True, verbose_name="是否啟用此課程模板")
+    billing_mode = models.CharField(
+        max_length=20,
+        choices=[('private', '包班計價'), ('per_person', '每人計價')],
+        default='private',
+        verbose_name='計價方式',
+    )
+    minimum_group_size = models.PositiveSmallIntegerField(default=1, verbose_name='單筆預約最低人數')
+    shared_class_enabled = models.BooleanField(default=False, verbose_name='開放跨訂單湊班')
+    shared_class_minimum_students = models.PositiveSmallIntegerField(default=3, verbose_name='湊班成班人數')
+    minimum_student_level = models.CharField(max_length=20, blank=True, default='', verbose_name='學員最低等級')
     
     # 綁定雪場（多對多關係）
     resorts = models.ManyToManyField(
@@ -189,13 +203,14 @@ class CoursePricing(models.Model):
             template_names += f" 等{self.templates.count()}個模板"
         return f"{template_names} - {self.resort.display_name} - 淡季${self.base_price_off_peak} + 旺季${self.peak_season_surcharge} + 每人${self.additional_person_fee}"
     
-    def calculate_price(self, people_count, is_peak_season=False):
+    def calculate_price(self, people_count, is_peak_season=False, billing_mode='private'):
         """
         計算指定人數和季節的價格
         
         Args:
             people_count: 人數
             is_peak_season: 是否為旺季
+            billing_mode: private 為整班總價；per_person 為每人單價乘以人數
         
         Returns:
             總價格
@@ -206,31 +221,36 @@ class CoursePricing(models.Model):
         if people_count > self.max_capacity:
             raise ValueError(f"人數超過最大容量限制: {people_count} > {self.max_capacity}")
         
-        # 基礎價格（淡季或旺季）
-        base_price = self.base_price_off_peak
         tier = self.people_tiers.filter(
             is_active=True,
             min_people__lte=people_count,
             max_people__gte=people_count,
         ).order_by('min_people', 'max_people', 'id').first()
 
+        if billing_mode == 'per_person':
+            unit_price = tier.price if tier else self.base_price_off_peak
+            total_price = unit_price * people_count
+            if is_peak_season:
+                total_price += self.peak_season_surcharge * people_count
+            return total_price
+
         if tier:
-            base_price = tier.price
+            total_price = tier.price
         else:
-            base_price = self.base_price_off_peak + (people_count - 1) * self.additional_person_fee
+            total_price = self.base_price_off_peak + (people_count - 1) * self.additional_person_fee
 
         if is_peak_season:
-            base_price += self.peak_season_surcharge
+            total_price += self.peak_season_surcharge
 
-        return base_price
+        return total_price
 
 
 class CoursePricingTier(models.Model):
     """
     People-count pricing tier for a CoursePricing rule.
 
-    price is the total off-peak course price for the matching people range.
-    CoursePricing.peak_season_surcharge is still added on peak-season dates.
+    For private templates, price is the total off-peak class price for the range.
+    For per-person templates, price is the off-peak unit price for one participant.
     """
     pricing = models.ForeignKey(
         CoursePricing,

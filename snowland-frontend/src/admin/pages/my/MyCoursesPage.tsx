@@ -7,6 +7,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Calendar, MapPin, User, Loader2, AlertCircle, BookOpen } from 'lucide-react'
 import { fetchMyCourses } from '../../api/extras'
+import { formatAbilityLevel } from '@/utils/learningProgress'
+import { calculateCoachCourseStats } from '@/utils/coachCourseStats'
 
 const PRIMARY = '#8b5cf6'
 
@@ -32,26 +34,6 @@ function getMonthRange(monthKey: string) {
     start: `${year}-${String(month).padStart(2, '0')}-01`,
     end: `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`,
   }
-}
-
-function parseTimeMinutes(value?: string) {
-  if (!value) return 0
-  const [hour, minute] = value.split(':').map(Number)
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0
-  return hour * 60 + minute
-}
-
-function getBookingHours(booking: { start_time: string; end_time: string }) {
-  const start = parseTimeMinutes(booking.start_time)
-  const end = parseTimeMinutes(booking.end_time)
-  return Math.max((end - start) / 60, 0)
-}
-
-function getCourseKind(courseType: string) {
-  const normalized = (courseType || '').toLowerCase()
-  if (normalized.includes('snowboard') || normalized.includes('單板')) return 'snowboard'
-  if (normalized.includes('ski') || normalized.includes('雙板')) return 'ski'
-  return 'other'
 }
 
 function formatHours(value: number) {
@@ -91,48 +73,28 @@ export default function MyCoursesPage() {
     })
   }, [selectedReservationId, isLoading, items.length])
 
-  const monthlyStats = useMemo(() => {
-    const stats = {
-      totalHours: 0,
-      snowboardHours: 0,
-      skiHours: 0,
-      specifiedHours: 0,
-      lessons: 0,
-    }
-    statsItems.forEach((item) => {
-      item.bookings.forEach((booking) => {
-        if (!booking.date?.startsWith(statsMonth)) return
-        const hours = getBookingHours(booking)
-        stats.totalHours += hours
-        stats.lessons += 1
-        if (item.is_preferred_coach) stats.specifiedHours += hours
-        const kind = getCourseKind(item.course_type)
-        if (kind === 'snowboard') stats.snowboardHours += hours
-        if (kind === 'ski') stats.skiHours += hours
-      })
-    })
-    return stats
-  }, [statsItems, statsMonth])
+  const monthlyStats = useMemo(() => calculateCoachCourseStats(statsItems, statsMonth), [statsItems, statsMonth])
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">我的所有課程</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">您被指派的所有課程紀錄</p>
-        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">可查看過往與未來課程；日期篩選可縮小列表範圍</p>
+        <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">過往課程都能查看；未來課程依教練設定顯示（一般教練為未來 10 天）。</p>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-semibold text-gray-900 dark:text-white">月份課程統計</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">依課程日期統計時數，指定為學生指定教練的課程。</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">依課程日期統計時數；同一團體班只計一次，不會按訂單數重複累計。指定時數為學生指定教練的課程。</p>
           </div>
           <input
             type="month"
+            aria-label="統計月份"
             value={statsMonth}
             onChange={(e) => setStatsMonth(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-auto"
+            className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-auto"
           />
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -158,7 +120,7 @@ export default function MyCoursesPage() {
 
       {/* 篩選 */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -169,21 +131,25 @@ export default function MyCoursesPage() {
               <option key={k} value={k}>{v.label}</option>
             ))}
           </select>
-          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-            <span>日期：</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
-            />
-            <span>至</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
-            />
+          <div className="grid w-full grid-cols-1 gap-2 text-sm text-gray-600 dark:text-gray-400 sm:flex sm:w-auto sm:items-center">
+            <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <span>開始日期</span>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-36"
+              />
+            </label>
+            <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <span>結束日期</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-36"
+              />
+            </label>
             {(dateFrom || dateTo || statusFilter) && (
               <button
                 onClick={() => { setStatusFilter(''); setDateFrom(''); setDateTo(''); setSearchParams({}) }}
@@ -218,7 +184,7 @@ export default function MyCoursesPage() {
                 id={`my-course-${item.id}`}
                 className={`bg-white dark:bg-gray-800 rounded-xl border p-5 ${isSelected ? 'border-[#8b5cf6] ring-2 ring-[#8b5cf6]/35' : 'border-gray-200 dark:border-gray-700'}`}
               >
-                <div className="flex items-start justify-between mb-3">
+                <div className="mb-3">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <BookOpen size={16} style={{ color: PRIMARY }} />
@@ -233,12 +199,8 @@ export default function MyCoursesPage() {
                     <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
                       <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" />{item.resort}</div>
                       <div className="flex items-center gap-1"><User size={12} className="text-gray-400" />{item.user_name} · {item.number_of_people} 人</div>
-                      <div className="text-xs text-gray-500">能力：{item.ability_level || '—'} · {item.language}</div>
+                      <div className="text-xs text-gray-500">能力：{formatAbilityLevel(item.ability_level)} · 年齡：{item.age_ranges.filter(Boolean).join('、') || '未填'} · 教學語言：{item.language_label || '未填'}</div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500">費用</div>
-                    <div className="font-bold" style={{ color: PRIMARY }}>NT$ {(item.total_fee || 0).toLocaleString()}</div>
                   </div>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">

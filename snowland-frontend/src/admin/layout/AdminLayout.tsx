@@ -22,6 +22,7 @@ import { GlobalNotification } from '../components/GlobalNotification'
 import LoginPage from '@/pages/LoginPage'
 import { fetchAdminMe, type AdminMeResult } from '../api/auth'
 import { hasAdminPermission } from '../permissions'
+import { fetchNotificationDeliveries } from '../api/operations'
 
 // 主色 — 完全採用 console 配色（紫色 #8b5cf6）
 const PRIMARY = '#8b5cf6'
@@ -56,12 +57,17 @@ function NotificationBell() {
 
   useEffect(() => {
     if (isOpen) {
-      // TODO: 替換為 SnowLand 後端 API
-      setNotifications([
-        { id: 1, type: 'reserve', title: '新預約', message: '王小明預約了星野 Tomamu 全天課程', is_read: false, created_at: new Date().toISOString() },
-        { id: 2, type: 'member', title: '新會員加入', message: 'Lisa Chen 剛剛註冊成為會員', is_read: false, created_at: new Date(Date.now() - 3600000).toISOString() },
-        { id: 3, type: 'system', title: '系統公告', message: 'SnowLand 後台 v1.0 已上線', is_read: true, created_at: new Date(Date.now() - 86400000).toISOString() },
-      ])
+      fetchNotificationDeliveries().then((items) => {
+        setNotifications(items.slice(0, 20).map((item) => ({
+          id: item.id,
+          type: item.status === 'failed' ? 'system' : 'reserve',
+          title: item.status === 'failed' ? '通知發送失敗' : item.template_name,
+          message: `${item.order_number} · ${item.recipient}${item.error_message ? ` · ${item.error_message}` : ''}`,
+          is_read: item.status === 'sent',
+          created_at: item.sent_at || item.scheduled_at,
+          link: 'notifications',
+        })))
+      }).catch(() => setNotifications([]))
     }
   }, [isOpen])
 
@@ -111,6 +117,7 @@ function NotificationBell() {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
+        aria-label="查看通知"
         className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg relative"
       >
         <Bell size={20} />
@@ -293,6 +300,7 @@ function SidebarItem({
           />
         </button>
         <div
+          hidden={!isExpanded}
           className={`ml-8 mt-1 space-y-1 overflow-hidden transition-all duration-200 ${
             isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
           }`}
@@ -379,7 +387,7 @@ function ThemeToggleButton() {
 function AdminLayoutContent() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, loading: authLoading, logout } = useAuth()
+  const { user, loading: authLoading, logout, logoutError, loggingOut } = useAuth()
   const basePath = useContext(SiteBasePathContext) // e.g. "/snowland"
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -388,13 +396,60 @@ function AdminLayoutContent() {
 
   // 檢查當前登入的使用者是否有 manager 權限
   const [adminCheck, setAdminCheck] = useState<AdminMeResult | null>(null)
+  const [campusScope, setCampusScope] = useState(() => localStorage.getItem('snowland_admin_campus_scope') || 'all')
   useEffect(() => {
     if (!user) {
       setAdminCheck(null)
       return
     }
-    fetchAdminMe().then(setAdminCheck)
-  }, [user])
+    let active = true
+    let revision = 0
+    setAdminCheck(null)
+    const refreshAdminScope = () => {
+      const current = ++revision
+      void fetchAdminMe().then(result => { if (active && current === revision) setAdminCheck(result) })
+    }
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshAdminScope() }
+    refreshAdminScope()
+    window.addEventListener('snowland:campuses-updated', refreshAdminScope)
+    window.addEventListener('focus', refreshAdminScope)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener('snowland:campuses-updated', refreshAdminScope)
+      window.removeEventListener('focus', refreshAdminScope)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [user, location.pathname])
+
+  useEffect(() => {
+    const adminUser = adminCheck?.user
+    if (!adminUser) return
+    const ownerKey = 'snowland_admin_campus_scope_owner'
+    if (localStorage.getItem(ownerKey) !== String(adminUser.id)) {
+      const defaultScope = adminUser.can_view_all_campuses ? 'all' : String(adminUser.campuses?.[0]?.id || 'all')
+      localStorage.setItem(ownerKey, String(adminUser.id))
+      localStorage.setItem('snowland_admin_campus_scope', defaultScope)
+      setCampusScope(defaultScope)
+      if (campusScope !== defaultScope) window.location.reload()
+      return
+    }
+    const allowed = new Set((adminUser.campuses || []).map((campus) => String(campus.id)))
+    if (!adminUser.can_view_all_campuses && !allowed.size) return
+    if ((campusScope !== 'all' && !allowed.has(campusScope)) ||
+        (campusScope === 'all' && !adminUser.can_view_all_campuses && allowed.size)) {
+      const fallbackScope = adminUser.can_view_all_campuses ? 'all' : String(adminUser.campuses?.[0]?.id)
+      localStorage.setItem('snowland_admin_campus_scope', fallbackScope)
+      setCampusScope(fallbackScope)
+      window.location.reload()
+    }
+  }, [adminCheck, campusScope])
+
+  const changeCampusScope = (value: string) => {
+    localStorage.setItem('snowland_admin_campus_scope', value)
+    setCampusScope(value)
+    window.location.reload()
+  }
 
   // 一進 console 頁面就把 pre_login_url 設好（不論有沒有登入）
   // 這樣 GoogleLoginButton 登入完一定會跳回後台
@@ -407,13 +462,23 @@ function AdminLayoutContent() {
   // 根據使用者角色組 NAV
   const isManager = !!(adminCheck?.user?.is_superuser || adminCheck?.user?.is_manager)
   const isCoach = !!(adminCheck?.user?.is_coach)
+  const isPersonalCoachPage = location.pathname.startsWith(`${basePath}/console/my/`)
+  const displayUser = adminCheck?.user
+    ? { ...user, ...adminCheck.user, picture: user?.picture }
+    : user
   const navPermissionById: Record<string, string> = {
     dashboard: 'analytics',
     orders: 'orders',
     scheduling: 'scheduling',
     customers: 'customers',
     'chat-support': 'chat_support',
+    notifications: 'notifications',
+    payroll: 'payroll',
+    evaluations: 'evaluations',
+    insurance: 'insurance_records',
+    'booking-links': 'orders',
     resorts: 'resorts',
+    campuses: 'campuses',
     'course-types': 'course_types',
     pricing: 'pricing',
     discounts: 'discounts',
@@ -426,7 +491,9 @@ function AdminLayoutContent() {
     'cms-photography': 'cms',
     'cms-guides': 'cms',
     'cms-news': 'cms',
+    'social-sync': 'cms',
     'cms-about': 'cms',
+    'cms-membership': 'cms',
     'cms-coaches': 'cms',
     'cms-resorts': 'cms',
     'cms-offers': 'cms',
@@ -460,8 +527,14 @@ function AdminLayoutContent() {
       icon: BarChart3,
       children: [
         { id: 'orders', label: '訂單管理', path: `${basePath}/console/orders` },
+        { id: 'contact-inbox', label: '聯絡收件', path: `${basePath}/console/contact-inbox`, permission: 'contact_inbox' },
         { id: 'scheduling', label: '排課管理', path: `${basePath}/console/scheduling` },
         { id: 'chat-support', label: 'AI 客服', path: `${basePath}/console/chat-support` },
+        { id: 'notifications', label: '自動通知', path: `${basePath}/console/notifications` },
+        { id: 'payroll', label: '薪資結算', path: `${basePath}/console/payroll` },
+        { id: 'evaluations', label: '學習評量', path: `${basePath}/console/evaluations` },
+        { id: 'insurance', label: '保險與聲明書', path: `${basePath}/console/insurance` },
+        { id: 'booking-links', label: '代客訂課連結', path: `${basePath}/console/booking-links` },
       ],
     },
     {
@@ -469,6 +542,7 @@ function AdminLayoutContent() {
       label: '基本設定',
       icon: Settings,
       children: [
+        { id: 'campuses', label: '校區與營運規則', path: `${basePath}/console/campuses` },
         { id: 'resorts', label: '雪場管理', path: `${basePath}/console/resorts` },
         { id: 'course-types', label: '課程架構', path: `${basePath}/console/course-types` },
         { id: 'pricing', label: '課程定價', path: `${basePath}/console/pricing` },
@@ -489,7 +563,9 @@ function AdminLayoutContent() {
         { id: 'cms-photography', label: '海外攝影', path: `${basePath}/console/cms/photography` },
         { id: 'cms-guides', label: '滑雪攻略', path: `${basePath}/console/cms/guides` },
         { id: 'cms-news', label: '最新消息', path: `${basePath}/console/cms/news` },
+        { id: 'social-sync', label: '官方社群同步', path: `${basePath}/console/social-sync` },
         { id: 'cms-about', label: '關於 Snowland', path: `${basePath}/console/cms/about` },
+        { id: 'cms-membership', label: '會員文件', path: `${basePath}/console/cms/membership` },
         { id: 'cms-coaches', label: '教練資料', path: `${basePath}/console/cms/coaches` },
       ],
     },
@@ -515,6 +591,8 @@ function AdminLayoutContent() {
         { id: 'my-pending', label: '待確認課程', path: `${basePath}/console/my/pending` },
         { id: 'my-courses-list', label: '我的所有課程', path: `${basePath}/console/my/courses` },
         { id: 'my-calendar', label: '我的月曆', path: `${basePath}/console/my/calendar` },
+        { id: 'my-evaluations', label: '我的學習評量', path: `${basePath}/console/my/evaluations` },
+        { id: 'my-payroll', label: '我的薪資', path: `${basePath}/console/my/payroll` },
       ],
     },
     {
@@ -540,6 +618,17 @@ function AdminLayoutContent() {
     navItems = [...coachNav]
   }
 
+  // A campus staff member may have Orders/Scheduling but no dashboard permission.
+  // Send them to their first available module instead of a permission error after login.
+  const firstAvailablePath = navItems.flatMap((item) => item.children?.map((child) => child.path) || [item.path])
+    .find((path) => path && path !== `${basePath}/console`)
+  useEffect(() => {
+    if (adminCheck?.user && location.pathname === `${basePath}/console`
+      && !hasAdminPermission(adminCheck.user, 'analytics') && firstAvailablePath) {
+      navigate(firstAvailablePath, { replace: true })
+    }
+  }, [adminCheck, basePath, firstAvailablePath, location.pathname, navigate])
+
   // 切換選單展開（單選模式）
   const toggleMenu = (menuId: string) => {
     setExpandedMenus((prev) => {
@@ -554,6 +643,7 @@ function AdminLayoutContent() {
 
   // 進入頁面自動展開所在區塊
   useEffect(() => {
+    setMobileMenuOpen(false)
     const currentMenu = navItems.find((item) =>
       item.children?.some((child) => location.pathname === child.path || location.pathname.startsWith(child.path + '/'))
     )
@@ -581,7 +671,7 @@ function AdminLayoutContent() {
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <LoginPage />
+        <LoginPage returnTo="console" />
       </div>
     )
   }
@@ -592,6 +682,9 @@ function AdminLayoutContent() {
       <NoManagerPermission
         user={user}
         onLogout={() => logout(`${basePath}/console`)}
+        logoutError={logoutError}
+        loggingOut={loggingOut}
+        onRetry={() => { setAdminCheck(null); void fetchAdminMe().then(setAdminCheck) }}
         basePath={basePath}
         errorCode={adminCheck.errorCode}
         errorMsg={adminCheck.errorMsg}
@@ -600,7 +693,7 @@ function AdminLayoutContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="admin-shell min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       <GlobalNotification />
 
       {mobileMenuOpen && (
@@ -665,10 +758,10 @@ function AdminLayoutContent() {
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="個人設定"
             >
-              {user?.picture ? (
+              {displayUser?.picture ? (
                 <img
-                  src={user.picture}
-                  alt={user.name || ''}
+                  src={displayUser.picture}
+                  alt={displayUser.name || ''}
                   className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                 />
               ) : (
@@ -676,15 +769,15 @@ function AdminLayoutContent() {
                   className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0"
                   style={{ backgroundColor: PRIMARY }}
                 >
-                  {(user?.name || user?.email || '?').charAt(0).toUpperCase()}
+                  {(displayUser?.name || displayUser?.email || '?').charAt(0).toUpperCase()}
                 </div>
               )}
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {user?.name || '管理員'}
+                  {displayUser?.name || '管理員'}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  {user?.email}
+                  {displayUser?.email}
                 </div>
               </div>
             </button>
@@ -699,7 +792,8 @@ function AdminLayoutContent() {
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
+              aria-label="開啟導覽選單"
+              className="min-h-11 min-w-11 p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
             >
               <Menu size={20} />
             </button>
@@ -709,6 +803,20 @@ function AdminLayoutContent() {
           </div>
 
           <div className="flex items-center gap-2">
+            {!isPersonalCoachPage && !!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+              <label className="hidden sm:flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-900" title={adminCheck.user.can_view_all_campuses ? '切換日常資料的校區範圍；總部設定頁仍可管理全部校區' : '目前可查看的校區範圍'}>
+                <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">目前範圍</span>
+                <select
+                  aria-label="目前管理校區"
+                  value={campusScope}
+                  onChange={(event) => changeCampusScope(event.target.value)}
+                  className="bg-transparent text-sm font-semibold text-gray-800 dark:text-gray-100 outline-none max-w-40"
+                >
+                  {adminCheck.user.can_view_all_campuses && <option value="all">全部校區</option>}
+                  {adminCheck.user.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
+                </select>
+              </label>
+            )}
             <button
               onClick={() => navigate(basePath || '/')}
               className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
@@ -716,19 +824,45 @@ function AdminLayoutContent() {
             >
               <Globe size={20} />
             </button>
-            <NotificationBell />
+            {hasAdminPermission(adminCheck?.user, 'notifications') && <NotificationBell />}
             <ThemeToggleButton />
             <button
               onClick={() => logout(`${basePath}/console`)}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 rounded-lg"
-              title="登出"
+              disabled={loggingOut}
+              aria-busy={loggingOut}
+              className="min-h-11 min-w-11 p-2 text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 rounded-lg disabled:opacity-50"
+              title={loggingOut ? '登出中…' : '登出'}
             >
               <LogOut size={20} />
             </button>
           </div>
         </header>
 
+        {!isPersonalCoachPage && !!adminCheck?.user?.campuses?.length && !!(adminCheck.user.is_manager || adminCheck.user.is_superuser) && (
+          <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 sm:hidden">
+            <label className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
+              <span className="shrink-0">目前範圍</span>
+              <select
+                aria-label="目前管理校區"
+                value={campusScope}
+                onChange={(event) => changeCampusScope(event.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-semibold text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              >
+                {adminCheck.user.can_view_all_campuses && <option value="all">全部校區</option>}
+                {adminCheck.user.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+
+        {isPersonalCoachPage && <div role="note" aria-label="個人教練視角" className="border-b border-violet-100 bg-violet-50 px-4 py-2 text-xs leading-5 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
+          <strong>個人教練視角</strong>：僅顯示您本人的課程、評量、請假與薪資，不套用管理校區篩選。
+        </div>}
         <main className="p-4 md:p-6">
+          {logoutError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+            <p>{logoutError}</p>
+            <button type="button" disabled={loggingOut} onClick={() => logout(`${basePath}/console`)} className="mt-2 min-h-11 rounded-lg border border-current px-4 py-2 disabled:opacity-50">{loggingOut ? '登出中…' : '重試登出'}</button>
+          </div>}
           <Outlet />
         </main>
       </div>
@@ -756,13 +890,11 @@ function PageBreadcrumb({ navItems }: { navItems: NavItem[] }) {
       continue
     }
     for (const c of item.children) {
-      if (location.pathname === c.path || location.pathname.startsWith(c.path + '/')) {
+      if ((location.pathname === c.path || location.pathname.startsWith(c.path + '/')) && (!child || c.path.length > child.path.length)) {
         parent = item
         child = c
-        break
       }
     }
-    if (parent) break
   }
 
   if (!parent || !child) {
@@ -770,10 +902,10 @@ function PageBreadcrumb({ navItems }: { navItems: NavItem[] }) {
   }
 
   return (
-    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-      <span className="text-gray-700 dark:text-gray-300">{parent.label}</span>
-      <span aria-hidden>/</span>
-      <span className="text-gray-900 dark:text-white font-medium">{child.label}</span>
+    <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+      <span className="hidden text-gray-700 dark:text-gray-300 sm:inline">{parent.label}</span>
+      <span className="hidden sm:inline" aria-hidden>/</span>
+      <span className="min-w-0 truncate font-medium text-gray-900 dark:text-white">{child.label}</span>
     </div>
   )
 }
@@ -782,15 +914,21 @@ function PageBreadcrumb({ navItems }: { navItems: NavItem[] }) {
 function NoManagerPermission({
   user,
   onLogout,
+  onRetry,
   basePath,
   errorCode,
   errorMsg,
+  logoutError,
+  loggingOut,
 }: {
   user: { name?: string; email?: string; picture?: string }
   onLogout: () => Promise<void> | void
+  onRetry: () => void
   basePath: string
   errorCode: number | null
   errorMsg: string
+  logoutError?: string
+  loggingOut?: boolean
 }) {
   // 401: session 失效（已登入但 cookie 沒被後端認可）→ 直接登出讓他重新走 OAuth
   // 403: 登入了但不是 manager → 顯示「無權限」訊息
@@ -811,7 +949,7 @@ function NoManagerPermission({
     window.location.hostname === '127.0.0.1'
   )
 
-  if (is401) {
+  if (is401 && !logoutError) {
     // 等 onLogout 跳轉中
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -840,6 +978,7 @@ function NoManagerPermission({
         </div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-2">{title}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">{desc}</p>
+        {logoutError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">{logoutError}</p>}
 
         {/* 當前登入帳號 */}
         <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-6">
@@ -871,19 +1010,28 @@ function NoManagerPermission({
           </div>
         )}
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          {!is403 && <button
+            onClick={onRetry}
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            style={{ backgroundColor: PRIMARY }}
+          >
+            重新驗證
+          </button>}
           <button
             onClick={() => window.location.href = basePath || '/'}
-            className="flex-1 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
           >
             回首頁
           </button>
           <button
             onClick={() => onLogout()}
-            className="flex-1 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90"
+            disabled={loggingOut}
+            aria-busy={loggingOut}
+            className="min-h-11 flex-1 min-w-[120px] px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: PRIMARY }}
           >
-            切換帳號
+            {loggingOut ? '登出中…' : '切換帳號'}
           </button>
         </div>
       </div>

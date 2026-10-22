@@ -1,11 +1,13 @@
 import React, { useRef, useState } from 'react';
+import { useSiteLocale } from '../../contexts/SiteLocale';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
-import instagramLatest from '../../data/site/instagramLatest';
-import guidesArticles from '../../data/site/guidesArticles';
+import SiteLink from '../../components/site/SiteLink';
+import { guideArticleTarget } from '../../hooks/useSiteContent';
 import { fetchSiteContent } from '../../api/booking';
 
 function NewsPage() {
+  const { t } = useSiteLocale();
   const scrollerRef = useRef(null);
   const itemRefs = useRef([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -23,7 +25,7 @@ function NewsPage() {
     let mounted = true;
     Promise.all([
       fetchSiteContent({ content_type: 'social', location_key: 'news.social', limit: 8 }),
-      fetchSiteContent({ content_type: 'article', location_key: 'news.articles', limit: 6 }),
+      fetchSiteContent({ content_type: 'article', location_key: 'guides.articles', limit: 6, view:'cards' }),
     ])
       .then(([socialItems, articleItems]) => {
         if (!mounted) return;
@@ -40,37 +42,21 @@ function NewsPage() {
     };
   }, []);
 
-  const instagramItems = cmsSocialItems.length
-    ? cmsSocialItems.map((item) => ({
+  const instagramItems = cmsSocialItems.map((item) => ({
       shortcode: item.external_id || String(item.id),
       src: item.image_url,
-      alt: item.title || 'SnowLand 社群動態',
+      alt: item.title || t('SnowLand 社群動態'),
       caption: item.summary || item.body || item.subtitle || '',
       href: item.link_url || '#',
-    }))
-    : instagramLatest.slice(0, 8).map((item) => ({
-      ...item,
-      href: `https://www.instagram.com/p/${item.shortcode}/`,
     }));
 
-  const latestArticles = cmsArticles.length
-    ? cmsArticles.map((item) => ({
-      url: item.link_url || '#',
-      title: item.title || '最新消息',
-      date: (item.start_at || item.created_at || '').slice(0, 10).replace(/-/g, '.'),
-      category: item.tags?.[0] || item.subtitle || '最新消息',
+  const latestArticles = cmsArticles.map((item) => ({
+      url: guideArticleTarget(item),
+      title: item.title || t('最新消息'),
+      date: item.metadata?.date || (item.start_at || '').slice(0, 10).replace(/-/g, '.'),
+      category: item.metadata?.category || item.tags?.[0] || item.subtitle || '最新消息',
       image: item.image_url,
-    }))
-    : [...guidesArticles]
-    .filter((item) => item?.date)
-    .sort((a, b) => {
-      const toTime = (value) => {
-        const [year, month, day] = value.split('.').map(Number);
-        return new Date(year, month - 1, day).getTime();
-      };
-      return toTime(b.date) - toTime(a.date);
-    })
-    .slice(0, 3);
+    }));
 
   const scrollToIndex = (index) => {
     const scroller = scrollerRef.current;
@@ -89,17 +75,15 @@ function NewsPage() {
           <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
             News
           </p>
-          <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-            最新消息
-          </h1>
+          <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">{t("最新消息")}</h1>
         </div>
         <section className="mt-10">
           <div className="mt-6 space-y-12 md:space-y-8">
             {latestArticles.map((article) => (
-              <a
+              <SiteLink
                 key={article.url}
-                href={article.url}
-                target="_blank"
+                to={article.url || '/guides'}
+                target={article.url.startsWith('/') ? undefined : '_blank'}
                 rel="noopener noreferrer"
                 className="group grid gap-6 md:grid-cols-[minmax(0,1fr)_180px] md:items-start"
               >
@@ -107,7 +91,7 @@ function NewsPage() {
                   <span
                     className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold tracking-[0.2em] uppercase font-display ${categoryBadgeStyles[article.category] || "bg-[#e2e8f0] text-[#475569]"}`}
                   >
-                    {article.category}
+                    {t(article.category)}
                   </span>
                   <h2 className="mt-4 text-2xl font-semibold text-[#111827] leading-snug">
                     {article.title}
@@ -123,13 +107,13 @@ function NewsPage() {
                     className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                   />
                 </div>
-              </a>
+              </SiteLink>
             ))}
           </div>
         </section>
         <div className="mt-12 border-t border-[#e2e8f0] pt-12 relative">
           <div className="text-center font-lora mb-10">
-            <p className="text-base font-semibold text-slate-600">Follow us on Instagram</p>
+            <p className="text-base font-semibold text-slate-600">{t('追蹤我們的 Instagram')}</p>
             <a
               href="https://www.instagram.com/snowlandcz/"
               target="_blank"
@@ -184,7 +168,7 @@ function NewsPage() {
                 <div className="absolute inset-0 bg-black/55 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 <div className="absolute inset-0 flex items-end p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                   <p className="text-sm leading-relaxed text-white/90 max-h-28 overflow-hidden">
-                    {item.caption || "查看貼文"}
+                    {item.caption || t("查看貼文")}
                   </p>
                 </div>
               </a>
@@ -193,32 +177,38 @@ function NewsPage() {
           <button
             type="button"
             onClick={() => scrollToIndex(activeIndex - 1)}
-            className="absolute left-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors md:hidden"
-            aria-label="Previous posts"
+            disabled={activeIndex <= 0 || instagramItems.length < 2}
+            className="absolute left-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white disabled:opacity-40 transition-colors md:hidden"
+            aria-label={t('上一則貼文')}
           >
             ←
           </button>
           <button
             type="button"
             onClick={() => scrollToIndex(activeIndex + 1)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white transition-colors md:hidden"
-            aria-label="Next posts"
+            disabled={activeIndex >= instagramItems.length - 1 || instagramItems.length < 2}
+            className="absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/80 text-[#1f2937] shadow-md hover:bg-white disabled:opacity-40 transition-colors md:hidden"
+            aria-label={t('下一則貼文')}
           >
             →
           </button>
-          <div className="mt-4 flex justify-center gap-2 md:hidden">
+          <div className="mt-4 flex flex-wrap justify-center gap-2 md:hidden">
             {instagramItems.map((item, index) => (
               <button
                 key={`news-dot-${item.shortcode}`}
                 type="button"
                 onClick={() => scrollToIndex(index)}
-                className={`h-2.5 w-2.5 rounded-full border ${
+                className="flex h-11 w-11 shrink-0 items-center justify-center"
+                aria-label={t('切換到第 {number} 則貼文', { number: index + 1 })}
+                aria-pressed={index === activeIndex}
+              >
+                <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full border ${
                   index === activeIndex
-                    ? "border-slate-300 bg-slate-300"
-                    : "border-slate-200 bg-slate-200/70"
+                    ? "border-[#2b5f8f] bg-[#2b5f8f]"
+                    : "border-slate-400 bg-slate-200"
                 }`}
-                aria-label={`切換到第 ${index + 1} 張`}
-              />
+                />
+              </button>
             ))}
           </div>
         </div>

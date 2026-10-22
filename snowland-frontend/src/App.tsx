@@ -20,6 +20,7 @@ import HistoryPage from '@/pages/HistoryPage'
 import ClientSelectionPage from '@/pages/ClientSelectionPage'
 import SiteRoutes from '@/pages/site/SiteRoutes'
 import { SiteBasePathContext } from '@/components/site/SiteLink'
+import SiteTracking from '@/components/site/SiteTracking'
 // @ts-ignore
 import SiteHeader from '@/components/site/SiteHeader'
 // @ts-ignore
@@ -41,6 +42,16 @@ type ModalStep =
   | 'ability'
   | 'booking'
   | 'none'
+
+const paymentPathFromUrl = (url?: string) => {
+  const params = new URLSearchParams(url?.split('?')[1] || '')
+  const next = new URLSearchParams()
+  for (const key of ['reservation_group', 'access_token']) {
+    const value = params.get(key)
+    if (value) next.set(key, value)
+  }
+  return `/payment?${next}`
+}
 
 function App() {
   const navigate = useNavigate()
@@ -95,11 +106,8 @@ function App() {
           showToast('預約成功！正在跳轉到付款頁面...', 'success')
           clearCart()
           setIsCartOpen(false)
-          // 從 payment_url 提取 reservation_group 參數
-          const urlParams = new URLSearchParams(response.payment_url.split('?')[1])
-          const reservationGroup = urlParams.get('reservation_group')
           setTimeout(() => {
-            navigate(`/payment?reservation_group=${reservationGroup}`)
+            navigate(paymentPathFromUrl(response.payment_url))
           }, 1500)
         } else if (response.scheduling_failed) {
           // 即使進階排課也失敗
@@ -145,11 +153,8 @@ function App() {
             showToast('預約成功！正在跳轉到付款頁面...', 'success')
             clearCart()
             setIsCartOpen(false)
-            // 從 payment_url 提取 reservation_group 參數
-            const urlParams = new URLSearchParams(response.payment_url.split('?')[1])
-            const reservationGroup = urlParams.get('reservation_group')
             setTimeout(() => {
-              navigate(`/payment?reservation_group=${reservationGroup}`)
+              navigate(paymentPathFromUrl(response.payment_url))
             }, 1500)
           } else if (response.payment_urls && response.payment_urls.length > 0) {
             // 多個預約組，暫時跳轉到第一個
@@ -157,10 +162,8 @@ function App() {
             showToast(`預約成功！已創建 ${response.reservation_group_ids.length} 個預約，正在跳轉到付款頁面...`, 'success')
             clearCart()
             setIsCartOpen(false)
-            const urlParams = new URLSearchParams(response.payment_urls[0].payment_url.split('?')[1])
-            const reservationGroup = urlParams.get('reservation_group')
             setTimeout(() => {
-              navigate(`/payment?reservation_group=${reservationGroup}`)
+              navigate(paymentPathFromUrl(response.payment_urls?.[0]?.payment_url))
             }, 1500)
           }
         } else {
@@ -234,6 +237,7 @@ function ClientRoutes() {
 
   return (
     <SiteBasePathContext.Provider value={basePath}>
+      <SiteTracking />
       <Routes>
         {/* 付款頁面 */}
         <Route path="payment" element={<PaymentPage />} />
@@ -312,11 +316,8 @@ function MainApp() {
           showToast('預約成功！正在跳轉到付款頁面...', 'success')
           clearCart()
           setIsCartOpen(false)
-          // 從 payment_url 提取 reservation_group 參數
-          const urlParams = new URLSearchParams(response.payment_url.split('?')[1])
-          const reservationGroup = urlParams.get('reservation_group')
           setTimeout(() => {
-            navigate(`/payment?reservation_group=${reservationGroup}`)
+            navigate(paymentPathFromUrl(response.payment_url))
           }, 1500)
         } else if (response.scheduling_failed) {
           // 即使進階排課也失敗
@@ -362,11 +363,8 @@ function MainApp() {
             showToast('預約成功！正在跳轉到付款頁面...', 'success')
             clearCart()
             setIsCartOpen(false)
-            // 從 payment_url 提取 reservation_group 參數
-            const urlParams = new URLSearchParams(response.payment_url.split('?')[1])
-            const reservationGroup = urlParams.get('reservation_group')
             setTimeout(() => {
-              navigate(`/payment?reservation_group=${reservationGroup}`)
+              navigate(paymentPathFromUrl(response.payment_url))
             }, 1500)
           } else if (response.payment_urls && response.payment_urls.length > 0) {
             // 多個預約組，暫時跳轉到第一個
@@ -374,10 +372,8 @@ function MainApp() {
             showToast(`預約成功！已創建 ${response.reservation_group_ids.length} 個預約，正在跳轉到付款頁面...`, 'success')
             clearCart()
             setIsCartOpen(false)
-            const urlParams = new URLSearchParams(response.payment_urls[0].payment_url.split('?')[1])
-            const reservationGroup = urlParams.get('reservation_group')
             setTimeout(() => {
-              navigate(`/payment?reservation_group=${reservationGroup}`)
+              navigate(paymentPathFromUrl(response.payment_urls?.[0]?.payment_url))
             }, 1500)
           }
         } else {

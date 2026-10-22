@@ -2,8 +2,11 @@ import { Routes, Route } from 'react-router-dom'
 import AdminLayout from './layout/AdminLayout'
 import RoleGuard from './components/RoleGuard'
 import DashboardPage from './pages/DashboardPage'
+import ContactInboxPage from './pages/ContactInboxPage'
+import SocialSyncPage from './pages/SocialSyncPage'
 import CoachesPage from './pages/CoachesPage'
 import ResortsPage from './pages/ResortsPage'
+import CampusesPage from './pages/CampusesPage'
 import CourseTypesPage from './pages/CourseTypesPage'
 import PricingPage from './pages/PricingPage'
 import DiscountsPage from './pages/DiscountsPage'
@@ -21,6 +24,8 @@ import MyCoursesPage from './pages/my/MyCoursesPage'
 import MyCalendarPage from './pages/my/MyCalendarPage'
 import MyLeavesPage from './pages/my/MyLeavesPage'
 import ApplyLeavePage from './pages/my/ApplyLeavePage'
+import MyPayrollPage from './pages/my/MyPayrollPage'
+import OperationsHubPage from './pages/OperationsHubPage'
 
 export default function AdminRoutes() {
   return (
@@ -45,7 +50,25 @@ export default function AdminRoutes() {
           <Route element={<RoleGuard permission="chat_support" />}>
             <Route path="chat-support" element={<ChatSupportPage />} />
           </Route>
+          <Route element={<RoleGuard permission="notifications" />}>
+            <Route path="notifications" element={<OperationsHubPage initialTab="notifications" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="payroll" />}>
+            <Route path="payroll" element={<OperationsHubPage initialTab="payroll" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="evaluations" />}>
+            <Route path="evaluations" element={<OperationsHubPage initialTab="evaluations" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="insurance_records" />}>
+            <Route path="insurance" element={<OperationsHubPage initialTab="insurance" fixed />} />
+          </Route>
+          <Route element={<RoleGuard permission="orders" />}>
+            <Route path="booking-links" element={<OperationsHubPage initialTab="links" fixed />} />
+          </Route>
 
+          <Route element={<RoleGuard permission="contact_inbox" />}>
+            <Route path="contact-inbox" element={<ContactInboxPage />} />
+          </Route>
           {/* 基本設定 */}
           <Route element={<RoleGuard permission="coaches" />}>
             <Route path="coaches" element={<CoachesPage />} />
@@ -53,6 +76,9 @@ export default function AdminRoutes() {
           </Route>
           <Route element={<RoleGuard permission="resorts" />}>
             <Route path="resorts" element={<ResortsPage />} />
+          </Route>
+          <Route element={<RoleGuard permission="campuses" />}>
+            <Route path="campuses" element={<CampusesPage />} />
           </Route>
           <Route element={<RoleGuard permission="course_types" />}>
             <Route path="course-types" element={<CourseTypesPage />} />
@@ -72,12 +98,14 @@ export default function AdminRoutes() {
 
           {/* CMS */}
           <Route element={<RoleGuard permission="cms" />}>
+            <Route path="social-sync" element={<SocialSyncPage />} />
             <Route path="cms/homepage" element={<SiteContentPage initialGroup="homepage" />} />
             <Route path="cms/courses" element={<SiteContentPage initialGroup="courses" />} />
             <Route path="cms/photography" element={<SiteContentPage initialGroup="photography" />} />
             <Route path="cms/guides" element={<SiteContentPage initialGroup="guides" />} />
             <Route path="cms/news" element={<SiteContentPage initialGroup="news" />} />
             <Route path="cms/about" element={<SiteContentPage initialGroup="about" />} />
+            <Route path="cms/membership" element={<SiteContentPage initialGroup="membership" />} />
             <Route path="cms/coaches" element={<CoachEditorPage />} />
             <Route path="cms/resorts" element={<SiteContentPage initialGroup="courses" />} />
             <Route path="cms/offers" element={<SiteContentPage initialGroup="news" />} />
@@ -87,9 +115,9 @@ export default function AdminRoutes() {
 
           {/* 評論與媒體 */}
           <Route element={<RoleGuard permission="reviews" />}>
-            <Route path="reviews/google" element={<SiteContentPage initialGroup="homepage" />} />
-            <Route path="reviews/manual" element={<SiteContentPage initialGroup="homepage" />} />
-            <Route path="media" element={<SiteContentPage initialGroup="photography" />} />
+            <Route path="reviews/google" element={<SiteContentPage initialGroup="homepage" contentTypes={['review']} />} />
+            <Route path="reviews/manual" element={<SiteContentPage initialGroup="homepage" contentTypes={['review']} />} />
+            <Route path="media" element={<SiteContentPage initialGroup="photography" contentTypes={['media']} />} />
           </Route>
         </Route>
 
@@ -98,6 +126,8 @@ export default function AdminRoutes() {
           <Route path="my/pending" element={<PendingConfirmationsPage />} />
           <Route path="my/courses" element={<MyCoursesPage />} />
           <Route path="my/calendar" element={<MyCalendarPage />} />
+          <Route path="my/payroll" element={<MyPayrollPage />} />
+          <Route path="my/evaluations" element={<OperationsHubPage initialTab="evaluations" fixed coachView />} />
           <Route path="my/leaves" element={<MyLeavesPage />} />
           <Route path="my/leaves/apply" element={<ApplyLeavePage />} />
         </Route>

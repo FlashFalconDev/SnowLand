@@ -1,12 +1,9 @@
 import random
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 from .models import Reservation, Booking, Payment
 from Coach.models import (
-    Coach, CoachResort, CoachCourseLevel,
+    Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest,
     ABILITY_LEVEL_CHOICES, normalize_ability_level,
 )
 from Resorts.models import Resorts
@@ -24,11 +21,11 @@ ASSIGNED_RESERVATION_STATUSES = [
     'manually_assigned',
     'pending_coach_confirmation',
     'completed',
+    'form_filled',
 ]
 
 MOVABLE_ASSIGNED_STATUSES = [
     'auto_assigned',
-    'manually_assigned',
     'pending_coach_confirmation',
 ]
 
@@ -121,6 +118,11 @@ def assign_coachs(reservations_to_assign=None):
     """
     
     if reservations_to_assign is not None:
+        # An administrative batch can include unchanged sibling lines. Manual
+        # assignments and course history stay locked; explicitly changed lines
+        # are reset to created by the caller before requesting a new assignment.
+        reservations_to_assign = [reservation for reservation in reservations_to_assign
+            if reservation.status not in ('manually_assigned', 'completed', 'form_filled', 'cancelled', 'deleted')]
         incoming_ids = {r.id for r in reservations_to_assign}
     else:
         incoming_ids = set()
@@ -171,6 +173,10 @@ def assign_coachs(reservations_to_assign=None):
                 # 這裡應該不會發生，因為 is_preferred_coach=True
                 continue
 
+            if not coach_can_cover_bookings(list(resv.bookings.all()),coach.id):
+                _restore_reservation_snapshots(state_snapshots)
+                return False,{'error':'指定教練不屬於此公司／校區、未開放此雪場，或上課日期已有核准請假','reservation_id':resv.pk}
+
             if not coach_matches_course_template(coach, resv.course_template):
                 rule_label = course_template_restriction_label(resv.course_template) or '教練條件'
                 error_msg = f"錯誤：指定教練 {coach.name} 不符合課程模板教練條件（{rule_label}）"
@@ -183,6 +189,22 @@ def assign_coachs(reservations_to_assign=None):
                     "conflict_details": {
                         "identifier": f"於「{resv.resort.display_name if resv.resort else '?'}」的「{resv.get_course_type_display()}」",
                         "reason": error_msg,
+                    },
+                }
+
+            qualified_coaches = get_feasible_coaches(
+                resv.language, resv.resort, resv.course_type_id,
+                resv.max_ability_level, course_template=resv.course_template,
+            )
+            if coach not in qualified_coaches:
+                _restore_reservation_snapshots(state_snapshots)
+                reason = '指定教練不符合此課程、語言或學員程度，請重新選擇教練'
+                return False, {
+                    'error': reason,
+                    'reservation_id': resv.id,
+                    'conflict_details': {
+                        'identifier': f'「{resv.resort.display_name}」課程',
+                        'reason': reason,
                     },
                 }
 
@@ -232,7 +254,10 @@ def assign_coachs(reservations_to_assign=None):
             resv.max_ability_level,
             rejected_coach_ids=rejected_ids,
             course_template=resv.course_template,
+            automatic_only=True,
         )
+        had_candidates=bool(fi)
+        fi=[coach for coach in fi if coach_can_cover_bookings(list(resv.bookings.all()),coach.pk)]
         if (
             resv.id in displaced_reservations and
             Payment.objects.filter(reservation_group=resv.group).exists()
@@ -240,7 +265,7 @@ def assign_coachs(reservations_to_assign=None):
             fi = [coach for coach in fi if coach.availability_status == 'active']
         if not fi:
             # 細化原因，讓前端 / 後台能看出卡在哪
-            reason = _diagnose_no_feasible_coach(resv)
+            reason = ('目前沒有同一位教練可上完這組所有日期；教練可能已請假，或未開放此校區。可嘗試進階排課，分日安排不同教練。' if had_candidates else _diagnose_no_feasible_coach(resv))
             error_msg = f"預約 {resv.id} 找不到可行教練：{reason}"
             resv.status = 'auto_assignment_failed'
             resv.save()
@@ -412,7 +437,7 @@ def course_template_restriction_label(course_template):
         parts.append(course_template.get_minimum_coach_price_level_display())
     allowed_count = course_template.allowed_coaches.count()
     if allowed_count:
-        parts.append(f'優先安排 {allowed_count} 位教練')
+        parts.append(f'限定 {allowed_count} 位教練')
     return '、'.join(parts)
 
 
@@ -420,6 +445,11 @@ def coach_matches_course_template(coach, course_template, coach_course_level=Non
     course_template = resolve_course_template(course_template)
     if not course_template:
         return True
+
+    if allowed_coach_ids is None:
+        allowed_coach_ids = set(course_template.allowed_coaches.values_list('id', flat=True))
+    if allowed_coach_ids and coach.pk not in allowed_coach_ids:
+        return False
 
     minimum_level = course_template.minimum_coach_price_level
     if not minimum_level:
@@ -444,11 +474,11 @@ def get_coach_assignment_score_for_resort(coach, resort):
     return coach.assignment_score
 
 
-def get_feasible_coaches(language, resort, course_type, max_ability_level, rejected_coach_ids=None, course_template=None):
+def get_feasible_coaches(language, resort, course_type, max_ability_level, rejected_coach_ids=None, course_template=None, automatic_only=False):
     """
     找出符合指定條件的可行教練列表。
     新的排序邏輯：
-    1. 課程模板優先名單
+    1. 符合課程模板限定名單與最低等級
     2. 主動接課優先，需確認接課排在最後
     3. CoachCourseLevel 的 course_order (數字越小越優先)
     4. Coach 的 assignment_score (分數越低越優先)
@@ -465,6 +495,10 @@ def get_feasible_coaches(language, resort, course_type, max_ability_level, rejec
 
     # 0. 基礎查詢：只考慮可接課的教練
     available_coaches = Coach.objects.exclude(availability_status='unavailable')
+    if resort.client_id:
+        available_coaches = available_coaches.filter(client_id=resort.client_id)
+    if automatic_only:
+        available_coaches = available_coaches.filter(auto_assignment_enabled=True)
     
     # 1. 語言能力
     available_coaches = available_coaches.filter(languages__contains=language)
@@ -508,7 +542,7 @@ def get_feasible_coaches(language, resort, course_type, max_ability_level, rejec
                     "score": get_coach_assignment_score_for_resort(coach, resort)
                 })
 
-    # 模板優先名單先嘗試，但不會排除其他合格教練；需確認教練留到主動教練都排不進去時才嘗試。
+    # 已排除模板名單外教練；需確認教練留到主動教練都排不進去時才嘗試。
     final_coaches_with_priority.sort(
         key=lambda x: (
             x['status_rank'],
@@ -527,6 +561,36 @@ def get_feasible_coaches(language, resort, course_type, max_ability_level, rejec
         final_coaches = [coach for coach in final_coaches if coach.id not in rejected_coach_ids]
     
     return final_coaches
+
+def get_manual_assignment_coaches(reservation, bookings):
+    """The picker and save endpoint must agree on every lesson's qualifications."""
+    if not bookings or not reservation.resort_id:
+        return []
+    template_ids = list(dict.fromkeys(booking.course_template_id or reservation.course_template_id for booking in bookings))
+    templates = {template.pk: template for template in CourseTemplate.objects.filter(
+        pk__in=[pk for pk in template_ids if pk]).select_related('course_type__category')}
+    rejected_ids = list(reservation.rejected_coaches.values_list('pk', flat=True))
+    qualified = None
+    for template_id in template_ids:
+        template = templates.get(template_id)
+        if template_id and template is None:
+            return []
+        kind = template.course_type if template else reservation.course_type
+        if not kind or kind.category.client_id != reservation.group.client_id:
+            return []
+        candidates = get_feasible_coaches(
+            reservation.language, reservation.resort, kind.pk, reservation.max_ability_level,
+            rejected_coach_ids=rejected_ids, course_template=template,
+        )
+        if qualified is None:
+            qualified = candidates
+        else:
+            ids = {coach.pk for coach in candidates}
+            qualified = [coach for coach in qualified if coach.pk in ids]
+        if not qualified:
+            return []
+    return qualified or []
+
 
 def coach_can_teach_course(coach, desired_course_type):
     """
@@ -613,7 +677,22 @@ def backtrack_assign(resv_list, idx, coach_busy_map):
     }
     return False, report
 
+def coach_can_cover_bookings(bookings_list,coach_id):
+    coach=Coach.objects.filter(pk=coach_id).first()
+    if not coach or coach.availability_status=='unavailable':return False
+    for booking in bookings_list:
+        reservation=booking.reservation
+        group=reservation.group
+        client_id=group.client_id or getattr(reservation.resort,'client_id',None)
+        if client_id and coach.client_id!=client_id:return False
+        if group.campus_id and not coach.campuses.filter(pk=group.campus_id,client_id=client_id).exists():return False
+        if reservation.resort_id and not CoachResort.objects.filter(coach_id=coach_id,resort_id=reservation.resort_id).exists():return False
+        if CoachLeaveRequest.objects.filter(coach_id=coach_id,status='approved',start_date__lte=booking.date,end_date__gte=booking.date).exists():return False
+    return True
+
+
 def can_assign_all_bookings(bookings_list, coach_id, coach_busy_map):
+    if not coach_can_cover_bookings(bookings_list,coach_id):return False
     busy_list = coach_busy_map[coach_id]
     for b in bookings_list:
         if is_conflict(b.date, b.start_time, b.end_time, busy_list):
@@ -654,6 +733,13 @@ def _generate_suggestion_report(conflict_dates, all_potential_coaches, coach_bus
         for delta in range(-nearby_days, nearby_days + 1):
             dates_to_check.add(cd + timedelta(days=delta))
 
+    approved_leaves = list(CoachLeaveRequest.objects.filter(
+        coach_id__in=[coach.id for coach in potential_coaches_set],
+        status='approved',
+        start_date__lte=max(dates_to_check),
+        end_date__gte=min(dates_to_check),
+    ).values_list('coach_id', 'start_date', 'end_date')) if dates_to_check else []
+
     all_day_slots = [
         {'name': '上午', 'segments': [('09:00', '12:00')]},
         {'name': '下午', 'segments': [('13:00', '16:00')]},
@@ -665,6 +751,9 @@ def _generate_suggestion_report(conflict_dates, all_potential_coaches, coach_bus
         for slot in all_day_slots:
             available = set()
             for coach in potential_coaches_set:
+                if any(coach_id == coach.id and start <= check_date <= end
+                       for coach_id, start, end in approved_leaves):
+                    continue
                 ok = True
                 for start_s, end_s in slot['segments']:
                     start_t, end_t = _str_to_time(start_s), _str_to_time(end_s)
@@ -747,6 +836,7 @@ def check_availability_and_get_suggestions(courses):
             course_type=course.get("courseType"),
             max_ability_level=course.get("abilityLevel"),
             course_template=course.get("courseTemplateId"),
+            automatic_only=True,
         )
         all_potential_coaches.update(feasible_coaches_for_course)
 
@@ -778,6 +868,7 @@ def check_availability_and_get_suggestions(courses):
             course_type=course.get("courseType"),
             max_ability_level=course.get("abilityLevel"),
             course_template=course.get("courseTemplateId"),
+            automatic_only=True,
         )
         
         for slot in course.get("booking", []):
@@ -830,21 +921,12 @@ def check_availability_and_get_suggestions(courses):
 
 
 def send_gmail(subject, body, to_email):
-    from_email = "land110602@gmail.com"
-    password = "weyw fsym lkps plql"
+    from django.conf import settings
+    from django.core.mail import send_mail
 
-    msg = MIMEMultipart()
-    msg['From'] = from_email
-    msg['To'] = to_email
-    msg['Subject'] = subject
-
-    msg.attach(MIMEText(body, 'plain'))
-
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(from_email, password)
-    server.sendmail(from_email, to_email, msg.as_string())
-    server.quit()
+    delivered = send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [to_email])
+    if delivered != 1:
+        raise RuntimeError('郵件服務未確認送出')
     return 'ok'
 
 def reassign_single_reservation(reservation_id):
@@ -853,8 +935,8 @@ def reassign_single_reservation(reservation_id):
     專門用於教練拒絕後的重新分配
     """
     from django.db import models
-    from .models import Reservation, Booking, Coach
-    from Coach.models import CoachResort
+    from .models import Reservation, Booking
+    from Coach.models import Coach, CoachResort
     
     print(f"\n=== 開始單個預約重新排課：Reservation ID {reservation_id} ===")
     
@@ -871,8 +953,8 @@ def reassign_single_reservation(reservation_id):
     
     # 排除當前預約，查詢其他已確認的預約來建立忙碌表
     other_confirmed_reservations = Reservation.objects.exclude(id=reservation_id).filter(
-        models.Q(is_preferred_coach=True) | models.Q(status__in=['auto_assigned', 'manually_assigned', 'pending_coach_confirmation'])
-    )
+        models.Q(is_preferred_coach=True) | models.Q(status__in=ASSIGNED_RESERVATION_STATUSES)
+    ).exclude(status__in=['cancelled', 'deleted'])
     
     print(f"其他已確認預約數量：{other_confirmed_reservations.count()}")
     
@@ -898,6 +980,7 @@ def reassign_single_reservation(reservation_id):
         reservation.max_ability_level,
         rejected_coach_ids=rejected_ids,
         course_template=reservation.course_template,
+        automatic_only=True,
     )
     if not feasible_coaches:
         print(f"預約 {reservation_id} 沒有可行的教練，設為需要人工處理")
@@ -968,13 +1051,13 @@ def reassign_single_reservation(reservation_id):
                 booking.is_scheduled = True
                 booking.save()
             
-            print(f"✅ 成功將預約 {reservation_id} 分配給教練 {coach.name}")
+            print(f"成功將預約 {reservation_id} 分配給教練 {coach.name}")
             return True
         else:
             print(f"教練 {coach.name} 有時間衝突，跳過")
     
     # 7. 如果所有教練都無法分配，恢復原狀態並設為需人工處理
-    print(f"❌ 無法為預約 {reservation_id} 找到合適的教練")
+    print(f"無法為預約 {reservation_id} 找到合適的教練")
     
     reservation.preferred_coach_id = original_coach_id
     reservation.status = 'manual_assignment_needed' # 需人工排定教練

@@ -1,7 +1,7 @@
 /**
  * 課程類型管理（接 API）
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit, Trash2, Clock, Users, Calendar, Loader2, AlertCircle, X, MapPin } from 'lucide-react'
 import {
@@ -10,13 +10,15 @@ import {
   createType, updateType, deleteType,
   createTemplate, updateTemplate, deleteTemplate,
   createSession, updateSession, deleteSession,
+  fetchCourseTemplateEditorOptions, type CourseTemplateEditorOptions,
 } from '../api/courses'
-import { fetchCoaches as fetchAdminCoaches, type Coach } from '../api/coaches'
-import { fetchResorts, type Resort } from '../api/resorts'
+import { fetchAdminMe } from '../api/auth'
+import { hasAdminPermission } from '../permissions'
 import { useNotification } from '../context'
 import PromptModal, { type PromptField } from '../components/PromptModal'
 
 const PRIMARY = '#8b5cf6'
+const SHARED_CLASS_FEATURE_ENABLED = import.meta.env.VITE_SHARED_CLASS_FEATURE_ENABLED === '1'
 const serviceTypeOptions = [
   { value: 'ski', label: '滑雪課程' },
   { value: 'photo', label: '攝影服務' },
@@ -26,6 +28,7 @@ const serviceTypeLabels: Record<string, string> = {
   photo: '攝影',
 }
 type ServiceFilter = 'all' | 'ski' | 'photo'
+type DeleteTarget = { kind: 'category' | 'type' | 'template' | 'session'; id: number; name: string }
 
 const getTemplateCoachRuleText = (template?: CourseTemplate | null) => {
   if (!template) return ''
@@ -34,7 +37,7 @@ const getTemplateCoachRuleText = (template?: CourseTemplate | null) => {
     parts.push(template.minimum_coach_price_level_label || `${template.minimum_coach_price_level} 以上`)
   }
   if (template.allowed_coach_names?.length) {
-    parts.push(`優先 ${template.allowed_coach_names.length} 位教練`)
+    parts.push(`限定 ${template.allowed_coach_names.length} 位教練`)
   }
   return parts.join('，')
 }
@@ -44,20 +47,22 @@ export default function CourseTypesPage() {
   const qc = useQueryClient()
   const QUERY_KEY = ['admin', 'course-categories']
   const refresh = () => qc.invalidateQueries({ queryKey: QUERY_KEY })
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
+  const canManageCompanyStructure = !!adminMe?.user?.can_view_all_campuses
 
   const { data: categories = [], isLoading, error } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchCourseCategories,
   })
 
-  const { data: allResorts = [] } = useQuery({
-    queryKey: ['admin', 'resorts'],
-    queryFn: fetchResorts,
+  const { data: editorOptions, isLoading: editorOptionsLoading, error: editorOptionsError } = useQuery({
+    queryKey: ['admin', 'course-template-editor-options'],
+    queryFn: fetchCourseTemplateEditorOptions,
   })
-  const { data: allCoaches = [] } = useQuery({
-    queryKey: ['admin', 'coaches'],
-    queryFn: fetchAdminCoaches,
-  })
+  const selectedCampus = localStorage.getItem('snowland_admin_campus_scope') || 'all'
+  const companyWideScope = canManageCompanyStructure && selectedCampus === 'all'
+  const selectableResorts = editorOptions?.resorts.filter((resort) => resort.can_select) || []
+  const selectableCoaches = editorOptions?.coaches.filter((coach) => coach.can_select) || []
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
   const [selectedTypeId, setSelectedTypeId] = useState<number | null>(null)
@@ -65,12 +70,24 @@ export default function CourseTypesPage() {
   const [editingTemplate, setEditingTemplate] = useState<CourseTemplate | null>(null)
   const [creatingTemplateForType, setCreatingTemplateForType] = useState<number | null>(null)
   const [serviceFilter, setServiceFilter] = useState<ServiceFilter>('all')
+  const [pendingDelete, setPendingDelete] = useState<DeleteTarget | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const deleteCancelRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!pendingDelete) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    deleteCancelRef.current?.focus()
+    return () => previousFocus?.focus()
+  }, [pendingDelete])
 
   // 統一的 PromptModal 狀態
   const [modal, setModal] = useState<{
     title: string
     description?: string
     fields: PromptField[]
+    validate?: (vals: Record<string, string>) => string | undefined
     onSubmit: (vals: Record<string, string>) => Promise<void>
   } | null>(null)
 
@@ -129,20 +146,9 @@ export default function CourseTypesPage() {
     })
   }
 
-  const handleDeleteCategory = async (id: number, name: string) => {
-    if (!confirm(`確定刪除類別「${name}」？所有底下的類型/模板都會一併刪除。`)) return
-    try {
-      await deleteCategory(id)
-      notify.success('已刪除')
-      if (selectedCategoryId === id) {
-        setSelectedCategoryId(null)
-        setSelectedTypeId(null)
-        setSelectedTemplateId(null)
-      }
-      refresh()
-    } catch (e: any) {
-      notify.error(e.response?.data?.msg || '刪除失敗')
-    }
+  const handleDeleteCategory = (id: number, name: string) => {
+    setDeleteError('')
+    setPendingDelete({ kind: 'category', id, name })
   }
 
   const handleAddType = (categoryId: number) => {
@@ -179,19 +185,9 @@ export default function CourseTypesPage() {
     })
   }
 
-  const handleDeleteType = async (id: number, name: string) => {
-    if (!confirm(`確定刪除類型「${name}」？`)) return
-    try {
-      await deleteType(id)
-      notify.success('已刪除')
-      if (selectedTypeId === id) {
-        setSelectedTypeId(null)
-        setSelectedTemplateId(null)
-      }
-      refresh()
-    } catch (e: any) {
-      notify.error(e.response?.data?.msg || '刪除失敗')
-    }
+  const handleDeleteType = (id: number, name: string) => {
+    setDeleteError('')
+    setPendingDelete({ kind: 'type', id, name })
   }
 
   const handleAddTemplate = (typeId: number) => {
@@ -202,7 +198,13 @@ export default function CourseTypesPage() {
     name: string
     display_order: number
     duration_hours: number
+    payroll_hours?: string | null
     max_capacity: number
+    billing_mode: 'private' | 'per_person'
+    minimum_group_size: number
+    shared_class_enabled: boolean
+    shared_class_minimum_students: number
+    minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
     course_end_date: string | null
@@ -222,7 +224,7 @@ export default function CourseTypesPage() {
       refresh()
       setCreatingTemplateForType(null)
     } catch (e: any) {
-      notify.error(e.response?.data?.msg || '新增失敗')
+      notify.error(e.response?.data?.payroll_hours?.[0] || e.response?.data?.detail || e.response?.data?.msg || '新增失敗')
     }
   }
 
@@ -234,7 +236,13 @@ export default function CourseTypesPage() {
     name: string
     display_order: number
     duration_hours: number
+    payroll_hours?: string | null
     max_capacity: number
+    billing_mode: 'private' | 'per_person'
+    minimum_group_size: number
+    shared_class_enabled: boolean
+    shared_class_minimum_students: number
+    minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
     course_end_date: string | null
@@ -250,29 +258,24 @@ export default function CourseTypesPage() {
       refresh()
       setEditingTemplate(null)
     } catch (e: any) {
-      notify.error(e.response?.data?.msg || '更新失敗')
+      notify.error(e.response?.data?.payroll_hours?.[0] || e.response?.data?.detail || e.response?.data?.msg || '更新失敗')
     }
   }
 
-  const handleDeleteTemplate = async (id: number, name: string) => {
-    if (!confirm(`確定刪除模板「${name}」？`)) return
-    try {
-      await deleteTemplate(id)
-      notify.success('已刪除')
-      if (selectedTemplateId === id) setSelectedTemplateId(null)
-      refresh()
-    } catch (e: any) {
-      notify.error(e.response?.data?.msg || '刪除失敗')
-    }
+  const handleDeleteTemplate = (id: number, name: string) => {
+    setDeleteError('')
+    setPendingDelete({ kind: 'template', id, name })
   }
 
   const handleAddSession = (templateId: number) => {
     setModal({
       title: '新增課程時段',
+      description: '結束時間必須晚於開始時間。',
       fields: [
         { name: 'start_time', label: '開始時間', type: 'time', defaultValue: '09:00', required: true },
         { name: 'end_time', label: '結束時間', type: 'time', defaultValue: '12:00', required: true },
       ],
+      validate: (vals) => vals.end_time <= vals.start_time ? '結束時間必須晚於開始時間' : undefined,
       onSubmit: async (vals) => {
         try {
           await createSession({
@@ -291,14 +294,43 @@ export default function CourseTypesPage() {
     })
   }
 
-  const handleDeleteSession = async (id: number) => {
-    if (!confirm('確定刪除此時段？')) return
+  const handleDeleteSession = (id: number, timeLabel: string) => {
+    setDeleteError('')
+    setPendingDelete({ kind: 'session', id, name: timeLabel })
+  }
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || isDeleting) return
+    setIsDeleting(true)
+    setDeleteError('')
     try {
-      await deleteSession(id)
+      const { kind, id } = pendingDelete
+      if (kind === 'category') {
+        await deleteCategory(id)
+        if (selectedCategoryId === id) {
+          setSelectedCategoryId(null)
+          setSelectedTypeId(null)
+          setSelectedTemplateId(null)
+        }
+      } else if (kind === 'type') {
+        await deleteType(id)
+        if (selectedTypeId === id) {
+          setSelectedTypeId(null)
+          setSelectedTemplateId(null)
+        }
+      } else if (kind === 'template') {
+        await deleteTemplate(id)
+        if (selectedTemplateId === id) setSelectedTemplateId(null)
+      } else {
+        await deleteSession(id)
+      }
       notify.success('已刪除')
       refresh()
+      setPendingDelete(null)
     } catch (e: any) {
-      notify.error(e.response?.data?.msg || '刪除失敗')
+      setDeleteError(e.response?.data?.msg || '刪除失敗，請稍後再試')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -345,10 +377,17 @@ export default function CourseTypesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">課程架構</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {canManageCompanyStructure
+              ? '課程大類與類型為全公司共用；課程模板可設定適用雪場。'
+              : '課程大類與類型由總部設定；你可以管理自己校區的課程模板與時段。'}
+          </p>
         </div>
-        <button onClick={handleAddCategory} className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2" style={{ backgroundColor: PRIMARY }}>
-          <Plus size={16} />新增類別
-        </button>
+        {canManageCompanyStructure && (
+          <button onClick={handleAddCategory} className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2" style={{ backgroundColor: PRIMARY }}>
+            <Plus size={16} />新增類別
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap justify-end gap-2 rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
@@ -390,13 +429,15 @@ export default function CourseTypesPage() {
               {visibleCategories.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center dark:border-gray-600">
                   <p className="text-sm text-gray-500 dark:text-gray-400">目前篩選下尚未建立課程大類</p>
-                  <button
-                    onClick={handleAddCategory}
-                    className="mt-3 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white"
-                    style={{ backgroundColor: PRIMARY }}
-                  >
-                    <Plus size={12} />新增大類
-                  </button>
+                  {canManageCompanyStructure && (
+                    <button
+                      onClick={handleAddCategory}
+                      className="mt-3 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white"
+                      style={{ backgroundColor: PRIMARY }}
+                    >
+                      <Plus size={12} />新增大類
+                    </button>
+                  )}
                 </div>
               ) : visibleCategories.map((cat) => {
                 const active = selectedCategory?.id === cat.id
@@ -423,7 +464,7 @@ export default function CourseTypesPage() {
                         {(cat.types || []).length} 個課程類型
                       </div>
                     </button>
-                    <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                    {canManageCompanyStructure && <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => handleEditCategory(cat.id, cat.name, cat.service_type)}
                         className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 rounded"
@@ -438,7 +479,7 @@ export default function CourseTypesPage() {
                       >
                         <Trash2 size={12} />
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 )
               })}
@@ -451,7 +492,7 @@ export default function CourseTypesPage() {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">2. 課程類型</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{selectedCategory?.name || '尚未選擇大類'}</p>
               </div>
-              {selectedCategory && (
+              {selectedCategory && canManageCompanyStructure && (
                 <button
                   onClick={() => handleAddType(selectedCategory.id)}
                   className="px-2.5 py-1.5 text-xs text-white rounded-lg flex items-center gap-1"
@@ -467,13 +508,15 @@ export default function CourseTypesPage() {
               ) : selectedTypes.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center dark:border-gray-600">
                   <p className="text-sm text-gray-500 dark:text-gray-400">此大類尚未建立課程類型</p>
-                  <button
-                    onClick={() => handleAddType(selectedCategory.id)}
-                    className="mt-3 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white"
-                    style={{ backgroundColor: PRIMARY }}
-                  >
-                    <Plus size={12} />新增課程類型
-                  </button>
+                  {canManageCompanyStructure && (
+                    <button
+                      onClick={() => handleAddType(selectedCategory.id)}
+                      className="mt-3 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white"
+                      style={{ backgroundColor: PRIMARY }}
+                    >
+                      <Plus size={12} />新增課程類型
+                    </button>
+                  )}
                 </div>
               ) : selectedTypes.map((type) => {
                 const active = selectedType?.id === type.id
@@ -493,7 +536,7 @@ export default function CourseTypesPage() {
                         {(type.templates || []).length} 個課程模板
                       </div>
                     </button>
-                    <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                    {canManageCompanyStructure && <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => handleEditType(type.id, type.name)}
                         className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 rounded"
@@ -508,7 +551,7 @@ export default function CourseTypesPage() {
                       >
                         <Trash2 size={12} />
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 )
               })}
@@ -524,7 +567,8 @@ export default function CourseTypesPage() {
               {selectedType && (
                 <button
                   onClick={() => handleAddTemplate(selectedType.id)}
-                  className="px-3 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2"
+                  disabled={editorOptionsLoading || !!editorOptionsError || selectableResorts.length === 0}
+                  className="px-3 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                   style={{ backgroundColor: PRIMARY }}
                 >
                   <Plus size={14} />新增模板
@@ -541,13 +585,24 @@ export default function CourseTypesPage() {
               </div>
             ) : (
               <div className="p-5 space-y-5">
+                {editorOptionsError && (
+                  <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200">
+                    雪場選項載入失敗，請重新載入頁面後再試。
+                  </p>
+                )}
+                {!editorOptionsLoading && !editorOptionsError && selectableResorts.length === 0 && (
+                  <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-200">
+                    目前沒有可編輯的雪場。請先分配單一校區雪場；共用雪場的模板由總部切換「全部校區」設定。
+                  </p>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {selectedTemplates.length === 0 ? (
                     <div className="col-span-full rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-8 text-center text-sm text-gray-500 dark:text-gray-400">
                       <p>此課程類型尚未建立模板</p>
                       <button
                         onClick={() => handleAddTemplate(selectedType.id)}
-                        className="mt-3 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white"
+                        disabled={editorOptionsLoading || !!editorOptionsError || selectableResorts.length === 0}
+                        className="mt-3 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
                         style={{ backgroundColor: PRIMARY }}
                       >
                         <Plus size={12} />新增模板
@@ -572,23 +627,31 @@ export default function CourseTypesPage() {
                             順序 {tmpl.display_order || 0}
                           </span>
                           {!tmpl.is_active && <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">停用</span>}
+                          {!tmpl.can_manage && <span className="text-[11px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">總部管理</span>}
                         </div>
                         <div className={`mt-1 text-xs ${selectedTemplateId === tmpl.id ? 'text-white/80' : 'text-gray-500 dark:text-gray-400'}`}>
                           {tmpl.duration_hours} 小時 · 最多 {tmpl.max_capacity} 人
                         </div>
+                        {SHARED_CLASS_FEATURE_ENABLED && tmpl.shared_class_enabled && (
+                          <div className={`mt-2 text-[11px] font-medium ${selectedTemplateId === tmpl.id ? 'text-white' : 'text-sky-700 dark:text-sky-300'}`}>
+                            可跨訂單湊班 · 滿 {tmpl.shared_class_minimum_students} 人請款
+                          </div>
+                        )}
                         {getTemplateCoachRuleText(tmpl) && (
                           <div className={`mt-2 text-[11px] font-medium ${selectedTemplateId === tmpl.id ? 'text-white' : 'text-[#8b5cf6]'}`}>
                             教練條件：{getTemplateCoachRuleText(tmpl)}
                           </div>
                         )}
                       </button>
-                      <button
-                        onClick={() => handleDeleteTemplate(tmpl.id, tmpl.name)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 rounded transition-opacity"
-                        title="刪除模板"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {tmpl.can_manage && (
+                        <button
+                          onClick={() => handleDeleteTemplate(tmpl.id, tmpl.name)}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 rounded transition-opacity"
+                          title="刪除模板"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -597,7 +660,7 @@ export default function CourseTypesPage() {
                   <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                       <h4 className="font-semibold text-gray-900 dark:text-white">{selectedTemplate.name}</h4>
-                      <div className="flex gap-2">
+                      {selectedTemplate.can_manage && <div className="flex gap-2">
                         <button
                           onClick={() => handleEditTemplate(selectedTemplate)}
                           className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
@@ -612,9 +675,14 @@ export default function CourseTypesPage() {
                         >
                           <Trash2 size={14} />
                         </button>
-                      </div>
+                      </div>}
                     </div>
                     <div className="p-5 space-y-5">
+                      {!selectedTemplate.can_manage && (
+                        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
+                          此模板使用跨校區共用雪場；可查看設定，修改請由總部切換「全部校區」操作。
+                        </p>
+                      )}
                       <div className="grid grid-cols-2 gap-4">
                         <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                           <div className="flex items-center gap-2 mb-2"><Clock size={16} style={{ color: PRIMARY }} /><span className="text-xs text-gray-500 dark:text-gray-400">課程時長</span></div>
@@ -625,6 +693,11 @@ export default function CourseTypesPage() {
                           <div className="text-xl font-bold text-gray-900 dark:text-white">{selectedTemplate.max_capacity} 人</div>
                         </div>
                       </div>
+                      {SHARED_CLASS_FEATURE_ENABLED && selectedTemplate.shared_class_enabled && (
+                        <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
+                          這是跨訂單團體班：每位客人可單獨報名；同校區、雪場、日期、時段及程度累計滿 {selectedTemplate.shared_class_minimum_students} 人後才開放付款。
+                        </p>
+                      )}
                       <div>
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">適用雪場</h4>
                         <div className="flex flex-wrap gap-2">
@@ -656,32 +729,41 @@ export default function CourseTypesPage() {
                       <div>
                         <div className="flex items-center justify-between mb-3">
                           <h4 className="text-sm font-semibold text-gray-900 dark:text-white">課程時段</h4>
-                          <button
-                            onClick={() => handleAddSession(selectedTemplate.id)}
-                            className="text-xs hover:opacity-80 flex items-center gap-1"
-                            style={{ color: PRIMARY }}
-                          >
-                            <Plus size={12} />新增時段
-                          </button>
+                          {selectedTemplate.can_manage && (
+                            <button
+                              onClick={() => handleAddSession(selectedTemplate.id)}
+                              className="text-xs hover:opacity-80 flex items-center gap-1"
+                              style={{ color: PRIMARY }}
+                            >
+                              <Plus size={12} />新增時段
+                            </button>
+                          )}
                         </div>
                         <div className="space-y-2">
                           {selectedTemplate.sessions.map((s) => (
                             <div key={s.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
                               <Clock size={16} className="text-gray-400" />
                               <span className="text-sm font-medium text-gray-900 dark:text-white">{s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)}</span>
-                              <button
-                                onClick={() => handleToggleSession(s.id, s.is_active)}
-                                className={`ml-auto px-2 py-0.5 text-xs font-medium rounded-full transition-colors ${s.is_active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                                title="點擊切換啟用狀態"
-                              >
-                                {s.is_active ? '啟用中' : '停用'}
-                              </button>
-                              <button
-                                onClick={() => handleDeleteSession(s.id)}
-                                className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
-                              >
-                                <Trash2 size={12} />
-                              </button>
+                              {selectedTemplate.can_manage ? (
+                                <>
+                                  <button
+                                    onClick={() => handleToggleSession(s.id, s.is_active)}
+                                    className={`ml-auto px-2 py-0.5 text-xs font-medium rounded-full transition-colors ${s.is_active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                    title="點擊切換啟用狀態"
+                                  >
+                                    {s.is_active ? '啟用中' : '停用'}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteSession(s.id, `${s.start_time?.substring(0, 5)}–${s.end_time?.substring(0, 5)}`)}
+                                    aria-label={`刪除時段 ${s.start_time?.substring(0, 5)} 至 ${s.end_time?.substring(0, 5)}`}
+                                    className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">{s.is_active ? '啟用中' : '停用'}</span>
+                              )}
                             </div>
                           ))}
                           {selectedTemplate.sessions.length === 0 && (
@@ -704,19 +786,59 @@ export default function CourseTypesPage() {
 
       {/* 統一輸入 Modal */}
       <PromptModal
+        key={modal?.title || 'closed'}
         open={!!modal}
         title={modal?.title || ''}
         description={modal?.description}
         fields={modal?.fields || []}
+        validate={modal?.validate}
         onCancel={() => setModal(null)}
         onSubmit={async (vals) => { await modal?.onSubmit(vals) }}
       />
 
+      {pendingDelete && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4" role="presentation" onKeyDown={(event) => {
+          if (event.key === 'Escape' && !isDeleting) setPendingDelete(null)
+          if (event.key !== 'Tab') return
+          const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+          const first = buttons[0]
+          const last = buttons[buttons.length - 1]
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault()
+            last?.focus()
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault()
+            first?.focus()
+          }
+        }}>
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800" role="dialog" aria-modal="true" aria-labelledby="course-delete-title">
+            <div className="flex items-center justify-between bg-purple-600 px-6 py-4 text-white">
+              <h3 id="course-delete-title" className="text-lg font-semibold">確認刪除{pendingDelete.kind === 'session' ? '時段' : pendingDelete.kind === 'template' ? '課程模板' : pendingDelete.kind === 'type' ? '課程類型' : '課程類別'}</h3>
+              <button type="button" onClick={() => setPendingDelete(null)} disabled={isDeleting} aria-label="關閉" className="rounded-lg p-1 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-50"><X size={18} /></button>
+            </div>
+            <div className="space-y-3 p-6 text-sm text-gray-700 dark:text-gray-300">
+              <p>確定要刪除「<strong className="text-gray-900 dark:text-white">{pendingDelete.name}</strong>」嗎？</p>
+              {pendingDelete.kind === 'category' && <p className="text-red-600 dark:text-red-400">此類別底下的課程類型、模板與時段也會一併刪除。</p>}
+              {pendingDelete.kind === 'type' && <p className="text-red-600 dark:text-red-400">此類型底下的課程模板與時段也會一併刪除。</p>}
+              {pendingDelete.kind === 'template' && <p className="text-red-600 dark:text-red-400">此模板底下的課程時段也會一併刪除。</p>}
+              {pendingDelete.kind !== 'session' && <p className="text-gray-500 dark:text-gray-400">已有訂單或合班紀錄的課程不能刪除，系統會保留歷史資料。</p>}
+              {deleteError && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-red-700 dark:bg-red-900/20 dark:text-red-300">{deleteError}</p>}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+              <button ref={deleteCancelRef} type="button" onClick={() => setPendingDelete(null)} disabled={isDeleting} className="min-h-10 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200">取消</button>
+              <button type="button" onClick={confirmDelete} disabled={isDeleting} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{isDeleting && <Loader2 size={14} className="animate-spin" />}{isDeleting ? '刪除中…' : '確認刪除'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingTemplate && (
         <TemplateEditDrawer
           template={editingTemplate}
-          allResorts={allResorts}
-          allCoaches={allCoaches}
+          allResorts={selectableResorts}
+          allCoaches={selectableCoaches}
+          companyWideScope={companyWideScope}
+          canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll')}
           onClose={() => setEditingTemplate(null)}
           onSave={handleSaveTemplate}
         />
@@ -725,8 +847,10 @@ export default function CourseTypesPage() {
       {creatingTemplateForType !== null && (
         <TemplateEditDrawer
           template={null}
-          allResorts={allResorts}
-          allCoaches={allCoaches}
+          allResorts={selectableResorts}
+          allCoaches={selectableCoaches}
+          companyWideScope={companyWideScope}
+          canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll')}
           onClose={() => setCreatingTemplateForType(null)}
           onSave={handleCreateTemplate}
         />
@@ -736,16 +860,24 @@ export default function CourseTypesPage() {
 }
 
 // ===== 課程模板編輯 Drawer（含多選雪場 + 日期）=====
-function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave }: {
+function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope, canManagePayrollHours, onClose, onSave }: {
   template: CourseTemplate | null
-  allResorts: Resort[]
-  allCoaches: Coach[]
+  allResorts: CourseTemplateEditorOptions['resorts']
+  allCoaches: CourseTemplateEditorOptions['coaches']
+  companyWideScope: boolean
+  canManagePayrollHours: boolean
   onClose: () => void
   onSave: (data: {
     name: string
     display_order: number
     duration_hours: number
+    payroll_hours?: string | null
     max_capacity: number
+    billing_mode: 'private' | 'per_person'
+    minimum_group_size: number
+    shared_class_enabled: boolean
+    shared_class_minimum_students: number
+    minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
     course_end_date: string | null
@@ -759,7 +891,14 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
   const [name, setName] = useState(template?.name || '')
   const [displayOrder, setDisplayOrder] = useState(String(template?.display_order ?? 0))
   const [duration, setDuration] = useState(String(template?.duration_hours ?? 3))
+  const [payrollHours, setPayrollHours] = useState(template?.payroll_hours ?? '')
+  const payrollHoursInvalid = payrollHours !== '' && (!Number.isFinite(Number(payrollHours)) || Number(payrollHours) < 0 || Number(payrollHours) > 24 || !/^(\d+(\.\d{1,2})?|\.\d{1,2})$/.test(payrollHours))
   const [capacity, setCapacity] = useState(String(template?.max_capacity ?? 6))
+  const [billingMode, setBillingMode] = useState<'private' | 'per_person'>(template?.billing_mode || 'private')
+  const [minimumGroupSize, setMinimumGroupSize] = useState(String(template?.minimum_group_size ?? 1))
+  const [sharedClassEnabled, setSharedClassEnabled] = useState(SHARED_CLASS_FEATURE_ENABLED && Boolean(template?.shared_class_enabled))
+  const [sharedClassMinimumStudents, setSharedClassMinimumStudents] = useState(String(template?.shared_class_minimum_students ?? 3))
+  const [minimumStudentLevel, setMinimumStudentLevel] = useState(template?.minimum_student_level || '')
   const [resortIds, setResortIds] = useState<number[]>(template?.resorts || [])
   const [courseStart, setCourseStart] = useState(template?.course_start_date || '')
   const [courseEnd, setCourseEnd] = useState(template?.course_end_date || '')
@@ -780,13 +919,20 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) { alert('請填寫模板名稱'); return }
+    if (canManagePayrollHours && payrollHoursInvalid) return
     setSaving(true)
     try {
       await onSave({
         name: name.trim(),
         display_order: Number(displayOrder) || 0,
         duration_hours: parseInt(duration, 10),
+        ...(canManagePayrollHours ? { payroll_hours: payrollHours === '' ? null : payrollHours } : {}),
         max_capacity: parseInt(capacity, 10),
+        billing_mode: billingMode,
+        minimum_group_size: sharedClassEnabled ? 1 : (parseInt(minimumGroupSize, 10) || 1),
+        shared_class_enabled: SHARED_CLASS_FEATURE_ENABLED && sharedClassEnabled,
+        shared_class_minimum_students: parseInt(sharedClassMinimumStudents, 10) || 3,
+        minimum_student_level: minimumStudentLevel,
         resorts: resortIds,
         course_start_date: courseStart || null,
         course_end_date: courseEnd || null,
@@ -805,11 +951,14 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
       <div className="fixed inset-0 z-40 bg-black/50 animate-fadeIn" onClick={onClose} />
       <form
         onSubmit={handleSubmit}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="course-template-form-title"
         className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl flex flex-col animate-slideIn"
       >
         <div className="px-6 py-4 flex items-center justify-between text-white" style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #7c3aed 100%)` }}>
-          <h2 className="text-lg font-semibold">{isCreate ? '新增模板' : `編輯模板：${template!.name}`}</h2>
-          <button type="button" onClick={onClose} className="text-white/80 hover:text-white"><X size={20} /></button>
+          <h2 id="course-template-form-title" className="text-lg font-semibold">{isCreate ? '新增模板' : `編輯模板：${template!.name}`}</h2>
+          <button type="button" onClick={onClose} aria-label="關閉模板編輯" className="flex h-11 w-11 items-center justify-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={20} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -821,7 +970,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
                 <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">顯示順序</label>
                   <input type="number" value={displayOrder} onChange={(e) => setDisplayOrder(e.target.value)}
@@ -839,6 +988,25 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
                     className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30" />
                 </div>
               </div>
+              <label className="block rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm font-medium text-gray-800 dark:border-gray-600 dark:bg-gray-700/30 dark:text-gray-100">每堂計薪時數（小時）
+                <input aria-label="每堂計薪時數（小時）" type="number" min="0" max="24" step="0.01" value={payrollHours} disabled={!canManagePayrollHours} onChange={e => setPayrollHours(e.target.value)} placeholder="留空＝依上課時段計算" aria-invalid={payrollHoursInvalid} className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+                <span className={`mt-2 block text-xs font-normal ${payrollHoursInvalid ? 'text-red-600 dark:text-red-300' : 'text-gray-500 dark:text-gray-400'}`}>{payrollHoursInvalid ? '請填0～24小時，最多兩位小數；也可留空。' : !canManagePayrollHours ? '需要薪資管理權限才能修改。' : payrollHours === '0' || Number(payrollHours) === 0 && payrollHours !== '' ? '填0代表不計課程時薪；指定費等其他項目仍依各自規則計算。' : '例如排課09:00～15:00共6小時，但計薪5小時，就填5。半天可填3，留空沿用實際時段；不改客人價格或排課時間。'}</span>
+                <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-gray-400">儲存後只影響之後的薪資結算／草稿重算；不會改掉已確認或已發放的薪資單。</span>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">計價方式</label><select value={billingMode} onChange={e => { const mode = e.target.value as 'private' | 'per_person'; setBillingMode(mode); if (mode !== 'per_person') setSharedClassEnabled(false) }} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="private">包班計價</option><option value="per_person">每人計價</option></select></div>
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">單筆預約最低人數</label><input type="number" min="1" max={capacity} value={sharedClassEnabled ? '1' : minimumGroupSize} disabled={sharedClassEnabled} onChange={e => setMinimumGroupSize(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white disabled:opacity-60" /></div>
+                <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">學員最低等級</label><select value={minimumStudentLevel} onChange={e => setMinimumStudentLevel(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="">不限制</option><option value="level1">等級 1</option><option value="level2">等級 2</option><option value="level3">等級 3</option><option value="level4">等級 4</option><option value="level5">等級 5</option></select></div>
+              </div>
+              {SHARED_CLASS_FEATURE_ENABLED && <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-600 dark:bg-gray-700/40">
+                <label className="flex items-start gap-3 text-gray-900 dark:text-white">
+                  <input type="checkbox" checked={sharedClassEnabled} disabled={billingMode !== 'per_person'} onChange={e => setSharedClassEnabled(e.target.checked)} className="mt-1 h-4 w-4" />
+                  <span><span className="font-medium">允許不同客人湊成同一班</span><span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">客人可單人報名；同校區、雪場、日期、時段與程度才會合班。成班後再請款。</span></span>
+                </label>
+                {sharedClassEnabled && billingMode === 'per_person' && (
+                  <div className="mt-3 sm:max-w-56"><label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">幾人成班</label><input type="number" min="2" max={capacity} value={sharedClassMinimumStudents} onChange={e => setSharedClassMinimumStudents(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white" /></div>
+                )}
+              </div>}
             </div>
           </section>
 
@@ -847,7 +1015,9 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
               <MapPin size={16} style={{ color: PRIMARY }} />適用雪場
             </h3>
             {allResorts.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">尚未建立任何雪場</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {companyWideScope ? '尚未建立任何雪場' : '目前沒有可設定的非共用雪場；共用雪場請由總部切換「全部校區」設定。'}
+              </p>
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 {allResorts.map((r) => {
@@ -888,7 +1058,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
 
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">自動排課優先教練</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">可授課教練名單</label>
                   {allowedCoachIds.length > 0 && (
                     <button
                       type="button"
@@ -901,7 +1071,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
                 </div>
                 {allCoaches.length === 0 ? (
                   <p className="rounded-lg border border-dashed border-gray-300 p-4 text-center text-sm text-gray-500 dark:border-gray-600 dark:text-gray-400">
-                    尚未建立教練；可先只設定最低等級。
+                    {companyWideScope ? '尚未建立教練；可先只設定最低等級。' : '目前沒有此校區可選的教練；可先只設定最低等級。'}
                   </p>
                 ) : (
                   <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto pr-1">
@@ -929,7 +1099,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
                     })}
                   </div>
                 )}
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">名單內教練會優先被自動排課；前台仍會顯示所有符合等級、雪場、語言與能力的教練。</p>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">留空不限定名單；勾選後，只有名單內且符合最低等級、雪場、語言與程度的教練可上課。前台指定與自動排課都會套用。</p>
               </div>
             </div>
           </section>
@@ -938,7 +1108,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
               <Calendar size={16} style={{ color: PRIMARY }} />開課與預約期間
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">課程開始日期</label>
                 <input type="date" value={courseStart} onChange={(e) => setCourseStart(e.target.value)}
@@ -969,9 +1139,9 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, onClose, onSave 
 
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
           <button type="button" onClick={onClose} disabled={saving}
-            className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">取消</button>
-          <button type="submit" disabled={saving}
-            className="px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2 disabled:opacity-50"
+            className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">取消</button>
+          <button type="submit" disabled={saving || (canManagePayrollHours && payrollHoursInvalid)}
+            className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 flex items-center gap-2 disabled:opacity-50"
             style={{ backgroundColor: PRIMARY }}>
             {saving && <Loader2 size={14} className="animate-spin" />}{isCreate ? '建立模板' : '儲存變更'}
           </button>

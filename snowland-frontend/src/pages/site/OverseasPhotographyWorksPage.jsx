@@ -1,184 +1,67 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import {useSiteLocale} from '../../contexts/SiteLocale';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
+import SiteLink from '../../components/site/SiteLink';
+import { useSiteContent } from '../../hooks/useSiteContent';
 
 function OverseasPhotographyWorksPage() {
+  const {t} = useSiteLocale();
   const baseUrl = import.meta.env.BASE_URL ?? "/";
-  const withBaseUrl = (path) =>
-    `${baseUrl}${path.startsWith("/") ? path.slice(1) : path}`;
-  const categories = ["All", "影片", "地點", "拍攝類型"];
-  const locationCategories = ["星野", "富良野", "旭岳"];
-  const shootTypeCategories = ["親子", "滑雪側拍", "個人寫真"];
-  const hoshinoCategories = [
-    "霧冰平台",
-    "CENTER",
-    "高農場騎馬",
-    "高農場冰滑梯",
-    "溜滑梯公園",
-    "螢火蟲餐廳街",
-    "森林餐廳",
-    "Club Med",
-    "冰上釣魚",
-  ];
-  const hoshinoPhotos = useMemo(
-    () => ({
-      "霧冰平台": [
-        "/photography-gallery/gallery-001.jpg",
-        "/photography-gallery/gallery-002.jpg",
-        "/photography-gallery/gallery-003.jpg",
-        "/photography-gallery/gallery-004.jpg",
-        "/photography-gallery/gallery-005.jpg",
-        "/photography-gallery/gallery-006.jpg",
-        "/photography-gallery/gallery-007.jpg",
-        "/photography-gallery/gallery-008.jpg",
-      ],
-      CENTER: [
-        "/photography-gallery/gallery-009.jpg",
-        "/photography-gallery/gallery-010.jpg",
-        "/photography-gallery/gallery-011.jpg",
-        "/photography-gallery/gallery-012.jpg",
-        "/photography-gallery/gallery-013.jpg",
-        "/photography-gallery/gallery-014.jpg",
-        "/photography-gallery/gallery-015.jpg",
-        "/photography-gallery/gallery-016.jpg",
-      ],
-      "高農場騎馬": [
-        "/photography-gallery/gallery-017.jpg",
-        "/photography-gallery/gallery-018.jpg",
-        "/photography-gallery/gallery-019.jpg",
-        "/photography-gallery/gallery-020.jpg",
-        "/photography-gallery/gallery-021.jpg",
-        "/photography-gallery/gallery-022.jpg",
-        "/photography-gallery/gallery-023.jpg",
-        "/photography-gallery/gallery-024.jpg",
-      ],
-      "高農場冰滑梯": [
-        "/photography-gallery/gallery-025.jpg",
-        "/photography-gallery/gallery-026.jpg",
-        "/photography-gallery/gallery-027.jpg",
-        "/photography-gallery/gallery-028.jpg",
-        "/photography-gallery/gallery-029.jpg",
-        "/photography-gallery/gallery-030.jpg",
-        "/photography-gallery/gallery-031.jpg",
-        "/photography-gallery/gallery-032.jpg",
-      ],
-      "溜滑梯公園": [
-        "/photography-gallery/gallery-033.jpg",
-        "/photography-gallery/gallery-034.jpg",
-        "/photography-gallery/gallery-035.jpg",
-        "/photography-gallery/gallery-036.jpg",
-        "/photography-gallery/gallery-037.jpg",
-        "/photography-gallery/gallery-038.jpg",
-        "/photography-gallery/gallery-039.jpg",
-        "/photography-gallery/gallery-040.jpg",
-      ],
-      "螢火蟲餐廳街": [
-        "/photography-gallery/gallery-041.jpg",
-        "/photography-gallery/gallery-042.jpg",
-        "/photography-gallery/gallery-043.jpg",
-        "/photography-gallery/gallery-044.jpg",
-        "/photography-gallery/gallery-045.jpg",
-        "/photography-gallery/gallery-046.jpg",
-        "/photography-gallery/gallery-047.jpg",
-        "/photography-gallery/gallery-048.jpg",
-      ],
-      "森林餐廳": [
-        "/photography-gallery/gallery-049.jpg",
-        "/photography-gallery/gallery-050.jpg",
-        "/photography-gallery/gallery-051.jpg",
-        "/photography-gallery/gallery-052.jpg",
-        "/photography-gallery/gallery-053.jpg",
-        "/photography-gallery/gallery-054.jpg",
-        "/photography-gallery/gallery-055.jpg",
-        "/photography-gallery/gallery-056.jpg",
-      ],
-      "Club Med": [
-        "/photography-gallery/gallery-057.jpg",
-        "/photography-gallery/gallery-058.jpg",
-        "/photography-gallery/gallery-059.jpg",
-        "/photography-gallery/gallery-060.jpg",
-        "/photography-gallery/gallery-061.jpg",
-        "/photography-gallery/gallery-062.jpg",
-        "/photography-gallery/gallery-063.jpg",
-        "/photography-gallery/gallery-064.jpg",
-      ],
-      "冰上釣魚": [
-        "/photography-gallery/gallery-065.jpg",
-        "/photography-gallery/gallery-066.jpg",
-        "/photography-gallery/gallery-067.jpg",
-        "/photography-gallery/gallery-068.jpg",
-        "/photography-gallery/gallery-069.jpg",
-        "/photography-gallery/gallery-070.jpg",
-        "/photography-gallery/gallery-071.jpg",
-        "/photography-gallery/gallery-072.jpg",
-      ],
-    }),
-    []
-  );
-  const expandIndices = (items) => {
-    const result = [];
-    items.forEach((item) => {
-      if (Array.isArray(item)) {
-        const [start, end] = item;
-        for (let i = start; i <= end; i += 1) {
-          result.push(i);
-        }
-        return;
-      }
-      result.push(item);
-    });
-    return result;
+  const withBaseUrl = (path) => {
+    if (typeof path !== 'string' || /[\\\x00-\x1f]/.test(path) || path.startsWith('//')) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    return path.startsWith('/') ? `${baseUrl}${path.slice(1)}` : '';
   };
-  const shootTypeIndexMap = useMemo(
-    () => ({
-      親子: expandIndices([5, 6, 7, 8, [13, 24], [27, 43], 47, 48]),
-      滑雪側拍: expandIndices([44, 45, 46]),
-      個人寫真: expandIndices([1, 2, 3, 4, [9, 12], 25, 26, [49, 64]]),
-    }),
-    []
-  );
-  const videos = useMemo(
-    () => [
-      { id: "nPFLW9HsjdU", title: "Gallery Video 01" },
-      { id: "s5OAiq3woco", title: "Gallery Video 02" },
-      { id: "RM7SCH0oxAo", title: "Gallery Video 03" },
-      { id: "nDpetYyg6M4", title: "Gallery Video 04" },
-    ],
-    []
-  );
+  const { items, isLoading, error } = useSiteContent('photography.gallery');
+  const galleryItems = items.filter((item) => item && typeof item === 'object');
+  const categories = ["All", "影片", "地點", "拍攝類型"];
+  const photoItems = galleryItems.filter((item) => (item.metadata?.media_type ?? 'photo') === 'photo' && withBaseUrl(item.image_url));
+  const locationCategories = [...new Set(photoItems.map((item) => item.metadata?.location).filter(value => typeof value === 'string' && value))];
+  const typesFor = item => Array.isArray(item.metadata?.shoot_types) ? item.metadata.shoot_types.filter(value => typeof value === 'string' && value) : [];
+  const shootTypeCategories = [...new Set(photoItems.flatMap(typesFor))];
+  const videos = galleryItems
+    .filter((item) => item.metadata?.media_type === 'video')
+    .map((item) => ({ id: item.metadata.video_id, title: item.title }))
+    .filter(video => typeof video.id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(video.id));
   const [activeCategory, setActiveCategory] = useState("All");
   const [activeLocationCategory, setActiveLocationCategory] = useState(
-    locationCategories[0]
+    ""
   );
   const [activeShootTypeCategory, setActiveShootTypeCategory] = useState(
-    shootTypeCategories[0]
+    ""
   );
   const [isLocationExpanded, setIsLocationExpanded] = useState(false);
   const [isShootTypeExpanded, setIsShootTypeExpanded] = useState(false);
   const [isHoshinoExpanded, setIsHoshinoExpanded] = useState(false);
   const [activeHoshinoCategory, setActiveHoshinoCategory] = useState(
-    hoshinoCategories[0]
+    ""
   );
-  const [activeVideoId, setActiveVideoId] = useState(videos[0].id);
+  const [activeVideoId, setActiveVideoId] = useState(null);
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  const lightboxRef = useRef(null);
+  const closeRef = useRef(null);
+  const selectedLocation = locationCategories.includes(activeLocationCategory) ? activeLocationCategory : locationCategories[0] || '';
+  const selectedType = shootTypeCategories.includes(activeShootTypeCategory) ? activeShootTypeCategory : shootTypeCategories[0] || '';
+  const locationPhotos = photoItems.filter(item => item.metadata?.location === selectedLocation);
+  const hoshinoCategories = [...new Set(locationPhotos.map(item => item.metadata?.section).filter(value => typeof value === 'string' && value))];
+  const selectedSection = hoshinoCategories.includes(activeHoshinoCategory) ? activeHoshinoCategory : hoshinoCategories[0] || '';
+  const selectedVideoId = videos.some(video => video.id === activeVideoId) ? activeVideoId : videos[0]?.id;
 
-  const allPhotos = useMemo(
-    () => Object.values(hoshinoPhotos).flat(),
-    [hoshinoPhotos]
-  );
+  useEffect(() => {
+    if (!activeVideoId && videos[0]?.id) setActiveVideoId(videos[0].id);
+  }, [activeVideoId, videos]);
+
+  const allPhotos = photoItems.map((item) => item.image_url);
   const activePhotos = useMemo(() => {
     if (activeCategory === "地點") {
-      if (activeLocationCategory === "星野") {
-        return hoshinoPhotos[activeHoshinoCategory] || [];
-      }
-      return [];
+      return locationPhotos.filter(item => !isHoshinoExpanded || !selectedSection || item.metadata?.section === selectedSection).map(item => item.image_url);
     }
     if (activeCategory === "拍攝類型") {
-      const indices = new Set(
-        shootTypeIndexMap[activeShootTypeCategory] ?? []
-      );
-      return allPhotos.filter((_, index) => indices.has(index + 1));
+      return photoItems
+        .filter((item) => typesFor(item).includes(selectedType))
+        .map((item) => item.image_url);
     }
     if (activeCategory === "All") {
       return allPhotos;
@@ -188,19 +71,31 @@ function OverseasPhotographyWorksPage() {
     activeCategory,
     activeHoshinoCategory,
     activeLocationCategory,
-    hoshinoPhotos,
+    locationPhotos,
+    selectedSection,
+    selectedType,
+    isHoshinoExpanded,
     allPhotos,
     activeShootTypeCategory,
-    shootTypeIndexMap,
+    photoItems,
   ]);
   const isFullBleedGallery = activeCategory !== "影片";
 
   useEffect(() => {
-    if (lightboxIndex === null) {
+    if (lightboxIndex === null || !activePhotos.length) {
       return undefined;
     }
-
+    const previousFocus = document.activeElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus();
     const onKeyDown = (event) => {
+      if (event.key === 'Tab') {
+        const controls = lightboxRef.current?.querySelectorAll('button');
+        const first = controls?.[0], last = controls?.[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
       if (event.key === "Escape") {
         setLightboxIndex(null);
       }
@@ -219,21 +114,30 @@ function OverseasPhotographyWorksPage() {
     };
 
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = overflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
   }, [lightboxIndex, activePhotos.length]);
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
+    <div className="min-h-screen overflow-x-clip bg-[#f7f8fa] text-[#1f2937] flex flex-col">
       <SiteHeader forceTransparent forceDarkText forceLogoColor />
       <main className="max-w-5xl mx-auto px-6 pt-32 pb-24 flex-1 w-full">
         <div className="text-center">
           <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display">
             Gallery
           </p>
-          <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">
-            攝影作品
-          </h1>
+          <h1 className="mt-4 text-3xl md:text-4xl font-semibold tracking-wide font-display">{t("攝影作品")}</h1>
         </div>
+        {isLoading && <p className="py-16 text-center text-sm text-[#64748b]">{t("正在載入攝影作品…")}</p>}
+        {!isLoading && error && <p className="py-16 text-center text-sm text-red-600">{t("攝影作品暫時無法載入，請稍後再試。")}</p>}
+        {!isLoading && !error && galleryItems.length === 0 && (
+          <p className="py-16 text-center text-sm text-[#64748b]">{t("目前沒有已發布的攝影作品。")}</p>
+        )}
+        {galleryItems.length > 0 && (
+          <>
         <div className="mt-10 flex flex-wrap justify-center gap-y-2 text-sm font-semibold text-[#1f2937] font-display">
           {categories.map((category, index) => (
             <span key={category} className="flex items-center">
@@ -262,11 +166,11 @@ function OverseasPhotographyWorksPage() {
                   setIsHoshinoExpanded(false);
                   setActiveCategory(category);
                 }}
-                className={`transition-colors hover:text-[#2b5f8f] ${
+                className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
                   activeCategory === category ? "text-[#2b5f8f]" : ""
                 }`}
               >
-                {category}
+                {t(category === 'All' ? '全部分類' : category)}
               </button>
               {index < categories.length - 1 && (
                 <span className="mx-2 text-[#cbd5e1]">/</span>
@@ -297,17 +201,17 @@ function OverseasPhotographyWorksPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (category === "星野") {
+                    if (photoItems.some(item => item.metadata?.location === category && item.metadata?.section)) {
                       setIsHoshinoExpanded((prev) =>
-                        activeLocationCategory === "星野" ? !prev : true
+                        selectedLocation === category ? !prev : true
                       );
                     } else {
                       setIsHoshinoExpanded(false);
                     }
                     setActiveLocationCategory(category);
                   }}
-                  className={`transition-colors hover:text-[#2b5f8f] ${
-                    activeLocationCategory === category ? "text-[#2b5f8f]" : ""
+                  className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
+                    selectedLocation === category ? "text-[#2b5f8f]" : ""
                   }`}
                 >
                   {category}
@@ -322,7 +226,7 @@ function OverseasPhotographyWorksPage() {
 
         {activeCategory === "地點" &&
           isLocationExpanded &&
-          activeLocationCategory === "星野" &&
+          hoshinoCategories.length > 0 &&
           isHoshinoExpanded && (
           <motion.div
             className="mt-6 flex flex-wrap justify-center gap-y-2 text-sm font-semibold text-[#1f2937] font-display"
@@ -346,8 +250,8 @@ function OverseasPhotographyWorksPage() {
                 <button
                   type="button"
                   onClick={() => setActiveHoshinoCategory(category)}
-                  className={`transition-colors hover:text-[#2b5f8f] ${
-                    activeHoshinoCategory === category ? "text-[#2b5f8f]" : ""
+                  className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
+                    selectedSection === category ? "text-[#2b5f8f]" : ""
                   }`}
                 >
                   {category}
@@ -383,8 +287,8 @@ function OverseasPhotographyWorksPage() {
                 <button
                   type="button"
                   onClick={() => setActiveShootTypeCategory(category)}
-                  className={`transition-colors hover:text-[#2b5f8f] ${
-                    activeShootTypeCategory === category ? "text-[#2b5f8f]" : ""
+                  className={`min-h-11 min-w-11 transition-colors hover:text-[#2b5f8f] ${
+                    selectedType === category ? "text-[#2b5f8f]" : ""
                   }`}
                 >
                   {category}
@@ -399,11 +303,12 @@ function OverseasPhotographyWorksPage() {
 
         {activeCategory === "影片" && (
           <div className="mt-12">
+            {!selectedVideoId ? <p className="py-12 text-center text-sm text-[#64748b]">{t("目前沒有已發布的影片。")}</p> : <>
             <div className="w-full aspect-video bg-black">
               <iframe
                 className="w-full h-full"
-                src={`https://www.youtube.com/embed/${activeVideoId}`}
-                title="Gallery video player"
+                src={`https://www.youtube.com/embed/${selectedVideoId}`}
+                title={t('作品影片播放器')}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               ></iframe>
@@ -415,7 +320,7 @@ function OverseasPhotographyWorksPage() {
                   type="button"
                   onClick={() => setActiveVideoId(video.id)}
                   className={`relative overflow-hidden ${
-                    activeVideoId === video.id ? "ring-2 ring-[#2b5f8f]" : ""
+                    selectedVideoId === video.id ? "ring-2 ring-[#2b5f8f]" : ""
                   }`}
                 >
                   <img loading="lazy" decoding="async"
@@ -423,19 +328,21 @@ function OverseasPhotographyWorksPage() {
                     alt={video.title}
                     className="w-full h-full object-cover"
                   />
-                  {activeVideoId === video.id && (
+                  {selectedVideoId === video.id && (
                     <span className="absolute inset-0 bg-black/35 flex items-center justify-center text-xs font-semibold text-white">
-                      Now Playing
+                      {t('目前選取影片')}
                     </span>
                   )}
                 </button>
               ))}
             </div>
+            </>}
           </div>
         )}
 
         {activeCategory !== "影片" && (
           <div className="mt-12">
+            {!activePhotos.length && <p className="py-12 text-center text-sm text-[#64748b]">{t("這個分類目前沒有已發布的照片。")}</p>}
             <div
               className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 ${
                 isFullBleedGallery
@@ -445,39 +352,41 @@ function OverseasPhotographyWorksPage() {
             >
               {activePhotos.map((src, index) => (
                 <button
-                  key={src}
+                  key={`${src}-${index}`}
+                  aria-label={t('查看攝影作品：{title}',{title:photoItems.find(item => item.image_url === src)?.title || t('攝影作品')})}
                   type="button"
                   onClick={() => setLightboxIndex(index)}
                   className="group relative overflow-hidden bg-[#e2e8f0] aspect-[4/3]"
                 >
                   <img loading="lazy" decoding="async"
                     src={withBaseUrl(src)}
-                    alt="Gallery"
+                    alt={photoItems.find(item => item.image_url === src)?.title || t('攝影作品')}
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                 </button>
               ))}
             </div>
-            <div className="mt-12 flex justify-center">
-              <a
-                href="#"
-                className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
-              >
-                預約攝影
-              </a>
-            </div>
           </div>
+        )}
+            <div className="mt-12 flex justify-center">
+              <SiteLink
+                to="/booking?service=photo"
+                className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
+              >{t("預約攝影")}</SiteLink>
+            </div>
+          </>
         )}
       </main>
       <SiteFooter />
 
       {lightboxIndex !== null && activePhotos[lightboxIndex] && (
-        <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center px-4">
+        <div ref={lightboxRef} role="dialog" aria-modal="true" aria-label={t("攝影作品預覽")} className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center px-4">
           <button
+            ref={closeRef}
             type="button"
             onClick={() => setLightboxIndex(null)}
-            className="absolute top-6 right-6 text-white text-2xl"
-            aria-label="Close"
+            className="absolute top-6 right-6 min-h-11 min-w-11 text-white text-2xl"
+            aria-label={t('關閉')}
           >
             ✕
           </button>
@@ -488,14 +397,14 @@ function OverseasPhotographyWorksPage() {
                 (lightboxIndex - 1 + activePhotos.length) % activePhotos.length
               )
             }
-            className="absolute left-4 md:left-8 text-white text-3xl"
-            aria-label="Previous"
+            className="absolute left-4 md:left-8 min-h-11 min-w-11 text-white text-3xl"
+            aria-label={t('上一張作品')}
           >
             ‹
           </button>
           <img loading="lazy" decoding="async"
             src={withBaseUrl(activePhotos[lightboxIndex])}
-            alt="Gallery preview"
+            alt={t('攝影作品預覽')}
             className="max-h-[80vh] max-w-[90vw] object-contain"
           />
           <button
@@ -503,8 +412,8 @@ function OverseasPhotographyWorksPage() {
             onClick={() =>
               setLightboxIndex((lightboxIndex + 1) % activePhotos.length)
             }
-            className="absolute right-4 md:right-8 text-white text-3xl"
-            aria-label="Next"
+            className="absolute right-4 md:right-8 min-h-11 min-w-11 text-white text-3xl"
+            aria-label={t('下一張作品')}
           >
             ›
           </button>

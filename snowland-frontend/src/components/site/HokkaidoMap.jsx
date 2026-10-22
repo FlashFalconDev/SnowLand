@@ -1,19 +1,27 @@
+import {useSiteLocale} from '../../contexts/SiteLocale';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SiteLink from './SiteLink';
 
 const markerPositions = {
   kamui: { left: "42.83%", top: "47.37%" },
+  asahikawasantapresentpark: { left: "43.9%", top: "49.2%" },
+  furano: { left: "43.8%", top: "55.2%" },
+  pippu: { left: "44.2%", top: "44.8%" },
+  canmore: { left: "46.2%", top: "48.2%" },
   tomamu: { left: "46.93%", top: "60.77%" },
   sahoro: { left: "48.49%", top: "58.34%" },
   "mt-racey": { left: "40.35%", top: "61.45%" },
   "sapporo-kokusai": { left: "34.68%", top: "60.29%" },
   teine: { left: "33.34%", top: "60.98%" },
   kiroro: { left: "31.94%", top: "60.98%" },
+  onze: { left: "31.9%", top: "58.6%" },
+  asari: { left: "32.7%", top: "60.2%" },
   rusutsu: { left: "31.77%", top: "67.61%" },
   "niseko-annupuri": { left: "29.27%", top: "65.35%" },
 };
 
 function HokkaidoMap({ resorts, initialActiveSlug }) {
+  const {t} = useSiteLocale();
   const preferredSlug = useMemo(() => (
     resorts.some((resort) => resort.slug === initialActiveSlug)
       ? initialActiveSlug
@@ -190,7 +198,7 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
             type="button"
             onClick={() => adjustMapScale(0.2)}
             className="flex h-12 w-12 items-center justify-center bg-white/90 text-[#2b5f8f] transition-transform duration-200 hover:scale-105"
-            aria-label="放大地圖"
+            aria-label={t("放大地圖")}
           >
             <svg
               viewBox="0 0 24 24"
@@ -211,7 +219,7 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
             type="button"
             onClick={() => adjustMapScale(-0.2)}
             className="flex h-12 w-12 items-center justify-center bg-white/90 text-[#2b5f8f] transition-transform duration-200 hover:scale-105"
-            aria-label="縮小地圖"
+            aria-label={t("縮小地圖")}
           >
             <svg
               viewBox="0 0 24 24"
@@ -243,10 +251,10 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
             className="absolute inset-0 h-full w-full object-contain opacity-80"
           />
           <div className="pointer-events-none absolute inset-0 text-sm md:text-base font-semibold tracking-[0.2em] text-[#2b5f8f] font-display">
-            <span className="absolute left-[22%] top-[14%] md:left-[18%] md:top-[18%] md:translate-x-[100px]">道北</span>
-            <span className="absolute right-[20%] top-[30%] md:right-[18%] md:top-[32%] md:-translate-x-[200px]">道東</span>
-            <span className="absolute left-[26%] bottom-[20%] translate-x-[40px] translate-y-[10px] md:left-[28%] md:bottom-[18%] md:translate-x-[100px] md:translate-y-0">道央</span>
-            <span className="absolute left-[10%] bottom-[8%] md:left-[6%] md:bottom-[10%] md:translate-x-[100px]">道南</span>
+            <span className="absolute left-[22%] top-[14%] md:left-[18%] md:top-[18%] md:translate-x-[100px]">{t("道北")}</span>
+            <span className="absolute right-[20%] top-[30%] md:right-[18%] md:top-[32%] md:-translate-x-[200px]">{t("道東")}</span>
+            <span className="absolute left-[26%] bottom-[20%] translate-x-[40px] translate-y-[10px] md:left-[28%] md:bottom-[18%] md:translate-x-[100px] md:translate-y-0">{t("道央")}</span>
+            <span className="absolute left-[10%] bottom-[8%] md:left-[6%] md:bottom-[10%] md:translate-x-[100px]">{t("道南")}</span>
           </div>
           <div className="absolute inset-0 bg-transparent" />
           {resorts.map((resort) => {
@@ -270,7 +278,7 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
                 }`}
                 style={{ left: position.left, top: position.top }}
                 aria-pressed={isActive}
-                aria-label={`${resort.nameChinese} marker`}
+                aria-label={t('雪場地圖標記：{name}',{name:resort.nameChinese})}
               >
                 {isActive && (
                   <span className="absolute inset-0 rounded-full bg-current opacity-25 animate-ping" />
@@ -316,7 +324,7 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
             ref={cardRef}
           >
             <div className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
-              {activeResort.region}
+              {t(activeResort.region)}
             </div>
             <div className="mt-2 text-lg font-semibold font-display">
               {activeResort.nameChinese}
@@ -328,16 +336,14 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
                   key={tag}
                   className="rounded-full bg-[#e2e8f0] px-3 py-1 text-xs font-semibold text-[#475569]"
                 >
-                  {tag}
+                  {t(tag)}
                 </span>
               ))}
             </div>
             <SiteLink
               to={activeRoute}
               className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-[#1f2937] px-4 py-2 text-sm font-semibold text-[#1f2937] transition-colors duration-200 hover:bg-[#1f2937] hover:text-white"
-            >
-              查看雪場資訊
-            </SiteLink>
+            >{t("查看雪場資訊")}</SiteLink>
           </div>
         )}
       </div>
@@ -348,7 +354,7 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
           }`}
         >
           <div className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
-            {activeResort.region}
+            {t(activeResort.region)}
           </div>
           <div className="mt-2 text-lg font-semibold font-display">
             {activeResort.nameChinese}
@@ -360,16 +366,14 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
                 key={tag}
                 className="rounded-full bg-[#e2e8f0] px-3 py-1 text-xs font-semibold text-[#475569]"
               >
-                {tag}
+                {t(tag)}
               </span>
             ))}
           </div>
           <SiteLink
             to={activeRoute}
             className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-[#1f2937] px-4 py-2 text-sm font-semibold text-[#1f2937] transition-colors duration-200 hover:bg-[#1f2937] hover:text-white"
-          >
-            查看雪場資訊
-          </SiteLink>
+          >{t("查看雪場資訊")}</SiteLink>
         </div>
       )}
     </div>

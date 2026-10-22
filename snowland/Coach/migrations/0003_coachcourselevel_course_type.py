@@ -12,32 +12,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql="""
-                        ALTER TABLE `Coach_coachcourselevel`
-                        MODIFY COLUMN `course_type_id` INT NULL,
-                        ADD CONSTRAINT `Coach_coachcourselev_course_type_id_fk_Courses_c_final`
-                        FOREIGN KEY (`course_type_id`) REFERENCES `Courses_coursetype` (`id`);
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE `Coach_coachcourselevel`
-                        DROP FOREIGN KEY `Coach_coachcourselev_course_type_id_fk_Courses_c_final`;
-                    """
-                ),
-            ],
-            state_operations=[
-                migrations.AddField(
-                    model_name='coachcourselevel',
-                    name='course_type',
-                    field=models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to='Courses.coursetype',
-                        verbose_name='課程類型'
-                    ),
-                ),
-            ]
-        )
+        migrations.AddField(
+            model_name='coachcourselevel',
+            name='course_type',
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to='Courses.coursetype',
+                verbose_name='課程類型'
+            ),
+        ),
     ]

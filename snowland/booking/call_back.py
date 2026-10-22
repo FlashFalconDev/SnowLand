@@ -4,6 +4,7 @@ from booking.models import Reservation, Payment
 import json
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.models import User
+from django.conf import settings
 
 @csrf_exempt
 def call_back(request, tunnel):
@@ -14,9 +15,12 @@ def call_back(request, tunnel):
             merchant_id = request.POST.get('MerchantID', '')
 
             try:
-                stored_merchant_id = 'MS3680822811'
-                HashKey = 'tXnG2aLtEnVzACrJY3CW0SLCLyFYZDEf'
-                HashIV = 'PKmJnNJCcJyXpqcC'
+                if not all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
+                    return HttpResponse('Payment gateway unavailable', status=503)
+                if merchant_id != settings.NEWEBPAY_MERCHANT_ID:
+                    return HttpResponse('Invalid merchant', status=400)
+                HashKey = settings.NEWEBPAY_HASH_KEY
+                HashIV = settings.NEWEBPAY_HASH_IV
 
                 # 驗證 TradeSha
                 expected_sha = sha256_hash(trade_info, HashKey, HashIV)

@@ -1,6 +1,10 @@
 from django.urls import path
 from . import views
+from .payment_email import PaymentEmailAPI
+from .class_group_qr import ClassGroupQRAPI
+from API.contact_inbox import PublicContactAPI
 from .api_views import (
+    CheckoutPoliciesAPI,
     SiteContentListAPI,
     CoachListAPI,
     WebsiteCoachListAPI,
@@ -16,16 +20,28 @@ from .api_views import (
     CreateReservationAPI,
     SuperScheduleAPI,
     PaymentInfoAPI,
+    CurrencyOptionsAPI,
     ProcessPaymentAPI,
     ReservationHistoryAPI,
     GoogleLoginAPI,
+    MemberAuthAPI,
     CancelFailedReservationsAPI,
+    StaffBookingLinkResolveAPI,
+    MemberCenterAPI,
+    MemberCancellationAPI,
+    MemberAmendmentsAPI,
+    CourseMediaFileAPI,
+    ParticipantInvitationAPI,
+    MemberNotificationsAPI,
+    MemberNotificationReadAPI,
 )
 
 app_name = 'booking'
 
 
 urlpatterns = [
+    path('<str:client_code>/api/currency-options/', CurrencyOptionsAPI.as_view(), name='api_currency_options_client'),
+    path('<str:client_code>/api/contact/', PublicContactAPI.as_view(), name='api_contact_client'),
     # ========== 指定 client_code 的路由 ==========
     path('<str:client_code>/', views.home, name='home'),
     path('<str:client_code>/payment/', views.payment, name='payment'),
@@ -52,13 +68,24 @@ urlpatterns = [
 
     # 付款 API
     path('<str:client_code>/api/payment-info/', PaymentInfoAPI.as_view(), name='api_payment_info_client'),
+    path('<str:client_code>/api/checkout-policies/', CheckoutPoliciesAPI.as_view(), name='api_checkout_policies_client'),
     path('<str:client_code>/api/process-payment/', ProcessPaymentAPI.as_view(), name='api_process_payment_client'),
 
     # 歷史紀錄 API
     path('<str:client_code>/api/reservation-history/', ReservationHistoryAPI.as_view(), name='api_reservation_history_client'),
+    path('<str:client_code>/api/member-cancellations/<int:group_id>/', MemberCancellationAPI.as_view(), name='api_member_cancellation_client'),
+    path('<str:client_code>/api/member-amendments/<int:group_id>/', MemberAmendmentsAPI.as_view(), name='api_member_amendments_client'),
+    path('<str:client_code>/api/member-center/', MemberCenterAPI.as_view(), name='api_member_center_client'),
+    path('<str:client_code>/api/class-group-qr/<int:group_id>/', ClassGroupQRAPI.as_view(), name='api_class_group_qr_client'),
+    path('<str:client_code>/api/participant-invitations/<uuid:token>/', ParticipantInvitationAPI.as_view(), name='api_participant_invitation_client'),
+    path('<str:client_code>/api/member-notifications/', MemberNotificationsAPI.as_view(), name='api_member_notifications_client'),
+    path('<str:client_code>/api/member-notifications/<int:delivery_id>/read/', MemberNotificationReadAPI.as_view(), name='api_member_notification_read_client'),
+    path('<str:client_code>/api/course-media/<int:media_id>/', CourseMediaFileAPI.as_view(), name='api_course_media_file_client'),
+    path('<str:client_code>/api/staff-booking-link/<uuid:token>/', StaffBookingLinkResolveAPI.as_view(), name='api_staff_booking_link_client'),
 
     # Google 登入 API（預約系統專用，不檢查管理員權限）
     path('<str:client_code>/api/google-login/', GoogleLoginAPI.as_view(), name='api_google_login_client'),
+    path('<str:client_code>/api/member-auth/', MemberAuthAPI.as_view(), name='api_member_auth_client'),
 
     # ========== 向後相容的 API 端點（無 client_code） ==========
     path('api/course-categories/', CourseCategoryListAPI.as_view(), name='api_course_categories'),
@@ -79,8 +106,11 @@ urlpatterns = [
     path('api/process-payment/', ProcessPaymentAPI.as_view(), name='api_process_payment'),
     path('api/reservation-history/', ReservationHistoryAPI.as_view(), name='api_reservation_history'),
     path('api/google-login/', GoogleLoginAPI.as_view(), name='api_google_login'),
+    path('api/member-auth/', MemberAuthAPI.as_view(), name='api_member_auth'),
 
     # ========== 舊的 API 端點（逐步棄用） ==========
+    # 單獨驗證真正登入身分，不經舊版以 Email／jwt 字串查人的裝飾器。
+    path('api/payment_gmail/', PaymentEmailAPI.as_view(), name='api_payment_email_legacy'),
     path('api/calculate_price/', views.calculate_price_api, name='calculate_price_legacy'),
     path('api/<str:tunnel>/', views.API, name='API'),  # 保留舊的萬用路由
 ]
