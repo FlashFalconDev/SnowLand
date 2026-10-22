@@ -34,9 +34,9 @@ EB application bundle 的根目錄為 `snowland/`，其中包含 `manage.py`、`
 
 私有檔案固定使用獨立 Bucket 的 `private_course_media/` prefix，保留既有資料庫 file name。`url()` 仍會拒絕直接產生檔案網址；下載仍經既有身分與租戶權限檢查，透過 storage 讀檔及處理 Range。
 
-依需求保留 `default_acl='private'`。部署時 Bucket 必須啟用 ACL，且持續封鎖公開存取；若使用新 Bucket 預設的 Bucket owner enforced（停用 ACL），上傳會被拒絕，需先調整 Bucket 或另行確認改採不傳 ACL 的私有政策方案。
+依確認採用 `default_acl=None`，上傳不傳 ACL，兼容新 Bucket 預設的 Bucket owner enforced（停用 ACL）。Bucket 保持私有並封鎖公開存取，透過 Bucket／IAM 政策授權；不傳 ACL 並不表示檔案公開。
 
-正式環境使用 EC2 instance role，不設定 `AWS_ACCESS_KEY_ID`／`AWS_SECRET_ACCESS_KEY`。角色需有靜態檔發布及私有檔案讀寫刪除的必要權限；現有私有 ACL 寫入亦需相應的 `s3:PutObjectAcl` 權限。SSE-KMS 加密時另授予適用的 KMS 權限。
+正式環境使用 EC2 instance role，不設定 `AWS_ACCESS_KEY_ID`／`AWS_SECRET_ACCESS_KEY`。角色需有靜態檔發布及私有檔案讀寫刪除的必要權限；此實作不需 `s3:PutObjectAcl`。SSE-KMS 加密時另授予適用的 KMS 權限。
 
 本機附件不會自動搬到 S3。先備份，再將原本媒體根目錄內容複製到私有 Bucket 的 `private_course_media/`，保留相對路徑；完成筆數、內容及授權下載驗證後，才讓兩台主機切換到該 Bucket。
 
@@ -66,7 +66,7 @@ ALB 健康檢查設定為 `/healthz/`，成功碼僅 `200`。路由不要求登�
 
 | 需求 | 驗證方式 | 結果 |
 | --- | --- | --- |
-| 私有 S3 與本機 fallback（1、2） | 真實 S3Storage/S3File 搭配遠端邊界 mock；兩個實例共用檔案、完整讀取與 Range；既有附件、QR 與簽名授權回歸測試 | PASS |
+| 私有 S3 與本機 fallback（1、2） | 真實 S3Storage/S3File 搭配遠端邊界 mock；確認不傳 ACL、不繼承公開 ACL／網域；兩個實例共用檔案、完整讀取與 Range；既有附件、QR 與簽名授權回歸測試 | PASS |
 | 健康檢查（3） | 匿名 HTTP 在啟用 HTTPS 轉址時仍回 200；模擬 DB 故障回 503；SQLite 測試庫真實連線 | PASS |
 | IMDSv2（4） | 驗證 token PUT 與 token header GET；無效 IP、IPv6、逾時與 token 錯誤不加入 hosts、不回退 IMDSv1 | PASS |
 | Secret、DEBUG、靜態檔與網域（5–8） | 缺 secret 停止啟動；DEBUG 明確啟用；客戶靜態 URL；無設定長期 AWS 憑證；hosts 與 CSRF 清單解析 | PASS |

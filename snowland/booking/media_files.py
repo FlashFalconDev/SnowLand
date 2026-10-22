@@ -29,7 +29,7 @@ class PrivateCourseMediaStorage(_PrivateCourseMediaBackend):
     if settings.SNOWLAND_PRIVATE_MEDIA_BUCKET:
         bucket_name = settings.SNOWLAND_PRIVATE_MEDIA_BUCKET
         location = 'private_course_media'
-        default_acl = 'private'
+        default_acl = None
         querystring_auth = True
         # Do not inherit public static-file URLs or upload ACLs.
         custom_domain = None

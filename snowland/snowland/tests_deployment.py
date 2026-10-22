@@ -166,7 +166,7 @@ class PrivateStorageTests(SimpleTestCase):
         self.assertIsInstance(storage, S3Storage)
         self.assertEqual(storage.bucket_name, 'test-private-bucket')
         self.assertEqual(storage.location, 'private_course_media')
-        self.assertEqual(storage.default_acl, 'private')
+        self.assertIsNone(storage.default_acl)
         self.assertTrue(storage.querystring_auth)
         self.assertIsNone(storage.custom_domain)
         self.assertEqual(storage.object_parameters, {})
@@ -198,7 +198,7 @@ class PrivateStorageTests(SimpleTestCase):
         with patch.object(writer, 'exists', return_value=False):
             name = writer.save('course-records/lesson.mp4', ContentFile(content))
         self.assertEqual(objects['private_course_media/' + name], content)
-        self.assertEqual(uploads[0]['ACL'], 'private')
+        self.assertNotIn('ACL', uploads[0])
         self.assertEqual(reader.size(name), len(content))
         response = media_files.private_file_response(SimpleNamespace(file=reader.open(name, 'rb')))
         self.assertEqual(b''.join(response.streaming_content), content)
