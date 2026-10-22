@@ -7,9 +7,10 @@ from django.core.files.storage import FileSystemStorage
 from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from django.urls import reverse
 from PIL import Image, UnidentifiedImageError
+from storages.backends.s3 import S3Storage
 
 
-class PrivateCourseMediaStorage(FileSystemStorage):
+class _LocalPrivateCourseMediaStorage(FileSystemStorage):
     @property
     def base_location(self):
         return getattr(settings, 'PRIVATE_COURSE_MEDIA_ROOT', settings.BASE_DIR / 'private_course_media')
@@ -17,6 +18,24 @@ class PrivateCourseMediaStorage(FileSystemStorage):
     @property
     def location(self):
         return os.path.abspath(self.base_location)
+
+
+_PrivateCourseMediaBackend = (
+    S3Storage if settings.SNOWLAND_PRIVATE_MEDIA_BUCKET else _LocalPrivateCourseMediaStorage
+)
+
+
+class PrivateCourseMediaStorage(_PrivateCourseMediaBackend):
+    if settings.SNOWLAND_PRIVATE_MEDIA_BUCKET:
+        bucket_name = settings.SNOWLAND_PRIVATE_MEDIA_BUCKET
+        location = 'private_course_media'
+        default_acl = None
+        querystring_auth = True
+        # Do not inherit public static-file URLs or upload ACLs.
+        custom_domain = None
+        object_parameters = {}
+        file_overwrite = False
+        region_name = os.getenv('AWS_REGION')
 
     def url(self, name):
         raise ValueError('課程附件必須經登入權限檢查後讀取')

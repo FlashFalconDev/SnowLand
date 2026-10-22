@@ -12,8 +12,10 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from datetime import timedelta
 from pathlib import Path
+from ipaddress import ip_address
 import os
 import platform
+from urllib.parse import urlsplit
 from dotenv import dotenv_values, load_dotenv
 import pymysql
 import boto3
@@ -27,6 +29,9 @@ logger = logging.getLogger(__name__)
 pymysql.install_as_MySQLdb()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Git-ignored development settings; deployment environment variables take priority.
+load_dotenv(BASE_DIR.parent / '.env.local')
 
 # 修改 .env 檔案的路徑，指向 snowland 子資料夾
 dotenv_path = os.path.join(BASE_DIR, 'snowland', '.env')
@@ -42,11 +47,11 @@ else:
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-6m9s&&mrr%$5oie!_2wc-byua$@8c*oggvsef(94lkoil0j4i*"
+SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # if platform.system() == 'Windows':
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', '0') == '1'
 LOCAL_AUTH_BYPASS = os.getenv('SNOWLAND_LOCAL_AUTH_BYPASS', '0') == '1'
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND') or (
     'django.core.mail.backends.console.EmailBackend'
@@ -87,7 +92,9 @@ SNOWLAND_PUBLIC_PAYMENT_URL = os.getenv('SNOWLAND_PUBLIC_PAYMENT_URL', '').strip
     if os.getenv('Mysql_HOST') in {'127.0.0.1', 'localhost'} and os.getenv('Mysql_NAME') == 'test_snowland'
     else ''
 )
-PRIVATE_COURSE_MEDIA_ROOT = Path(os.getenv('SNOWLAND_PRIVATE_COURSE_MEDIA_ROOT', '').strip() or BASE_DIR / 'private_course_media')
+SNOWLAND_PRIVATE_MEDIA_BUCKET = os.getenv('SNOWLAND_PRIVATE_MEDIA_BUCKET', '').strip()
+if not SNOWLAND_PRIVATE_MEDIA_BUCKET:
+    PRIVATE_COURSE_MEDIA_ROOT = Path(os.getenv('SNOWLAND_PRIVATE_COURSE_MEDIA_ROOT', '').strip() or BASE_DIR / 'private_course_media')
 COURSE_MEDIA_MAX_PHOTO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_PHOTO_BYTES') or 20 * 1024 * 1024)
 COURSE_MEDIA_MAX_VIDEO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_VIDEO_BYTES') or 100 * 1024 * 1024)
 # else:
@@ -96,21 +103,36 @@ COURSE_MEDIA_MAX_VIDEO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_VIDEO_BY
 #     PAYMENT_HOST = 'https://www.flashfalcon.info/booking/payment/'
 # 允許 ngrok 域名
 
-# 動態獲取 EC2 私有 IP 並添加到 ALLOWED_HOSTS
+# ALB health checks address the target by its EC2 private IP. Use IMDSv2 only.
+ec2_private_ip = None
 try:
-    ec2_private_ip = requests.get('http://169.254.169.254/latest/meta-data/local-ipv4', timeout=0.1).text
-except requests.exceptions.RequestException:
-    ec2_private_ip = None
+    token_response = requests.put(
+        'http://169.254.169.254/latest/api/token',
+        headers={'X-aws-ec2-metadata-token-ttl-seconds': '21600'},
+        timeout=0.2,
+        allow_redirects=False,
+    )
+    token_response.raise_for_status()
+    token = token_response.text.strip()
+    if token_response.status_code == 200 and token:
+        ip_response = requests.get(
+            'http://169.254.169.254/latest/meta-data/local-ipv4',
+            headers={'X-aws-ec2-metadata-token': token},
+            timeout=0.2,
+            allow_redirects=False,
+        )
+        ip_response.raise_for_status()
+        if ip_response.status_code == 200:
+            address = ip_address(ip_response.text.strip())
+            if address.version == 4:
+                ec2_private_ip = str(address)
+except (requests.exceptions.RequestException, ValueError):
+    pass
 
 ALLOWED_HOSTS = [
-    'dev.flashfalcon.info',
-    'djre.ngrok.io',
-    'ffreact.ngrok.io',  # 🔥 前端 ngrok 域名
-    'localhost',
-    '127.0.0.1',
-    'snowland-env.eba-n9h9c3r9.ap-northeast-1.elasticbeanstalk.com',
-    '.elasticbeanstalk.com',
-    '172.31.12.76', # <--- 把日志里报错的 IP 加在这里
+    value.strip() for value in os.getenv(
+        'DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1]',
+    ).split(',') if value.strip()
 ]
 
 if ec2_private_ip:
@@ -166,14 +188,13 @@ MIDDLEWARE = [
 ROOT_URLCONF = "snowland.urls"
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://dev.flashfalcon.info',
-    'https://djre.ngrok.io',
-    'https://ffreact.ngrok.io',  # 前端 ngrok 域名
-    'http://localhost:8999',
-    'http://127.0.0.1:8999',
-    'http://localhost:3000',  # 前端開發服務器
-    'http://127.0.0.1:3000',  # 同一套前端的 loopback IP 網址
+    value.strip() for value in os.getenv(
+        'DJANGO_CSRF_TRUSTED_ORIGINS',
+        'http://localhost:8999,http://127.0.0.1:8999,http://localhost:3000,http://127.0.0.1:3000',
+    ).split(',') if value.strip()
 ]
+
+SECURE_REDIRECT_EXEMPT = [r'^healthz/$']
 
 # CORS 設定：允許前端跨域請求
 CORS_ALLOWED_ORIGINS = [
@@ -326,26 +347,35 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
+STATIC_URL = os.getenv('STATIC_URL', '/static/')
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+}
+
 if DEBUG:
-    STATIC_URL = '/static/'
     STATICFILES_DIRS = [
         os.path.join(BASE_DIR, 'static'),
         os.path.join(BASE_DIR, 'templates'),
     ]
-    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
 else:
-    # AWS s3
-    STATICFILES_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    # Django 5.1 uses STORAGES. Boto3 obtains credentials from the instance role.
     AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
-    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
-    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
-    AWS_REGION = os.getenv('AWS_REGION')
+    AWS_S3_REGION_NAME = os.getenv('AWS_REGION')
     AWS_S3_FILE_OVERWRITE = True  # 同名檔案是否要覆寫
-    # STATIC_URL = 'https://%s.s3.%s.amazonaws.com/static/' % (
-    #     AWS_STORAGE_BUCKET_NAME, AWS_REGION)
-    STATIC_URL = f'https://ffsystemstatic.s3.us-east-1.amazonaws.com/static/'
-    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+    static_url = urlsplit(STATIC_URL)
+    STORAGES['staticfiles'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': AWS_STORAGE_BUCKET_NAME,
+            'location': static_url.path.strip('/'),
+            'custom_domain': static_url.netloc or None,
+            'region_name': AWS_S3_REGION_NAME,
+            'querystring_auth': False,
+            'default_acl': None,
+        },
+    }
 
 
 

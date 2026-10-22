@@ -6,6 +6,7 @@ tmp/
 /.codex/
 
 # Local SnowLand database credentials
+.env
 .env.local
 snowland/.venv/
 /test_*.sqlite3
