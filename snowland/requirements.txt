@@ -3,7 +3,7 @@ django-cors-headers==3.14.0
 djangorestframework==3.14.0
 djangorestframework-simplejwt==5.3.1
 django-allauth>=0.61.0
-django-storages==1.13.1
+django-storages[s3]==1.14.6
 django-widget-tweaks==1.5.0
 django-colorfield==0.14.0
 PyMySQL

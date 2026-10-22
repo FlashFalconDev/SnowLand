@@ -15,10 +15,23 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.db import DatabaseError, connection
 from django.urls import path, include
 from booking.call_back import call_back
 from django.http import HttpResponse
 import traceback
+
+
+def healthz(request):
+    try:
+        connection.ensure_connection()
+    except DatabaseError:
+        response = HttpResponse('unavailable', status=503, content_type='text/plain')
+    else:
+        response = HttpResponse('ok', content_type='text/plain')
+    response['Cache-Control'] = 'no-store'
+    return response
+
 
 def test_view(request):
     return HttpResponse("Hello, World!")
@@ -96,6 +109,7 @@ def landing_page(request):
 
 
 urlpatterns = [
+    path('healthz/', healthz, name='healthz'),
     # ========== 豁免路徑（不需要 client_code）==========
     path("admin/", admin.site.urls),
     path("test/", test_view, name="test"),
