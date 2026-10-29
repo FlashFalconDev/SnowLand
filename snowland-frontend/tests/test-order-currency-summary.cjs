@@ -1,0 +1,32 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm')
+const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
+function compile(file,require){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{React,exports,require});return exports}
+const loadSiteLocale=require('./helpers/site-locale-harness.cjs')
+const money=compile('src/components/booking/SettlementSummary.tsx',()=>loadSiteLocale(React))
+const panel=compile('src/admin/components/OrderCurrencySummary.tsx',name=>{assert.equal(name,'../../components/booking/SettlementSummary');return money}).default
+const settlement={currency:'JPY',base_currency:'TWD',base_amount:10000,amount:45000,rate:'4.50000000',locked_at:'2026-10-19T03:00:00Z'}
+function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))return node;for(const child of React.Children.toArray(node.props?.children)){const result=find(child,p);if(result)return result}return null}
+assert.equal(panel({settlement:{...settlement,currency:'TWD'}}),null)
+const ready=panel({settlement}),readyHtml=renderToStaticMarkup(ready)
+assert.ok(readyHtml.includes('日幣 JPY ¥ 45,000'))
+assert.ok(readyHtml.includes('NT$ 10,000'))
+assert.ok(!readyHtml.includes('行政已核對收款：'))
+assert.ok(readyHtml.includes('不等於行政已核對收款'))
+assert.equal(find(ready,n=>n.type==='input'),null)
+const changes=[]
+const confirmation=panel({settlement,confirmationRequired:true,confirmed:false,onConfirmChange:value=>changes.push(value)})
+const checkbox=find(confirmation,n=>n.type==='input'&&n.props.type==='checkbox')
+assert.equal(checkbox.props.checked,false);checkbox.props.onChange({target:{checked:true}});assert.equal(changes[0],true)
+assert.equal(find(panel({settlement,confirmationRequired:true,busy:true}),n=>n.type==='input').props.disabled,true)
+const paid=renderToStaticMarkup(panel({settlement,receivedSettlement:settlement}))
+assert.ok(paid.includes('行政已核對收款'))
+assert.ok(paid.includes('實際入帳以銀行紀錄為準'))
+assert.ok(!renderToStaticMarkup(money.default({settlement})).includes('請使用日幣匯款'))
+assert.equal(money.settlementRateLabel('999999999.12345678'),'999999999.12345678')
+assert.equal(money.settlementAmount(settlement,10000,'en'),'JPY ¥ 45,000')
+const japanese=compile('src/components/booking/SettlementSummary.tsx',()=>loadSiteLocale(React,'ja'))
+const japaneseHtml=renderToStaticMarkup(japanese.default({settlement,paymentInstructions:true}))
+assert.ok(japaneseHtml.includes('予約金額（日本円）'))
+assert.ok(japaneseHtml.includes('45,000'));assert.ok(japaneseHtml.includes('10,000'))
+assert.ok(japaneseHtml.includes('日本円でお振り込みください'))
+console.log('PASS actual JPY summary: base/settlement amounts separate, no received claim before confirmation, explicit controlled receipt checkbox, busy guard, saved receipt and exact decimal rate')

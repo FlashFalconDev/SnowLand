@@ -85,8 +85,10 @@ GOOGLE_OAUTH_CLIENT_ID = (
 NEWEBPAY_MERCHANT_ID = os.getenv('NEWEBPAY_MERCHANT_ID', '').strip()
 NEWEBPAY_HASH_KEY = os.getenv('NEWEBPAY_HASH_KEY', '').strip()
 NEWEBPAY_HASH_IV = os.getenv('NEWEBPAY_HASH_IV', '').strip()
-RUN_HOST = 'https://dev.flashfalcon.info'
-PAYMENT_HOST = 'https://dev.flashfalcon.info/booking/payment/'
+RUN_HOST = (os.getenv('RUN_HOST', '').strip() or 'https://snowland.tw').rstrip('/')
+PAYMENT_HOST = (os.getenv('PAYMENT_HOST', '').strip() or f'{RUN_HOST}/booking/payment/').rstrip('/') + '/'
+FRONTEND_URL = (os.getenv('FRONTEND_URL', '').strip() or RUN_HOST).rstrip('/')
+LOGIN_REDIRECT_URL = f'{FRONTEND_URL}/auth/callback'
 SNOWLAND_PUBLIC_PAYMENT_URL = os.getenv('SNOWLAND_PUBLIC_PAYMENT_URL', '').strip() or (
     'http://127.0.0.1:3000/snowland/payment'
     if os.getenv('Mysql_HOST') in {'127.0.0.1', 'localhost'} and os.getenv('Mysql_NAME') == 'test_snowland'
@@ -97,12 +99,6 @@ if not SNOWLAND_PRIVATE_MEDIA_BUCKET:
     PRIVATE_COURSE_MEDIA_ROOT = Path(os.getenv('SNOWLAND_PRIVATE_COURSE_MEDIA_ROOT', '').strip() or BASE_DIR / 'private_course_media')
 COURSE_MEDIA_MAX_PHOTO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_PHOTO_BYTES') or 20 * 1024 * 1024)
 COURSE_MEDIA_MAX_VIDEO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_VIDEO_BYTES') or 100 * 1024 * 1024)
-# else:
-#     DEBUG = False
-#     RUN_HOST = 'https://www.flashfalcon.info'
-#     PAYMENT_HOST = 'https://www.flashfalcon.info/booking/payment/'
-# 允許 ngrok 域名
-
 # ALB health checks address the target by its EC2 private IP. Use IMDSv2 only.
 ec2_private_ip = None
 try:
@@ -198,10 +194,10 @@ SECURE_REDIRECT_EXEMPT = [r'^healthz/$']
 
 # CORS 設定：允許前端跨域請求
 CORS_ALLOWED_ORIGINS = [
-    "https://dev.flashfalcon.info",
-    "https://ffreact.ngrok.io",  # 前端 ngrok 域名
-    "http://localhost:3000",  # React開發服務器
-    "http://127.0.0.1:3000",
+    value.strip() for value in os.getenv(
+        'DJANGO_CORS_ALLOWED_ORIGINS',
+        f'{FRONTEND_URL},http://localhost:3000,http://127.0.0.1:3000',
+    ).split(',') if value.strip()
 ]
 
 # 允許攜帶cookie進行跨域請求（Google OAuth需要）

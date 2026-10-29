@@ -21,12 +21,43 @@ EB application bundle 的根目錄為 `snowland/`，其中包含 `manage.py`、`
 - `Mysql_PASSWORD`
 - `Mysql_HOST`
 - `Mysql_PORT`
+- `RUN_HOST`
+- `PAYMENT_HOST`
+- `FRONTEND_URL`
+- `DJANGO_CORS_ALLOWED_ORIGINS`
 
 本機不設定私有 Bucket 時，繼續使用本機儲存，並可用 `SNOWLAND_PRIVATE_COURSE_MEDIA_ROOT` 指定路徑。正式雙主機必須設定私有 Bucket，避免附件分散到兩台磁碟。
 
 `DJANGO_DEBUG` 只有明確設定為 `1` 才啟用。`DJANGO_SECRET_KEY` 必須使用新產生的密鑰，兩台主機相同；缺少時停止啟動。根目錄的 `.env.local` 是 Git 忽略的本機設定，系統環境變數優先；不得將它打包到 EB。
 
-`DJANGO_ALLOWED_HOSTS` 與 `DJANGO_CSRF_TRUSTED_ORIGINS` 使用逗號分隔；前者填主機名稱，後者包含 scheme。另須依既有前後端分離設定確認 CORS；本次沒有修改 CORS 規則。
+`DJANGO_ALLOWED_HOSTS` 與 `DJANGO_CSRF_TRUSTED_ORIGINS` 使用逗號分隔；前者填主機名稱，後者包含 scheme。原 10/22 部署修正未調整 CORS；10/29 新增的可設定來源見下一節。
+
+### 正式付款網址與登入回跳（2026-10-29）
+
+這些是部署設定範例，不代表已套用到 AWS：
+
+```dotenv
+RUN_HOST=https://snowland.tw
+PAYMENT_HOST=https://snowland.tw/booking/payment/
+FRONTEND_URL=https://snowland.tw
+DJANGO_CORS_ALLOWED_ORIGINS=https://snowland.tw,https://www.snowland.tw
+```
+
+`RUN_HOST` 是後端公開 origin，藍新通知使用其 `/call_back/NewebPay/` 路徑；
+`PAYMENT_HOST` 是既有付款入口，不要與 `SNOWLAND_PUBLIC_PAYMENT_URL`（新版前台付款頁）混淆。
+未指定時，兩者預設使用 SnowLand 網址；設定的尾端斜線會正規化。
+
+Email／Google 登入與社群註冊的預設回跳為 `FRONTEND_URL` 加 `/auth/callback`，
+不再依 Referer 中是否包含 `ngrok.io` 猜測。`next` 只接受目前後端或已設定前端的安全目標。
+本機或 ngrok 開發須明確設定各自的 `RUN_HOST` 與 `FRONTEND_URL`；不會自動回 localhost。
+
+前後端同 origin 時不需要 CORS；可將 `DJANGO_CORS_ALLOWED_ORIGINS` 設為空字串。
+分開部署時應填入實際前端 origins（含協定與必要的 port，無路徑及尾端斜線），
+並同步確認既有 `DJANGO_CSRF_TRUSTED_ORIGINS`、Cookie 及代理設定。CORS 不會自動開放 CSRF。
+若未設定 CORS 變數，預設只包含已設定的前端及兩個本機 3000 origins，不包含舊 FlashFalcon 或固定 ngrok 網址。
+
+這次未修改 OAuth 憑證、Google 授權來源／回呼白名單、AWS listener、DNS 或租戶網域對應。
+前端亦須實際部署並提供 `/auth/callback` 路由；本修正不會將 Django 的首頁變成前台網站。
 
 ## S3 與 IAM
 
