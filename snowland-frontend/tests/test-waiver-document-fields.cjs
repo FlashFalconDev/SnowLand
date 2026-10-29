@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm')
+const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json'))
+const React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
+const source=fs.readFileSync(path.join(root,'src/admin/components/WaiverDocumentFields.tsx'),'utf8')
+const context=vm.createContext({React,exports:{},require})
+vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context)
+const patches=[],value={title:'QA標題',body:'QA正文\n第二行',metadata:{version:'QA-V1',custom:'preserve'}}
+const tree=context.exports.default({value,onChange:patch=>patches.push(patch)})
+const html=renderToStaticMarkup(tree)
+assert.ok(html.includes('QA-V1'));assert.ok(html.includes('自動建立新版本'));assert.ok(html.includes('原簽名與文件快照會保留'))
+function nodes(node,p,result=[]){if(node&&typeof node==='object'){if(p(node))result.push(node);for(const child of React.Children.toArray(node.props?.children))nodes(child,p,result)}return result}
+nodes(tree,n=>n.type==='textarea')[0].props.onChange({target:{value:'QA新正文\n保持換行'}})
+assert.deepEqual(JSON.parse(JSON.stringify(patches.pop())),{body:'QA新正文\n保持換行'})
+nodes(tree,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.onChange({target:{checked:true}})
+assert.deepEqual(JSON.parse(JSON.stringify(patches.pop())),{metadata:{version:'QA-V1',custom:'preserve',is_draft:true}})
+assert.ok(!html.includes('type="number"'),'Version is read-only and generated on save, not a manually entered number')
+console.log('PASS waiver fields: explicit version policy, controlled full body, draft toggle, metadata preservation')

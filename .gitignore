@@ -10,6 +10,10 @@ tmp/
 .env.local
 snowland/.venv/
 /test_*.sqlite3
+/output/
+snowland-frontend/.env
+snowland-frontend/.env.*
+!snowland-frontend/.env.example
 snowland/private_course_media/
 
 # Caddy runtime state and downloaded binary

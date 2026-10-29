@@ -1,6 +1,22 @@
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from django.conf import settings
 from django.shortcuts import redirect
+from django.utils.http import url_has_allowed_host_and_scheme
+from urllib.parse import urlsplit
+
+
+def _frontend_callback_url(request):
+    next_url = request.GET.get('next')
+    allowed_hosts = {request.get_host(), urlsplit(settings.FRONTEND_URL).netloc}
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts=allowed_hosts, require_https=request.is_secure(),
+    ):
+        return next_url
+    # OAuth providers may omit Referer or send their own origin; never infer a
+    # trusted frontend from that header (including arbitrary ngrok substrings).
+    return settings.LOGIN_REDIRECT_URL
+
 
 class MyAccountAdapter(DefaultAccountAdapter):
     def __init__(self, *args, **kwargs):
@@ -9,20 +25,7 @@ class MyAccountAdapter(DefaultAccountAdapter):
 
     def get_login_redirect_url(self, request):
         print("DEBUG: MyAccountAdapter.get_login_redirect_url 被調用！")
-        # 檢查 'next' 參數是否存在於請求中
-        next_url = request.GET.get('next')
-        if next_url:
-            return next_url
-        # 🔥 自動判斷前端 URL
-        referer = request.META.get('HTTP_REFERER', '')
-        if 'ngrok.io' in referer:
-            # 生產環境：從 referer 提取前端域名
-            import re
-            match = re.search(r'(https?://[^/]+)', referer)
-            if match:
-                return f"{match.group(1)}/auth/callback"
-        # 開發環境：預設 localhost
-        return "http://localhost:3000/auth/callback"
+        return _frontend_callback_url(request)
 
     def logout(self, request):
         print("DEBUG: MyAccountAdapter.logout 被調用！")
@@ -40,22 +43,8 @@ class MySocialAccountAdapter(DefaultSocialAccountAdapter):
         super().__init__(*args, **kwargs)
 
     def _get_frontend_callback_url(self, request):
-        """🔥 自動判斷前端回調 URL"""
-        # 1. 優先使用 next 參數
-        next_url = request.GET.get('next')
-        if next_url:
-            return next_url
-
-        # 2. 從 referer 判斷前端域名
-        referer = request.META.get('HTTP_REFERER', '')
-        if 'ngrok.io' in referer:
-            import re
-            match = re.search(r'(https?://[^/]+)', referer)
-            if match:
-                return f"{match.group(1)}/auth/callback"
-
-        # 3. 預設開發環境
-        return "http://localhost:3000/auth/callback"
+        """Use the configured frontend and retain only trusted next targets."""
+        return _frontend_callback_url(request)
 
     def get_login_redirect_url(self, request, sociallogin):
         print("DEBUG: MySocialAccountAdapter.get_login_redirect_url 被調用！")
