@@ -4,7 +4,7 @@ const source=fs.readFileSync(path.join(root,'src/components/auth/GoogleLoginButt
 const component=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='GoogleLoginButton')
 const effect=component.body.statements.find(node=>ts.isExpressionStatement(node)&&node.getText(ast).startsWith('useEffect('))
 const rendered=[],initializations=[]
-const env={GOOGLE_CLIENT_ID:'QA-NOT-REAL.apps.googleusercontent.com',googleSdkInitialized:false,activeCredentialHandler:null,
+const env={GOOGLE_CLIENT_ID:'QA-NOT-REAL.apps.googleusercontent.com',googleSdkInitialized:false,googleSdkClientId:'',clientInfoLoading:false,clientInfoError:'',activeCredentialHandler:null,
   handleCredentialResponse(){},googleButtonRef:{current:{getBoundingClientRect:()=>({width:350}),replaceChildren(){}}},setError(){},
   ResizeObserver:class{observe(){}disconnect(){}},setTimeout(){throw Error('Loaded SDK should not poll')},clearTimeout(){},
   window:{google:{accounts:{id:{initialize:config=>initializations.push(config),renderButton:(element,config)=>rendered.push(config)}}}}}
@@ -17,3 +17,8 @@ assert.equal(rendered[1].locale,'en');assert.equal(initializations.length,1,'Cha
 context.cleanup();context.locale='zh-Hant';vm.runInContext(code,context)
 assert.equal(rendered[2].locale,'zh_TW')
 console.log('PASS real Google render effect follows ja/en/zh-TW without reinitializing OAuth (mock SDK; not real Google sign-in)')
+
+context.cleanup();context.GOOGLE_CLIENT_ID='QA-SECOND-SCHOOL.apps.googleusercontent.com';vm.runInContext(code,context)
+assert.equal(initializations.length,2,'A different school Google client must reinitialize SDK')
+assert.equal(initializations[1].client_id,'QA-SECOND-SCHOOL.apps.googleusercontent.com')
+context.cleanup();assert.equal(context.activeCredentialHandler,null,'Unmount removes the old school credential handler')

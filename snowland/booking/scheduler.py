@@ -1,3 +1,4 @@
+from .tenant_scope import resort_for_course
 import random
 from collections import defaultdict
 from datetime import datetime, time, timedelta
@@ -819,7 +820,7 @@ def check_availability_and_get_suggestions(courses):
     
     for course in courses:
         resort_name = course.get("resort")
-        resort = Resorts.objects.get(name=resort_name)
+        resort = resort_for_course(resort_name,template_id=course.get("courseTemplateId"),course_type_id=course.get("courseType"))
         
         # 收集所有請求的日期
         for slot in course.get("booking", []):
@@ -857,7 +858,7 @@ def check_availability_and_get_suggestions(courses):
     
     for course in courses:
         resort_name = course.get("resort")
-        resort = Resorts.objects.get(name=resort_name)
+        resort = resort_for_course(resort_name,template_id=course.get("courseTemplateId"),course_type_id=course.get("courseType"))
         
         # 再次直接傳遞參數
         language_name = course.get("language", "中文")

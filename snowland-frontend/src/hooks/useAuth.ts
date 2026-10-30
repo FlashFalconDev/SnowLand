@@ -1,3 +1,4 @@
+import { currentClientCode } from '@/utils/tenant'
 import { useState, useEffect, useRef } from 'react'
 
 interface User {
@@ -34,8 +35,14 @@ export function useAuth() {
         return
       }
 
+      // 選校首頁沒有租戶，不發送任何校內認證請求。
+      if (window.location.pathname === '/') {
+        setUser(null)
+        return
+      }
+
       // 只以後端 session 判定登入；localStorage 可能是已過期的舊資料。
-      const clientCode = localStorage.getItem('client_code') || 'snowland'
+      const clientCode = currentClientCode()
       const response = await fetch(`/booking/${clientCode}/api/google-login/`, {
         credentials: 'include', // 重要：包含cookies
       })
@@ -86,8 +93,7 @@ export function useAuth() {
     setLogoutError('')
     // 預設跳回 client 首頁；後台呼叫時可傳 redirectTo 留在後台
     const computeFallback = () => {
-      const clientCode = localStorage.getItem('client_code')
-      return clientCode ? `/${clientCode}` : '/'
+      try { return `/${currentClientCode()}` } catch { return '/' }
     }
 
     try {

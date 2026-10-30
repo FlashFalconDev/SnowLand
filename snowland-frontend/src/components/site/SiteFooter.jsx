@@ -1,3 +1,4 @@
+import { useClientInfo } from '../../hooks/useClient';
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import SiteLink from './SiteLink';
@@ -10,6 +11,7 @@ import { useSiteLocale } from '../../contexts/SiteLocale';
 
 function SiteFooter() {
   const {t} = useSiteLocale();
+  const {clientCode,clientInfo,clientName}=useClientInfo();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const {items, isLoading, error, refetch} = useSiteContent('site.footer', {limit:1});
@@ -33,11 +35,11 @@ function SiteFooter() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-16 text-sm text-white/85 text-left">
           <div className="space-y-6 flex flex-col items-start">
             <div className="w-36">
-              <img loading="lazy" decoding="async"
-                src={logo}
-                alt="SNOWLAND Logo"
+              {clientInfo?.logo_url || clientCode === 'snowland' ? <img loading="lazy" decoding="async"
+                src={clientInfo?.logo_url || logo}
+                alt={clientName}
                 className="w-full h-auto"
-              />
+              /> : <span className="font-semibold">{clientName}</span>}
             </div>
             <div className="text-sm leading-relaxed text-white/85 space-y-2">
               {settings.companyName && <p className="break-words">{settings.companyName}</p>}

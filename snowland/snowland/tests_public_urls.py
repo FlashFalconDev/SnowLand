@@ -103,17 +103,18 @@ class PublicURLSettingsTests(SimpleTestCase):
         from booking.api_views import ProcessPaymentAPI
         config = configured_urls({'RUN_HOST': 'https://snowland.tw/'})
         user = SimpleNamespace(id=45, email='qa@example.test', is_authenticated=True)
-        group = SimpleNamespace(pk=123, user=user, reservations=Mock())
+        group = SimpleNamespace(pk=123, user=user, client=SimpleNamespace(internal_code='snowland'), reservations=Mock())
         group.reservations.all.return_value = []
         group.reservations.exclude.return_value = [SimpleNamespace(payment_amount=Decimal('1000'))]
         booking = SimpleNamespace(date=date(2026, 11, 1), course_name='QA lesson')
         with patch('booking.api_views.RUN_HOST', config['RUN_HOST']), \
+                patch('booking.api_views.gateway_settings', return_value={'MerchantID':'qa','HashKey':'qa','HashIV':'qa'}), \
                 patch('booking.api_views.Booking.objects.filter', return_value=[booking]), \
                 patch('booking.api_views.neweb_pay_request', return_value='<form>local-only</form>') as pay:
             response = ProcessPaymentAPI()._process_newebpay(SimpleNamespace(user=user), group)
         self.assertEqual(response.status_code, 200)
         body = pay.call_args.args[0]['body']
-        self.assertEqual(body['NotifyURL'], 'https://snowland.tw/call_back/NewebPay/?user_id=45')
+        self.assertEqual(body['NotifyURL'], 'https://snowland.tw/call_back/NewebPay/?user_id=45&client_code=snowland')
         self.assertEqual(body['price'], '1000')
 
 

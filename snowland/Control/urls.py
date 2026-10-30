@@ -146,3 +146,9 @@ urlpatterns = [
 ]
 
 
+
+# Current Console still uses logout; all unscoped legacy management stays platform-only.
+from .legacy_access import platform_only
+for pattern in urlpatterns:
+    if str(pattern.pattern) not in {'','logout/','api/logout/'}:
+        pattern.callback = platform_only(pattern.callback)

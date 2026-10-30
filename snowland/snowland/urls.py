@@ -47,65 +47,8 @@ def debug_booking(request):
 
 
 def landing_page(request):
-    """
-    首頁：顯示可用的客戶列表，讓用戶選擇
-    """
-    from Client.models import Client
-    clients = Client.objects.filter(is_active=True)
-
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>選擇客戶</title>
-        <style>
-            body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-            h1 { color: #333; }
-            .client-list { list-style: none; padding: 0; }
-            .client-list li {
-                margin: 10px 0;
-                padding: 15px;
-                background: #f5f5f5;
-                border-radius: 5px;
-                transition: background 0.3s;
-            }
-            .client-list li:hover { background: #e0e0e0; }
-            .client-list a {
-                text-decoration: none;
-                color: #1976d2;
-                font-size: 18px;
-                display: block;
-            }
-            .client-info { color: #666; font-size: 14px; margin-top: 5px; }
-        </style>
-    </head>
-    <body>
-        <h1>🏔️ Snowland 多租戶系統</h1>
-        <p>請選擇您的客戶：</p>
-        <ul class="client-list">
-    """
-
-    for client in clients:
-        html += f"""
-            <li>
-                <a href="/booking/{client.internal_code}/">
-                    <strong>{client.name}</strong> ({client.internal_code})
-                    <div class="client-info">
-                        業務：{client.sales or '未設定'} |
-                        方案：{client.program or '未設定'}
-                    </div>
-                </a>
-            </li>
-        """
-
-    html += """
-        </ul>
-    </body>
-    </html>
-    """
-
-    return HttpResponse(html)
+    """The public backend root must not enumerate school/customer records."""
+    return HttpResponse('<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>課程預約系統</title><h1>課程預約系統</h1><p>請使用學校提供的網站或預約連結。</p></html>')
 
 
 urlpatterns = [

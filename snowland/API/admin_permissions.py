@@ -135,29 +135,35 @@ def normalize_admin_permissions(value):
     return [key for key in value if key in ADMIN_PERMISSION_KEYS]
 
 
-def get_user_admin_permissions(user):
+def get_user_admin_permissions(user, tenant=None):
     if not user or not getattr(user, 'is_authenticated', False):
         return []
     if getattr(user, 'is_superuser', False):
         return list(ADMIN_PERMISSION_KEYS)
-
-    try:
-        profile = user.userprofile
-    except Exception:
+    from Control.tenant_memberships import staff_profile
+    profile = staff_profile(user, tenant)
+    if not profile or not profile.is_manager:
         return []
+    stored = profile.admin_permissions
+    if stored is None:
+        permissions = list(ADMIN_PERMISSION_KEYS) if profile.role in ('', 'hq_admin') else ROLE_DEFAULT_PERMISSIONS.get(profile.role, [])
+    else:
+        permissions = normalize_admin_permissions(stored)
+    if tenant is not None:
+        from Client.models import ModuleSetting, ModuleInfo
+        from django.db.models import Q
+        disabled = set(ModuleSetting.objects.filter(client=tenant).filter(
+            Q(is_active=False)|Q(module__is_active=False)).values_list('module__module_sid',flat=True))
+        disabled.update(ModuleInfo.objects.filter(is_active=False).values_list('module_sid',flat=True))
+        permissions = [key for key in permissions if key not in disabled]
+    return permissions
 
-    if not getattr(profile, 'is_manager', False):
-        return []
 
-    stored = getattr(profile, 'admin_permissions', None)
-    if getattr(profile, 'is_manager', False) and stored is None:
-        if profile.role in ('', 'hq_admin'):
-            return list(ADMIN_PERMISSION_KEYS)
-        return ROLE_DEFAULT_PERMISSIONS.get(profile.role, [])
-    return normalize_admin_permissions(stored)
-
-
-def user_has_admin_permission(user, permission_key):
+def user_has_admin_permission(user, permission_key, tenant=None):
     if not permission_key:
-        return bool(get_user_admin_permissions(user))
-    return permission_key in get_user_admin_permissions(user)
+        return bool(get_user_admin_permissions(user, tenant))
+    if tenant is not None and not getattr(user,'is_superuser',False):
+        from Client.tenant_settings import module_enabled
+        if not module_enabled(tenant, permission_key):
+            return False
+    return permission_key in get_user_admin_permissions(user, tenant)

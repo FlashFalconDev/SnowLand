@@ -1,3 +1,4 @@
+import { currentClientCode } from '@/utils/tenant'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { BookingState, CartItem, EquipmentOption, Course, ReservationGroup } from '@/types/booking'
@@ -83,7 +84,7 @@ const extendedInitialState = {
   selectedResortName: null as string | null,
 }
 
-export const useBookingStore = create<BookingStore>()(
+const createBookingStore = (clientCode: string) => create<BookingStore>()(
   persist(
     (set, get) => ({
       ...extendedInitialState,
@@ -270,13 +271,37 @@ export const useBookingStore = create<BookingStore>()(
       resetAll: () => set({ ...extendedInitialState, cart: [], currentReservationGroup: null }),
     }),
     {
-      name: 'booking-storage', // localStorage key
+      name: `booking-storage:${clientCode}`, // Never adopt an unscoped legacy cart.
       partialize: (state) => ({
         cart: state.cart, // 只持久化購物車
       }),
     }
   )
 )
+
+const schoolStores = new Map<string, ReturnType<typeof createBookingStore>>()
+export function getSchoolBookingStore(clientCode: string) {
+  let store = schoolStores.get(clientCode)
+  if (!store) { store = createBookingStore(clientCode); schoolStores.set(clientCode, store) }
+  return store
+}
+function currentBookingStore() {
+  try { return getSchoolBookingStore(currentClientCode()) }
+  catch { return getSchoolBookingStore('__unselected__') }
+}
+export function useBookingStore(): BookingStore
+export function useBookingStore<T>(selector: (state: BookingStore) => T): T
+export function useBookingStore<T>(selector?: (state: BookingStore) => T) {
+  const store = currentBookingStore()
+  return selector ? store(selector) : store()
+}
+export namespace useBookingStore {
+  export const getState = () => currentBookingStore().getState()
+  export const setState: ReturnType<typeof createBookingStore>['setState'] = (...args: any[]) =>
+    (currentBookingStore().setState as any)(...args)
+  export const subscribe: ReturnType<typeof createBookingStore>['subscribe'] = (...args: any[]) =>
+    (currentBookingStore().subscribe as any)(...args)
+}
 
 // 輔助函數：獲取能力等級名稱
 function getAbilityLevelName(level: string): string {

@@ -29,6 +29,10 @@ export function resolveSiteLocale(preference: unknown, languages: readonly unkno
 // Only product-owned UI copy belongs here. Do not translate personal information,
 // course/CMS names or signed/legal documents through a text replacement service.
 const messages: Record<string, { en: string; ja: string }> = {
+  '目前暫停受理新預約': { en: 'New bookings are currently paused', ja: '現在、新規予約の受付を停止しています' },
+  '您仍可登入會員查看既有訂單；新預約請洽學校確認。': { en: 'You can still sign in to view existing orders. Contact the school about new bookings.', ja: '会員ログインで既存の予約を確認できます。新規予約については学校にお問い合わせください。' },
+  '目前無法載入學校資料': { en: 'School information is currently unavailable', ja: '現在、学校情報を読み込めません' },
+  '請重新載入，或確認學校提供的連結。': { en: 'Reload the page or check the link provided by your school.', ja: 'ページを再読み込みするか、学校からのリンクをご確認ください。' },
   '本頁列出雪道數': { en: 'Runs listed on this page', ja: 'このページの掲載コース数' },
   '進階': { en: 'Advanced', ja: '上級' },
   "小朋友與初學者專用的斜坡。可以開心地滑雪或玩雪橇。": {"en":"A slope for children and first-time skiers, with skiing and sledding.","ja":"子どもや初心者向けの斜面。スキーやそり遊びを楽しめます。"},

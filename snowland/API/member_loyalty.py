@@ -1,3 +1,4 @@
+from Control.tenant_memberships import staff_profile, writable_staff_profile
 """Reviewed alumni status and historical-point totals; no automatic reward rules."""
 from django.db import transaction
 from django.middleware.csrf import get_token
@@ -21,11 +22,13 @@ def visible_customer_ids(request):
     if scoped:
         return set(ids)
     # A returning student must be reviewable before placing their first new order.
-    return set(ids) | set(MemberLoyaltyAccount.objects.filter(client=request.tenant).values_list('user_id', flat=True))
+    from Client.models import ClientMemberProfile
+    return (set(ids) | set(MemberLoyaltyAccount.objects.filter(client=request.tenant).values_list('user_id', flat=True))
+        | set(ClientMemberProfile.objects.filter(client=request.tenant).values_list('user_id', flat=True)))
 
 
-def can_review_loyalty(user):
-    return user.is_superuser or getattr(getattr(user, 'userprofile', None), 'role', '') == 'hq_admin'
+def can_review_loyalty(user, tenant):
+    return user.is_superuser or getattr(staff_profile(user, tenant), 'role', '') == 'hq_admin'
 
 
 def loyalty_snapshot(account):
@@ -56,7 +59,7 @@ def customer_loyalty(request, client_code, user_id):
     denied = _require_admin_permission(request, 'customers')
     if denied:
         return denied
-    if not can_review_loyalty(request.user):
+    if not can_review_loyalty(request.user, request.tenant):
         raise PermissionDenied('只有總部管理員可以審核舊生與補登點數')
     if user_id not in visible_customer_ids(request):
         return Response({'msg': '找不到目前範圍內的會員'}, status=404)

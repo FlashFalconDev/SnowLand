@@ -1,3 +1,4 @@
+from django.conf import settings
 """One real-cookie journey across member, school, coach and participant APIs.
 
 No forced authentication, scheduler/payment mocks or external delivery. Only the
@@ -48,7 +49,7 @@ class CustomerJourneyTests(TestCase):
         response = api.post('/booking/snowland/api/member-auth/',
             {'action': 'login', 'email': user.email, 'password': self.password}, format='json')
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertIn('sessionid', api.cookies)
+        self.assertIn(settings.SESSION_COOKIE_NAME, api.cookies)
         self.assertIn('csrftoken', api.cookies)
         api.credentials(HTTP_X_CSRFTOKEN=api.cookies['csrftoken'].value)
         return api

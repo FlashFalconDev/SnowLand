@@ -1,3 +1,4 @@
+from Control.tenant_memberships import staff_profile, writable_staff_profile
 """
 後台管理 API
 所有後台用 ViewSet 都在這裡
@@ -114,8 +115,10 @@ def _campus_scope_for_user(user, tenant):
     if user.is_superuser:
         return Campus.objects.filter(client=tenant, is_active=True), True
     try:
-        profile = user.userprofile
+        profile = staff_profile(user, tenant)
     except Exception:
+        return Campus.objects.none(), False
+    if profile is None:
         return Campus.objects.none(), False
     if profile.is_manager and profile.manager_client_id != tenant.id:
         return Campus.objects.none(), False
@@ -163,17 +166,17 @@ class IsTenantManager(IsAuthenticated):
 
         # 一般 user 必須有 UserProfile.is_manager
         try:
-            profile = request.user.userprofile
+            profile = staff_profile(request.user, getattr(request, 'tenant', None))
             if not profile.is_manager:
                 return False
         except Exception:
             return False
 
         permission_key = getattr(view, 'permission_key', None)
-        if permission_key and not user_has_admin_permission(request.user, permission_key):
+        if permission_key and not user_has_admin_permission(request.user, permission_key, getattr(request, 'tenant', None)):
             read_permissions = getattr(view, 'read_permission_keys', ())
             if request.method not in SAFE_METHODS or not any(
-                user_has_admin_permission(request.user, key) for key in read_permissions
+                user_has_admin_permission(request.user, key, getattr(request, 'tenant', None)) for key in read_permissions
             ):
                 return False
         return _resolve_campus_scope(request, tenant)
@@ -198,7 +201,7 @@ class IsTenantCoach(IsAuthenticated):
 
         # 必須有 UserProfile.is_coach 並且有對應的 Coach 紀錄
         try:
-            profile = request.user.userprofile
+            profile = staff_profile(request.user, getattr(request, 'tenant', None))
             if not profile.is_coach:
                 return False
         except Exception:
@@ -230,7 +233,7 @@ def _permission_forbidden(permission_key):
 
 
 def _require_admin_permission(request, permission_key):
-    if user_has_admin_permission(request.user, permission_key):
+    if user_has_admin_permission(request.user, permission_key, getattr(request, 'tenant', None)):
         return None
     return _permission_forbidden(permission_key)
 
@@ -243,7 +246,7 @@ def _require_headquarters(request):
     if request.user.is_superuser:
         return
     try:
-        if request.user.userprofile.role == 'hq_admin':
+        if staff_profile(request.user, getattr(request, 'tenant', None)).role == 'hq_admin':
             return
     except Exception:
         pass
@@ -594,7 +597,8 @@ class SiteContentAdminViewSet(ModelViewSet):
         return Response({'code': 200, 'data': schema})
 
     def get_permissions(self):
-        self.permission_key = 'cms' if user_has_admin_permission(self.request.user, 'cms') else 'reviews'
+        _resolve_tenant(self.request, self)
+        self.permission_key = 'cms' if user_has_admin_permission(self.request.user, 'cms', getattr(self.request, 'tenant', None)) else 'reviews'
         return super().get_permissions()
 
     def initial(self, request, *args, **kwargs):
@@ -653,7 +657,7 @@ class SiteContentAdminViewSet(ModelViewSet):
             getattr(serializer.instance, 'location_key', None),
         ):
             self._require_tracking_headquarters()
-        if user_has_admin_permission(self.request.user, 'cms'):
+        if user_has_admin_permission(self.request.user, 'cms', getattr(self.request, 'tenant', None)):
             return
         pair = tuple(serializer.validated_data.get(field, getattr(serializer.instance, field, None))
                      for field in ('content_type', 'location_key'))
@@ -670,13 +674,13 @@ class SiteContentAdminViewSet(ModelViewSet):
 
     def _require_tracking_headquarters(self):
         user = self.request.user
-        if user.is_superuser or getattr(getattr(user, 'userprofile', None), 'role', None) == 'hq_admin':
+        if user.is_superuser or getattr(staff_profile(user, self.request.tenant), 'role', None) == 'hq_admin':
             return
         raise PermissionDenied('只有總部管理員可以變更分析追蹤設定')
 
     def _require_policy_headquarters(self):
         user = self.request.user
-        if user.is_superuser or getattr(getattr(user, 'userprofile', None), 'role', None) == 'hq_admin':
+        if user.is_superuser or getattr(staff_profile(user, self.request.tenant), 'role', None) == 'hq_admin':
             return
         raise PermissionDenied('只有總部管理員可以變更訂課條款')
 
@@ -694,7 +698,7 @@ class SiteContentAdminViewSet(ModelViewSet):
             return SiteContent.objects.none()
 
         qs = SiteContent.objects.filter(client=tenant)
-        if not user_has_admin_permission(self.request.user, 'cms'):
+        if not user_has_admin_permission(self.request.user, 'cms', getattr(self.request, 'tenant', None)):
             allowed = Q(pk__in=[])
             for kind, location in self._review_locations():
                 allowed |= Q(content_type=kind, location_key=location)
@@ -841,7 +845,7 @@ class CoachLeaveAdminViewSet(PayrollCsrfMixin, UpdateModelMixin, ReadOnlyModelVi
                          self.get_serializer_class(), request)
 
     def _can_create_special(self):
-        profile = getattr(self.request.user, 'userprofile', None)
+        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
         return self.request.user.is_superuser or not (profile and profile.role == 'assistant')
 
     @action(detail=False, methods=['get'], url_path='special-options')
@@ -1593,11 +1597,11 @@ class OrderAdminViewSet(ModelViewSet):
         return Response({'code':200,'msg':'訂單修改已保存；差額另行處理，尚未收款或退款','data':amendment_summary(row,duplicate)},status=200 if duplicate else 201)
 
     def _is_campus_manager(self):
-        profile = getattr(self.request.user, 'userprofile', None)
+        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
         return bool(profile and profile.role == 'campus_manager')
 
     def _is_campus_order_viewer(self):
-        profile = getattr(self.request.user, 'userprofile', None)
+        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
         return bool(profile and profile.role in ('campus_manager', 'campus_principal'))
 
     def get_serializer_class(self):
@@ -2246,7 +2250,7 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
     permission_key = 'orders'
 
     def _summary_only(self):
-        profile = getattr(self.request.user, 'userprofile', None)
+        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
         return bool(profile and profile.role in ('campus_manager', 'campus_principal'))
 
     def initial(self, request, *args, **kwargs):
@@ -2263,7 +2267,7 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             not self.request.can_view_all_campuses or self.request.selected_campus_id is not None
         ):
             qs = qs.filter(group__campus_id__in=_campus_ids(self.request))
-        profile = getattr(self.request.user, 'userprofile', None)
+        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
         if profile and profile.role == 'campus_manager':
             today = timezone.localdate()
             qs = qs.filter(group__reservations__bookings__date__range=(today, today + timedelta(days=10))).distinct()
@@ -2471,7 +2475,7 @@ class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     permission_key = 'evaluations'
 
     def _is_readonly_assistant(self):
-        profile = getattr(self.request.user, 'userprofile', None)
+        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
         return bool(not self.request.user.is_superuser and profile and profile.role == 'assistant'
                     and not getattr(self, 'coach_scoped', False))
 
@@ -2552,7 +2556,7 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
-        profile = getattr(request.user, 'userprofile', None)
+        profile = staff_profile(request.user, getattr(request, 'tenant', None))
         if request.method not in SAFE_METHODS and self.action not in ('reminder', 'processing') and not request.user.is_superuser and profile and profile.role == 'assistant':
             raise PermissionDenied('行政小幫手僅能查看保險與聲明書，不能修改或標記完成')
 
@@ -2733,17 +2737,20 @@ class StaffIncentiveRuleAdminViewSet(PayrollCsrfMixin, ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='employees')
     def employees(self, request, *args, **kwargs):
-        from Control.models import UserProfile
+        from Control.models import UserProfile, TenantStaffMembership
         campuses = Campus.objects.filter(client=request.tenant, is_active=True, pk__in=_campus_ids(request))
         allowed_ids = set(campuses.values_list('pk', flat=True))
-        profiles = UserProfile.objects.filter(
-            manager_client=request.tenant, is_manager=True, user__is_active=True,
-        ).filter(Q(role__in=HEADQUARTERS_ROLES) | Q(campuses__pk__in=allowed_ids)).select_related('user').prefetch_related('campuses').distinct()
+        ids = set(UserProfile.objects.filter(manager_client=request.tenant).values_list('user_id',flat=True))
+        ids.update(TenantStaffMembership.objects.filter(client=request.tenant).values_list('user_id',flat=True))
         rows = []
-        for profile in profiles.order_by('user__username', 'pk'):
-            assigned = allowed_ids if profile.role in HEADQUARTERS_ROLES else allowed_ids.intersection(c.pk for c in profile.campuses.all())
-            rows.append({'id': profile.user_id, 'name': profile.user.get_full_name() or profile.user.username,
-                         'campus_ids': sorted(assigned)})
+        for user in User.objects.filter(pk__in=ids,is_active=True).order_by('username','pk'):
+            profile = staff_profile(user,request.tenant)
+            if not profile or not profile.is_manager:
+                continue
+            assigned = allowed_ids if profile.role in HEADQUARTERS_ROLES else allowed_ids.intersection(profile.campuses.values_list('pk',flat=True))
+            if assigned:
+                rows.append({'id': user.pk, 'name': user.get_full_name() or user.username,
+                             'campus_ids': sorted(assigned)})
         return Response({'code': 200, 'msg': 'OK', 'data': {'employees': rows,
             'campuses': list(campuses.order_by('name', 'pk').values('id', 'name'))}})
 
@@ -3017,6 +3024,8 @@ def customers_list(request, client_code):
     user_ids = visible_customer_ids(request)
     users = User.objects.filter(id__in=[uid for uid in user_ids if uid])
     loyalty_accounts = {account.user_id: account for account in MemberLoyaltyAccount.objects.filter(client=tenant, user_id__in=user_ids)}
+    from Client.models import ClientMemberProfile
+    member_names = dict(ClientMemberProfile.objects.filter(client=tenant,user_id__in=user_ids).values_list('user_id','display_name'))
 
     data = []
     for u in users:
@@ -3038,13 +3047,13 @@ def customers_list(request, client_code):
         # 取 UserProfile（is_manager / is_coach）
         try:
             from Control.models import UserProfile
-            profile = UserProfile.objects.filter(user=u).first()
+            profile = staff_profile(u, tenant)
         except Exception:
             profile = None
 
         data.append({
             'id': u.id,
-            'name': u.username or u.email,
+            'name': member_names.get(u.pk) or u.username or u.email,
             'email': u.email,
             'phone': '',
             'total_reservations': groups.count(),
@@ -3077,7 +3086,7 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
 
     def _visible_date_bounds(self):
         start, end = _query_date_bounds(self.request)
-        profile = getattr(self.request.user, 'userprofile', None)
+        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
         if profile and profile.role == 'campus_manager':
             today = timezone.localdate()
             limit = today + timedelta(days=10)
@@ -3204,7 +3213,7 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
             'reservation__shared_course_class',
         ).prefetch_related('reservation__group__payments')
 
-        profile = getattr(request.user, 'userprofile', None)
+        profile = staff_profile(request.user, getattr(request, 'tenant', None))
         can_view_payment = not (profile and profile.role in ('campus_manager', 'campus_principal'))
         candidates = {}
         for booking in bookings:
@@ -3845,7 +3854,7 @@ def dashboard_stats(request, client_code):
         campus_summary[campus_name]['revenue'] += amount
 
     # 最近訂單
-    profile = getattr(request.user, 'userprofile', None)
+    profile = staff_profile(request.user, getattr(request, 'tenant', None))
     restricted_order_details = bool(
         not request.user.is_superuser
         and profile and profile.role in ('campus_manager', 'campus_principal')
@@ -3909,7 +3918,7 @@ def staff_list(request, client_code):
     列出所有有權限的使用者（is_manager 或 is_coach）+ 可選搜尋 user
     GET /api/admin/<client>/staff/?q=name
     """
-    from Control.models import UserProfile
+    from Control.models import UserProfile, TenantStaffMembership
 
     q = (request.query_params.get('q') or '').strip()
 
@@ -3917,6 +3926,7 @@ def staff_list(request, client_code):
     tenant_user_ids.update(
         UserProfile.objects.filter(manager_client=request.tenant).values_list('user_id', flat=True)
     )
+    tenant_user_ids.update(TenantStaffMembership.objects.filter(client=request.tenant).values_list('user_id', flat=True))
     tenant_user_ids.update(
         Coach.objects.filter(client=request.tenant, user_id__isnull=False).values_list('user_id', flat=True)
     )
@@ -3924,18 +3934,22 @@ def staff_list(request, client_code):
         Q(is_manager=True) | Q(is_coach=True)
     ).select_related('user')
 
-    # 完整 Email 可找尚未任職的一般帳號，供新增員工；不列出其他租戶的後台人員。
+    # 完整 Email 可指定既有登入帳號，僅回傳其在目前學校的角色。
     if q:
-        invitee_ids = User.objects.filter(email__iexact=q, is_superuser=False).exclude(
-            Q(userprofile__is_manager=True) | Q(userprofile__is_coach=True)
-        ).values_list('id', flat=True)
+        invitees = User.objects.filter(email__iexact=q, is_superuser=False)
+        if request.query_params.get('invite') == '1':
+            _require_headquarters(request)
+        else:
+            invitees = invitees.exclude(Q(userprofile__is_manager=True) | Q(userprofile__is_coach=True) |
+                Q(tenant_staff_memberships__is_manager=True) | Q(tenant_staff_memberships__is_coach=True))
+        invitee_ids = invitees.values_list('id', flat=True)
         users = User.objects.filter(
             Q(username__icontains=q) | Q(email__icontains=q) |
             Q(first_name__icontains=q) | Q(last_name__icontains=q)
         ).filter(pk__in=tenant_user_ids.union(invitee_ids))[:50]
     else:
         superusers = list(User.objects.filter(pk__in=tenant_user_ids, is_superuser=True))
-        users = superusers + [p.user for p in profiles]
+        users = superusers + list(User.objects.filter(pk__in=tenant_user_ids, is_superuser=False))
 
     users = list(users)
     user_ids = [u.id for u in users]
@@ -3955,10 +3969,10 @@ def staff_list(request, client_code):
         seen_ids.add(u.id)
 
         try:
-            profile = u.userprofile
+            profile = staff_profile(u, request.tenant)
             is_manager = False if u.is_superuser else profile.is_manager
             is_coach = profile.is_coach
-            admin_permissions = get_user_admin_permissions(u)
+            admin_permissions = get_user_admin_permissions(u, request.tenant)
             role = profile.role
             campus_ids = list(profile.campuses.filter(client=request.tenant).values_list('id', flat=True))
         except Exception:
@@ -4003,6 +4017,7 @@ def staff_list(request, client_code):
 
 @api_view(['POST'])
 @permission_classes([IsTenantManager])
+@transaction.atomic
 def update_customer_permission(request, client_code, user_id):
     denied = _require_admin_permission(request, 'staff')
     if denied:
@@ -4013,7 +4028,7 @@ def update_customer_permission(request, client_code, user_id):
     最大管理員與後台人員只能擇一。
     """
     try:
-        target_user = User.objects.get(pk=user_id)
+        target_user = User.objects.select_for_update().get(pk=user_id)
     except User.DoesNotExist:
         return Response({'code': 404, 'msg': '使用者不存在'}, status=404)
 
@@ -4026,17 +4041,7 @@ def update_customer_permission(request, client_code, user_id):
     try:
         from Control.models import UserProfile
         _require_headquarters(request)
-        profile, _ = UserProfile.objects.get_or_create(user=target_user)
-        if (profile.is_manager or profile.is_coach) and (
-            (profile.manager_client_id and profile.manager_client_id != request.tenant.id)
-            or
-            profile.campuses.exclude(client=request.tenant).exists()
-            or Coach.objects.filter(user=target_user).exclude(client=request.tenant).exists()
-        ):
-            return Response(
-                {'code': 409, 'msg': '此帳號已在其他學校任職；目前無法跨學校共用同一組後台權限'},
-                status=409,
-            )
+        profile = writable_staff_profile(target_user, request.tenant)
         was_manager = profile.is_manager
         requested_superuser = request.data.get('is_superuser', None)
         if requested_superuser is not None:
@@ -4074,7 +4079,6 @@ def update_customer_permission(request, client_code, user_id):
             target_user.is_superuser = will_be_superuser
             target_user.save(update_fields=['is_superuser'])
         profile.is_manager = is_manager
-        profile.manager_client = request.tenant if is_manager else None
         profile.is_coach = is_coach
         profile.role = role
         if is_manager:
@@ -4092,7 +4096,7 @@ def update_customer_permission(request, client_code, user_id):
                 'is_superuser': target_user.is_superuser,
                 'is_manager': profile.is_manager,
                 'is_coach': profile.is_coach,
-                'permissions': get_user_admin_permissions(target_user),
+                'permissions': get_user_admin_permissions(target_user, request.tenant),
                 'role': profile.role,
                 'campus_ids': list(profile.campuses.values_list('id', flat=True)),
             },
@@ -4166,7 +4170,7 @@ def coach_pending_confirmations(request, client_code):
     get_token(request._request)
     # 找當前 user 的 Coach
     try:
-        coach = Coach.objects.get(user=request.user)
+        coach = Coach.objects.get(user=request.user, client=request.tenant)
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
@@ -4212,7 +4216,7 @@ def coach_confirm_course(request, client_code, reservation_id):
     from rest_framework.authentication import SessionAuthentication
     SessionAuthentication().enforce_csrf(request)
     try:
-        coach = Coach.objects.get(user=request.user)
+        coach = Coach.objects.get(user=request.user, client=request.tenant)
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
@@ -4326,7 +4330,7 @@ def coach_my_courses(request, client_code):
     Query: status=created|auto_assigned|... (optional), date_from, date_to
     """
     try:
-        coach = Coach.objects.get(user=request.user)
+        coach = Coach.objects.get(user=request.user, client=request.tenant)
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
@@ -4414,7 +4418,7 @@ def coach_my_calendar(request, client_code):
     GET /api/admin/<client>/coach/my-calendar/?start=&end=
     """
     try:
-        coach = Coach.objects.get(user=request.user)
+        coach = Coach.objects.get(user=request.user, client=request.tenant)
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
@@ -4506,7 +4510,7 @@ def coach_my_calendar(request, client_code):
 def coach_my_leaves(request, client_code):
     """教練本人的請假紀錄"""
     try:
-        coach = Coach.objects.get(user=request.user)
+        coach = Coach.objects.get(user=request.user, client=request.tenant)
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
@@ -4563,7 +4567,7 @@ def coach_apply_leave(request, client_code):
     Body: { start_date, end_date, reason }
     """
     try:
-        coach = Coach.objects.get(user=request.user)
+        coach = Coach.objects.get(user=request.user, client=request.tenant)
     except Coach.DoesNotExist:
         return Response({'code': 403, 'msg': '您不是教練'}, status=403)
 
@@ -4726,7 +4730,9 @@ def admin_login(request, client_code):
     # 必須是 manager 或 superuser
     is_admin = user.is_superuser
     try:
-        if hasattr(user, 'userprofile') and user.userprofile.is_manager:
+        tenant = _resolve_tenant(request, type('V', (), {'kwargs': {'client_code': client_code}})())
+        profile = staff_profile(user, tenant) if tenant else None
+        if profile and profile.is_manager:
             is_admin = True
     except Exception:
         pass
@@ -4772,7 +4778,7 @@ def admin_me(request, client_code):
     tenant_coach = Coach.objects.filter(user=request.user, client=tenant).first()
 
     try:
-        profile = request.user.userprofile
+        profile = staff_profile(request.user, getattr(request, 'tenant', None))
         is_manager = bool(profile.is_manager and profile.manager_client_id == tenant.pk)
         is_coach = bool(profile.is_coach and tenant_coach)
         role = profile.role if is_manager else ('coach' if is_coach else '')
@@ -4784,7 +4790,7 @@ def admin_me(request, client_code):
     accessible_campuses, can_view_all = _campus_scope_for_user(request.user, tenant)
     campus_items = list(accessible_campuses.values('id', 'name', 'code', 'is_active'))
     if is_manager and not is_superuser and (
-        not get_user_admin_permissions(request.user) or (not can_view_all and not campus_items)
+        not get_user_admin_permissions(request.user, request.tenant) or (not can_view_all and not campus_items)
     ):
         is_manager = False
         role = 'coach' if is_coach else ''
@@ -4811,7 +4817,7 @@ def admin_me(request, client_code):
             'assigned_campus_ids': assigned_campus_ids,
             'campuses': campus_items,
             'can_view_all_campuses': can_view_all,
-            'permissions': get_user_admin_permissions(request.user) if (is_superuser or is_manager) else [],
+            'permissions': get_user_admin_permissions(request.user, request.tenant) if (is_superuser or is_manager) else [],
             'permission_definitions': ADMIN_PERMISSION_DEFINITIONS,
         },
     })

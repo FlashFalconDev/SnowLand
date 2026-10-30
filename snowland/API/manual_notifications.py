@@ -1,3 +1,4 @@
+from Control.tenant_memberships import staff_profile, writable_staff_profile
 """Explicit, audited in-app messages. Never invokes Email/LINE or the global job runner."""
 import re
 from django.contrib.auth.models import User
@@ -55,9 +56,9 @@ def require_target_permission(request, kind):
     if kind not in {'order', 'member'}:
         raise serializers.ValidationError({'kind': '請選訂單或會員'})
     key = 'orders' if kind == 'order' else 'customers'
-    if not user_has_admin_permission(request.user, key):
+    if not user_has_admin_permission(request.user, key, getattr(request, 'tenant', None)):
         raise PermissionDenied('需要訂單管理權限' if kind == 'order' else '需要會員管理權限')
-    profile = getattr(request.user, 'userprofile', None)
+    profile = staff_profile(request.user, getattr(request, 'tenant', None))
     if not request.user.is_superuser and profile and profile.role in {'campus_principal', 'campus_manager'}:
         raise PermissionDenied('校區人員僅能查看訂單摘要，請由行政人員發送通知')
 

@@ -1,3 +1,4 @@
+import { currentClientCode, tenantReturnPath } from '@/utils/tenant'
 import { useEffect, useState } from 'react'
 
 export default function AuthCallbackPage() {
@@ -21,9 +22,9 @@ export default function AuthCallbackPage() {
         }
 
         // 走相對路徑（同 origin），避免跨站 cookie 問題
-        const clientCode = localStorage.getItem('client_code') || 'snowland'
+        const clientCode = currentClientCode()
         const response = await fetch(`/booking/${clientCode}/api/google-login/`, {
-          method: 'POST',
+          method: 'GET',
           credentials: 'include', // 重要：包含cookies
           headers: {
             'Content-Type': 'application/json',
@@ -33,11 +34,12 @@ export default function AuthCallbackPage() {
         if (response.ok) {
           const data = await response.json()
           // 🔥 檢查 code 100 表示成功
-          if (data.code === 100 && data.data) {
+          const member = data.user || data.data
+          if ((data.code === 100 || data.code === 200) && member) {
             const userData = {
-              email: data.data.email,
-              name: data.data.name,
-              picture: data.data.picture,
+              email: member.email,
+              name: member.name,
+              picture: member.picture,
             }
             // 保存用戶資訊到localStorage
             localStorage.setItem('user', JSON.stringify(userData))
@@ -47,18 +49,10 @@ export default function AuthCallbackPage() {
 
             // 🔥 跳轉回登入前的頁面
             const preLoginUrl = localStorage.getItem('pre_login_url')
-            const clientCode = localStorage.getItem('client_code')
             localStorage.removeItem('pre_login_url')
 
             // 決定要跳轉到哪裡
-            let redirectUrl = '/'
-            if (preLoginUrl && preLoginUrl !== '/') {
-              // 如果有記錄登入前的頁面，跳回去
-              redirectUrl = preLoginUrl
-            } else if (clientCode) {
-              // 如果有 client_code，跳到該客戶的首頁
-              redirectUrl = `/${clientCode}`
-            }
+            const redirectUrl = tenantReturnPath(preLoginUrl, clientCode)
 
             setTimeout(() => {
               window.location.href = redirectUrl

@@ -1,3 +1,4 @@
+import { useClientInfo } from '../../hooks/useClient';
 import React, { useEffect, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import SiteLink from './SiteLink';
@@ -52,6 +53,7 @@ function SiteHeader({
   hideBookingCta = false,
   forceCompact = false,
 }) {
+  const {clientCode,clientInfo,clientName}=useClientInfo();
   const logoColor = `${homepageAssetBase}/LOGO_250903_color.png`;
   const bookingUrl = "/booking";
   const [isScrollCompact, setIsScrollCompact] = useState(() => {
@@ -153,13 +155,13 @@ function SiteHeader({
         <SiteLink
           to="/"
           className={`shrink-0 transition-all duration-300 ${isNavCompact ? "w-28 md:w-32" : "w-28 sm:w-32 md:w-40 lg:w-48"}`}
-          aria-label="SnowLand Ski School home"
+          aria-label={`${clientName} home`}
         >
-          <img loading="eager" decoding="async"
-            src={isNavCompact || forceLogoColor ? logoColor : logo}
-            alt="SnowLand Ski School"
+          {clientInfo?.logo_url || clientCode === 'snowland' ? <img loading="eager" decoding="async"
+            src={clientInfo?.logo_url || (isNavCompact || forceLogoColor ? logoColor : logo)}
+            alt={clientName}
             className={`w-full h-auto ${isNavCompact || forceLogoColor ? "opacity-100" : "drop-shadow-md opacity-90"} transition-opacity duration-300`}
-          />
+          /> : <span className="font-semibold">{clientName}</span>}
         </SiteLink>
 
         <nav className={`hidden xl:flex ${isNavCompact?'flex-row items-center gap-4':'flex-col items-end gap-3'}`}>

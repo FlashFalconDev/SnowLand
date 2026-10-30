@@ -11,7 +11,7 @@ const defaults=JSON.parse(fs.readFileSync(path.join(__dirname,'../../snowland/Cl
 function setup(result={items:[defaults]},scrolled=false,language='zh-Hant'){
  let index=0,open=false,retries=0,topCalls=0
  const motion=new Proxy({},{get:(_,tag)=>p=>{const{initial,animate,exit,transition,...props}=p;return React.createElement(tag,props)}})
- const ctx=vm.createContext({exports:{},window:{scrollTo:()=>topCalls++},require:name=>{
+ const ctx=vm.createContext({exports:{},window:{scrollTo:()=>topCalls++},require:name=>{if(name.includes('hooks/useClient'))return{useClientInfo:()=>({clientCode:'snowland',clientName:'SnowLand',clientInfo:{}})};
   if(name==='react')return{...React,useEffect(){},useState(){const slot=index++;return slot%2===0?[scrolled,()=>{}]:[open,v=>open=typeof v==='function'?v(open):v]}}
   if(name==='framer-motion')return{motion,AnimatePresence:p=>p.children}
   if(name==='./SiteLink')return p=>React.createElement('a',{href:'/snowland'+p.to},p.children)

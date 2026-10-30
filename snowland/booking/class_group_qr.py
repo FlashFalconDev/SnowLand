@@ -1,3 +1,4 @@
+from Control.tenant_memberships import staff_profile
 import uuid
 from types import SimpleNamespace
 from django.db import transaction
@@ -71,11 +72,11 @@ class ClassGroupQRAPI(APIView):
         group = get_object_or_404(ReservationGroup.objects.select_related('client'),
                                  pk=group_id, client__internal_code=client_code, client__is_active=True)
         allowed = False
-        profile = getattr(request.user, 'userprofile', None)
+        profile = staff_profile(request.user, group.client)
         if request.user.is_superuser or (profile and profile.is_manager):
             from API.admin_views import IsTenantManager
             from API.admin_permissions import user_has_admin_permission
-            if (not profile or profile.role not in {'campus_principal', 'campus_manager'}) and user_has_admin_permission(request.user, 'orders'):
+            if (not profile or profile.role not in {'campus_principal', 'campus_manager'}) and user_has_admin_permission(request.user, 'orders', group.client):
                 if IsTenantManager().has_permission(request, self):
                     allowed = (request.can_view_all_campuses and request.selected_campus_id is None) or group.campus_id in request.campus_ids
         if not allowed and paid_group_qr_url(group):

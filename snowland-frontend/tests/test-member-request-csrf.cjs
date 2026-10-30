@@ -10,7 +10,7 @@ const end = source.indexOf('\nfunction EmptyState(', start)
 assert.ok(start >= 0 && end > start)
 const calls = []
 let response = { ok: true, status: 200, json: async () => ({ result: 'ok' }) }
-const context = vm.createContext({ Headers, document: { cookie: 'other=x; csrftoken=QA-only-CSRF' },
+const context = vm.createContext({ schoolBookingApiPath:path=>'/booking/snowland/api'+path, Headers, document: { cookie: 'other=x; csrftoken=QA-only-CSRF' },
   fetch: async (...args) => { calls.push(args); return response } })
 vm.runInContext(source.slice(start, end), context)
 

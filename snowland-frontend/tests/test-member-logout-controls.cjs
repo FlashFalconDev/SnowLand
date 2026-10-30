@@ -11,7 +11,7 @@ const requestJson=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.te
 assert.ok(logout)
 function harness(response={code:200},failure){
   const state={data:'original-member',status:'ready',notice:'',loggingOut:false},calls=[],navigation=[],removed=[],carts=[];let cleared=0
-  const ctx=vm.createContext({Headers,JSON,document:{cookie:'csrftoken=QA-local-only'},URLSearchParams,useCallback:fn=>fn,memberLoadRevision:{current:0},location:{search:'?invite=QA%2Bonly'},basePath:'/snowland',logoutPending:{current:false},
+  const ctx=vm.createContext({schoolBookingApiPath:path=>'/booking/snowland/api'+path,Headers,JSON,document:{cookie:'csrftoken=QA-local-only'},URLSearchParams,useCallback:fn=>fn,memberLoadRevision:{current:0},location:{search:'?invite=QA%2Bonly'},basePath:'/snowland',logoutPending:{current:false},
     fetch:async(...args)=>{calls.push(args);if(failure)throw Error('QA network failure');return{ok:!response.httpStatus,status:response.httpStatus||200,json:async()=>response}},
     useBookingStore:{getState:()=>({replaceCart:cart=>carts.push(cart)})},qc:{clear:()=>cleared++},setData:v=>state.data=v,setStatus:v=>state.status=v,setNotice:v=>state.notice=v,setLoggingOut:v=>state.loggingOut=v,
     localStorage:{removeItem:key=>removed.push(key),setItem:(key,value)=>state.stored=value},navigate:url=>navigation.push(url)})

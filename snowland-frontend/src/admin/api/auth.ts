@@ -1,3 +1,4 @@
+import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 /**
  * 後台認證 API
  *
@@ -26,15 +27,7 @@ export interface AdminMeResult {
   errorMsg: string
 }
 
-function getClientCode(): string {
-  const parts = window.location.pathname.split('/').filter(Boolean)
-  if (parts[0] && parts[0] !== 'auth') return parts[0]
-
-  const fromStorage = localStorage.getItem('client_code')
-  if (fromStorage) return fromStorage
-
-  return 'snowland'
-}
+const getClientCode = (): string => currentClientCode()
 
 /**
  * 取得當前登入的管理員資訊

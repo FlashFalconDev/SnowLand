@@ -1,11 +1,8 @@
+import { currentClientCode } from '../utils/tenant';
 import { useEffect, useState } from 'react';
 
 
-function getClientCode() {
-  const pathParts = window.location.pathname.split('/').filter(Boolean);
-  if (pathParts[0] && pathParts[0] !== 'auth') return pathParts[0];
-  return localStorage.getItem('client_code') || 'snowland';
-}
+function getClientCode() { return currentClientCode(); }
 
 export async function fetchWebsiteCoaches({ includeProfile = false, slug = '' } = {}) {
   const clientCode = getClientCode();

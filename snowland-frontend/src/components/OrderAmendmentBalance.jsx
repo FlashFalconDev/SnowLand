@@ -45,7 +45,7 @@ function BalanceRow({row,requestJson,url,onReload,onRefresh}) {
 
 export default function OrderAmendmentBalance({orderId,requestJson,onRefresh,cancellationStatus}) {
   const [items,setItems]=useState([]),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
-  const url=`/booking/snowland/api/member-amendments/${orderId}/`;
+  const url=`/member-amendments/${orderId}/`;
   const load=useCallback(async()=>{try{const result=await requestJson(url);setItems(result.items||[]);setError('');}catch(error){setError(error.message);}finally{setLoaded(true);}},[requestJson,url]);
   useEffect(()=>{load();},[load]);
   if(loaded&&!error&&!items.length)return null;

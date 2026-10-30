@@ -62,7 +62,7 @@ class Coach(models.Model):
         related_name='coaches',
         verbose_name='所屬校區',
     )
-    user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, verbose_name='使用者')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='school_coach_profiles', verbose_name='使用者')
     name = models.CharField(max_length=100, null=True, blank=True, default='')
     # 語言選單
     LANGUAGE_CHOICES = [
@@ -127,6 +127,7 @@ class Coach(models.Model):
     class Meta:
         verbose_name = '教練'
         verbose_name_plural = '教練基礎設定'
+        constraints = [models.UniqueConstraint(fields=['client','user'],name='unique_coach_client_user')]
 
 class CoachResort(models.Model):
     coach = models.ForeignKey(Coach, on_delete=models.CASCADE, verbose_name='教練')

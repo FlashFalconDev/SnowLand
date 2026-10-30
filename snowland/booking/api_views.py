@@ -1,3 +1,7 @@
+from .tenant_scope import resort_for_course
+from Client.tenant_settings import gateway_settings, google_client_id, module_enabled
+from Control.tenant_memberships import staff_profile
+from Client.memberships import member_profile as school_member_profile
 """
 重構後的 API Views - RESTful 架構
 
@@ -188,7 +192,7 @@ def resolve_tenant_client(client_code):
     )
 
 
-def compute_course_price_authoritative(*, template_id, resort_name, people_count, course_date):
+def compute_course_price_authoritative(*, template_id, resort_name, people_count, course_date, client=None):
     """
     後端權威算價:絕對不接受前端傳來的 price / totalPrice,一律用模板+雪場+日期+人數
     在後端重算,避免使用者竄改 payload 用 1 元下單。
@@ -204,7 +208,7 @@ def compute_course_price_authoritative(*, template_id, resort_name, people_count
         raise PriceCalculationError(f'找不到課程模板: {template_id}')
 
     try:
-        resort = Resorts.objects.get(name=resort_name)
+        resort = resort_for_course(resort_name,template_id=template_id,client=client)
     except Resorts.DoesNotExist:
         raise PriceCalculationError(f'找不到雪場: {resort_name}')
 
@@ -408,7 +412,7 @@ def compute_cart_item_pricing_authoritative(item):
         raise ValueError('購物車項目缺少課程')
 
     try:
-        resort = Resorts.objects.get(name=item['resort'])
+        resort = resort_for_course(item['resort'],course_type_id=courses[0].get('courseTypeId'))
     except Resorts.DoesNotExist:
         raise ValueError(f"找不到雪場 {item.get('resort')}")
 
@@ -1048,7 +1052,7 @@ class CoachListAPI(APIView):
                 parsed_dates.append(parsed_date)
         return parsed_dates
 
-    def _get_requested_session(self, request):
+    def _get_requested_session(self, request, tenant):
         session_id = (
             request.GET.get('timeSlot') or
             request.GET.get('time_slot') or
@@ -1061,7 +1065,7 @@ class CoachListAPI(APIView):
             session_pk = int(session_id)
         except (TypeError, ValueError):
             return None
-        return CourseSession.objects.filter(id=session_pk, is_active=True).first()
+        return CourseSession.objects.filter(id=session_pk, is_active=True, template__course_type__category__client=tenant).first()
 
     def _coach_is_unavailable_for_request(self, coach, requested_dates, session):
         if not requested_dates or not session:
@@ -1088,11 +1092,15 @@ class CoachListAPI(APIView):
         ).exists()
 
     def get(self, request, client_code=None):
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error':str(exc)},status=404)
         resort_name = request.GET.get('resort', '')
         course_type = request.GET.get('courseType', '')
         ability_level = request.GET.get('abilityLevel', '')
         requested_dates = self._parse_requested_dates(request)
-        requested_session = self._get_requested_session(request)
+        requested_session = self._get_requested_session(request, tenant)
         course_template_id = (
             request.GET.get('courseTemplate') or
             request.GET.get('courseTemplateId') or
@@ -1102,7 +1110,7 @@ class CoachListAPI(APIView):
         course_template = None
         if course_template_id:
             course_template = CourseTemplate.objects.select_related('course_type').prefetch_related('allowed_coaches').filter(
-                id=course_template_id
+                id=course_template_id, course_type__category__client=tenant
             ).first()
             if course_template:
                 course_type = str(course_template.course_type_id)
@@ -1116,7 +1124,7 @@ class CoachListAPI(APIView):
 
         # 2. 檢查雪場是否啟用自動排課
         try:
-            resort_obj = Resorts.objects.get(name=resort_name)
+            resort_obj = resort_for_course(resort_name,client=tenant)
             if not resort_obj.auto_scheduling_enabled:
                 return Response({
                     'coach_list': [],
@@ -1175,7 +1183,7 @@ class CoachListAPI(APIView):
         # 判斷用戶權限（管理員可看所有教練）
         is_manager = False
         if hasattr(request, 'user') and request.user.is_authenticated:
-            user_profile = getattr(request.user, 'userprofile', None)
+            user_profile = staff_profile(request.user, tenant)
             if user_profile:
                 is_manager = user_profile.is_manager
 
@@ -1191,7 +1199,7 @@ class CoachListAPI(APIView):
 
         # This is the customer booking picker, including when staff previews it.
         # Console manual assignment uses a separate, campus-scoped endpoint.
-        coaches = coaches.filter(customer_selectable=True)
+        coaches = coaches.filter(customer_selectable=True, client=tenant)
 
         # 組裝教練資料
         coach_list = []
@@ -1319,9 +1327,8 @@ class WebsiteCoachListAPI(APIView):
                 coaches = coaches.filter(website_slug=slug)
             include_profile = request.query_params.get('include_profile') == '1'
 
-            if client_code:
-                client = resolve_tenant_client(client_code)
-                coaches = coaches.filter(client=client)
+            client = resolve_tenant_client(client_code)
+            coaches = coaches.filter(client=client)
 
             coaches = coaches.prefetch_related(
                 'course_levels__course_type__category',
@@ -1402,12 +1409,16 @@ class CoachBookingsAPI(APIView):
     """
 
     def get(self, request, client_code=None):
+        try:
+            tenant=resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error':str(exc)},status=404)
         coach_id = request.GET.get('coach_id', '')
         booked_slots = []
         unavailable_dates = []
 
         if coach_id and coach_id != "any":
-            coach_instance = get_object_or_404(Coach, pk=coach_id)
+            coach_instance = get_object_or_404(Coach, pk=coach_id, client=tenant)
 
             # 獲取已預約時段
             booked_slots = self._get_booked_slots(coach_instance)
@@ -1483,10 +1494,11 @@ class CalculatePriceAPI(APIView):
                 resort_name=resort_name,
                 people_count=people_count,
                 course_date=date_str,
+                client=resolve_tenant_client(client_code),
             )
 
             template = CourseTemplate.objects.get(id=template_id)
-            resort = Resorts.objects.get(name=resort_name)
+            resort = resort_for_course(resort_name,client=resolve_tenant_client(client_code))
             coach = None
             coach_id = request.GET.get('coach') or request.GET.get('coach_id')
             if coach_id and coach_id != 'any':
@@ -2295,6 +2307,8 @@ class CreateReservationAPI(APIView):
 
             # 解析 tenant client(永不回 None;失敗會 raise TenantResolutionError)
             tenant_client = resolve_tenant_client(client_code)
+            if not module_enabled(tenant_client, 'booking'):
+                return Response({'error':'此學校目前未開放新增預約'},status=503)
             tenant_client = type(tenant_client).objects.select_for_update().get(pk=tenant_client.pk)
             if getattr(request, 'checkout_consent_channel', None) == 'legacy_chat':
                 contact_info['policy_consent_channel'] = 'legacy_chat'
@@ -2877,7 +2891,7 @@ class MemberCenterAPI(APIView):
         except TenantResolutionError as exc:
             return Response({'error': str(exc)}, status=404)
 
-        profile, _ = MemberProfile.objects.get_or_create(user=request.user)
+        profile = school_member_profile(request.user, tenant)
         from .models import MemberLoyaltyAccount
         loyalty, _ = MemberLoyaltyAccount.objects.get_or_create(client=tenant, user=request.user)
         from .class_group_qr import paid_group_qr_url
@@ -3129,7 +3143,7 @@ class MemberCenterAPI(APIView):
         return Response({
             'member': {
                 'email': request.user.email,
-                'name': request.user.get_full_name() or request.user.username,
+                'name': profile.display_name,
             },
             'referral_code': profile.referral_code,
             'points': loyalty.points,
@@ -3596,7 +3610,7 @@ class CourseMediaFileAPI(APIView):
             coach and coach.user_id == request.user.pk and reservation.status == 'completed'
             and reservation.preferred_coach_id == coach.pk
         )
-        profile = getattr(request.user, 'userprofile', None)
+        profile = staff_profile(request.user, tenant)
         if not allowed and (request.user.is_superuser or (profile and profile.is_manager)):
             from API.admin_views import IsTenantManager
             if IsTenantManager().has_permission(request, self):
@@ -3761,6 +3775,8 @@ class SuperScheduleAPI(APIView):
 
             # 解析 tenant client(永不回 None;失敗會 raise TenantResolutionError)
             tenant_client = resolve_tenant_client(client_code)
+            if not module_enabled(tenant_client, 'booking'):
+                return Response({'error':'此學校目前未開放新增預約'},status=503)
             tenant_client = type(tenant_client).objects.select_for_update().get(pk=tenant_client.pk)
             try:
                 contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
@@ -4220,7 +4236,7 @@ class PaymentInfoAPI(APIView):
             payment_methods = []
             if all(bank_info.get(field) for field in ('bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder')):
                 payment_methods.append('bank_transfer')
-            if settlement['currency'] == 'TWD' and not is_taiwan and all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
+            if settlement['currency'] == 'TWD' and not is_taiwan and gateway_settings(group.client):
                 payment_methods.append('newebpay')
 
             return Response({
@@ -4469,7 +4485,7 @@ class ProcessPaymentAPI(APIView):
                 return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
 
             if payment_type == 'newebpay':
-                if not all((settings.NEWEBPAY_MERCHANT_ID, settings.NEWEBPAY_HASH_KEY, settings.NEWEBPAY_HASH_IV)):
+                if not gateway_settings(group.client):
                     return Response({'error': '信用卡付款尚未開放，請改用銀行匯款'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
                 return self._process_newebpay(request, group)
             elif payment_type == 'bank_transfer':
@@ -4526,9 +4542,7 @@ class ProcessPaymentAPI(APIView):
 
         data = {
             "store": {
-                "MerchantID": settings.NEWEBPAY_MERCHANT_ID,
-                "HashKey": settings.NEWEBPAY_HASH_KEY,
-                "HashIV": settings.NEWEBPAY_HASH_IV,
+                **(gateway_settings(group.client) or {}),
             },
             "body": {
                 "img": False,
@@ -4536,7 +4550,7 @@ class ProcessPaymentAPI(APIView):
                 "price": str(total_amount),  # 正式環境用實際金額
                 # "price": '1',  # 測試環境用 1 元
                 "product": product_name,
-                "NotifyURL": f"{RUN_HOST}/call_back/NewebPay/?user_id={user_id}",
+                "NotifyURL": f"{RUN_HOST}/call_back/NewebPay/?user_id={user_id}&client_code={group.client.internal_code}",
                 "Email": user.email if user and hasattr(user, 'email') else ''
             },
         }
@@ -4613,6 +4627,10 @@ class MemberAuthAPI(APIView):
         return super().dispatch(*args, **kwargs)
 
     def post(self, request, client_code=None):
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error': str(exc)}, status=404)
         action = str(request.data.get('action') or '').strip()
         email = str(request.data.get('email') or '').strip().lower()
 
@@ -4629,10 +4647,10 @@ class MemberAuthAPI(APIView):
                 return Response({'error': '此電子郵件已註冊，請直接登入'}, status=400)
             with transaction.atomic():
                 user = User.objects.create_user(username=email, email=email, password=password, first_name=name)
-                MemberProfile.objects.get_or_create(user=user)
+                school_member_profile(user, tenant)
             user.backend = 'django.contrib.auth.backends.ModelBackend'
             login(request, user)
-            return Response({'member': self._member(user)}, status=201)
+            return Response({'member': self._member(user, tenant)}, status=201)
 
         if action == 'login':
             password = str(request.data.get('password') or '')
@@ -4645,8 +4663,8 @@ class MemberAuthAPI(APIView):
             if not user:
                 return Response({'error': '電子郵件或密碼不正確'}, status=400)
             login(request, user)
-            MemberProfile.objects.get_or_create(user=user)
-            return Response({'member': self._member(user)})
+            school_member_profile(user, tenant)
+            return Response({'member': self._member(user, tenant)})
 
         if action == 'request_reset':
             user = User.objects.filter(email__iexact=email).first()
@@ -4657,7 +4675,7 @@ class MemberAuthAPI(APIView):
                     f'/{client_code or "snowland"}/membership?reset_uid={uid}&reset_token={token}'
                 )
                 send_mail(
-                    'SnowLand 會員密碼重設',
+                    f'{tenant.name} 會員密碼重設',
                     f'請開啟以下連結重設密碼：\n{reset_url}',
                     None,
                     [user.email],
@@ -4683,10 +4701,10 @@ class MemberAuthAPI(APIView):
         return Response({'error': '不支援的會員操作'}, status=400)
 
     @staticmethod
-    def _member(user):
+    def _member(user, tenant):
         return {
             'email': user.email,
-            'name': user.get_full_name() or user.username,
+            'name': school_member_profile(user, tenant).display_name,
         }
 
 
@@ -4723,6 +4741,10 @@ class GoogleLoginAPI(APIView):
         return super().dispatch(*args, **kwargs)
 
     def get(self, request, client_code=None):
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error': str(exc)}, status=404)
         """檢查當前 session 是否有登入（給前端 useAuth 用）"""
         if not request.user.is_authenticated:
             return Response({'code': 401, 'msg': '未登入'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -4742,12 +4764,16 @@ class GoogleLoginAPI(APIView):
             'msg': 'OK',
             'user': {
                 'email': request.user.email,
-                'name': request.user.get_full_name() or request.user.username,
+                'name': school_member_profile(request.user, tenant).display_name,
                 'picture': picture,
             },
         })
 
     def post(self, request, client_code=None):
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'error': str(exc)}, status=404)
         import json
         import time
         from django.contrib.auth.models import User
@@ -4770,14 +4796,14 @@ class GoogleLoginAPI(APIView):
                 from google.auth.transport import requests as google_requests
 
                 # 驗證 Google JWT token
-                google_client_id = settings.GOOGLE_OAUTH_CLIENT_ID
-                if not google_client_id:
+                configured_google_client_id = google_client_id(tenant)
+                if not configured_google_client_id:
                     return Response({'code': 503, 'msg': 'Google 登入尚未完成設定'}, status=503)
 
                 idinfo = id_token.verify_oauth2_token(
                     credential,
                     google_requests.Request(),
-                    google_client_id
+                    configured_google_client_id
                 )
 
                 # 獲取用戶資訊
@@ -4812,6 +4838,8 @@ class GoogleLoginAPI(APIView):
                 user.backend = 'django.contrib.auth.backends.ModelBackend'
                 login(request, user)
 
+                school_member_profile(user, tenant)
+
                 # 強制 save session（避免被 lazy save 跳過）
                 request.session.save()
                 request.session.modified = True
@@ -4824,7 +4852,7 @@ class GoogleLoginAPI(APIView):
                     'msg': '登入成功',
                     'data': {
                         'email': email,
-                        'name': name,
+                        'name': school_member_profile(user, tenant).display_name,
                         'picture': picture,
                         'jwt': jwt_token,
                     },

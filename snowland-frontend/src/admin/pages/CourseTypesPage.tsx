@@ -1,3 +1,4 @@
+import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 /**
  * 課程類型管理（接 API）
  */
@@ -59,7 +60,7 @@ export default function CourseTypesPage() {
     queryKey: ['admin', 'course-template-editor-options'],
     queryFn: fetchCourseTemplateEditorOptions,
   })
-  const selectedCampus = localStorage.getItem('snowland_admin_campus_scope') || 'all'
+  const selectedCampus = localStorage.getItem(campusScopeKey(currentClientCode())) || 'all'
   const companyWideScope = canManageCompanyStructure && selectedCampus === 'all'
   const selectableResorts = editorOptions?.resorts.filter((resort) => resort.can_select) || []
   const selectableCoaches = editorOptions?.coaches.filter((coach) => coach.can_select) || []
