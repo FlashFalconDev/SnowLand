@@ -1,4 +1,4 @@
-from Control.tenant_memberships import staff_profile, writable_staff_profile
+from Control.tenant_memberships import staff_profile
 """Explicit, audited in-app messages. Never invokes Email/LINE or the global job runner."""
 import re
 from django.contrib.auth.models import User

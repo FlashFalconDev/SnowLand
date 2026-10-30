@@ -1,4 +1,4 @@
-from .tenant_scope import resort_for_course
+from .tenant_scope import resort_for_course, selected_coach_for_school
 from Client.tenant_settings import gateway_settings, google_client_id, module_enabled
 from Control.tenant_memberships import staff_profile
 from Client.memberships import member_profile as school_member_profile
@@ -422,15 +422,7 @@ def compute_cart_item_pricing_authoritative(item):
     except CourseType.DoesNotExist:
         raise ValueError(f"找不到課程類型 {first_course.get('courseTypeId')}")
 
-    coach_instance = None
-    coach_id = item.get('coach')
-    if coach_id not in ('any', None, ''):
-        try:
-            coach_instance = Coach.objects.get(id=coach_id)
-        except Coach.DoesNotExist:
-            coach_instance = None
-        if coach_instance and not coach_instance.customer_selectable:
-            raise ValueError('這位教練目前不開放指定，請改選其他教練或「不指定教練」')
+    coach_instance = selected_coach_for_school(item.get('coach'), course_type.category.client_id)
 
     people_count = int(item.get('peopleCount', 1) or 1)
     ability_level_counts = normalize_student_level_counts(item, people_count)
@@ -1499,13 +1491,8 @@ class CalculatePriceAPI(APIView):
 
             template = CourseTemplate.objects.get(id=template_id)
             resort = resort_for_course(resort_name,client=resolve_tenant_client(client_code))
-            coach = None
             coach_id = request.GET.get('coach') or request.GET.get('coach_id')
-            if coach_id and coach_id != 'any':
-                try:
-                    coach = Coach.objects.get(id=coach_id)
-                except Coach.DoesNotExist:
-                    coach = None
+            coach = selected_coach_for_school(coach_id, template.course_type.category.client_id)
             if coach:
                 if not coach.customer_selectable:
                     return Response({'error': '這位教練目前不開放指定，請改選其他教練或「不指定教練」'}, status=400)
@@ -1552,7 +1539,7 @@ class CalculatePriceAPI(APIView):
                 'billing_mode_label': template.get_billing_mode_display(),
             }, status=status.HTTP_200_OK)
 
-        except PriceCalculationError as e:
+        except (PriceCalculationError, ValueError) as e:
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
@@ -2690,21 +2677,13 @@ class CreateReservationAPI(APIView):
         # 獲取課程類型（從第一個課程）
         first_course = item['courses'][0]
         try:
-            course_type = CourseType.objects.get(id=first_course['courseTypeId'])
+            course_type = CourseType.objects.get(id=first_course['courseTypeId'], category__client_id=group.client_id)
         except CourseType.DoesNotExist:
             raise ValueError(f"找不到課程類型: {first_course['courseTypeId']}")
 
-        # 處理教練
-        coach_instance = None
-        is_preferred = False
-        if item['coach'] != 'any' and item['coach'] is not None:
-            try:
-                coach_instance = Coach.objects.get(id=item['coach'])
-                is_preferred = True
-            except Coach.DoesNotExist:
-                pass
-            if coach_instance and not coach_instance.customer_selectable:
-                raise ValueError('這位教練目前不開放指定，請改選其他教練或「不指定教練」')
+        # 指定教練必須屬於訂單的學校，不接受跨校或不存在的教練。
+        coach_instance = selected_coach_for_school(item.get('coach'), group.client_id)
+        is_preferred = coach_instance is not None
 
         # 映射裝備選項
         equipment_mapping = {

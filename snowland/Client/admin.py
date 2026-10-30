@@ -24,16 +24,6 @@ class ModuleSettingInline(admin.TabularInline):
 
 @admin.register(Client)
 class ClientAdmin(PlatformOnlyAdmin):
-    def has_module_permission(self, request):
-        return request.user.is_superuser
-
-    def has_view_permission(self, request, obj=None):
-        return request.user.is_superuser
-
-    has_add_permission = has_view_permission
-    has_change_permission = has_view_permission
-    has_delete_permission = has_view_permission
-
     def get_readonly_fields(self, request, obj=None):
         return list(self.readonly_fields) + (['internal_code'] if obj else [])
 

@@ -1,4 +1,4 @@
-from Control.tenant_memberships import staff_profile, writable_staff_profile
+from Control.tenant_memberships import staff_profile
 """Reviewed alumni status and historical-point totals; no automatic reward rules."""
 from django.db import transaction
 from django.middleware.csrf import get_token

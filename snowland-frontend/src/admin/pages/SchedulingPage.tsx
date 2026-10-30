@@ -1,3 +1,4 @@
+import { useSiteLink } from '@/hooks/useSiteBasePath'
 /**
  * 排課管理（接 API）
  */
@@ -147,6 +148,7 @@ export function matchesScheduleStartTime(start: string, from: string, to: string
 }
 
 export default function SchedulingPage() {
+  const ordersUrl = useSiteLink('/console/orders')
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
@@ -360,7 +362,7 @@ export default function SchedulingPage() {
   const openBookingOrder = (booking: { date: string; group_id?: number | null; sn?: string }) => {
     setSelectedDate(booking.date)
     if (booking.group_id && (!adminMe?.user || isCampusOrderViewer)) {
-      navigate(`/snowland/console/orders?search=${encodeURIComponent(booking.sn || String(booking.group_id))}`)
+      navigate(`${ordersUrl}?search=${encodeURIComponent(booking.sn || String(booking.group_id))}`)
     } else if (booking.group_id) {
       setSelectedOrderId(Number(booking.group_id))
     }
@@ -542,7 +544,7 @@ export default function SchedulingPage() {
                 <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">報名 {candidate.registered_students}{candidate.minimum_students !== null && `/${candidate.minimum_students}`} 人{candidate.paid_students !== undefined && ` · 已付款 ${candidate.paid_students} 人`}{candidate.assigned_students > 0 && ` · ${candidate.shared_class_id ? '已指派教練' : '已排課'} ${candidate.assigned_students} 人`} · {candidate.orders.length} 筆訂單</p>
                 {candidate.shared_class_id && candidate.assigned_students > 0 && candidate.paid_students !== undefined && candidate.paid_students < candidate.registered_students && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">未付款的訂單暫不顯示於正式排課月曆。</p>}
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {candidate.orders.map((order) => <button key={`${order.group_id}-${candidate.ability_level}`} type="button" onClick={() => navigate(`/snowland/console/orders?search=${encodeURIComponent(order.order_number || String(order.group_id))}`)} className="rounded-md border border-gray-200 px-2 py-1 text-xs text-violet-700 hover:bg-violet-50 dark:border-gray-600 dark:text-violet-300 dark:hover:bg-gray-700" title={isCampusOrderViewer ? '查看校區訂單摘要' : '查看訂單'}>{order.order_number || `訂單 #${order.group_id}`} · {order.students} 人{order.already_assigned ? ` · ${candidate.shared_class_id && order.payment_status !== 'paid' ? '教練已指派' : '已排課'}` : ''}</button>)}
+                  {candidate.orders.map((order) => <button key={`${order.group_id}-${candidate.ability_level}`} type="button" onClick={() => navigate(`${ordersUrl}?search=${encodeURIComponent(order.order_number || String(order.group_id))}`)} className="rounded-md border border-gray-200 px-2 py-1 text-xs text-violet-700 hover:bg-violet-50 dark:border-gray-600 dark:text-violet-300 dark:hover:bg-gray-700" title={isCampusOrderViewer ? '查看校區訂單摘要' : '查看訂單'}>{order.order_number || `訂單 #${order.group_id}`} · {order.students} 人{order.already_assigned ? ` · ${candidate.shared_class_id && order.payment_status !== 'paid' ? '教練已指派' : '已排課'}` : ''}</button>)}
                 </div>
                 {canManageSharedClass && candidate.shared_class_id && candidate.orders.length > 0 && candidate.shared_class_status !== 'cancelled' && <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <button type="button" onClick={() => {
@@ -785,7 +787,7 @@ export default function SchedulingPage() {
                   <p className="mt-1">{candidateStatus(candidate)}</p>
                   <p className="mt-1">報名 {candidate.registered_students} 人 · {candidate.orders.length} 筆訂單{candidate.paid_students !== undefined && ` · 已付款 ${candidate.paid_students} 人`}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {candidate.orders.map((order) => <button key={order.group_id} type="button" onClick={() => navigate(`/snowland/console/orders?search=${encodeURIComponent(order.order_number || String(order.group_id))}`)} className="rounded border border-amber-300 px-2 py-1 text-violet-700 hover:bg-white dark:border-amber-700 dark:text-violet-300 dark:hover:bg-gray-800">查看 {order.order_number || `#${order.group_id}`}</button>)}
+                    {candidate.orders.map((order) => <button key={order.group_id} type="button" onClick={() => navigate(`${ordersUrl}?search=${encodeURIComponent(order.order_number || String(order.group_id))}`)} className="rounded border border-amber-300 px-2 py-1 text-violet-700 hover:bg-white dark:border-amber-700 dark:text-violet-300 dark:hover:bg-gray-800">查看 {order.order_number || `#${order.group_id}`}</button>)}
                   </div>
                 </div>)}
               </div>

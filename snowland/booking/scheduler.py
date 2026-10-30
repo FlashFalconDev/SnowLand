@@ -447,6 +447,9 @@ def coach_matches_course_template(coach, course_template, coach_course_level=Non
     if not course_template:
         return True
 
+    if coach.client_id != course_template.course_type.category.client_id:
+        return False
+
     if allowed_coach_ids is None:
         allowed_coach_ids = set(course_template.allowed_coaches.values_list('id', flat=True))
     if allowed_coach_ids and coach.pk not in allowed_coach_ids:
