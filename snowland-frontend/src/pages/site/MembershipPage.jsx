@@ -1,3 +1,4 @@
+import { schoolBookingApiPath } from '../../utils/tenant';
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -55,7 +56,8 @@ async function requestJson(url, options = {}) {
     const csrf = document.cookie.split(';').map(value => value.trim()).find(value => value.startsWith('csrftoken='));
     if (csrf) headers.set('X-CSRFToken', csrf.slice('csrftoken='.length));
   }
-  const response = await fetch(url, { credentials: 'include', ...options, headers });
+  const requestUrl = url.startsWith('/control/') ? url : schoolBookingApiPath(url);
+  const response = await fetch(requestUrl, { credentials: 'include', ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = data.error || data.detail || data.msg || Object.values(data).flat().filter(value => typeof value === 'string').join('；') || '資料載入失敗';
@@ -97,7 +99,7 @@ function AuthPanel({ onAuthenticated }) {
       const payload = { action, email: email.trim(), password };
       if (mode === 'register') payload.name = name.trim();
       if (mode === 'reset') Object.assign(payload, { uid: resetUid, token: resetToken });
-      const data = await requestJson('/booking/snowland/api/member-auth/', {
+      const data = await requestJson('/member-auth/', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       if (mode === 'forgot') setMessage(data.message);
@@ -199,14 +201,14 @@ function CancellationForm({ order, onDone }) {
 
   const open = async () => {
     setBusy(true); setMessage('');
-    try { setPreview(await requestJson(`/booking/snowland/api/member-cancellations/${order.id}/`)); }
+    try { setPreview(await requestJson(`/member-cancellations/${order.id}/`)); }
     catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
   const submit = async () => {
     setBusy(true); setMessage('');
     try {
-      await requestJson(`/booking/snowland/api/member-cancellations/${order.id}/`, {
+      await requestJson(`/member-cancellations/${order.id}/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason, reason_note: reasonNote, ...bank,...(preview.settlement?.currency==='JPY'?{currency:'JPY',expected_refund_amount:preview.settlement.refund_amount}:{}) }),
       });
@@ -296,7 +298,7 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
   const save = async () => {
     setBusy(true); setMessage('');
     try {
-      const result = await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_pre_course_form', member_id: form.id, age_range: draft.age_range, snowboard_skills: draft.snowboard_skills, ski_skills: draft.ski_skills, insurance_data: { ...draft.insurance_data, waiver_signer_role: guardianSigning ? 'guardian' : 'self' }, waiver_agreed: draft.waiver_agreed, waiver_signature: draft.waiver_signature, waiver_document_version: waiverDocument.version, waiver_course_revision: form.waiver_course_revision, media_consent: draft.media_consent }) });
+      const result = await requestJson('/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_pre_course_form', member_id: form.id, age_range: draft.age_range, snowboard_skills: draft.snowboard_skills, ski_skills: draft.ski_skills, insurance_data: { ...draft.insurance_data, waiver_signer_role: guardianSigning ? 'guardian' : 'self' }, waiver_agreed: draft.waiver_agreed, waiver_signature: draft.waiver_signature, waiver_document_version: waiverDocument.version, waiver_course_revision: form.waiver_course_revision, media_consent: draft.media_consent }) });
       setMessage(result.message); setEditing(false); await onSaved();
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
@@ -346,7 +348,7 @@ function MissingStudents({ order, reservation, onSaved }) {
   const prepare = async () => {
     setBusy(true); setError('');
     try {
-      await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'prepare_pre_course_forms', reservation_id: reservation.id }) });
+      await requestJson('/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'prepare_pre_course_forms', reservation_id: reservation.id }) });
       await onSaved();
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
@@ -365,7 +367,7 @@ function ParticipantRoster({ order, reservation, onSaved }) {
     if (busy !== null) return;
     setBusy(memberId); setError(''); setMessage('');
     try {
-      const result = await requestJson('/booking/snowland/api/member-center/', {
+      const result = await requestJson('/member-center/', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: revoke ? 'revoke_participant_invitation' : 'invite_participant', member_id: memberId }),
       });
@@ -411,7 +413,7 @@ function ParticipantInvitation({ token, onAccepted }) {
     setLoading(true); setError(''); setPreview(null);
     try {
       if (!/^[0-9a-f-]{36}$/i.test(token)) throw new Error('邀請連結格式不正確，請向訂購人索取完整連結。');
-      setPreview(await requestJson(`/booking/snowland/api/participant-invitations/${token}/`));
+      setPreview(await requestJson(`/participant-invitations/${token}/`));
     } catch (failure) { setError(failure.message); }
     finally { setLoading(false); }
   }, [token]);
@@ -420,7 +422,7 @@ function ParticipantInvitation({ token, onAccepted }) {
     if (busy || !confirmed) return;
     setBusy(true); setError('');
     try {
-      const result = await requestJson(`/booking/snowland/api/participant-invitations/${token}/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmed: true, role }) });
+      const result = await requestJson(`/participant-invitations/${token}/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmed: true, role }) });
       await onAccepted(result.reservation_id, result.message);
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
@@ -461,7 +463,7 @@ function SatisfactionForm({ record, onSaved }) {
   const submit = async () => {
     if (busy) return;
     setBusy(true);
-    try { const result = await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'submit_satisfaction', evaluation_id: record.id, rating, feedback }) }); setMessage(result.message); await onSaved(); }
+    try { const result = await requestJson('/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'submit_satisfaction', evaluation_id: record.id, rating, feedback }) }); setMessage(result.message); await onSaved(); }
     catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
@@ -558,7 +560,7 @@ function MemberNotifications() {
   useEffect(() => {
     let alive = true;
     setLoading(true); setData(null); setError(''); setErrorCode(null); setMessage('');
-    requestJson(`/booking/snowland/api/member-notifications/?page=${page}`)
+    requestJson(`/member-notifications/?page=${page}`)
       .then(result => { if (alive) setData(result); })
       .catch(failure => { if (alive) { setErrorCode(failure.status); setError(failure.status === 404 ? '這頁通知已不存在，請返回第一頁。' : failure.message); } })
       .finally(() => { if (alive) setLoading(false); });
@@ -573,7 +575,7 @@ function MemberNotifications() {
     if (busyId !== null) return;
     setBusyId(id); setMessage(''); setError(''); setErrorCode(null);
     try {
-      const result = await requestJson(`/booking/snowland/api/member-notifications/${id}/read/`, { method: 'POST' });
+      const result = await requestJson(`/member-notifications/${id}/read/`, { method: 'POST' });
       setData(previous => ({ ...previous, unread_count: result.unread_count, results: previous.results.map(row => row.id === id ? { ...row, read_at: result.read_at } : row) }));
       setMessage(result.message);
     } catch (failure) { setError(failure.message); setErrorCode(failure.status); if ([401, 404].includes(failure.status)) setData(null); }
@@ -640,7 +642,7 @@ export default function MembershipPage() {
     const silent = options?.silent === true;
     if (!silent) setStatus('loading');
     try {
-      const payload = await requestJson('/booking/snowland/api/member-center/');
+      const payload = await requestJson('/member-center/');
       if (revision !== memberLoadRevision.current || logoutPending.current) return;
       setData(payload); setStatus('ready'); localStorage.setItem('user', JSON.stringify(payload.member));
       if (!silent) {
@@ -671,7 +673,7 @@ export default function MembershipPage() {
     const revision = memberLoadRevision.current;
     setNotice('正在複製上次預約設定…');
     try {
-      const result = await requestJson('/booking/snowland/api/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quick_rebook_group_id: orderId }) });
+      const result = await requestJson('/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quick_rebook_group_id: orderId }) });
       if (revision !== memberLoadRevision.current || logoutPending.current) return;
       useBookingStore.getState().replaceCart(result.cart); navigate(`${basePath}/booking?rebook=1`);
     } catch (error) {

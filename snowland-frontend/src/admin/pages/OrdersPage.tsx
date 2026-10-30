@@ -1,3 +1,4 @@
+import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 /**
  * 訂單管理（接 API）
  */
@@ -250,7 +251,7 @@ function FullOrdersPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">訂單管理</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">
-          {(localStorage.getItem('snowland_admin_campus_scope') || 'all') === 'all'
+          {(localStorage.getItem(campusScopeKey(currentClientCode())) || 'all') === 'all'
             ? '查看與管理全部校區的預約訂單'
             : '僅顯示目前選取校區的預約訂單'}
         </p>

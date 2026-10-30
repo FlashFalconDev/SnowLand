@@ -46,13 +46,14 @@ def channel_recipient(channel, value):
     return value
 
 
-def account_recipient(user, channel):
+def account_recipient(user, channel, client=None):
     if not user or not user.is_active:
         return ''
     if channel == 'email':
         return channel_recipient(channel, user.email)
     if channel == 'line':
-        profile = getattr(user, 'snowland_member_profile', None)
+        from Client.memberships import member_profile
+        profile = member_profile(user, client) if client else None
         return channel_recipient(channel, profile.line_user_id if profile else '')
     if channel == 'in_app':
         return str(user.pk)
@@ -99,7 +100,7 @@ def course_notification_recipients(group, template, *, channel=None):
     booking_contact = group.booking_contact if isinstance(group.booking_contact, dict) else {}
     primary = {
         'email': contact.get('email') or booking_contact.get('email') or (group.user.email if group.user_id else ''),
-        'line': contact.get('messenger_id') or account_recipient(group.user, 'line'),
+        'line': contact.get('messenger_id') or account_recipient(group.user, 'line', group.client),
         'in_app': str(group.user_id or ''),
     }.get(channel, '')
     destinations = {}
@@ -130,7 +131,7 @@ def course_notification_recipients(group, template, *, channel=None):
             continue
         for user in [member.user, member.guardian]:
             if user and user.pk != group.user_id:
-                add(account_recipient(user, channel), member)
+                add(account_recipient(user, channel, group.client), member)
     return destinations
 
 

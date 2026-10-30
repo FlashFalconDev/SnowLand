@@ -1,3 +1,5 @@
+import { useClientInfo } from '@/hooks/useClient'
+import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 /**
  * SnowLand 管理後台 Layout
  *
@@ -385,6 +387,7 @@ function ThemeToggleButton() {
 
 // ============== 主 Layout ==============
 function AdminLayoutContent() {
+  const { clientName, clientInfo } = useClientInfo()
   const navigate = useNavigate()
   const location = useLocation()
   const { user, loading: authLoading, logout, logoutError, loggingOut } = useAuth()
@@ -396,7 +399,7 @@ function AdminLayoutContent() {
 
   // 檢查當前登入的使用者是否有 manager 權限
   const [adminCheck, setAdminCheck] = useState<AdminMeResult | null>(null)
-  const [campusScope, setCampusScope] = useState(() => localStorage.getItem('snowland_admin_campus_scope') || 'all')
+  const [campusScope, setCampusScope] = useState(() => localStorage.getItem(campusScopeKey(currentClientCode())) || 'all')
   useEffect(() => {
     if (!user) {
       setAdminCheck(null)
@@ -425,11 +428,11 @@ function AdminLayoutContent() {
   useEffect(() => {
     const adminUser = adminCheck?.user
     if (!adminUser) return
-    const ownerKey = 'snowland_admin_campus_scope_owner'
+    const ownerKey = `${campusScopeKey(currentClientCode())}:owner`
     if (localStorage.getItem(ownerKey) !== String(adminUser.id)) {
       const defaultScope = adminUser.can_view_all_campuses ? 'all' : String(adminUser.campuses?.[0]?.id || 'all')
       localStorage.setItem(ownerKey, String(adminUser.id))
-      localStorage.setItem('snowland_admin_campus_scope', defaultScope)
+      localStorage.setItem(campusScopeKey(currentClientCode()), defaultScope)
       setCampusScope(defaultScope)
       if (campusScope !== defaultScope) window.location.reload()
       return
@@ -439,14 +442,14 @@ function AdminLayoutContent() {
     if ((campusScope !== 'all' && !allowed.has(campusScope)) ||
         (campusScope === 'all' && !adminUser.can_view_all_campuses && allowed.size)) {
       const fallbackScope = adminUser.can_view_all_campuses ? 'all' : String(adminUser.campuses?.[0]?.id)
-      localStorage.setItem('snowland_admin_campus_scope', fallbackScope)
+      localStorage.setItem(campusScopeKey(currentClientCode()), fallbackScope)
       setCampusScope(fallbackScope)
       window.location.reload()
     }
   }, [adminCheck, campusScope])
 
   const changeCampusScope = (value: string) => {
-    localStorage.setItem('snowland_admin_campus_scope', value)
+    localStorage.setItem(campusScopeKey(currentClientCode()), value)
     setCampusScope(value)
     window.location.reload()
   }
@@ -717,9 +720,9 @@ function AdminLayoutContent() {
                 className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-white font-bold text-sm"
                 style={{ backgroundColor: PRIMARY }}
               >
-                雪
+                {clientInfo?.logo_url ? <img src={clientInfo.logo_url} alt={clientName} className="h-8 w-8 rounded-lg object-contain" /> : clientName.slice(0, 1)}
               </div>
-              <span className="font-bold text-gray-900 dark:text-white truncate">SnowLand</span>
+              <span className="font-bold text-gray-900 dark:text-white truncate">{clientName}</span>
             </div>
           )}
           <button

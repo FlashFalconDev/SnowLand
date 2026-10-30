@@ -4,7 +4,7 @@ const compile=code=>ts.transpileModule(code,{compilerOptions:{jsx:ts.JsxEmit.Rea
 const source=fs.readFileSync(path.join(root,'src/api/websiteCoaches.js'),'utf8')
 function harness(failing){
   const states=[];let index=0,effect,failed=failing
-  const ctx=vm.createContext({exports:{},URLSearchParams,window:{location:{pathname:'/snowland/'}},localStorage:{getItem:()=>null},fetch:async()=>{if(failed)throw new Error('QA network');return{ok:true,json:async()=>({data:{list:[{id:1,name:'QA後端教練',slug:'qa',image:'/new.jpg'}]}})}},require:name=>{
+  const ctx=vm.createContext({exports:{},URLSearchParams,window:{location:{pathname:'/snowland/'}},localStorage:{getItem:()=>null},fetch:async()=>{if(failed)throw new Error('QA network');return{ok:true,json:async()=>({data:{list:[{id:1,name:'QA後端教練',slug:'qa',image:'/new.jpg'}]}})}},require:name=>{if(name.includes('utils/tenant'))return require('./helpers/tenant-harness.cjs')({location:{pathname:'/snowland/coach/qa'}},{getItem:()=>null});
     if(name==='react')return{useState:initial=>{const i=index++;if(!(i in states))states[i]=initial;return[states[i],value=>states[i]=typeof value==='function'?value(states[i]):value]},useEffect:fn=>effect=fn}
     throw new Error(name)
   }})

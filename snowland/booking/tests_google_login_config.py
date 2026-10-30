@@ -3,14 +3,14 @@ import runpy
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import TestCase
 from rest_framework.test import APIRequestFactory
 
 from booking.api_views import GoogleLoginAPI
 from snowland import settings as settings_module
 
 
-class GoogleLoginConfigurationTests(SimpleTestCase):
+class GoogleLoginConfigurationTests(TestCase):
     def test_member_google_client_id_has_fallback_without_external_env(self):
         with patch.dict(os.environ, {'GOOGLE_OAUTH_CLIENT_ID': '', 'VITE_GOOGLE_CLIENT_ID': ''}), \
                 patch('dotenv.dotenv_values', return_value={}), \
@@ -24,6 +24,8 @@ class GoogleLoginConfigurationTests(SimpleTestCase):
 
     @patch('google.oauth2.id_token.verify_oauth2_token', return_value={})
     def test_member_google_login_reaches_token_validation(self, verify_token):
+        from Client.models import Client
+        Client.objects.create(name='QA',internal_code='snowland')
         request = APIRequestFactory().post(
             '/booking/api/google-login/',
             {'credential': 'test-token'},

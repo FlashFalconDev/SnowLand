@@ -157,6 +157,22 @@ class Client(models.Model):
         verbose_name='是否啟用'
     )
 
+    # Platform-managed deployment references, never secret values exposed to the browser.
+    google_oauth_client_id = models.CharField(max_length=255, blank=True, default='', verbose_name='Google 登入 Client ID')
+    payment_env_prefix = models.CharField(max_length=80, blank=True, null=True, unique=True, verbose_name='金流環境變數前綴')
+    expiry_reminder_days = models.PositiveSmallIntegerField(default=14, verbose_name='服務到期提前提醒天數')
+
+    @property
+    def service_status(self):
+        if not self.is_active:
+            return '已手動停用'
+        now = timezone.now()
+        if self.service_end_date < now:
+            return '服務已到期，請人工確認（尚未停用）'
+        if self.service_end_date <= now + timedelta(days=self.expiry_reminder_days):
+            return '服務即將到期（尚未停用）'
+        return '使用中'
+
     # ========== 時間戳記 ==========
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -175,9 +191,22 @@ class Client(models.Model):
     def __str__(self):
         return f"{self.internal_code} | {self.name}"
 
+    def clean(self):
+        import re
+        from django.core.exceptions import ValidationError
+        super().clean()
+        reserved = {'auth','api','booking','control','admin','login','payment'}
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,49}',self.internal_code or '') or self.internal_code.lower() in reserved:
+            raise ValidationError({'internal_code':'學校代碼需為英數字、底線或連字號，且不可使用系統保留字。'})
+        self.payment_env_prefix = (self.payment_env_prefix or '').strip() or None
+        if self.payment_env_prefix and not re.fullmatch(r'[A-Z][A-Z0-9_]{0,79}',self.payment_env_prefix):
+            raise ValidationError({'payment_env_prefix':'金流前綴需為大寫英文字母開頭，只能包含大寫英數字或底線。'})
+
     # ========== 密碼管理方法 ==========
     def save(self, *args, **kwargs):
         """保存時自動處理密碼"""
+        if self.payment_env_prefix == '':
+            self.payment_env_prefix = None
         # 如果沒有密碼，自動生成（使用 internal_code 的 hash）
         if not self.password:
             raw_password = hashlib.sha256(
@@ -473,3 +502,17 @@ class SiteContent(models.Model):
     @property
     def is_public_visible(self):
         return self.computed_status == 'active'
+
+
+class ClientMemberProfile(models.Model):
+    """Independent school membership; no alliance sharing is enabled."""
+    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='member_profiles')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='school_member_profiles')
+    display_name = models.CharField(max_length=150, blank=True, default='')
+    referral_code = models.CharField(max_length=32, unique=True)
+    line_user_id = models.CharField(max_length=100, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['client', 'user'], name='unique_member_profile_client_user')]

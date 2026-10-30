@@ -35,3 +35,22 @@ class UserProfile(models.Model):
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
         UserProfile.objects.create(user=instance)
+
+
+class TenantStaffMembership(models.Model):
+    """School-specific authority; authentication remains on the shared User."""
+    ROLE_CHOICES = UserProfile.ROLE_CHOICES
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tenant_staff_memberships')
+    client = models.ForeignKey('Client.Client', on_delete=models.PROTECT, related_name='staff_memberships')
+    is_manager = models.BooleanField(default=False)
+    is_coach = models.BooleanField(default=False)
+    role = models.CharField(max_length=30, choices=ROLE_CHOICES, blank=True, default='')
+    admin_permissions = models.JSONField(default=None, blank=True, null=True)
+    campuses = models.ManyToManyField('Resorts.Campus', blank=True, related_name='staff_memberships')
+
+    @property
+    def manager_client_id(self):
+        return self.client_id if self.is_manager else None
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['client', 'user'], name='unique_staff_membership_client_user')]

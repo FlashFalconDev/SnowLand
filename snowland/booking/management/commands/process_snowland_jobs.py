@@ -261,15 +261,11 @@ class Command(BaseCommand):
             public_url = settings.SNOWLAND_PUBLIC_PAYMENT_URL
             if not public_url:
                 raise ValueError(MISSING_PAYMENT_URL_ERROR)
-            parts = urlsplit(public_url)
-            is_local_http = parts.scheme == 'http' and parts.hostname in {'localhost', '127.0.0.1', '::1'}
-            if (
-                not (parts.scheme == 'https' or is_local_http)
-                or not parts.hostname or parts.username or parts.password
-                or parts.query or parts.fragment
-                or parts.path.rstrip('/') != '/snowland/payment'
-            ):
-                raise ValueError(INVALID_PAYMENT_URL_ERROR)
+            from booking.payment_access import school_payment_base_url
+            try:
+                public_url = school_payment_base_url(delivery.group.client)
+            except ValueError as exc:
+                raise ValueError(INVALID_PAYMENT_URL_ERROR) from exc
             payment_url = payment_url_for_group(public_url, delivery.group)
         values = {
             'order_number': delivery.group.order_number,

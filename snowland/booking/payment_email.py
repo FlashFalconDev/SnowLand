@@ -68,17 +68,10 @@ def send_payment_email(request):
     from API.order_email_notifications import sync_accounts, prepare_email, deliver_order_email
     if sync_accounts(group, data['gmail']) != [request.user.pk]:
         return JsonResponse({'message': '只能寄到您的會員信箱或這張訂單的聯絡信箱'}, status=403)
-    public_url = settings.SNOWLAND_PUBLIC_PAYMENT_URL
+    from .payment_access import school_payment_base_url
     try:
-        URLValidator(schemes=['http', 'https'])(public_url)
-        parts = urlsplit(public_url)
-        parts.port  # Reject malformed port numbers before creating any mail receipt.
-        local_http = parts.scheme == 'http' and parts.hostname in {'localhost', '127.0.0.1', '::1'}
-        if (not parts.netloc or not parts.hostname or (parts.scheme != 'https' and not local_http)
-            or parts.username or parts.password or parts.query or parts.fragment
-            or parts.path.rstrip('/') != f'/{group.client.internal_code}/payment'):
-            raise ValueError
-    except (ValueError, TypeError, ValidationError):
+        public_url = school_payment_base_url(group.client)
+    except ValueError:
         return JsonResponse({'message': '付款頁網址尚未完成設定，請聯絡客服'}, status=503)
     mail_data = {'recipient_email': data['gmail'], 'subject': '滑雪課程預約付款連結',
         'message': '您的課程訂單尚待付款，請登入查看訂單與最新付款狀態：\n'

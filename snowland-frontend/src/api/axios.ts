@@ -1,3 +1,4 @@
+import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import axios from 'axios'
 
 // 🔥 從 Cookie 中獲取 CSRF Token
@@ -14,20 +15,7 @@ const getCsrfToken = (): string | null => {
 }
 
 // 🔥 獲取當前的 client_code
-const getClientCode = (): string => {
-  // 1. 從 URL 獲取（例如：/snowland/xxx），避免舊 localStorage 打到錯租戶
-  const pathParts = window.location.pathname.split('/').filter(Boolean)
-  if (pathParts.length > 0 && pathParts[0] !== 'auth') {
-    return pathParts[0]
-  }
-
-  // 2. 沒有網址租戶時才使用 localStorage
-  const clientCode = localStorage.getItem('client_code')
-  if (clientCode) return clientCode
-
-  // 3. 預設值（開發用）
-  return 'snowland'
-}
+const getClientCode = (): string => currentClientCode()
 
 // 🔥 後端 API URL — 一律走相對路徑，由 vite proxy（dev）或 nginx（prod）轉到後端
 // 這樣前後端在同一個 origin，瀏覽器把 cookie 當 first-party，不會被 Chrome 148 的

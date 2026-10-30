@@ -1,3 +1,5 @@
+import { useClientInfo } from '../../hooks/useClient'
+import { currentClientCode, tenantReturnPath } from '@/utils/tenant'
 import { useEffect, useRef, useState } from 'react'
 import { useSiteLocale } from '../../contexts/SiteLocale'
 
@@ -5,7 +7,6 @@ interface GoogleLoginButtonProps {
   onLogin?: () => void
 }
 
-const GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim()
 
 declare global {
   interface Window {
@@ -14,10 +15,13 @@ declare global {
 }
 
 let googleSdkInitialized = false
+let googleSdkClientId = ''
 let activeCredentialHandler: ((response: any) => void) | null = null
 
 export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
   const {locale,t}=useSiteLocale()
+  const {clientCode:schoolCode,clientInfo,isLoading:clientInfoLoading,error:clientInfoError}=useClientInfo()
+  const GOOGLE_CLIENT_ID=clientInfo?.google_client_id || ''
   const googleButtonRef = useRef<HTMLDivElement>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -32,7 +36,8 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
       })
 
       // 走相對路徑（同 origin），由 vite proxy / nginx 轉到後端
-      const clientCode = localStorage.getItem('client_code') || 'snowland'
+      const clientCode = currentClientCode()
+      if (clientCode !== schoolCode) return
       const res = await fetch(`/booking/${clientCode}/api/google-login/`, {
         method: 'POST',
         headers: {
@@ -45,6 +50,7 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
       const responseText = await res.text()
 
       const data = JSON.parse(responseText)
+      if (currentClientCode() !== clientCode) return
 
       if (data.code === 100 && data.data) {
         // 保存用戶資訊
@@ -60,7 +66,7 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
         }
 
         // 跳轉到預約頁面
-        const preLoginUrl = localStorage.getItem('pre_login_url') || '/snowland'
+        const preLoginUrl = tenantReturnPath(localStorage.getItem('pre_login_url'), clientCode)
         localStorage.removeItem('pre_login_url')
         window.location.href = preLoginUrl
       } else {
@@ -76,10 +82,11 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) {
-      setError('Google 登入尚未完成設定')
+      setError(clientInfoLoading ? null : clientInfoError || 'Google 登入尚未完成設定')
       return
     }
 
+    setError(null)
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
     let renderedWidth = 0
@@ -109,13 +116,14 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
     const initializeGoogleSignIn = () => {
       if (cancelled) return
       if (window.google) {
-        if (!googleSdkInitialized) {
+        if (!googleSdkInitialized || googleSdkClientId !== GOOGLE_CLIENT_ID) {
           window.google.accounts.id.initialize({
             client_id: GOOGLE_CLIENT_ID,
             callback: (response: any) => activeCredentialHandler?.(response),
             auto_select: false,
           })
           googleSdkInitialized = true
+          googleSdkClientId = GOOGLE_CLIENT_ID
         }
 
         renderGoogleButton()
@@ -130,8 +138,9 @@ export default function GoogleLoginButton({ onLogin }: GoogleLoginButtonProps) {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
       resizeObserver.disconnect()
+      if (activeCredentialHandler === handleCredentialResponse) activeCredentialHandler = null
     }
-  }, [locale])
+  }, [locale, GOOGLE_CLIENT_ID, clientInfoLoading, clientInfoError])
 
   return (
     <div className="w-full">

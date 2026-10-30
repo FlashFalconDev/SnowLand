@@ -12,16 +12,10 @@ from booking.legal_documents import get_current_waiver, waiver_requires_resign
 
 def course_forms_url(member):
     """The configured public site, never the request Host or a caller's redirect."""
-    value = settings.SNOWLAND_PUBLIC_PAYMENT_URL
+    from booking.payment_access import school_payment_base_url
     try:
-        URLValidator(schemes=['http', 'https'])(value)
-        parts = urlsplit(value)
-        parts.port
-        local = parts.scheme == 'http' and parts.hostname in {'127.0.0.1','localhost','::1'}
-        if (not parts.hostname or (parts.scheme != 'https' and not local) or parts.username or parts.password
-                or parts.query or parts.fragment or parts.path.rstrip('/') != f'/{member.reservation.group.client.internal_code}/payment'):
-            return ''
-    except (ValueError, TypeError, InvalidEmail):
+        parts = urlsplit(school_payment_base_url(member.reservation.group.client))
+    except ValueError:
         return ''
     return urlunsplit((parts.scheme, parts.netloc,
         f'/{member.reservation.group.client.internal_code}/membership/pre-course-forms',

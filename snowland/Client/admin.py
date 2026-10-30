@@ -2,6 +2,16 @@ from django.contrib import admin
 from .models import Client, ModuleInfo, ModuleSetting, PageInfo, PageColor, SiteContent
 
 
+class PlatformOnlyAdmin(admin.ModelAdmin):
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+    has_add_permission = has_view_permission
+    has_change_permission = has_view_permission
+    has_delete_permission = has_view_permission
+
+
 class ModuleSettingInline(admin.TabularInline):
     """在 Client 管理頁面內嵌顯示模組設定"""
     model = ModuleSetting
@@ -13,13 +23,17 @@ class ModuleSettingInline(admin.TabularInline):
 
 
 @admin.register(Client)
-class ClientAdmin(admin.ModelAdmin):
+class ClientAdmin(PlatformOnlyAdmin):
+    def get_readonly_fields(self, request, obj=None):
+        return list(self.readonly_fields) + (['internal_code'] if obj else [])
+
     list_display = [
         'internal_code',
         'name',
         'sales',
         'program',
         'service_end_date',
+        'service_status',
         'is_active',
         'created_at'
     ]
@@ -59,9 +73,10 @@ class ClientAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
         ('服務期限', {
-            'fields': ('service_start_date', 'service_end_date'),
-            'description': '設定客戶的服務合約期間'
+            'fields': ('service_start_date', 'service_end_date', 'expiry_reminder_days'),
+            'description': '到期僅提示，不會自動停用或中斷既有課程。需由平台管理者人工處理。'
         }),
+        ('登入與金流設定', {'fields': ('google_oauth_client_id', 'payment_env_prefix'), 'description': 'Google 可沿用平台登入。金流只填此校的環境變數前綴；密鑰不存於此表單。'}),
         ('時間記錄', {
             'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
@@ -71,7 +86,7 @@ class ClientAdmin(admin.ModelAdmin):
 
 
 @admin.register(ModuleInfo)
-class ModuleInfoAdmin(admin.ModelAdmin):
+class ModuleInfoAdmin(PlatformOnlyAdmin):
     list_display = ['module_sid', 'module_name', 'description', 'is_active']
     list_filter = ['is_active']
     search_fields = ['module_sid', 'module_name', 'description']  # 支援 autocomplete
@@ -90,7 +105,7 @@ class ModuleInfoAdmin(admin.ModelAdmin):
 
 
 @admin.register(ModuleSetting)
-class ModuleSettingAdmin(admin.ModelAdmin):
+class ModuleSettingAdmin(PlatformOnlyAdmin):
     list_display = ['client', 'module', 'is_active', 'created_at', 'updated_at']
     list_filter = ['is_active', 'module', 'created_at']
     search_fields = ['client__name', 'client__internal_code', 'module__module_name']
@@ -117,7 +132,7 @@ class ModuleSettingAdmin(admin.ModelAdmin):
 
 
 @admin.register(PageInfo)
-class PageInfoAdmin(admin.ModelAdmin):
+class PageInfoAdmin(PlatformOnlyAdmin):
     list_display = ['page_sid', 'page_name', 'description']
     search_fields = ['page_sid', 'page_name', 'description']  # 支援 autocomplete
     ordering = ['page_sid']
@@ -134,7 +149,7 @@ class PageInfoAdmin(admin.ModelAdmin):
 
 
 @admin.register(PageColor)
-class PageColorAdmin(admin.ModelAdmin):
+class PageColorAdmin(PlatformOnlyAdmin):
     list_display = [
         'client',
         'page',
@@ -172,7 +187,7 @@ class PageColorAdmin(admin.ModelAdmin):
 
 
 @admin.register(SiteContent)
-class SiteContentAdmin(admin.ModelAdmin):
+class SiteContentAdmin(PlatformOnlyAdmin):
     list_display = [
         'client',
         'content_type',

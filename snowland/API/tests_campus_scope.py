@@ -9,7 +9,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from Client.models import Client
-from Control.models import UserProfile
+from Control.models import UserProfile, TenantStaffMembership
 from Resorts.models import (
     Campus, EquipmentAssistanceTimeSlot, EquipmentPricingTier, EquipmentRentalItem,
     OperatingPolicy, PaymentAccount, ResortFee, Resorts,
@@ -663,7 +663,7 @@ class CampusScopeApiTests(TestCase):
         }, format='json')
         self.assertEqual(granted.status_code, 200)
         staff.userprofile.refresh_from_db()
-        self.assertEqual(staff.userprofile.manager_client_id, self.tenant.id)
+        self.assertEqual(TenantStaffMembership.objects.get(user=staff,client=self.tenant).manager_client_id, self.tenant.id)
         staff_api = self.authenticated(staff)
         self.assertEqual(staff_api.get('/api/admin/snowland/campuses/').status_code, 200)
         self.assertEqual(staff_api.get('/api/admin/other/campuses/').status_code, 403)
@@ -760,7 +760,8 @@ class CampusScopeApiTests(TestCase):
             format='json',
         )
 
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(TenantStaffMembership.objects.filter(user=outsider,client=self.tenant,is_manager=True).exists())
         profile.refresh_from_db()
         self.assertEqual(profile.role, 'campus_manager')
         self.assertEqual(profile.admin_permissions, ['orders'])
@@ -781,7 +782,8 @@ class CampusScopeApiTests(TestCase):
             format='json',
         )
 
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(TenantStaffMembership.objects.filter(user=outsider,client=self.tenant,is_manager=True).exists())
         profile.refresh_from_db()
         self.assertEqual(profile.manager_client_id, self.other_tenant.id)
 

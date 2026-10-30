@@ -18,6 +18,8 @@ const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
 const loaded = new Module(filename, module)
 loaded.filename = filename
 loaded.paths = Module._nodeModulePaths(path.dirname(filename))
+const originalRequire=loaded.require.bind(loaded)
+loaded.require=name=>name==='@/utils/tenant'?require('./helpers/tenant-harness.cjs')({location:{pathname:'/snowland/booking'}},global.localStorage):originalRequire(name)
 loaded._compile(compiled, filename)
 const store = loaded.exports.useBookingStore
 const original = { id: 'original', courses: [{ date: '2026-11-30', price: 100 }], totalPrice: 100 }
@@ -52,4 +54,4 @@ assert.equal(store.getState().currentReservationGroup.serviceType, 'photo', '服
 store.getState().addCourseToCurrentGroup({ date: '2026-11-01', price: 15123 })
 store.getState().finishCurrentGroupAndAddToCart()
 assert.equal(store.getState().cart.at(-1).serviceType, 'photo')
-assert.equal(JSON.parse(values.get('booking-storage')).state.cart.at(-1).serviceType, 'photo', '重新載入也須保留攝影類型')
+assert.equal(JSON.parse(values.get('booking-storage:snowland')).state.cart.at(-1).serviceType, 'photo', '重新載入也須保留攝影類型')

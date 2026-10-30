@@ -16,6 +16,7 @@ function setup(extra={}){
  const motion=new Proxy({},{get:(_,tag)=>p=>React.createElement(tag,{},p.children)})
  const ctx=vm.createContext({exports:{},window:{scrollY:0},require(name){
    if(name==='react')return react
+   if(name.includes('useClient'))return{useClientInfo:()=>({clientCode:'snowland',clientName:'SnowLand',clientInfo:null})}
    if(name.includes('contexts/SiteLocale'))return loadLocaleModule('contexts/SiteLocale.jsx')
    if(name==='./SiteLanguageSelect')return loadLocaleModule('components/site/SiteLanguageSelect.jsx')
    if(name==='react-router-dom')return{useLocation:()=>({pathname:'/snowland/contact'})}

@@ -30,71 +30,21 @@ from datetime import datetime, timedelta, date
 RUN_HOST = settings.RUN_HOST
 
 def login_required_control(func):
-    """
-    驗證用戶登錄狀態的裝飾器
-    - 檢查會話或 JWT，如果未登錄則根據請求類型返回錯誤或重定向
-    - 從會話中提取 client_sid 並傳遞給視圖函數
-    """
+    """Legacy views still require a real authenticated session, never an Email header."""
+    from functools import wraps
+
+    @wraps(func)
     def wrapper(request, *args, **kwargs):
-        client_sid = None
-        control_info = request.session.get('control')
-
-        # 優先從 JWT token 獲取
-        jwt_token = request.headers.get('jwt')
-        if jwt_token:
-            try:
-                client_sid = jwt_token.split('|')[1]
-                print(f'client_sid: {client_sid}')
-            except IndexError:
-                pass  # JWT 格式不正確
-
-        # 如果 JWT 沒有，再從 session 獲取
-        if not client_sid and control_info:
-            client_sid = control_info.get('client_sid')
-        
-        # 如果還是沒有，則檢查 Django 的標準登入狀態 (for booking page)
-        if not client_sid and request.user.is_authenticated:
-            client_sid = request.user.email
-            print(f'Authenticated via request.user: {client_sid}')
-
-        # 如果用戶未登入，根據請求類型處理
-        if not client_sid:
-            # 對於 API (AJAX) 請求，返回 JSON 錯誤並提供登入 URL
-            is_api_request = 'api/' in request.path or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-            if is_api_request:
-                # 使用 Referer header 來決定登入後要跳轉回哪個頁面
-                # 如果沒有 Referer，則預設跳轉回 booking 主頁
-                referer = request.headers.get('Referer')
-                next_url = referer or f"{RUN_HOST}/booking/"
-                login_url = f"{RUN_HOST}/accounts/google/login/?next={next_url}"
-                
-                return JsonResponse({
-                    'code': 401, 
-                    'msg': 'Authentication required. Please log in.',
-                    'login_url': login_url # 將登入 URL 返回給前端
-                }, status=401)
-            
-            # 對於一般頁面瀏覽，重定向到登入頁面
-            next_url = request.build_absolute_uri()
-            login_url = f"{settings.RUN_HOST}/accounts/google/login/?next={next_url}"
-            return redirect(login_url)
-
-        try:
-            # 獲取實際的User物件
-            user = User.objects.get(email=client_sid)
-            Client_Info = {
-                'client_sid': client_sid,
-                'user': user,
-                'user_profile': user.userprofile
-            }
-        except (User.DoesNotExist, UserProfile.DoesNotExist):
-            # 處理用戶不存在的情況
-            Client_Info = {'client_sid': client_sid, 'user': None} # 確保 user 鍵存在
-            
-        kwargs['Client_Info'] = Client_Info
-        return func(request, *args, **kwargs)
-    
+        if not request.user.is_authenticated:
+            return JsonResponse({'code':401,'msg':'請先登入'},status=401)
+        kwargs['Client_Info'] = {
+            'client_sid':request.user.email,
+            'user':request.user,
+            'user_profile':getattr(request.user,'userprofile',None),
+        }
+        return func(request,*args,**kwargs)
     return wrapper
+
 
 def rate_color(before,after):
     print(f'before: {before}, after: {after}')

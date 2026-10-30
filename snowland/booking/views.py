@@ -1,3 +1,4 @@
+from .tenant_scope import resort_for_course
 from django.shortcuts import render, get_object_or_404
 from django.http import Http404, HttpResponse, JsonResponse
 from django.views.decorators.http import require_GET
@@ -193,7 +194,7 @@ def calculate_price_api(request, Client_Info=None):
             )
         
         # 獲取雪場
-        resort = Resorts.objects.get(name=resort_name)
+        resort = resort_for_course(resort_name,client=getattr(request,'tenant',None))
         
         # 獲取價格策略
         from Coursekit.models import CoursePricing
@@ -243,7 +244,7 @@ def API(request, tunnel, Client_Info=None):
             # 2. 根據新的 'auto_scheduling_enabled' 欄位來判斷
             try:
                 # 先用傳入的名稱找到對應的 Resort 物件
-                resort_obj = Resorts.objects.get(name=resort_name)
+                resort_obj = resort_for_course(resort_name,client=getattr(request,'tenant',None))
                 print('resort_obj', resort_obj)
                 # 如果該雪場不啟用自動排課（即不提供教練），則直接返回空列表
                 if not resort_obj.auto_scheduling_enabled:

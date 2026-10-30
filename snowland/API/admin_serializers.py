@@ -1,3 +1,4 @@
+from Control.tenant_memberships import staff_profile, writable_staff_profile
 """
 後台管理用 Serializer
 跟前端使用的 serializer 不同，這些回傳完整資訊（含 nested 關聯）
@@ -83,7 +84,7 @@ class CampusAdminSerializer(TenantRelationValidationMixin, serializers.ModelSeri
         return [resort.display_name for resort in obj.resorts.all()]
 
     def get_staff_count(self, obj):
-        return obj.staff_profiles.count()
+        return obj.staff_memberships.filter(client_id=obj.client_id).count()
 
     def get_coach_count(self, obj):
         return obj.coaches.count()
@@ -513,7 +514,7 @@ class CoachAdminSerializer(serializers.ModelSerializer):
             if user_id:
                 if not User.objects.filter(pk=user_id).exists():
                     raise serializers.ValidationError({'user_id': '找不到此會員帳號'})
-                queryset = Coach.objects.filter(user_id=user_id)
+                queryset = Coach.objects.filter(user_id=user_id, client=client)
                 if self.instance:
                     queryset = queryset.exclude(pk=self.instance.pk)
                 existing_coach = queryset.first()
@@ -670,11 +671,11 @@ class CoachAdminSerializer(serializers.ModelSerializer):
         if not user_id:
             return
         try:
-            from Control.models import UserProfile
-            profile, _ = UserProfile.objects.get_or_create(user_id=user_id)
-            if not profile.is_coach:
-                profile.is_coach = True
-                profile.save(update_fields=['is_coach'])
+            profile = writable_staff_profile(User.objects.get(pk=user_id), self.context['request'].tenant)
+            profile.is_coach = True
+            if not profile.is_manager and not profile.role:
+                profile.role = 'coach'
+            profile.save()
         except Exception as exc:
             raise serializers.ValidationError({'user_id': f'會員已選擇，但開啟教練權限失敗：{exc}'})
 
@@ -754,9 +755,9 @@ class CoachLeaveRequestAdminSerializer(serializers.ModelSerializer):
 
     def get_review_block_reason(self, obj):
         request = self.context.get('request')
-        if not request or not user_has_admin_permission(request.user, 'coaches'):
+        if not request or not user_has_admin_permission(request.user, 'coaches', getattr(request, 'tenant', None)):
             return '沒有請假審核權限'
-        profile = getattr(request.user, 'userprofile', None)
+        profile = staff_profile(request.user, getattr(request, 'tenant', None))
         if not request.user.is_superuser and profile and profile.role == 'assistant':
             return '行政小幫手僅能查看請假紀錄'
         if obj.status != 'pending':
@@ -856,7 +857,7 @@ class ResortAdminSerializer(serializers.ModelSerializer):
     def get_can_manage(self, obj):
         request = self.context.get('request')
         return bool(request and (
-            user_has_admin_permission(request.user, 'resorts') and (
+            user_has_admin_permission(request.user, 'resorts', getattr(request, 'tenant', None)) and (
                 getattr(request, 'can_view_all_campuses', False) or sum(
                     campus.is_active for campus in obj.campuses.all()
                 ) == 1
@@ -1253,7 +1254,7 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
 
     def get_can_manage_payroll_hours(self, obj):
         request = self.context.get('request')
-        return self.get_can_manage(obj) and user_has_admin_permission(getattr(request, 'user', None), 'payroll')
+        return self.get_can_manage(obj) and user_has_admin_permission(getattr(request, 'user', None), 'payroll', getattr(request, 'tenant', None))
 
     def get_resort_names(self, obj):
         return [resort.display_name for resort in self._visible_resorts(obj)]
@@ -1275,7 +1276,7 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         tenant = getattr(request, 'tenant', None)
         if 'payroll_hours' in attrs and attrs['payroll_hours'] != getattr(self.instance, 'payroll_hours', None):
-            if not user_has_admin_permission(getattr(request, 'user', None), 'payroll'):
+            if not user_has_admin_permission(getattr(request, 'user', None), 'payroll', getattr(request, 'tenant', None)):
                 raise PermissionDenied('需要薪資管理權限才能修改計薪時數')
         course_type = attrs.get('course_type', getattr(self.instance, 'course_type', None))
         if not course_type or course_type.category.client_id != getattr(tenant, 'id', None):
@@ -1600,7 +1601,7 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
 
     def _visible_bookings(self, obj):
         request = self.context.get('request')
-        profile = getattr(getattr(request, 'user', None), 'userprofile', None)
+        profile = staff_profile(getattr(request, 'user', None), getattr(request, 'tenant', None))
         manager_window = bool(profile and profile.role == 'campus_manager')
         today = timezone.localdate() if manager_window else None
         limit = today + timedelta(days=10) if today else None
@@ -2070,14 +2071,14 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 
     def get_can_mark_complete(self, obj):
         request = self.context.get('request')
-        if not request or not user_has_admin_permission(request.user, 'insurance_records'):
+        if not request or not user_has_admin_permission(request.user, 'insurance_records', getattr(request, 'tenant', None)):
             return False
-        profile = getattr(request.user, 'userprofile', None)
+        profile = staff_profile(request.user, getattr(request, 'tenant', None))
         return request.user.is_superuser or not (profile and profile.role == 'assistant')
 
     def get_can_process_insurance(self, obj):
         request = self.context.get('request')
-        return bool(request and user_has_admin_permission(request.user, 'insurance_records'))
+        return bool(request and user_has_admin_permission(request.user, 'insurance_records', getattr(request, 'tenant', None)))
 
     def get_course_dates(self, obj):
         if obj.reservation.status in {'cancelled','deleted'}:
@@ -2086,7 +2087,7 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 
     def get_can_remind(self, obj):
         request = self.context.get('request')
-        return bool(request and user_has_admin_permission(request.user,'insurance_records')
+        return bool(request and user_has_admin_permission(request.user, 'insurance_records', getattr(request, 'tenant', None))
             and obj.reservation.status not in {'cancelled','deleted'})
 
 
@@ -2161,8 +2162,8 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
             return False
         if getattr(self.context.get('view'), 'coach_scoped', False):
             return True
-        profile = getattr(request.user, 'userprofile', None)
-        return user_has_admin_permission(request.user, 'evaluations') and (
+        profile = staff_profile(request.user, getattr(request, 'tenant', None))
+        return user_has_admin_permission(request.user, 'evaluations', getattr(request, 'tenant', None)) and (
             request.user.is_superuser or not (profile and profile.role == 'assistant')
         )
 
@@ -2317,8 +2318,9 @@ class StaffIncentiveRuleAdminSerializer(serializers.ModelSerializer):
             raise PermissionDenied('只能設定目前可管理校區的員工獎金')
         if not user or (not user.is_active and not disabling_existing):
             raise serializers.ValidationError({'user': '請選擇使用中的員工帳號'})
-        from Control.models import UserProfile
-        profile = UserProfile.objects.filter(user=user, manager_client=request.tenant, is_manager=True).first()
+        profile = staff_profile(user, request.tenant)
+        if profile and not profile.is_manager:
+            profile = None
         headquarters_roles = {'hq_admin', 'marketing', 'web_editor', 'insurance', 'assistant'}
         if not disabling_existing and (not profile or not (profile.role in headquarters_roles or profile.campuses.filter(pk=campus.pk).exists())):
             raise serializers.ValidationError({'user': '請選擇本公司且可管理此校區的員工'})

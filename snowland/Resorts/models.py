@@ -12,7 +12,6 @@ class Resorts(models.Model):
     )
     name = models.CharField(
         max_length=100,
-        unique=True,
         help_text="內部使用的英文或拼音名稱，例如 'Tomamu'"
     )
     display_name = models.CharField(
@@ -33,6 +32,7 @@ class Resorts(models.Model):
     class Meta:
         verbose_name = '雪場'
         verbose_name_plural = '雪場'
+        constraints = [models.UniqueConstraint(fields=['client','name'],name='unique_resort_name_per_client')]
 
 
 class Campus(models.Model):

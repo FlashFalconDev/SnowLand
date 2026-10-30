@@ -26,6 +26,7 @@ import SiteHeader from '@/components/site/SiteHeader'
 // @ts-ignore
 import SiteFooter from '@/components/site/SiteFooter'
 import BookingFlowPage from '@/pages/BookingFlowPage'
+import SchoolBookingGate from '@/components/booking/SchoolBookingGate'
 import AdminRoutes from '@/admin/AdminRoutes'
 import { ShoppingCart, User, LogOut, History, Award, Bot, Sliders } from 'lucide-react'
 import { useBookingStore } from '@/store/bookingStore'
@@ -246,8 +247,8 @@ function ClientRoutes() {
         <Route path="history" element={<HistoryPage />} />
 
         {/* 預約系統 — 官網風格 4 步流程（整合版） */}
-        <Route path="booking" element={<BookingFlowPage />} />
-        <Route path="booking/*" element={<BookingFlowPage />} />
+        <Route path="booking" element={<SchoolBookingGate><BookingFlowPage /></SchoolBookingGate>} />
+        <Route path="booking/*" element={<SchoolBookingGate><BookingFlowPage /></SchoolBookingGate>} />
 
         {/* 管理後台 — 給滑雪學校自己用 */}
         <Route path="console/*" element={<AdminRoutes />} />

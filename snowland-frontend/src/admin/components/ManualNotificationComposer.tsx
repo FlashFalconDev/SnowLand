@@ -1,3 +1,4 @@
+import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, X } from 'lucide-react'
@@ -34,7 +35,7 @@ export default function ManualNotificationComposer({ onClose, initialTarget }: {
   const [pending, setPending] = useState(false); const [error, setError] = useState('')
   const busy = useRef(false); const dialog = useRef<HTMLDivElement>(null)
   const errorRef = useRef<HTMLParagraphElement>(null)
-  const scope = localStorage.getItem('snowland_admin_campus_scope') || 'all'
+  const scope = localStorage.getItem(campusScopeKey(currentClientCode())) || 'all'
   const { data: targets = [], isFetching, isError, refetch } = useQuery({
     queryKey: ['admin', 'manual-notification-targets', scope, kind, search],
     queryFn: () => fetchNotificationTargets(kind, search), enabled: !preview && !initialTarget,

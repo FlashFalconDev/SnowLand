@@ -33,3 +33,23 @@ def payment_url_for_group(base_url, group):
     if not group.user_id:
         params['access_token'] = payment_access_token(group)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), parts.fragment))
+
+
+def school_payment_base_url(client):
+    """A shared deployment origin with an explicit school path, never a request Host."""
+    from django.conf import settings
+    from django.core.exceptions import ValidationError
+    from django.core.validators import URLValidator
+    value = settings.SNOWLAND_PUBLIC_PAYMENT_URL or ''
+    try:
+        URLValidator(schemes=['http','https'])(value)
+        parts = urlsplit(value)
+        parts.port
+        legacy = getattr(settings,'SNOWLAND_LEGACY_PAYMENT_CLIENT_CODE','snowland')
+        local = parts.scheme=='http' and parts.hostname in {'localhost','127.0.0.1','::1'}
+        if (not parts.hostname or (parts.scheme!='https' and not local) or parts.username or parts.password
+                or parts.query or parts.fragment or parts.path.rstrip('/') not in {f'/{legacy}/payment',f'/{client.internal_code}/payment'}):
+            raise ValueError('Invalid payment site')
+    except (ValueError,TypeError,ValidationError) as exc:
+        raise ValueError('付款頁網址尚未完成設定') from exc
+    return urlunsplit((parts.scheme,parts.netloc,f'/{client.internal_code}/payment','',''))

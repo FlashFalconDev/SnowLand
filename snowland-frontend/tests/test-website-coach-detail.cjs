@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm')
 const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
 const compile=source=>ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText
-const calls=[],api=vm.createContext({exports:{},URLSearchParams,window:{location:{pathname:'/snowland/coach/qa'}},localStorage:{getItem:()=>null},fetch:async url=>{calls.push(url);return{ok:true,json:async()=>({data:{list:[]}})}},require:name=>{if(name==='react')return{};throw new Error(name)}})
+const calls=[],api=vm.createContext({exports:{},URLSearchParams,window:{location:{pathname:'/snowland/coach/qa'}},localStorage:{getItem:()=>null},fetch:async url=>{calls.push(url);return{ok:true,json:async()=>({data:{list:[]}})}},require:name=>{if(name.includes('utils/tenant'))return require('./helpers/tenant-harness.cjs')({location:{pathname:'/snowland/coach/qa'}},{getItem:()=>null});if(name==='react')return{};throw new Error(name)}})
 vm.runInContext(compile(fs.readFileSync(path.join(root,'src/api/websiteCoaches.js'),'utf8')),api)
 const map=api.exports.websiteCoachDetail
 const row={id:7,name:'QA後端新教練',slug:'qa-new',image:'',coach_type:'單板',card_bio:'QA後端簡介',languages_text:'中文',certifications:[{text:'QA新證照'}],profile:{name:'不採用的舊姓名',image:'/old.jpg',cardBio:'舊簡介',sections:[{title:'教學理念',lines:['QA動態內容']},{title:'滑雪證照',lines:['舊證照']}],videos:[],reviews:[]}}

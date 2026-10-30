@@ -247,7 +247,7 @@ function MemberPickerModal({
   const enabled = submittedQuery.trim().length > 0
   const { data: members = [], isLoading, error } = useQuery({
     queryKey: ['admin', 'staff-picker', submittedQuery],
-    queryFn: () => fetchStaff(submittedQuery),
+    queryFn: () => fetchStaff(submittedQuery, true),
     enabled,
   })
 
@@ -257,7 +257,7 @@ function MemberPickerModal({
         <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 flex items-start justify-between gap-2 sm:px-6">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">選擇會員新增授權</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">已有 SnowLand 資料可用姓名搜尋；新員工請輸入完整 Email。</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">本校員工可用姓名搜尋；新增人員請輸入完整 Email。授權只適用於本校。</p>
           </div>
           <button
             onClick={onClose}

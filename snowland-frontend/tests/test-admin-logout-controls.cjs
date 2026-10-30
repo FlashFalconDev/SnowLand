@@ -10,10 +10,13 @@ function harness(response={ok:true,code:200},failure=false){
     fetch:async(...args)=>{calls.push(args);if(failure)throw Error('QA unavailable');return{ok:response.ok,json:async()=>response}},
     localStorage:{getItem:key=>key==='client_code'?'snowland':null,removeItem:key=>removed.push(key),setItem:(...args)=>stored.push(args)},
     setUser:v=>state.user=v,setLoading:v=>state.loading=v,setLogoutError:v=>state.error=v,setLoggingOut:v=>state.busy=v})
+  ctx.currentClientCode=require('./helpers/tenant-harness.cjs')({location},ctx.localStorage).currentClientCode
   vm.runInContext(ts.transpileModule(checkAuth.getText(ast)+'\n'+logout.getText(ast)+';this.logout=logout;this.check=checkAuth',{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,ctx)
   return{state,removed,stored,calls,location,ctx,run:target=>ctx.logout(target)}
 }
 ;(async()=>{
+  const publicHome=harness();publicHome.location.pathname='/';await publicHome.ctx.check();assert.equal(publicHome.calls.length,0);assert.equal(publicHome.state.user,null);assert.equal(publicHome.state.loading,false)
+
   for(const [response,failure] of [[{ok:false,code:403},false],[{ok:true,code:500},false],[{ok:true},false],[{ok:true,code:200},true]]){
     const ui=harness(response,failure);await ui.run('/snowland/console')
     assert.equal(ui.state.user,'original','failed Console logout must retain state and expose retry, not claim success')

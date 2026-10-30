@@ -48,8 +48,8 @@ export interface StaffMember {
   last_login: string | null
 }
 
-export async function fetchStaff(q?: string): Promise<StaffMember[]> {
-  const res = (await adminApi.get('/staff/', { params: q ? { q } : {} })) as any
+export async function fetchStaff(q?: string, invite = false): Promise<StaffMember[]> {
+  const res = (await adminApi.get('/staff/', { params: q ? { q, ...(invite ? { invite: 1 } : {}) } : {} })) as any
   return res.data?.list || []
 }
 

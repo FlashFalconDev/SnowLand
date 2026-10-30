@@ -1,3 +1,4 @@
+from booking.tenant_scope import resort_for_course
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
@@ -118,7 +119,7 @@ def calculate_price(request):
 
         # 獲取課程模板和雪場（用名稱查詢）
         template = CourseTemplate.objects.get(id=template_id)
-        resort = Resorts.objects.get(name=resort_name)
+        resort = resort_for_course(resort_name,template_id=template_id)
 
         # 獲取定價策略
         pricing = CoursePricing.objects.filter(

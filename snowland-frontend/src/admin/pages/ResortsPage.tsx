@@ -1,3 +1,4 @@
+import { useSiteLink } from '@/hooks/useSiteBasePath'
 /**
  * 雪場管理（接 API）
  */
@@ -339,6 +340,7 @@ function prepareEquipmentTimeSlots(slots: EquipmentAssistanceTimeSlot[] | undefi
 }
 
 export default function ResortsPage() {
+  const campusesUrl = useSiteLink('/console/campuses')
   const notify = useNotification()
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
@@ -442,7 +444,7 @@ export default function ResortsPage() {
       {createdResortName && (
         <div role="status" className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
           <span>「{createdResortName}」已建立，但尚未指派校區，因此不會出現在單一校區清單，也不能供客人新訂課。</span>
-          <Link to="/snowland/console/campuses" className="font-semibold underline underline-offset-2">前往指派校區</Link>
+          <Link to={campusesUrl} className="font-semibold underline underline-offset-2">前往指派校區</Link>
           <button type="button" onClick={() => setCreatedResortName(null)} className="ml-auto rounded px-2 py-1 hover:bg-blue-100 dark:hover:bg-blue-900/50" aria-label="關閉新雪場提示">關閉</button>
         </div>
       )}
@@ -498,11 +500,11 @@ export default function ResortsPage() {
                       <div className="mt-2 flex flex-wrap gap-2">
                         {resort.campus_assignments.map((campus) => <span key={campus.id} className={`rounded-md px-2 py-1 text-xs ${campus.is_active ? 'bg-white text-gray-700 dark:bg-gray-700 dark:text-gray-200' : 'border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300'}`}>{campus.name}{!campus.is_active && ' · 已停用'}</span>)}
                       </div>
-                      {!resort.campus_assignments.some((campus) => campus.is_active) && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">目前沒有使用中的校區，無法供新訂課。<Link to="/snowland/console/campuses" className="font-medium underline">前往設定</Link></p>}
+                      {!resort.campus_assignments.some((campus) => campus.is_active) && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">目前沒有使用中的校區，無法供新訂課。<Link to={campusesUrl} className="font-medium underline">前往設定</Link></p>}
                     </>
                   ) : (
                     <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                      尚未指派校區，<Link to="/snowland/console/campuses" className="font-medium underline">前往指派</Link>
+                      尚未指派校區，<Link to={campusesUrl} className="font-medium underline">前往指派</Link>
                     </p>
                   )}
                 </div>

@@ -1,3 +1,4 @@
+from .tenant_scope import resort_for_course
 import random
 from collections import defaultdict
 from datetime import datetime, time, timedelta
@@ -446,6 +447,9 @@ def coach_matches_course_template(coach, course_template, coach_course_level=Non
     if not course_template:
         return True
 
+    if coach.client_id != course_template.course_type.category.client_id:
+        return False
+
     if allowed_coach_ids is None:
         allowed_coach_ids = set(course_template.allowed_coaches.values_list('id', flat=True))
     if allowed_coach_ids and coach.pk not in allowed_coach_ids:
@@ -819,7 +823,7 @@ def check_availability_and_get_suggestions(courses):
     
     for course in courses:
         resort_name = course.get("resort")
-        resort = Resorts.objects.get(name=resort_name)
+        resort = resort_for_course(resort_name,template_id=course.get("courseTemplateId"),course_type_id=course.get("courseType"))
         
         # 收集所有請求的日期
         for slot in course.get("booking", []):
@@ -857,7 +861,7 @@ def check_availability_and_get_suggestions(courses):
     
     for course in courses:
         resort_name = course.get("resort")
-        resort = Resorts.objects.get(name=resort_name)
+        resort = resort_for_course(resort_name,template_id=course.get("courseTemplateId"),course_type_id=course.get("courseType"))
         
         # 再次直接傳遞參數
         language_name = course.get("language", "中文")

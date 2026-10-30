@@ -1,3 +1,4 @@
+import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -69,7 +70,7 @@ function useScopedCampuses() {
   const canManageCampuses = hasAdminPermission(adminMe?.user, 'campuses')
   const { data: managedCampuses = [] } = useQuery({ queryKey: ['admin', 'campuses'], queryFn: fetchCampuses, enabled: canManageCampuses })
   const allCampuses = canManageCampuses ? managedCampuses : (adminMe?.user?.campuses || [])
-  const selectedCampus = window.localStorage.getItem('snowland_admin_campus_scope') || 'all'
+  const selectedCampus = window.localStorage.getItem(campusScopeKey(currentClientCode())) || 'all'
   return {
     campuses: selectedCampus === 'all' ? allCampuses : allCampuses.filter(c => String(c.id) === selectedCampus),
     selectedCampus: selectedCampus === 'all' ? '' : selectedCampus,

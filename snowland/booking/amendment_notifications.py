@@ -19,10 +19,13 @@ def _order_path(group):
 
 
 def _order_url(group):
-    parts=urlsplit(settings.SNOWLAND_PUBLIC_PAYMENT_URL or '')
-    local=parts.scheme=='http' and parts.hostname in {'127.0.0.1','localhost','::1'}
-    if not (parts.scheme=='https' or local) or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment or parts.path.rstrip('/')!='/snowland/payment':return ''
-    return urlunsplit((parts.scheme,parts.netloc,'/snowland'+_order_path(group),'',''))
+    from .payment_access import school_payment_base_url
+    try:
+        parts=urlsplit(school_payment_base_url(group.client))
+    except ValueError:
+        return ''
+    return urlunsplit((parts.scheme,parts.netloc,'/'+group.client.internal_code+_order_path(group),'',''))
+
 
 
 def _content(row,event=None):

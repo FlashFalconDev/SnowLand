@@ -4,7 +4,7 @@ const code=ts.transpileModule(fs.readFileSync(path.join(root,'src/admin/api/axio
 function run(cookie){
   let send,options
   const context=vm.createContext({exports:{},document:{cookie},window:{location:{pathname:'/snowland/console/my/pending'}},localStorage:{getItem:()=>null},console,
-    require:()=>({default:{create:config=>{options=config;return{interceptors:{request:{use:callback=>send=callback},response:{use(){}}}}}}})})
+    require:name=>name.includes('utils/tenant')?require('./helpers/tenant-harness.cjs')({location:{pathname:'/snowland/console'}},{getItem:()=>null}):({default:{create:config=>{options=config;return{interceptors:{request:{use:callback=>send=callback},response:{use(){}}}}}}})})
   vm.runInContext(code,context)
   return{config:send({headers:{}}),options}
 }
