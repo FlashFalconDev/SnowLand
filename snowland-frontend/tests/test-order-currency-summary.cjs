@@ -1,6 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm')
 const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
-function compile(file,require){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{React,exports,require});return exports}
+function compile(file,require){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{React,exports,require:name=>name.includes('settlementPreview')?loadSettlement:require(name)});return exports}
+const loadSettlement=require('./helpers/settlement-harness.cjs')
 const loadSiteLocale=require('./helpers/site-locale-harness.cjs')
 const money=compile('src/components/booking/SettlementSummary.tsx',()=>loadSiteLocale(React))
 const panel=compile('src/admin/components/OrderCurrencySummary.tsx',name=>{assert.equal(name,'../../components/booking/SettlementSummary');return money}).default
@@ -10,6 +11,8 @@ assert.equal(panel({settlement:{...settlement,currency:'TWD'}}),null)
 const ready=panel({settlement}),readyHtml=renderToStaticMarkup(ready)
 assert.ok(readyHtml.includes('日幣 JPY ¥ 45,000'))
 assert.ok(readyHtml.includes('NT$ 10,000'))
+const usdHtml=renderToStaticMarkup(panel({settlement:{...settlement,currency:'USD',amount:31235,rate:'0.03123450'}}))
+assert.ok(usdHtml.includes('USD 312.35'))
 assert.ok(!readyHtml.includes('行政已核對收款：'))
 assert.ok(readyHtml.includes('不等於行政已核對收款'))
 assert.equal(find(ready,n=>n.type==='input'),null)

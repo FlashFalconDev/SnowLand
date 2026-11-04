@@ -161,6 +161,63 @@ class CustomerJourneyTests(TestCase):
         self.create_order({'currency':'JPY'},expected_status=400)
         self.assertFalse(ReservationGroup.objects.exists())
 
+    def _exercise_foreign_payment(self, currency, rate, expected_minor, expected_refund_minor):
+        settings_url = '/api/admin/snowland/payment-settings/'
+        options_url = '/booking/snowland/api/currency-options/'
+        account_url = '/api/admin/snowland/payment-accounts/'
+        config = {'jpy_enabled':False, 'jpy_per_twd':'', 'foreign_rates':{currency:rate}}
+        self.assertEqual(self.hq.put(settings_url, {'currency_settings':config}, format='json').status_code, 200)
+        self.assertEqual([row['code'] for row in self.api.get(options_url).data['currencies']], ['TWD'])
+        account = {'name':'QA外幣', 'currency':currency, 'bank_name':'QA銀行', 'bank_branch':'QA分行',
+                   'account_number':'QA-FOREIGN', 'account_holder':'QA戶名'}
+        self.assertEqual(self.hq.post(account_url, account, format='json').status_code, 201)
+        self.assertEqual([row['code'] for row in self.api.get(options_url).data['currencies']], ['TWD', currency])
+        self.create_order({'currency':currency,'currency_rate':'9'}, expected_status=400)
+        self.assertFalse(ReservationGroup.objects.exists())
+        self.day = timezone.localdate() + timedelta(days=20)
+        reservation = self.create_order({'currency':currency,'currency_rate':rate})
+        self.assertEqual(self.hq.put(settings_url, {'currency_settings':{**config,'foreign_rates':{}}}, format='json').status_code, 200)
+        self.assertEqual([row['code'] for row in self.api.get(options_url).data['currencies']], ['TWD'])
+        accepted = self.coach_api.post(f'/api/admin/snowland/coach/confirm/{reservation.pk}/', {'action':'accept'}, format='json')
+        self.assertEqual(accepted.status_code, 200, accepted.data)
+        info = self.api.get('/booking/snowland/api/payment-info/', {'reservation_group':reservation.group_id})
+        self.assertEqual(info.status_code, 200, info.data)
+        self.assertEqual((info.data['settlement']['currency'],info.data['settlement']['amount']), (currency,expected_minor))
+        self.assertEqual(info.data['payment_methods'], ['bank_transfer'])
+        self.assertEqual(info.data['bank_info']['bank_account_number'], 'QA-FOREIGN')
+        pay_url = '/booking/snowland/api/process-payment/'
+        pay = {'reservation_group_id':reservation.group_id,'sender_account':'12345','payment_type':'bank_transfer',
+               'currency':currency,'expected_amount':expected_minor}
+        self.assertEqual(self.api.post(pay_url, {**pay,'expected_amount':expected_minor-1}, format='json').status_code, 409)
+        self.assertEqual(self.api.post(pay_url, pay, format='json').status_code, 200)
+        order_url = f'/api/admin/snowland/orders/{reservation.group_id}/'
+        paid = {'action':'save','payment_status':'paid','payment_currency':currency,'payment_received_amount':expected_minor}
+        self.assertEqual(self.hq.patch(order_url, {**paid,'payment_currency':'TWD'}, format='json').status_code, 400)
+        self.assertEqual(self.hq.patch(order_url, paid, format='json').status_code, 200)
+        cancellation_url = f'/booking/snowland/api/member-cancellations/{reservation.group_id}/'
+        preview = self.api.get(cancellation_url).data
+        self.assertEqual(preview['handling_fee_amount'], 500)
+        self.assertEqual(preview['settlement']['refund_amount'], expected_refund_minor)
+        cancel = {'reason':'schedule','bank_name':'QA銀行','account_number':'QA-ONLY','account_holder':'QA戶名',
+                  'currency':currency,'expected_refund_amount':expected_refund_minor}
+        requested = self.api.post(cancellation_url, cancel, format='json')
+        self.assertEqual(requested.status_code, 201, requested.data)
+        review_url = f"/api/admin/snowland/cancellations/{requested.data['id']}/process/"
+        review = {'status':'approved','currency':currency,'expected_refund_amount':expected_refund_minor}
+        self.assertEqual(self.hq.post(review_url, {**review,'expected_refund_amount':expected_refund_minor+1}, format='json').status_code, 400)
+        self.assertEqual(self.hq.post(review_url, review, format='json').status_code, 200)
+        refunded = self.hq.post(review_url, {**review,'status':'refunded','confirmed_refund':True}, format='json')
+        self.assertEqual(refunded.status_code, 200, refunded.data)
+
+    def test_usd_checkout_and_cancellation_use_cents(self):
+        self._exercise_foreign_payment('USD', '0.0312345', 31235, 23426)
+
+    def test_hkd_checkout_and_cancellation_use_cents(self):
+        self._exercise_foreign_payment('HKD', '0.245678', 245678, 184259)
+
+    def test_cny_checkout_and_cancellation_use_cents(self):
+        self._exercise_foreign_payment('CNY', '0.215678', 215678, 161759)
+
     def test_jpy_checkout_rounds_half_yen_up_once_on_order_total(self):
         from Resorts.models import PaymentCurrencySettings
         PaymentCurrencySettings.objects.create(client=self.tenant,jpy_enabled=True,jpy_per_twd='4.50005')

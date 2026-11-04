@@ -70,16 +70,20 @@ class Campus(models.Model):
         return self.name
 
 
+PAYMENT_CURRENCIES = [('TWD', '台幣'), ('JPY', '日幣'), ('USD', '美元'), ('HKD', '港幣'), ('CNY', '人民幣')]
+
+
 class PaymentCurrencySettings(models.Model):
     client = models.OneToOneField('Client.Client', on_delete=models.CASCADE, related_name='payment_currency_settings')
     jpy_enabled = models.BooleanField(default=False, verbose_name='開放日幣匯款')
     jpy_per_twd = models.DecimalField(max_digits=17, decimal_places=8, null=True, blank=True, verbose_name='1台幣可換日幣')
+    foreign_rates = models.JSONField(default=dict, blank=True, verbose_name='其他匯款幣別與匯率')
     updated_at = models.DateTimeField(auto_now=True)
 
 
 class PaymentAccount(models.Model):
     """校區／雪場可用的收款帳戶。"""
-    currency = models.CharField(max_length=3, choices=[('TWD', '台幣'), ('JPY', '日幣')], default='TWD', verbose_name='收款幣別')
+    currency = models.CharField(max_length=3, choices=PAYMENT_CURRENCIES, default='TWD', verbose_name='收款幣別')
     client = models.ForeignKey(
         'Client.Client',
         on_delete=models.CASCADE,

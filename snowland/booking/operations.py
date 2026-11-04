@@ -183,8 +183,8 @@ def calculate_refund(group):
     handling_fee = Decimal(original_amount) * Decimal(policy.cancellation_fee_percent) / Decimal(100)
     refund_amount = max(Decimal(0), refundable - handling_fee).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
     requires_cash_review = outstanding_amendments(group).exists()
-    if (group.currency_snapshot or {}).get('currency')=='JPY':
-        from .currency import received_settlement_summary
+    from .currency import foreign_currency, received_settlement_summary
+    if foreign_currency((group.currency_snapshot or {}).get('currency')):
         receipt=received_settlement_summary(group)
         requires_cash_review=requires_cash_review or receipt is None or receipt['base_amount'] != original_amount
     result = {
@@ -286,15 +286,15 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
             raise ValueError('匯款訂單必須填寫退款銀行、帳號與戶名')
     from .currency import cancellation_settlement
     # Keep the quoted native amount; converting the rounded proportional TWD
-    # reversal back to JPY could change a yen on low-rate orders.
+    # reversal back to the original currency could change its smallest unit.
     settlement=(preview['settlement'] if preview.get('settlement') and manual_refund_amount is None and selected_rule_days_before is None
         else cancellation_settlement(group,values['original_amount'],None if values['requires_cash_review'] else values['refund_amount']))
     if settlement and 'refund_base_amount' in settlement:
         values['refund_amount']=settlement['refund_base_amount']
     if settlement:
         native_refund=settlement['refund_amount']
-        if currency!='JPY' or expected_refund_amount!=native_refund or (native_refund is not None and type(expected_refund_amount) is not int):
-            raise ValueError('日幣退款金額或幣別尚未確認，請重新載入最新試算後送出；這次未建立取消申請')
+        if currency!=settlement['currency'] or expected_refund_amount!=native_refund or (native_refund is not None and type(expected_refund_amount) is not int):
+            raise ValueError('原幣退款金額或幣別尚未確認，請重新載入最新試算後送出；這次未建立取消申請')
     elif currency not in (None,'TWD'):
         raise ValueError('此訂單是台幣，請重新確認退款幣別')
     cancellation = CancellationRequest.objects.create(

@@ -168,8 +168,10 @@ def payment(request, client_code):
         'paymentType': context['payment_type'], 'paymentStatus': context['payment_status'],
         'reservation_group_pk': str(group.pk), 'access_token': context['payment_access_token'],
     }
-    context['settlement_amount'] = context['payment_data']['expected_amount']
-    context['settlement_label'] = '日幣 JPY ¥' if context['payment_data']['currency'] == 'JPY' else '台幣 NT$'
+    from .currency import format_payment_amount
+    currency = context['payment_data']['currency']
+    context['settlement_amount'] = format_payment_amount(context['payment_data']['expected_amount'], currency)
+    context['settlement_label'] = {'TWD': '台幣 NT$', 'JPY': '日幣 JPY ¥'}.get(currency, currency)
     return render(request, 'booking/payment.html', context)
 
 @api_view(['GET'])

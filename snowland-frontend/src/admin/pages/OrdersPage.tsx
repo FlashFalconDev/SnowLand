@@ -20,7 +20,7 @@ import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
 import { settlementAmount } from '../../components/booking/SettlementSummary'
-import { quoteJpyPreview } from '../../utils/settlementPreview'
+import { formatPaymentValue, quoteJpyPreview } from '../../utils/settlementPreview'
 import { useAdminDialog } from '../hooks/useAdminDialog'
 
 const PRIMARY = '#8b5cf6'
@@ -312,12 +312,12 @@ function FullOrdersPage() {
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div className="min-w-0"><div className="text-xs text-gray-500 dark:text-gray-400">學員</div><div className="truncate font-medium text-gray-900 dark:text-white">{order.user_name}</div></div>
-                    <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">{settlementAmount(order.settlement,order.total_fee || 0)}</div>{order.settlement?.currency==='JPY'&&<div className="text-xs text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</div>
+                    <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">{settlementAmount(order.settlement,order.total_fee || 0)}</div>{order.settlement&&order.settlement.currency!=='TWD'&&<div className="text-xs text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</div>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
                   {order.cancellation?.status === 'requested' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">申請取消・待審核</span>}
-                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString()}</span>}
+                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</span>}
                   <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
                 </div>
               </div>
@@ -370,13 +370,13 @@ function FullOrdersPage() {
                           </>
                         ) : '—'}
                       </td>
-                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{settlementAmount(order.settlement,order.total_fee || 0)}{order.settlement?.currency==='JPY'&&<div className="text-xs font-normal text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</td>
+                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{settlementAmount(order.settlement,order.total_fee || 0)}{order.settlement&&order.settlement.currency!=='TWD'&&<div className="text-xs font-normal text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</td>
                       <td className="px-5 py-3 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
                       </td>
                       <td className="px-5 py-3 hidden md:table-cell whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
-                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString()}</div>}
+                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</div>}
                       </td>
                       <td className="px-5 py-2 text-right">
                         <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"><Eye size={16} /></button>
@@ -565,7 +565,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(order.payment_status)
   const [editing, setEditing] = useState(false)
   const [jpyReceiptConfirmed,setJpyReceiptConfirmed]=useState(false)
-  const requiresJpyReceipt=paymentStatus==='paid'&&order.payment_status!=='paid'&&order.settlement?.currency==='JPY'
+  const requiresJpyReceipt=paymentStatus==='paid'&&order.payment_status!=='paid'&&order.settlement&&order.settlement.currency!=='TWD'
   useEffect(()=>{setJpyReceiptConfirmed(false)},[order.id,order.payment_status,order.settlement?.amount,editing])
   const [groupLinkDraft, setGroupLinkDraft] = useState(order.line_group_url || '')
   const [groupLinkError, setGroupLinkError] = useState('')
@@ -616,10 +616,10 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const displayedRefund = refundChoice === 'manual' ? (manualRefundValid ? Number(manualRefund) : null) : selectedRule && refundPreview
     ? Math.max(0, Math.round(refundPreview.original_amount * (selectedRule.refund_percent - Number(refundPreview.handling_fee_percent)) / 100))
     : (refundPreview?.refund_amount ?? null)
-  const nativeRefund=refundPreview?.settlement?.currency==='JPY'&&displayedRefund!==null
-    ? quoteJpyPreview([displayedRefund],[0],refundPreview.settlement.rate,true)?.amounts[0]??null:null
-  const refundLabel=refundPreview?.settlement?.currency==='JPY'
-    ? nativeRefund===null?'請確認日幣退款金額':`日幣 JPY ¥ ${nativeRefund.toLocaleString()}`
+  const nativeRefund=refundPreview?.settlement&&displayedRefund!==null
+    ? quoteJpyPreview([displayedRefund],[0],refundPreview.settlement.rate,true,refundPreview.settlement.currency)?.amounts[0]??null:null
+  const refundLabel=refundPreview?.settlement
+    ? nativeRefund===null?'請確認原幣退款金額':formatPaymentValue(nativeRefund,refundPreview.settlement.currency)
     : displayedRefund===null?'請輸入有效金額':`NT$ ${displayedRefund.toLocaleString()}`
   const [emailForm, setEmailForm] = useState({
     recipient_email: order.user_email || '',
@@ -683,7 +683,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
       notify.error('無法自動複製；請點連結欄位後按 Ctrl+C')
     }
   }
-  const cancelMutation = useMutation({ mutationFn: () => requestOrderCancellation(order.id, { reason: cancelForm.reason, reason_note: cancelForm.reason_note, refund_bank: { bank_name: cancelForm.bank_name, account_number: cancelForm.account_number, account_holder: cancelForm.account_holder,overseas_details:cancelForm.overseas_details }, ...(refundPreview?.settlement?.currency==='JPY'?{currency:'JPY' as const,expected_refund_amount:refundPreview.requires_cash_review?null:nativeRefund}:{}),...(!refundPreview?.requires_cash_review && refundChoice === 'manual' ? { manual_refund_amount: Number(manualRefund) } : !refundPreview?.requires_cash_review && refundChoice.startsWith('rule:') ? { selected_rule_days_before: Number(refundChoice.slice(5)) } : {}) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); setCancelOpen(false); notify.success('取消申請已建立，請到訂單內確認退款金額') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '建立取消申請失敗') })
+  const cancelMutation = useMutation({ mutationFn: () => requestOrderCancellation(order.id, { reason: cancelForm.reason, reason_note: cancelForm.reason_note, refund_bank: { bank_name: cancelForm.bank_name, account_number: cancelForm.account_number, account_holder: cancelForm.account_holder,overseas_details:cancelForm.overseas_details }, ...(refundPreview?.settlement?{currency:refundPreview.settlement.currency,expected_refund_amount:refundPreview.requires_cash_review?null:nativeRefund}:{}),...(!refundPreview?.requires_cash_review && refundChoice === 'manual' ? { manual_refund_amount: Number(manualRefund) } : !refundPreview?.requires_cash_review && refundChoice.startsWith('rule:') ? { selected_rule_days_before: Number(refundChoice.slice(5)) } : {}) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'orders'] }); setCancelOpen(false); notify.success('取消申請已建立，請到訂單內確認退款金額') }, onError: (e: any) => notify.error(e?.response?.data?.msg || '建立取消申請失敗') })
   const cancelDialog=useAdminDialog(cancelOpen,cancelMutation.isPending,()=>setCancelOpen(false))
   const completeCourse = useMutation({
     mutationFn: (reservationId: number) => completeOrderCourse(order.id, reservationId),
@@ -720,7 +720,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
       return updateOrder(order.id, {
         action,
         payment_status: paymentStatus !== order.payment_status ? paymentStatus : undefined,
-        payment_currency:requiresJpyReceipt&&jpyReceiptConfirmed?'JPY':undefined,
+        payment_currency:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.currency:undefined,
         payment_received_amount:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.amount:undefined,
         reservation_updates: updates,
         booking_updates: bookingUpdates,
@@ -810,7 +810,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
           </div>
-          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString('zh-TW')}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
+          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
           {!readOnly&&<AmendmentBalancesPanel orderId={order.id} cancellationStatus={order.cancellation?.status}/>}
 
           <section>
@@ -1084,7 +1084,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
 </div>
 <div className="space-y-4 overflow-y-auto p-6">{refundPreview && <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300">
 <b className="text-lg">{refundPreview.requires_cash_review?'退款金額待核對實收款':`預計退款 ${refundLabel}`}</b>
-{refundPreview.settlement&&<p className="mt-2 text-xs leading-6">沿用訂單匯率1 TWD＝{refundPreview.settlement.rate} JPY；台幣退款基準 {displayedRefund===null?'待核對':`NT$ ${displayedRefund.toLocaleString()}`}。實際退日幣，不是另退台幣。</p>}
+{refundPreview.settlement&&<p className="mt-2 text-xs leading-6">沿用訂單匯率1 TWD＝{refundPreview.settlement.rate} {refundPreview.settlement.currency}；台幣退款基準 {displayedRefund===null?'待核對':`NT$ ${displayedRefund.toLocaleString()}`}。退款以原幣金額為準。</p>}
 <p className="mt-1">{refundPreview.requires_cash_review ? '訂單有未結清差額。先建立取消申請，再核對原款、已收補款與已退款；不會自動算入尚未收款的補款。' : refundChoice === 'manual' ? '特殊金額，請在補充說明記錄原因' : `距課程 ${refundPreview.days_before} 天 · 退 ${selectedRule?.refund_percent ?? refundPreview.refund_percent}% · 再扣原價的 ${refundPreview.handling_fee_percent}% 手續費`}</p>
 </div>}<div>
 {cancelMutation.isError&&<p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">{(cancelMutation.error as any)?.response?.data?.msg||'建立取消申請失敗；請保留草稿，重新確認最新試算後再操作。'}</p>}
@@ -1111,11 +1111,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
 <input aria-label="退款銀行" disabled={cancelMutation.isPending} maxLength={100} className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款銀行" value={cancelForm.bank_name} onChange={e => setCancelForm({ ...cancelForm, bank_name: e.target.value })} />
 <input aria-label="退款帳號" disabled={cancelMutation.isPending} maxLength={100} className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款帳號" value={cancelForm.account_number} onChange={e => setCancelForm({ ...cancelForm, account_number: e.target.value })} />
 <input aria-label="退款戶名" disabled={cancelMutation.isPending} maxLength={100} className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="退款戶名" value={cancelForm.account_holder} onChange={e => setCancelForm({ ...cancelForm, account_holder: e.target.value })} />
-{refundPreview?.settlement?.currency==='JPY'&&<label className="block text-sm text-gray-700 dark:text-gray-300">海外退款資料（選填）<textarea disabled={cancelMutation.isPending} maxLength={1000} value={cancelForm.overseas_details} onChange={e=>setCancelForm({...cancelForm,overseas_details:e.target.value})} className="mt-1 min-h-24 w-full rounded-lg border border-gray-200 bg-gray-50 p-3 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"/></label>}
+{refundPreview?.settlement&&<label className="block text-sm text-gray-700 dark:text-gray-300">海外退款資料（選填）<textarea disabled={cancelMutation.isPending} maxLength={1000} value={cancelForm.overseas_details} onChange={e=>setCancelForm({...cancelForm,overseas_details:e.target.value})} className="mt-1 min-h-24 w-full rounded-lg border border-gray-200 bg-gray-50 p-3 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"/></label>}
 </div>}</div>
 <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
 <button disabled={cancelMutation.isPending} onClick={() => setCancelOpen(false)} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">返回</button>
-<button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending || cancellationBlocked || !refundPreview || (refundPreview.settlement?.currency==='JPY'&&!refundPreview.requires_cash_review&&nativeRefund===null) || ((refundPreview.requires_cash_review || !['newebpay','credit_card','apple_pay','google_pay'].includes(order.payment_method)) && ![cancelForm.bank_name,cancelForm.account_number,cancelForm.account_holder].every(value=>value.trim())) || (!refundPreview?.requires_cash_review && refundChoice === 'manual' && !manualRefundValid)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{cancelMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認建立取消申請</button>
+<button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending || cancellationBlocked || !refundPreview || (refundPreview.settlement&&!refundPreview.requires_cash_review&&nativeRefund===null) || ((refundPreview.requires_cash_review || !['newebpay','credit_card','apple_pay','google_pay'].includes(order.payment_method)) && ![cancelForm.bank_name,cancelForm.account_number,cancelForm.account_holder].every(value=>value.trim())) || (!refundPreview?.requires_cash_review && refundChoice === 'manual' && !manualRefundValid)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{cancelMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認建立取消申請</button>
 </div>
 </div>
 </div>}

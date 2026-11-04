@@ -7,6 +7,7 @@ from rest_framework.exceptions import PermissionDenied
 from API.manual_notifications import NotificationConflict
 from API.order_amendments import StrictInput, WholeNumber, amendment_digest
 from Client.models import Client
+from .currency import PAYMENT_CURRENCY_CODES, foreign_currency
 from .models import OrderAmendment, OrderAmendmentEvent, ReservationGroup
 
 
@@ -26,7 +27,7 @@ class BalanceActionInput(StrictInput):
     bank=RefundAccountInput(required=False)
     note=serializers.CharField(max_length=1000,required=False)
     confirmed=serializers.BooleanField(required=False)
-    currency=serializers.ChoiceField(choices=['TWD','JPY'],required=False)
+    currency=serializers.ChoiceField(choices=PAYMENT_CURRENCY_CODES,required=False)
     expected_amount=WholeNumber(min_value=0,max_value=9007199254740991,required=False)
 
 
@@ -69,9 +70,9 @@ def process_balance(group, actor, data, *, staff=False, scope=None):
         raise NotificationConflict('訂單已有取消／退款流程，請先由 SnowLand 核對，不會重複處理差額')
     if row.updated_at!=data['expected_updated_at']:raise NotificationConflict('差額狀態已更新，請重新載入後核對')
     settlement=row.currency_snapshot or {}
-    if settlement.get('currency')=='JPY':
-        if data.get('currency')!='JPY' or data.get('expected_amount')!=abs(settlement['balance_amount']):
-            raise NotificationConflict('請重新核對本筆日幣差額的幣別及金額；這次未記錄收退款')
+    if foreign_currency(settlement.get('currency')):
+        if data.get('currency')!=settlement['currency'] or data.get('expected_amount')!=abs(settlement['balance_amount']):
+            raise NotificationConflict('請重新核對本筆差額的原幣及金額；這次未記錄收退款')
     elif data.get('currency','TWD')!='TWD':
         raise NotificationConflict('此差額是台幣，請重新載入確認幣別後再處理')
     action=data['action'];old=row.status
@@ -103,7 +104,7 @@ def process_balance(group, actor, data, *, staff=False, scope=None):
     row.save(update_fields=['status','topup_reference','refund_bank','updated_at','settled_at','settled_by'])
     payload={key:data[key] for key in ['reference','bank','note'] if key in data}
     if settlement:
-        payload['settlement']={'currency':'JPY','amount':abs(settlement['balance_amount']),'rate':settlement['rate'],
+        payload['settlement']={'currency':settlement['currency'],'amount':abs(settlement['balance_amount']),'rate':settlement['rate'],
             'base_currency':'TWD','base_amount':abs(row.balance_amount),'recorded_at':timezone.now().isoformat()}
     try:
         with transaction.atomic():

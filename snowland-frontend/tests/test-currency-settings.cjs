@@ -7,6 +7,7 @@ function labelControl(tree,label,type){const node=find(tree,n=>n.type==='label'&
 function setup({failure=false,authorityError=false,company=true,busy=false}={}){
  const states=[],calls=[];let index=0,retries=0
  const context=vm.createContext({React,exports:{},require(name){
+  if(name.includes('settlementPreview'))return require('./helpers/settlement-harness.cjs')
   if(name==='react')return{...React,useEffect(){},useState(initial){const slot=index++;if(!(slot in states))states[slot]=typeof initial==='function'?initial():initial;return[states[slot],value=>states[slot]=typeof value==='function'?value(states[slot]):value]}}
   if(name==='@tanstack/react-query')return{useQuery(options){return options.queryKey.join('/')==='admin/me'?{data:authorityError?undefined:{user:{can_view_all_campuses:company,assigned_campus_ids:[1]}},isSuccess:!authorityError,isError:authorityError,isPending:false,refetch(){retries++}}:{data:undefined,isLoading:false}},useQueryClient:()=>({invalidateQueries(){}}),useMutation(options){return{isPending:busy,async mutate(payload){try{const result=await options.mutationFn(payload);options.onSuccess?.(result)}catch(error){options.onError?.(error)}}}}}
   if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})

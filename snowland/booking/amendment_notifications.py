@@ -29,10 +29,13 @@ def _order_url(group):
 
 
 def _content(row,event=None):
+    from .currency import foreign_currency, format_payment_amount
     settlement=row.currency_snapshot or {}
-    native=settlement.get('currency')=='JPY'
+    currency=settlement.get('currency')
+    native=foreign_currency(currency)
     balance_amount=settlement['balance_amount'] if native else row.balance_amount
-    amount=f'JPY ¥ {abs(balance_amount):,}' if native else f'NT$ {abs(balance_amount):,}'
+    label='JPY ¥' if currency=='JPY' else currency
+    amount=f'{label} {format_payment_amount(abs(balance_amount),currency)}' if native else f'NT$ {abs(balance_amount):,}'
     if event:
         title,text={
             'report_topup':('補款資料已收到',f'已收到您回報的補款資料，金額{amount}。目前等待 SnowLand 核對，請勿重複匯款。'),
@@ -48,7 +51,10 @@ def _content(row,event=None):
         elif not balance_amount:balance='目前沒有待收退差額。'
         text=f'原訂單金額：NT$ {row.previous_total:,}\n新訂單金額：NT$ {row.new_total:,}\n本次價差：NT$ {row.difference_amount:+,}\n待收退差額：{amount}\n{balance}'
         if native:
-            text=f'台幣計價基準\n{text}\n日幣原總額：JPY ¥ {settlement["previous_total"]:,}\n日幣新總額：JPY ¥ {settlement["new_total"]:,}\n本次日幣價差：JPY ¥ {settlement["difference_amount"]:+,}\n沿用訂單匯率1 TWD＝{settlement["rate"]} JPY，請勿把台幣基準當成另一筆應付金額。'
+            text=(f'台幣計價基準\n{text}\n原總額：{label} {format_payment_amount(settlement["previous_total"],currency)}'
+                  f'\n新總額：{label} {format_payment_amount(settlement["new_total"],currency)}'
+                  f'\n本次價差：{label} {format_payment_amount(settlement["difference_amount"],currency)}'
+                  f'\n沿用訂單匯率1 TWD＝{settlement["rate"]} {currency}，請勿把台幣基準當成另一筆應付金額。')
         for reservation in row.revision.snapshot.get('reservations',[]):
             if reservation.get('status') in {'cancelled','deleted'}:continue
             for booking in reservation.get('bookings',[]):

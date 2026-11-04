@@ -5,6 +5,7 @@ import re
 from datetime import date, datetime
 
 from django.core import signing
+from django.utils import timezone
 from rest_framework import serializers
 
 from Coach.models import Coach
@@ -30,7 +31,7 @@ class WholeNumber(serializers.IntegerField):
 
 
 class AmendmentCourseInput(StrictInput):
-    booking_id=WholeNumber(min_value=1)
+    booking_id=WholeNumber(min_value=1,required=False,allow_null=True)
     template_id=WholeNumber(min_value=1)
     date=serializers.DateField()
     start_time=serializers.TimeField()
@@ -48,6 +49,7 @@ class AmendmentItemInput(StrictInput):
     discount_amount=WholeNumber(min_value=0,required=False)
     retained_member_ids=serializers.ListField(child=WholeNumber(min_value=1),required=False,allow_empty=True)
     ability_level_counts=serializers.DictField(child=WholeNumber(min_value=0),required=False)
+    removed_booking_ids=serializers.ListField(child=WholeNumber(min_value=1),required=False,max_length=100)
     courses=AmendmentCourseInput(many=True,allow_empty=False,max_length=100)
 
 
@@ -61,6 +63,11 @@ def _seconds(start,end):
 
 def _fail(message):
     raise serializers.ValidationError({'changes':message})
+
+
+def _can_remove_booking(booking, now):
+    return ((booking.date, booking.start_time) > (now.date(), now.time())
+        and not booking.evaluations.exists() and not booking.payroll_lines.exists())
 
 
 def _configured_addons(resort,coach,template,people,equipment):
@@ -101,22 +108,28 @@ def _quote_item(group,reservation,change):
         if not coach or language not in coach.languages:
             _fail('這位教練不符合校區、雪場、語言或開放指定條件')
     existing={booking.pk:booking for booking in reservation.bookings.all()}
-    ids=[course['booking_id'] for course in change['courses']]
+    removed_ids=change.get('removed_booking_ids',[])
+    ids=[course['booking_id'] for course in change['courses'] if course.get('booking_id') is not None]+removed_ids
     if len(set(ids))!=len(ids) or set(ids)!=set(existing):
-        _fail('請完整列出這組原有課程，不可混入其他訂單、重複或漏掉課程')
-    same_price_basis=(people==reservation.number_of_people and language==reservation.language and equipment==reservation.equipment
+        _fail('請明確保留或移除每一堂原有課程，不可混入其他訂單、重複或漏掉課程')
+    now=timezone.localtime()
+    if any(not _can_remove_booking(existing[pk],now) for pk in removed_ids):
+        _fail('已開課、已有評量或已進入薪資紀錄的堂次不能移除')
+    same_price_basis=(not removed_ids and people==reservation.number_of_people and language==reservation.language and equipment==reservation.equipment
         and specified==reservation.is_preferred_coach and (not specified or coach_id==reservation.preferred_coach_id))
     courses=[];templates=[]
     for item in change['courses']:
-        booking=existing[item['booking_id']]
+        booking=existing.get(item.get('booking_id'))
         template=CourseTemplate.objects.select_related('course_type__category').prefetch_related('resorts','allowed_coaches','sessions').filter(
             pk=item['template_id'],course_type__category__client=group.client,course_type_id=reservation.course_type_id).first()
         if not template or (template.resorts.exists() and not template.resorts.filter(pk=reservation.resort_id).exists()):
             _fail('課程模板不屬於此公司、課程類型或雪場')
         if item['end_time']<=item['start_time']:_fail('課程結束時間必須晚於開始時間')
         duration=_seconds(item['start_time'],item['end_time'])
-        old_duration=_seconds(booking.start_time,booking.end_time)
-        unchanged_template=template.pk==(booking.course_template_id or reservation.course_template_id)
+        old_duration=_seconds(booking.start_time,booking.end_time) if booking else None
+        unchanged_template=booking is not None and template.pk==(booking.course_template_id or reservation.course_template_id)
+        if booking is None and (item['date'],item['start_time'])<=(now.date(),now.time()):
+            _fail('新加堂次須安排在未來的上課時段')
         allowed={template.duration_hours*3600,*(_seconds(session.start_time,session.end_time) for session in template.sessions.all() if session.is_active)}
         if duration not in allowed and not (unchanged_template and duration==old_duration):
             _fail('追加時數須選擇已設定時長與價格的課程模板，不會依時數猜測或免費加時')
@@ -128,7 +141,12 @@ def _quote_item(group,reservation,change):
         if coach and (not coach_matches_course_template(coach,template) or template.allowed_coaches.exists() and not template.allowed_coaches.filter(pk=coach.pk).exists()):
             _fail('指定教練不符合這個課程模板的等級或名單')
         same_price_basis=same_price_basis and unchanged_template and item['date']==booking.date and duration==old_duration
-        templates.append(template);courses.append({**item,'template_name':template.name})
+        templates.append(template);courses.append({**item,'booking_id':booking.pk if booking else None,'template_name':template.name})
+    dates_changed=bool(removed_ids) or any(course['booking_id'] is None for course in courses)
+    if dates_changed:
+        ordered=sorted((course['date'],course['start_time'],course['end_time']) for course in courses)
+        if any(left[0]==right[0] and left[2]>right[1] for left,right in zip(ordered,ordered[1:])):
+            _fail('同一組的上課時段不可重疊')
     old_discount=int(reservation.discount_amount or 0)
     discount=change.get('discount_amount',old_discount)
     try:
@@ -151,11 +169,12 @@ def _quote_item(group,reservation,change):
             language=language,equipment_value=equipment,people_count=people,bookings_count=len(courses),course_template=representative)
     subtotal=course_fee+coach_fee+language_fee+equipment_fee
     if discount>subtotal:_fail('原折抵金額超過修改後總價，請先核對並調整折抵金額')
-    changed_documents=any(course['date']!=existing[course['booking_id']].date or course['template_id']!=(existing[course['booking_id']].course_template_id or reservation.course_template_id) for course in courses)
+    changed_documents=dates_changed or any(course['date']!=existing[course['booking_id']].date or course['template_id']!=(existing[course['booking_id']].course_template_id or reservation.course_template_id) for course in courses)
     retained=change.get('retained_member_ids')
     reviewed_members=[member for member in reservation.members.all() if retained is None or member.pk in retained] if changed_documents else []
     return {'reservation_id':reservation.pk,'number_of_people':people,'language':language,'equipment':equipment,
-        'is_preferred_coach':specified,'preferred_coach_id':coach_id,'courses':courses,'course_fee':course_fee,'coach_fee':coach_fee,
+        'is_preferred_coach':specified,'preferred_coach_id':coach_id,'courses':courses,'removed_booking_ids':removed_ids,
+        'course_documents_changed':changed_documents,'course_fee':course_fee,'coach_fee':coach_fee,
         'language_fee':language_fee,'equipment_fee':equipment_fee,'discount_amount':discount,'previous_amount':reservation.payment_amount,
         'new_amount':subtotal-discount,'price_basis_changed':not same_price_basis,
         'participant_review_required':people!=reservation.number_of_people,
@@ -173,6 +192,7 @@ def amendment_editor_options(group):
     from django.db.models import Q
     from Resorts.models import EquipmentAssistanceTimeSlot
     result=[]
+    now=timezone.localtime()
     for reservation in group.reservations.select_related('resort','course_type').prefetch_related('bookings','members'):
         bookings=list(reservation.bookings.all())
         current_templates={booking.course_template_id or reservation.course_template_id for booking in bookings}
@@ -189,7 +209,7 @@ def amendment_editor_options(group):
             'is_preferred_coach':reservation.is_preferred_coach,'preferred_coach_id':reservation.preferred_coach_id if reservation.is_preferred_coach else None,
             'discount_amount':reservation.discount_amount,'ability_level_counts':reservation.ability_level_counts or {reservation.max_ability_level or 'no_exp':reservation.number_of_people},
             'members':[{'id':member.pk,'name':member.display_name} for member in reservation.members.all()],
-            'courses':[{'booking_id':booking.pk,'template_id':booking.course_template_id or reservation.course_template_id,
+            'courses':[{'booking_id':booking.pk,'can_remove':_can_remove_booking(booking,now),'template_id':booking.course_template_id or reservation.course_template_id,
                 'date':str(booking.date),'start_time':str(booking.start_time)[:5],'end_time':str(booking.end_time)[:5]} for booking in bookings],
             'templates':[{'id':template.pk,'name':template.name,'is_active':template.is_active,'duration_hours':template.duration_hours,
                 'minimum_group_size':template.minimum_group_size,'max_capacity':template.max_capacity,

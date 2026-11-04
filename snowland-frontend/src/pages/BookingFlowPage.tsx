@@ -882,8 +882,8 @@ export default function BookingFlowPage() {
   const discountPreview = discountPreviewResult?.key === discountPreviewKey
     ? discountPreviewResult.preview
     : null
-  const jpyPreview=useMemo(()=>currencyQuote.currency==='JPY'&&discountPreview
-    ? quoteJpyPreview(discountPreview.item_subtotals,discountPreview.item_discount_amounts,currencyQuote.rate):null,
+  const jpyPreview=useMemo(()=>currencyQuote.currency!=='TWD'&&discountPreview
+    ? quoteJpyPreview(discountPreview.item_subtotals,discountPreview.item_discount_amounts,currencyQuote.rate,false,currencyQuote.currency):null,
     [currencyQuote.currency,currencyQuote.rate,discountPreview])
 
   // 排課失敗 modal 狀態
@@ -1506,7 +1506,7 @@ export default function BookingFlowPage() {
       if (createdReservationIds.length > 0 && !submittedReservation) return false
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
-        if(currencyQuote.currency==='JPY'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading))return false
+        if(currencyQuote.currency!=='TWD'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading))return false
         if (hasUnconfirmedCartPrice(cart)) return false
         return cart.length > 0 && !!contactInfo.name.trim() && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
       }
@@ -1941,7 +1941,7 @@ export default function BookingFlowPage() {
 
   // Step 3a：送出訂單；成功後抓付款資訊，停留在 Step 3 進入付款區塊
   const submitBooking = async () => {
-    if(currencyQuote.currency==='JPY'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading)){showToast('請先確認日幣匯率與試算金額，或改選台幣。','warning');return}
+    if(currencyQuote.currency!=='TWD'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading)){showToast('請先確認匯率與試算金額，或改選台幣。','warning');return}
     if (cart.length === 0) {
       showToast('購物車是空的', 'warning')
       return
@@ -2021,7 +2021,7 @@ export default function BookingFlowPage() {
       } else if (isTimeoutError(e)) {
         showToast('預約處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
       } else {
-        if(currencyQuote.currency==='JPY'){setCurrencyReloadKey(value=>value+1);setPriceRetryKey(value=>value+1)}
+        if(currencyQuote.currency!=='TWD'){setCurrencyReloadKey(value=>value+1);setPriceRetryKey(value=>value+1)}
         showToast(t('預約失敗：{message}',{message:t(getPriceErrorMessage(e, '請重新確認課程或聯絡客服'))}), 'error')
       }
     } finally {
@@ -3626,11 +3626,10 @@ function Step3Confirmation({
     ? submittedReservation.total_amount
     : (discountPreview?.total ?? Math.max(cartSubtotal - discountTotal, 0))
   const isPaid = !!submittedReservation
-  const currencyIsJpy=submittedReservation
-    ? submittedReservation.payment_infos.length>0&&submittedReservation.payment_infos.every((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.currency==='JPY')
-    : currencyQuote?.currency==='JPY'
+  const paymentCurrency = submittedReservation ? submittedReservation.payment_infos[0]?.settlement?.currency || 'TWD' : currencyQuote.currency
+  const currencyIsJpy=paymentCurrency!=='TWD'
   const actualJpyTotal=submittedReservation&&currencyIsJpy
-    ? sumJpyAmounts(submittedReservation.payment_infos.map((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.amount)):null
+    ? sumJpyAmounts(submittedReservation.payment_infos.map((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.currency===paymentCurrency?info.settlement?.amount:null),paymentCurrency):null
   const canEditCart = !isPaid && !staffSelectedCart
   const isSharedClassCart = cart.some((group: CartItem) =>
     group.courses?.some((course) => course.sharedClassEnabled),
@@ -4012,18 +4011,18 @@ function Step3Confirmation({
         {!isPaid && <CurrencySelection clientCode={clientCode} value={currencyQuote} onChange={setCurrencyQuote} onReadyChange={onCurrencyReady} reloadKey={currencyReloadKey} />}
         <div className="border-t border-[#d4dbe4] pt-4 mb-6">
           <div className="flex justify-between items-baseline">
-            <span className="text-sm font-semibold text-[#1f2937]">{t(currencyIsJpy ? (isPaid?'日幣應付合計':'預估日幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額')}</span>
+            <span className="text-sm font-semibold text-[#1f2937]">{t(currencyIsJpy ? (isPaid?'外幣應付合計':'預估外幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額')}</span>
             <span className="text-2xl font-bold text-[#2b5f8f]">
               {pricePending ? t("價格待確認") : currencyIsJpy
-                ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`JPY ¥ ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:t("日幣金額待確認")
+                ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`${paymentCurrency==='JPY'?'JPY ¥':paymentCurrency} ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:t("外幣金額待確認")
                 : `NT$ ${total.toLocaleString()}`}
             </span>
           </div>
-          {currencyIsJpy&&<p className="mt-2 text-xs leading-6 text-[#64748b]">{t('台幣計價基準合計 NT$ {amount}。',{amount:total.toLocaleString()})}{t(isPaid?'請依每筆訂單的日幣金額分別匯至對應帳戶。':'預估金額採各預約組分開換算；成立後會列出每筆應付金額。')}</p>}
+          {currencyIsJpy&&<p className="mt-2 text-xs leading-6 text-[#64748b]">{t('台幣計價基準合計 NT$ {amount}。',{amount:total.toLocaleString()})}{t(isPaid?'請依每筆訂單的指定幣別和金額分別匯至對應帳戶。':'預估金額採各預約組分開換算；成立後會列出每筆應付金額。')}</p>}
         </div>
 
         {pricePending && <p role="status" className="mb-4 text-sm text-amber-800">{t(isDiscountPreviewLoading ? '正在確認最新價格…' : '尚未取得最新價格，請按課程「修改」重新確認日期、時段與價格後再送出。')}</p>}
-        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">{t("日幣金額尚未確認，暫不能送出訂單。")}<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?t("正在確認價格…"):t("重新確認價格")}</button></p>}
+        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">{t("外幣金額尚未確認，暫不能送出訂單。")}<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?t("正在確認價格…"):t("重新確認價格")}</button></p>}
 
         <h4 className="text-sm font-semibold text-[#1f2937] mb-3">{t("付款方式")}</h4>
         {isSharedClassCart && !isPaid && (

@@ -1,13 +1,15 @@
 import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from API import tests_order_amendments as fixtures
 from Resorts.models import PaymentAccount
-from booking.models import MemberDetail, OrderAmendment, Payment
+from booking.models import Booking, MemberDetail, OrderAmendment, Payment
 from Coach.models import Coach, CoachResort
 
 
@@ -72,6 +74,40 @@ class OrderAmendmentConfirmTests(TestCase):
         self.assertEqual(second.status_code,200,getattr(second,'data',None))
         self.assertEqual(OrderAmendment.objects.count(),1);self.assertEqual(self.reservation.members.count(),2)
         self.assertEqual(self.api.post(self.url_confirm,{**body,'reason':'different'},format='json').status_code,409)
+
+    def test_add_and_remove_course_days_on_the_paid_order(self):
+        kept = fixtures.OrderAmendmentQuoteTests.draft(self)['changes'][0]['courses'][0]
+        added = {**kept, 'booking_id': None, 'date': str(self.day + timedelta(days=1))}
+        body = self.body(number_of_people=1, courses=[kept, added])
+        self.assertEqual(self.reservation.bookings.count(), 1)
+        response = self.api.post(self.url_confirm, body, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        new_booking = self.reservation.bookings.exclude(pk=self.booking.pk).get()
+        topup = self.group.amendments.get()
+        self.assertEqual((topup.balance_amount, topup.status), (10000, 'topup_due'))
+        topup.status = 'settled'
+        topup.save(update_fields=['status'])
+        self.assertEqual(self.api.post(self.url_confirm, body, format='json').status_code, 200)
+        self.assertEqual(self.reservation.bookings.count(), 2)
+
+        omitted = fixtures.OrderAmendmentQuoteTests.draft(self, number_of_people=1, courses=[kept])
+        self.assertEqual(self.api.post(self.url, omitted, format='json').status_code, 400)
+        removal = self.body(number_of_people=1, courses=[kept], removed_booking_ids=[new_booking.pk])
+        response = self.api.post(self.url_confirm, removal, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(list(self.reservation.bookings.values_list('pk', flat=True)), [self.booking.pk])
+        refund = self.group.amendments.exclude(pk=topup.pk).get()
+        self.assertEqual((refund.balance_amount, refund.status), (-10000, 'refund_account_due'))
+        self.assertIn(new_booking.pk, [row['id'] for row in refund.before_snapshot['reservations'][0]['bookings']])
+        self.assertEqual(self.group.payments.get().pk, self.payment.pk)
+
+    def test_started_course_cannot_be_removed_even_with_a_future_course_remaining(self):
+        started = Booking.objects.create(reservation=self.reservation, date=timezone.localdate()-timedelta(days=1),
+                                         start_time=self.booking.start_time, end_time=self.booking.end_time)
+        draft = fixtures.OrderAmendmentQuoteTests.draft(self, removed_booking_ids=[started.pk])
+        response = self.api.post(self.url, draft, format='json')
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(self.reservation.bookings.count(), 2)
 
     def test_stale_price_or_learner_state_cannot_commit(self):
         body=self.body();self.pricing.base_price_off_peak=20000;self.pricing.save()

@@ -1725,8 +1725,10 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         pending=list(obj.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
         if not pending:return None
         result={'amount':sum(row.balance_amount for row in pending),'statuses':sorted({row.status for row in pending})}
-        if (obj.currency_snapshot or {}).get('currency')=='JPY':
-            result['settlement']={'currency':'JPY','amount':sum(row.currency_snapshot['balance_amount'] for row in pending)}
+        from booking.currency import foreign_currency
+        currency = (obj.currency_snapshot or {}).get('currency')
+        if foreign_currency(currency):
+            result['settlement']={'currency':currency,'amount':sum(row.currency_snapshot['balance_amount'] for row in pending)}
         return result
 
     def get_user_name(self, obj):

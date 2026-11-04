@@ -4071,11 +4071,13 @@ class CurrencyOptionsAPI(APIView):
         from Resorts.models import PaymentAccount
         config = currency_settings_payload(tenant)
         currencies = [{'code':'TWD','rate':'1.00000000'}]
-        complete_accounts = PaymentAccount.objects.filter(client=tenant,is_active=True,currency='JPY')
+        complete_accounts = PaymentAccount.objects.filter(client=tenant,is_active=True)
         for field in ('bank_name','bank_branch','account_number','account_holder'):
             complete_accounts = complete_accounts.exclude(**{field:''})
-        if config['jpy_enabled'] and config['jpy_per_twd'] and Decimal(config['jpy_per_twd']) > 0 and complete_accounts.exists():
-            currencies.append({'code':'JPY','rate':config['jpy_per_twd']})
+        configured = {**({'JPY': config['jpy_per_twd']} if config['jpy_enabled'] else {}), **config.get('foreign_rates', {})}
+        account_codes = set(complete_accounts.values_list('currency', flat=True))
+        currencies.extend({'code': code, 'rate': rate} for code,rate in configured.items()
+                          if code in account_codes and rate and Decimal(rate)>0)
         response = Response({'base_currency':'TWD','currencies':currencies})
         response['Cache-Control']='no-store'
         return response
@@ -4215,7 +4217,7 @@ class PaymentInfoAPI(APIView):
                     }
             from .currency import order_settlement
             settlement = order_settlement(group, base_amount=total_amount)
-            if settlement['currency'] == 'JPY':
+            if settlement['currency'] != 'TWD':
                 bank_info = settlement['bank_info']
             is_taiwan = (group.source_country or 'TW') == 'TW'
             payment_methods = []
@@ -4460,11 +4462,11 @@ class ProcessPaymentAPI(APIView):
 
             from .currency import order_settlement
             settlement = order_settlement(group)
-            if settlement['currency'] == 'JPY':
+            if settlement['currency'] != 'TWD':
                 if payment_type != 'bank_transfer':
-                    return Response({'error':'日幣訂單僅提供日幣銀行匯款'}, status=400)
-                if request.data.get('currency') != 'JPY' or type(request.data.get('expected_amount')) is not int or request.data['expected_amount'] != settlement['amount']:
-                    return Response({'error':'請重新載入並確認日幣應付金額後回報匯款'}, status=409)
+                    return Response({'error':'外幣訂單僅提供原幣銀行匯款'}, status=400)
+                if request.data.get('currency') != settlement['currency'] or type(request.data.get('expected_amount')) is not int or request.data['expected_amount'] != settlement['amount']:
+                    return Response({'error':'請重新載入並確認原幣應付金額後回報匯款'}, status=409)
 
             if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
                 return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
@@ -4481,7 +4483,7 @@ class ProcessPaymentAPI(APIView):
                     if account else
                     (tenant.bank_name, tenant.bank_branch, tenant.bank_account_number, tenant.bank_account_holder)
                 )
-                if settlement['currency'] == 'JPY':
+                if settlement['currency'] != 'TWD':
                     snapshot_bank = settlement['bank_info']
                     bank_fields = tuple(snapshot_bank.get(key) for key in ('bank_name','bank_branch','bank_account_number','bank_account_holder'))
                 if not all(bank_fields):

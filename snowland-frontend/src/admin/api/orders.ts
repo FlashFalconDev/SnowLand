@@ -76,7 +76,7 @@ export interface Order {
   reservations: OrderReservation[]
   total_fee: number
   payment_status: PaymentStatus
-  amendment_balance?: { amount: number; statuses: string[];settlement?:{currency:'JPY';amount:number} } | null
+  amendment_balance?: { amount: number; statuses: string[];settlement?:{currency:ForeignPaymentCurrency;amount:number} } | null
   payment_method: string
   bank_account?: string | null
   created_at: string
@@ -190,7 +190,7 @@ export async function updateOrder(
   payload: {
     action: 'save' | 'schedule'
     payment_status?: PaymentStatus
-    payment_currency?: 'TWD' | 'JPY'
+    payment_currency?: PaymentCurrency
     payment_received_amount?: number
     reservation_updates?: { reservation_id: number; coach_id: number | null }[]
     booking_updates?: { booking_id: number; date: string; start_time: string; end_time: string }[]
@@ -200,8 +200,10 @@ export async function updateOrder(
   return res
 }
 
+import type { ForeignPaymentCurrency, PaymentCurrency } from '../../utils/settlementPreview'
+
 export interface OrderAmendmentCourse {
-  booking_id: number; template_id: number; date: string; start_time: string; end_time: string
+  booking_id: number | null; template_id: number; date: string; start_time: string; end_time: string
 }
 export interface OrderAmendmentItem {
   reservation_id: number
@@ -214,6 +216,7 @@ export interface OrderAmendmentItem {
   retained_member_ids?: number[]
   ability_level_counts?: Record<string, number>
   courses: OrderAmendmentCourse[]
+  removed_booking_ids?: number[]
 }
 export interface OrderAmendmentQuote {
   settlement?: AmendmentSettlement
@@ -245,6 +248,7 @@ export interface OrderAmendmentConfirmation {
   reschedule?: boolean
 }
 export interface OrderAmendmentEditorItem extends OrderAmendmentItem {
+  courses: (OrderAmendmentCourse & { booking_id: number; can_remove: boolean })[]
   resort: string; course_type: string; blocked_reason: string
   members: { id: number; name: string }[]
   templates: { id: number; name: string; is_active: boolean; duration_hours: number; minimum_group_size: number; max_capacity: number; sessions: { start_time: string; end_time: string }[] }[]
@@ -272,7 +276,7 @@ export async function confirmOrderAmendment(orderId: number, payload: OrderAmend
 }
 
 export interface AmendmentSettlement {
-  currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null
+  currency:ForeignPaymentCurrency;base_currency:'TWD';rate:string;locked_at?:string|null
   previous_total:number;new_total:number;difference_amount:number;balance_amount:number
 }
 export interface AmendmentBalance {
@@ -284,7 +288,7 @@ export interface AmendmentBalance {
   events: { action: string; previous_status: string; status: string; note: string; reference: string; created_at: string; actor: string }[]
 }
 export interface AmendmentBalanceAction {
-  currency?:'TWD'|'JPY';expected_amount?:number
+  currency?:PaymentCurrency;expected_amount?:number
   amendment_id: number; expected_updated_at: string; request_key: string
   action: 'confirm_topup' | 'reject_topup' | 'confirm_refund'; note: string; confirmed?: boolean
 }
@@ -313,19 +317,19 @@ export async function saveClassGroupQR(orderId: number, file: File | null, onPro
   }) as any
 }
 
-export interface CancellationSettlement { currency:'JPY';base_currency:'TWD';rate:string;locked_at?:string|null;original_amount:number;refund_amount:number|null;actual_received_amount?:number;cash_review?:{accounting_mode:'original_receipt_ratio';actual_received_amount:number;refund_amount:number;actual_received_base_amount:number;refund_base_amount:number} }
+export interface CancellationSettlement { currency:ForeignPaymentCurrency;base_currency:'TWD';rate:string;locked_at?:string|null;original_amount:number;refund_amount:number|null;actual_received_amount?:number;cash_review?:{accounting_mode:'original_receipt_ratio';actual_received_amount:number;refund_amount:number;actual_received_base_amount:number;refund_base_amount:number} }
 export interface RefundPreview { settlement?:CancellationSettlement;original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
 export async function previewOrderRefund(id: number): Promise<RefundPreview> {
   const res = await adminApi.get(`/orders/${id}/refund-preview/`) as any
   return res.data
 }
 
-export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string;overseas_details?:string }; selected_rule_days_before?: number; manual_refund_amount?: number;currency?:'JPY';expected_refund_amount?:number|null }): Promise<void> {
+export async function requestOrderCancellation(id: number, payload: { reason: string; reason_note?: string; refund_bank?: { bank_name: string; account_number: string; account_holder: string;overseas_details?:string }; selected_rule_days_before?: number; manual_refund_amount?: number;currency?:ForeignPaymentCurrency;expected_refund_amount?:number|null }): Promise<void> {
   await adminApi.post(`/orders/${id}/cancel/`, payload)
 }
 
 export interface CancellationCashReview { actual_received_amount:number;refund_amount:number;cash_review_note:string;confirmed_received:boolean }
-export type CancellationReviewPayload=Partial<CancellationCashReview>&{currency?:'JPY';expected_refund_amount?:number|null;confirmed_refund?:boolean;actual_received_currency_amount?:number;refund_currency_amount?:number}
+export type CancellationReviewPayload=Partial<CancellationCashReview>&{currency?:ForeignPaymentCurrency;expected_refund_amount?:number|null;confirmed_refund?:boolean;actual_received_currency_amount?:number;refund_currency_amount?:number}
 export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded', review?:CancellationReviewPayload): Promise<void> {
   await adminApi.post(`/cancellations/${cancellationId}/process/`, { status, ...review })
 }
