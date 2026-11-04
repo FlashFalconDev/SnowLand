@@ -78,13 +78,16 @@ class OrderAmendmentConfirmTests(TestCase):
     def test_add_and_remove_course_days_on_the_paid_order(self):
         kept = fixtures.OrderAmendmentQuoteTests.draft(self)['changes'][0]['courses'][0]
         added = {**kept, 'booking_id': None, 'date': str(self.day + timedelta(days=1))}
-        body = self.body(number_of_people=1, courses=[kept, added])
+        self.pricing.base_price_off_peak = 14000
+        self.pricing.save()
+        body = self.body(number_of_people=1, equipment=self.reservation.equipment, courses=[kept, added])
         self.assertEqual(self.reservation.bookings.count(), 1)
         response = self.api.post(self.url_confirm, body, format='json')
         self.assertEqual(response.status_code, 201, response.data)
         new_booking = self.reservation.bookings.exclude(pk=self.booking.pk).get()
         topup = self.group.amendments.get()
-        self.assertEqual((topup.balance_amount, topup.status), (10000, 'topup_due'))
+        self.assertEqual((topup.balance_amount, topup.status), (14000, 'topup_due'))
+        self.assertEqual(new_booking.fee_snapshot, {'course': 14000, 'coach': 0})
         topup.status = 'settled'
         topup.save(update_fields=['status'])
         self.assertEqual(self.api.post(self.url_confirm, body, format='json').status_code, 200)
@@ -92,12 +95,14 @@ class OrderAmendmentConfirmTests(TestCase):
 
         omitted = fixtures.OrderAmendmentQuoteTests.draft(self, number_of_people=1, courses=[kept])
         self.assertEqual(self.api.post(self.url, omitted, format='json').status_code, 400)
-        removal = self.body(number_of_people=1, courses=[kept], removed_booking_ids=[new_booking.pk])
+        self.pricing.base_price_off_peak = 18000
+        self.pricing.save()
+        removal = self.body(number_of_people=1, equipment=self.reservation.equipment, courses=[kept], removed_booking_ids=[new_booking.pk])
         response = self.api.post(self.url_confirm, removal, format='json')
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(list(self.reservation.bookings.values_list('pk', flat=True)), [self.booking.pk])
         refund = self.group.amendments.exclude(pk=topup.pk).get()
-        self.assertEqual((refund.balance_amount, refund.status), (-10000, 'refund_account_due'))
+        self.assertEqual((refund.balance_amount, refund.status), (-14000, 'refund_account_due'))
         self.assertIn(new_booking.pk, [row['id'] for row in refund.before_snapshot['reservations'][0]['bookings']])
         self.assertEqual(self.group.payments.get().pk, self.payment.pk)
 

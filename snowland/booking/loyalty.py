@@ -108,7 +108,7 @@ def checkout_rewards(tenant, user, summary, requested, referral_code):
     return revision, rules, allocations, available
 
 
-def sync_order_loyalty(group, *, confirmed_base=None, refund=None):
+def sync_order_loyalty(group, *, confirmed_base=None, refund=None, actual_received_amount=None):
     """Reconcile one order under its caller's order lock and transaction."""
     order = OrderLoyalty.objects.select_for_update().filter(group=group).first()
     if order is None:
@@ -134,7 +134,8 @@ def sync_order_loyalty(group, *, confirmed_base=None, refund=None):
         ).order_by('pk')}
         account = accounts[order.account_id]
         confirmed_adjustments = amendments.aggregate(total=Sum('balance_amount'))['total'] or 0
-        cash_received = max(0, order.paid_base + confirmed_adjustments)
+        cash_received = (actual_received_amount if refund is not None and actual_received_amount is not None
+                         else max(0, order.paid_base + confirmed_adjustments))
         if rules['refund_rule'] == 'proportional':
             net = max(0, cash_received - (refund or 0))
         else:

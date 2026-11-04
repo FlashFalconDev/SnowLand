@@ -199,6 +199,7 @@ def confirm_order_amendment(request,group_id,data,scope):
             booking=old.get(course['booking_id']) or Booking(reservation=reservation,course_type=reservation.course_type.name)
             booking.date=course['date'];booking.start_time=course['start_time'];booking.end_time=course['end_time']
             booking.course_template_id=course['template_id'];booking.course_name=course['template_name'];booking.is_scheduled=scheduled
+            booking.fee_snapshot = course['fee_snapshot']
             booking.save()
         if data['reschedule'] and reservation.status=='created':to_schedule.append(reservation)
     if to_schedule:

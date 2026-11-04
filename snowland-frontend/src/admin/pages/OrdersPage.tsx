@@ -609,7 +609,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
     queryFn: () => previewOrderRefund(order.id),
     enabled: !readOnly && (canStartCancellation || order.cancellation?.status === 'requested'),
   })
-  const cancellationExpired = refundPreview != null && refundPreview.days_before < 0
+  const cancellationExpired = refundPreview != null && (refundPreview.course_started === true || refundPreview.days_before < 0)
   const cancellationBlocked = !refundPreview || refundPreviewError || cancellationExpired
   const selectedRule = refundPreview?.available_rules.find(rule => refundChoice === `rule:${rule.days_before}`)
   const manualRefundValid = manualRefund !== '' && Number.isInteger(Number(manualRefund)) && Number(manualRefund) >= 0 && Number(manualRefund) <= (refundPreview?.original_amount ?? -1)
@@ -804,7 +804,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {!readOnly && cancellationExpired && <p role="status" className="text-sm">首堂課日期已過，無法申請或核准取消。</p>}
+          {!readOnly && cancellationExpired && <p role="status" className="text-sm">首堂課已開始，無法新增取消申請。</p>}
           {!readOnly && refundPreviewError && <p role="alert" className="text-sm">無法確認取消資格。 <button type="button" className="underline" onClick={() => reloadRefundPreview()}>重試</button></p>}
           <div className="flex flex-wrap gap-2">
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>

@@ -318,7 +318,7 @@ export async function saveClassGroupQR(orderId: number, file: File | null, onPro
 }
 
 export interface CancellationSettlement { currency:ForeignPaymentCurrency;base_currency:'TWD';rate:string;locked_at?:string|null;original_amount:number;refund_amount:number|null;actual_received_amount?:number;cash_review?:{accounting_mode:'original_receipt_ratio';actual_received_amount:number;refund_amount:number;actual_received_base_amount:number;refund_base_amount:number} }
-export interface RefundPreview { settlement?:CancellationSettlement;original_amount: number; days_before: number; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
+export interface RefundPreview { settlement?:CancellationSettlement;original_amount: number; days_before: number; course_started?: boolean; refund_percent: number; handling_fee_percent: number; refund_amount: number | null; requires_cash_review:boolean; available_rules: { days_before: number; refund_percent: number }[] }
 export async function previewOrderRefund(id: number): Promise<RefundPreview> {
   const res = await adminApi.get(`/orders/${id}/refund-preview/`) as any
   return res.data

@@ -308,6 +308,7 @@ class Reservation(models.Model):
         verbose_name_plural = '2-1.預約列表'
 
 class Booking(models.Model):
+    fee_snapshot = models.JSONField(null=True, blank=True, verbose_name='堂次計價紀錄')
     course_template = models.ForeignKey(
         'Coursekit.CourseTemplate',on_delete=models.SET_NULL,null=True,blank=True,
         related_name='booking_sessions',verbose_name='每堂課程模板',

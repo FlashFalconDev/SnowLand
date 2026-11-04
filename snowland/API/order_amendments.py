@@ -84,6 +84,29 @@ def _configured_addons(resort,coach,template,people,equipment):
             _fail('請先設定這個人數的裝備協助費用，不能套用寫死的預設金額')
 
 
+def _lesson_fee(resort, template, people, day):
+    pricing = CoursePricing.objects.filter(resort=resort, templates=template, is_active=True).first()
+    if not pricing:
+        _fail('找不到這個雪場與課程的有效定價，請先在課程定價設定')
+    try:
+        return int(pricing.calculate_price(people, SeasonSetting.get_season_type_for_date(day) == 'peak',
+                                           billing_mode=template.billing_mode))
+    except ValueError as error:
+        _fail(str(error))
+
+
+def _historical_lesson_fees(reservation, bookings):
+    fees = {pk: row.fee_snapshot for pk, row in bookings.items() if row.fee_snapshot is not None}
+    remaining = {key: total - sum(fee[key] for fee in fees.values())
+                 for key, total in (('course', reservation.course_fee), ('coach', reservation.coach_fee))}
+    unknown = set(bookings) - fees.keys()
+    if any(value < 0 for value in remaining.values()) or (not unknown and any(remaining.values())):
+        return {}
+    if len(unknown) == 1:
+        fees[unknown.pop()] = remaining
+    return fees
+
+
 def _quote_item(group,reservation,change):
     from booking.api_views import compute_addon_fees_authoritative, resolve_equipment_assistance_time_slot, select_cart_group_course_template
     from booking.scheduler import coach_matches_course_template
@@ -115,7 +138,7 @@ def _quote_item(group,reservation,change):
     now=timezone.localtime()
     if any(not _can_remove_booking(existing[pk],now) for pk in removed_ids):
         _fail('已開課、已有評量或已進入薪資紀錄的堂次不能移除')
-    same_price_basis=(not removed_ids and people==reservation.number_of_people and language==reservation.language and equipment==reservation.equipment
+    same_price_basis=(people==reservation.number_of_people and language==reservation.language and equipment==reservation.equipment
         and specified==reservation.is_preferred_coach and (not specified or coach_id==reservation.preferred_coach_id))
     courses=[];templates=[]
     for item in change['courses']:
@@ -140,7 +163,8 @@ def _quote_item(group,reservation,change):
             _fail('修改日期不在課程模板開放的上課期間')
         if coach and (not coach_matches_course_template(coach,template) or template.allowed_coaches.exists() and not template.allowed_coaches.filter(pk=coach.pk).exists()):
             _fail('指定教練不符合這個課程模板的等級或名單')
-        same_price_basis=same_price_basis and unchanged_template and item['date']==booking.date and duration==old_duration
+        if booking is not None:
+            same_price_basis=same_price_basis and unchanged_template and item['date']==booking.date and duration==old_duration
         templates.append(template);courses.append({**item,'booking_id':booking.pk if booking else None,'template_name':template.name})
     dates_changed=bool(removed_ids) or any(course['booking_id'] is None for course in courses)
     if dates_changed:
@@ -155,18 +179,36 @@ def _quote_item(group,reservation,change):
     except ValueError:_fail('請選擇適用於新課程、雪場與時段的裝備協助時間')
     if same_price_basis:
         course_fee,coach_fee,language_fee,equipment_fee=reservation.course_fee,reservation.coach_fee,reservation.language_fee,reservation.equipment_rental_fee
+        historical = _historical_lesson_fees(reservation, existing)
+        if any(pk not in historical for pk in removed_ids):
+            _fail('這筆舊訂單缺少要移除堂次的原始價格，請先人工核對；系統不會以現行價格代算退款')
+        for pk in removed_ids:
+            course_fee -= historical[pk]['course']
+            coach_fee -= historical[pk]['coach']
+        for course, template in zip(courses, templates):
+            if course['booking_id'] is not None:
+                course['fee_snapshot'] = historical.get(course['booking_id'])
+                continue
+            if not template.is_active:
+                _fail('課程模板已停用，請先確認可使用的課程與定價')
+            _configured_addons(reservation.resort, coach, template, people, None)
+            lesson_fee = _lesson_fee(reservation.resort, template, people, course['date'])
+            lesson_coach_fee, _, _ = compute_addon_fees_authoritative(
+                resort=reservation.resort, coach=coach, course_type=reservation.course_type, language=language,
+                equipment_value=None, people_count=people, bookings_count=1, course_template=template)
+            course['fee_snapshot'] = {'course': lesson_fee, 'coach': lesson_coach_fee}
+            course_fee += lesson_fee
+            coach_fee += lesson_coach_fee
     else:
         if any(not template.is_active for template in templates):_fail('課程模板已停用，請先確認可使用的課程與定價')
-        course_fee=0
-        for course,template in zip(courses,templates):
-            pricing=CoursePricing.objects.filter(resort=reservation.resort,templates=template,is_active=True).first()
-            if not pricing:_fail('找不到這個雪場與課程的有效定價，請先在課程定價設定')
-            try:course_fee+=int(pricing.calculate_price(people,SeasonSetting.get_season_type_for_date(course['date'])=='peak',billing_mode=template.billing_mode))
-            except ValueError as error:_fail(str(error))
         representative=select_cart_group_course_template([{'courseTemplateId':template.pk} for template in templates],reservation.course_type,reservation.resort)
         _configured_addons(reservation.resort,coach,representative,people,equipment)
         coach_fee,language_fee,equipment_fee=compute_addon_fees_authoritative(resort=reservation.resort,coach=coach,course_type=reservation.course_type,
             language=language,equipment_value=equipment,people_count=people,bookings_count=len(courses),course_template=representative)
+        for course, template in zip(courses, templates):
+            course['fee_snapshot'] = {'course': _lesson_fee(reservation.resort, template, people, course['date']),
+                                      'coach': coach_fee // len(courses)}
+        course_fee = sum(course['fee_snapshot']['course'] for course in courses)
     subtotal=course_fee+coach_fee+language_fee+equipment_fee
     if discount>subtotal:_fail('原折抵金額超過修改後總價，請先核對並調整折抵金額')
     changed_documents=dates_changed or any(course['date']!=existing[course['booking_id']].date or course['template_id']!=(existing[course['booking_id']].course_template_id or reservation.course_template_id) for course in courses)
@@ -176,7 +218,7 @@ def _quote_item(group,reservation,change):
         'is_preferred_coach':specified,'preferred_coach_id':coach_id,'courses':courses,'removed_booking_ids':removed_ids,
         'course_documents_changed':changed_documents,'course_fee':course_fee,'coach_fee':coach_fee,
         'language_fee':language_fee,'equipment_fee':equipment_fee,'discount_amount':discount,'previous_amount':reservation.payment_amount,
-        'new_amount':subtotal-discount,'price_basis_changed':not same_price_basis,
+        'new_amount':subtotal-discount,'price_basis_changed':dates_changed or not same_price_basis,
         'participant_review_required':people!=reservation.number_of_people,
         'discount_changed':discount!=old_discount,'ability_level_counts':change.get('ability_level_counts'),
         'retained_member_ids':change.get('retained_member_ids'),

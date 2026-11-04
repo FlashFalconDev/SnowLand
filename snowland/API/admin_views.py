@@ -2327,9 +2327,12 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             'refunded': set(),
         }
         from booking.currency import foreign_currency
-        from booking.operations import days_until_first_course, outstanding_amendments
-        if cancellation.status == 'requested' and next_status == 'approved' and days_until_first_course(group) < 0:
-            return Response({'code': 400, 'msg': '首堂課日期已過，無法核准取消'}, status=400)
+        from booking.operations import first_course_start, outstanding_amendments
+        if cancellation.status == 'requested' and next_status == 'approved':
+            first_course = first_course_start(group)
+            submitted = timezone.localtime(cancellation.created_at)
+            if first_course and first_course <= (submitted.date(), submitted.time()):
+                return Response({'code':400,'msg':'此申請在首堂課開始後才提出，無法核准取消'},status=400)
         pending=list(outstanding_amendments(group).values('id','balance_amount','status','currency_snapshot'))
         requires_review=cancellation.requires_cash_review or bool(pending)
         review_pending=requires_review and cancellation.actual_received_amount is None
@@ -2418,7 +2421,8 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             cancellation.group.payments.update(status='refunded')
             outstanding_amendments(group).update(status='cancelled',updated_at=timezone.now())
             from booking.loyalty import release_unpaid_redemption, sync_order_loyalty
-            sync_order_loyalty(group, refund=cancellation.refund_amount or 0)
+            sync_order_loyalty(group, refund=cancellation.refund_amount or 0,
+                               actual_received_amount=cancellation.actual_received_amount)
             release_unpaid_redemption(group)
         return Response({'code': 200, 'msg': '取消申請已更新', 'data': self.get_serializer(cancellation).data})
 

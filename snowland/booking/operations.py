@@ -128,6 +128,7 @@ def order_snapshot(group):
                         'start_time': booking.start_time.strftime('%H:%M'),
                         'end_time': booking.end_time.strftime('%H:%M'),
                         'course_name': booking.course_name,
+                        'fee_snapshot': booking.fee_snapshot,
                     }
                     for booking in reservation.bookings.all().order_by('date', 'start_time')
                 ],
@@ -162,15 +163,18 @@ def outstanding_amendments(group):
     return group.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due'])
 
 
-def days_until_first_course(group):
-    active_courses = group.reservations.exclude(status__in=['deleted', 'cancelled'])
-    first_course = active_courses.filter(bookings__date__isnull=False).values_list('bookings__date', flat=True).order_by('bookings__date').first()
-    return (first_course - timezone.localdate()).days if first_course else 0
+def first_course_start(group):
+    return group.reservations.exclude(status__in=['deleted', 'cancelled']).filter(
+        bookings__date__isnull=False).order_by('bookings__date', 'bookings__start_time').values_list(
+        'bookings__date', 'bookings__start_time').first()
 
 
 def calculate_refund(group):
     active_courses = group.reservations.exclude(status__in=['deleted', 'cancelled'])
-    days_before = days_until_first_course(group)
+    now = timezone.localtime()
+    first_course = first_course_start(group)
+    days_before = (first_course[0] - now.date()).days if first_course else 0
+    course_started = first_course is not None and first_course <= (now.date(), now.time())
     policy = get_operating_policy(group)
     rules = sorted(policy.cancellation_rules or [], key=lambda item: int(item.get('days_before', 0)), reverse=True)
     refund_percent = 0
@@ -190,6 +194,7 @@ def calculate_refund(group):
     result = {
         'original_amount': original_amount,
         'days_before': days_before,
+        'course_started': course_started,
         'refund_percent': refund_percent,
         'handling_fee_percent': policy.cancellation_fee_percent,
         'refund_amount': None if requires_cash_review else int(refund_amount),
@@ -238,9 +243,9 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
     overseas=overseas.strip()
     bank = {key: bank.get(key, '').strip() for key in ('bank_name', 'account_number', 'account_holder')}
     preview = calculate_refund(group)
-    if preview['days_before'] < 0:
-        raise ValueError('首堂課日期已過，無法申請取消，請聯絡客服')
-    preview.pop('settlement',None)
+    if preview.pop('course_started'):
+        raise ValueError('首堂課已開始或已過，無法申請取消，請聯絡客服')
+    quoted_settlement = preview.pop('settlement', None)
     rules = preview.pop('available_rules')
     values = preview
     if preview['requires_cash_review']:
@@ -287,7 +292,7 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
     from .currency import cancellation_settlement
     # Keep the quoted native amount; converting the rounded proportional TWD
     # reversal back to the original currency could change its smallest unit.
-    settlement=(preview['settlement'] if preview.get('settlement') and manual_refund_amount is None and selected_rule_days_before is None
+    settlement=(quoted_settlement if quoted_settlement is not None and manual_refund_amount is None and selected_rule_days_before is None
         else cancellation_settlement(group,values['original_amount'],None if values['requires_cash_review'] else values['refund_amount']))
     if settlement and 'refund_base_amount' in settlement:
         values['refund_amount']=settlement['refund_base_amount']

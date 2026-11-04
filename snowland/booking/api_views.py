@@ -28,7 +28,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from datetime import datetime, timedelta
 
-from Client.models import SiteContent
+from Client.models import Client, SiteContent
 from Client.coach_profiles import read_coach_profile
 from Client.coach_reviews import public_coach_reviews
 from Coach.models import (
@@ -2647,11 +2647,8 @@ class CreateReservationAPI(APIView):
             item,
             discount_amount=discount_amount,
             applied_discounts=applied_discounts or [],
+            persist_bookings=True,
         )
-
-        # 為每個課程日期創建 Booking
-        for course in item['courses']:
-            self._create_booking(reservation, course)
 
         if reservation.course_template and reservation.course_template.shared_class_enabled:
             self._join_shared_class(reservation, item)
@@ -2703,7 +2700,7 @@ class CreateReservationAPI(APIView):
         reservation.save(update_fields=['shared_course_class'])
 
 
-    def _create_reservation(self, group, item, discount_amount=0, applied_discounts=None):
+    def _create_reservation(self, group, item, discount_amount=0, applied_discounts=None, *, persist_bookings=False):
         """創建單個預約記錄"""
         from .models import Reservation
 
@@ -2765,14 +2762,15 @@ class CreateReservationAPI(APIView):
             required_rank = ABILITY_LEVEL_KEYS.index(course_template.minimum_student_level) if course_template.minimum_student_level in ABILITY_LEVEL_KEYS else 0
             if any(ABILITY_LEVEL_KEYS.index(level) < required_rank for level in ability_level_counts):
                 raise ValueError(f'「{course_template.name}」只開放等級 {required_rank} 以上學員')
-        course_fee = 0
+        course_fees = []
         for course in item['courses']:
-            course_fee += compute_course_price_authoritative(
+            course_fees.append(compute_course_price_authoritative(
                 template_id=course.get('courseTemplateId'),
                 resort_name=item['resort'],
                 people_count=people_count,
                 course_date=course['date'],
-            )
+            ))
+        course_fee = sum(course_fees)
 
         bookings_count = len(item['courses'])
         language_value = item.get('language', 'zh') or 'zh'
@@ -2831,9 +2829,14 @@ class CreateReservationAPI(APIView):
             equipment_assistance_time_label=equipment_time_label,
         )
 
+        if persist_bookings:
+            for course, lesson_fee in zip(item['courses'], course_fees):
+                self._create_booking(reservation, course, fee_snapshot={
+                    'course': lesson_fee, 'coach': coach_fee // len(course_fees),
+                })
         return reservation
 
-    def _create_booking(self, reservation, course):
+    def _create_booking(self, reservation, course, *, fee_snapshot=None):
         """創建單個課程預約記錄"""
         from .models import Booking
         template_id=course.get('courseTemplateId')
@@ -2858,6 +2861,7 @@ class CreateReservationAPI(APIView):
         # 創建預約課程
         booking = Booking.objects.create(
             reservation=reservation,
+            fee_snapshot=fee_snapshot,
             course_template_id=template_id,
             course_type=course.get('courseTypeName', ''),
             course_name=course.get('courseTemplateName', ''),
@@ -3724,7 +3728,7 @@ class MemberCancellationAPI(APIView):
             **preview,
             'requires_bank_account': preview['requires_cash_review'] or payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay'),
             'request_status': existing.status if existing else None,
-            'can_request': preview['days_before'] >= 0 and (existing is None or existing.status == 'rejected'),
+            'can_request': not preview['course_started'] and (existing is None or existing.status == 'rejected'),
             'handling_fee_amount': None if preview['requires_cash_review'] else int(
                 (Decimal(preview['original_amount']) * Decimal(preview['handling_fee_percent']) / 100)
                 .quantize(Decimal('1'), rounding=ROUND_HALF_UP)
@@ -4105,6 +4109,7 @@ class SuperScheduleAPI(APIView):
         Booking.objects.create(
             reservation=reservation,
             course_template=course_template,
+            fee_snapshot={'course': course_fee, 'coach': coach_fee},
             course_type=course.get('courseTypeName', ''),
             course_name=course.get('courseTemplateName', ''),
             date=booking_date,
