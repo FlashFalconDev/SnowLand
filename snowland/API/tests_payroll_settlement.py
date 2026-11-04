@@ -1,5 +1,7 @@
 from copy import deepcopy
+from unittest.mock import patch
 from django.test import TestCase
+from django.utils import timezone
 from API import tests_payroll_review as fixtures
 from Coach.models import PayrollDocumentSettings
 from Coach.payroll import add_payroll_adjustment
@@ -75,7 +77,8 @@ class PayrollSettlementTests(TestCase):
         self.assertEqual(api.post(self.admin_url+'settlement/',self.payload,format='json').status_code,403)
 
     def test_old_editor_cannot_overwrite_or_publish_a_new_tax_snapshot(self):
-        old=self.save().settlement_snapshot['reviewed_at']
-        self.save(rate='5')
+        with patch('Coach.payroll_settlement.timezone.now', return_value=timezone.now()):
+            old=self.save().settlement_snapshot['reviewed_at']
+            self.save(rate='5')
         with self.assertRaisesMessage(ValueError,'版本已變更'):self.save(expected_reviewed_at=old)
         with self.assertRaisesMessage(ValueError,'版本已變更'):publish_statement(self.statement,self.deadline,expected_reviewed_at=old)
