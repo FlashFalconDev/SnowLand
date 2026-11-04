@@ -26,11 +26,16 @@ import MyLeavesPage from './pages/my/MyLeavesPage'
 import ApplyLeavePage from './pages/my/ApplyLeavePage'
 import MyPayrollPage from './pages/my/MyPayrollPage'
 import OperationsHubPage from './pages/OperationsHubPage'
+import FrontendSupportPage from './pages/FrontendSupportPage'
 
 export default function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
+        <Route element={<RoleGuard requireFrontendSupport />}>
+          <Route path="system/support" element={<FrontendSupportPage />} />
+        </Route>
+
         {/* 儀表板：manager 才能看 */}
         <Route element={<RoleGuard requireManager />}>
           <Route element={<RoleGuard permission="analytics" />}>

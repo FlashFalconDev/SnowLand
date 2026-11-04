@@ -23,7 +23,7 @@ import { ThemeProvider, useTheme, NotificationProvider } from '../context'
 import { GlobalNotification } from '../components/GlobalNotification'
 import LoginPage from '@/pages/LoginPage'
 import { fetchAdminMe, type AdminMeResult } from '../api/auth'
-import { hasAdminPermission } from '../permissions'
+import { canUseFrontendSupport, hasAdminPermission } from '../permissions'
 import { fetchNotificationDeliveries } from '../api/operations'
 
 // 主色 — 完全採用 console 配色（紫色 #8b5cf6）
@@ -619,6 +619,12 @@ function AdminLayoutContent() {
     }
   } else if (isCoach) {
     navItems = [...coachNav]
+  }
+  if (canUseFrontendSupport(basePath, adminCheck?.user)) {
+    navItems.push({
+      id: 'system-frontend', label: '系統管理-前端', icon: Globe,
+      children: [{ id: 'frontend-support', label: '支援', path: `${basePath}/console/system/support` }],
+    })
   }
 
   // A campus staff member may have Orders/Scheduling but no dashboard permission.
