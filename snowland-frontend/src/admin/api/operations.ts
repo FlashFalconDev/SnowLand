@@ -1,4 +1,5 @@
 import adminApi from './axios'
+import type { SkillEntries, SkillSnapshot } from './assessment'
 
 interface ListResponse<T> { data?: { list?: T[] } }
 interface DetailResponse<T> { data: T }
@@ -46,6 +47,7 @@ export interface PayrollStatement {
 
 export interface Evaluation {
   can_edit_assessment: boolean
+  skill_snapshot?: SkillSnapshot | null
   id: number; member_name: string; coach_name: string; course_date: string
   order_number: string; course_name: string; campus_name: string; resort_name: string
   coach_notes: string; self_assessment: Record<string, unknown>; coach_assessment: Record<string, unknown>
@@ -212,7 +214,10 @@ export async function completeInsuranceRecord(id: number, field: 'insurance' | '
   await adminApi.post(`/insurance-records/${id}/complete/`, { field })
 }
 
-export async function updateEvaluation(id: number, data: Partial<Evaluation> & { new_media?: { media_type: 'photo' | 'video'; url: string; is_public: boolean } }, coachView = false) {
+export async function updateEvaluation(id: number, data: Partial<Evaluation> & {
+  new_media?: { media_type: 'photo' | 'video'; url: string; is_public: boolean }
+  skill_review?: { revision: string; entries: SkillEntries }
+}, coachView = false) {
   await adminApi.patch(`/${coachView ? 'coach/' : ''}evaluations/${id}/`, data)
 }
 
