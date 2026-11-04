@@ -44,6 +44,7 @@ from .models import (
 from Control.views import login_required_control
 from .funcNewebpay import neweb_pay_request
 from .legal_documents import get_current_waiver, course_waiver_revision
+from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
 from .media_files import course_media_url, private_file_response
 from .participant_forms import GUARDIAN_AGE_LIMIT, insurance_details_complete, participant_age, signer_details_complete
@@ -858,7 +859,7 @@ class SiteContentListAPI(APIView):
         except TenantResolutionError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
-        qs = SiteContent.objects.filter(client=client)
+        qs = SiteContent.objects.filter(client=client).exclude(location_key=RUBRIC_LOCATION)
         content_type = (request.GET.get('content_type') or '').strip()
         location_key = (request.GET.get('location_key') or '').strip()
         tag = (request.GET.get('tag') or '').strip()
@@ -3132,6 +3133,7 @@ class MemberCenterAPI(APIView):
         ).select_related(
             'booking__reservation__group', 'booking__reservation__resort', 'member__user', 'coach',
         ).prefetch_related('media').order_by('-booking__date', '-created_at')
+        skill_reports = learning_reports(evaluations)
         learning_records = [{
             'id': evaluation.id,
             'order_id': evaluation.booking.reservation.group_id,
@@ -3145,7 +3147,9 @@ class MemberCenterAPI(APIView):
             'member_name': evaluation.member.display_name,
             'coach': evaluation.coach.name if evaluation.coach else '教練',
             'self_assessment': evaluation.self_assessment,
-            'coach_assessment': evaluation.coach_assessment,
+            'coach_assessment': {key: value for key, value in evaluation.coach_assessment.items() if key != TECHNICAL_KEY}
+            if isinstance(evaluation.coach_assessment, dict) else evaluation.coach_assessment,
+            'technical_assessment': skill_reports.get(evaluation.pk, []),
             'learning_progress': evaluation.learning_progress,
             'trail_names': trail_names_as_list(evaluation.trail_names),
             'coach_notes': evaluation.coach_notes,

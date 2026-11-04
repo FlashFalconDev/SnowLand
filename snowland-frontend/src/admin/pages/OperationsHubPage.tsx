@@ -28,6 +28,9 @@ import PayrollReviewActions from '../components/PayrollReviewActions'
 import PayrollDocumentSettingsPanel from '../components/PayrollDocumentSettingsPanel'
 import PayrollDocumentPanel from '../components/PayrollDocumentPanel'
 import PayrollSettlementPanel from '../components/PayrollSettlementPanel'
+import { fetchAssessmentRubric, type RubricConfig, type SkillEntries } from '../api/assessment'
+import AssessmentSettings from '../components/AssessmentSettings'
+import { SkillReviewFields, SkillSnapshotSummary } from '../components/SkillReviewFields'
 
 const PRIMARY = '#8b5cf6'
 type Tab = 'notifications' | 'payroll' | 'evaluations' | 'insurance' | 'links'
@@ -234,11 +237,18 @@ function PayrollPanel() {
 }
 
 function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
-  const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations'], queryFn: coachView ? fetchCoachEvaluations : fetchEvaluations })
-  return <section className={cardClass}><h2 className="font-semibold text-gray-900 dark:text-white">學員進度與課程紀錄</h2><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>{isLoading ? <Loader2 className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <div className="grid gap-3 xl:grid-cols-2">{rows.map(r => <EvaluationCard key={r.id} row={r} coachView={coachView} />)}{!rows.length && <Empty text={coachView ? '目前沒有自己的已完課學員評量。' : '尚無課程評量。課程建立學員資料後即可開始填寫。'} />}</div>}</section>
+  const qc = useQueryClient()
+  const client = currentClientCode()
+  const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations', client], queryFn: coachView ? fetchCoachEvaluations : fetchEvaluations })
+  const rubricKey = ['assessment-rubric', client, coachView]
+  const rubric = useQuery({ queryKey: rubricKey, queryFn: () => fetchAssessmentRubric(coachView) })
+  return <section className={cardClass}><h2 className="font-semibold text-gray-900 dark:text-white">學員進度與課程紀錄</h2><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>
+    {rubric.data?.can_edit && <AssessmentSettings config={rubric.data} onSaved={value => qc.setQueryData(rubricKey, value)} reload={rubric.refetch} />}
+    {rubric.isError && <p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">技術評量設定載入失敗。<button type="button" onClick={() => void rubric.refetch()} className="ml-2 min-h-11 underline">重試</button></p>}
+    {isLoading ? <Loader2 className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <div className="grid gap-3 xl:grid-cols-2">{rows.map(r => <EvaluationCard key={r.id} row={r} coachView={coachView} rubric={rubric.data} />)}{!rows.length && <Empty text={coachView ? '目前沒有自己的已完課學員評量。' : '尚無課程評量。課程建立學員資料後即可開始填寫。'} />}</div>}</section>
 }
 
-function EvaluationCard({ row, coachView = false }: { row: Evaluation; coachView?: boolean }) {
+function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; coachView?: boolean; rubric?: RubricConfig }) {
   const qc = useQueryClient(); const notify = useNotification()
   const canEditAssessment = row.can_edit_assessment === true
   const rating = Number(row.self_assessment?.satisfaction_rating)
@@ -254,10 +264,14 @@ function EvaluationCard({ row, coachView = false }: { row: Evaluation; coachView
   const [mediaUrl, setMediaUrl] = useState('')
   const [mediaType, setMediaType] = useState<'photo' | 'video'>('photo')
   const [uploading, setUploading] = useState(false)
+  const [skillEntries, setSkillEntries] = useState<SkillEntries>(row.skill_snapshot?.entries || {})
+  const skillConfig = row.skill_snapshot || rubric
+  const hasSkills = Object.values(skillEntries).some(entry => Object.keys(entry.scores).length || entry.next_steps.length)
+  const skillChanged = JSON.stringify(skillEntries) !== JSON.stringify(row.skill_snapshot?.entries || {})
   const hasProgress = Object.values(learningProgressFromText(progress)).some(value => value.trim())
   const hasTrails = trails.length > 0
   const trailError = trails.length > 100 ? '完成雪道最多100條，請減少後再儲存。' : trails.some(name => name.length > 120) ? '每條雪道名稱最多120字，請縮短後再儲存。' : ''
-  const canComplete = canEditAssessment ? Boolean(notes.trim() || hasProgress || hasTrails) && !trailError : Boolean(mediaUrl.trim())
+  const canComplete = canEditAssessment ? Boolean(notes.trim() || hasProgress || hasTrails || hasSkills) && !trailError : Boolean(mediaUrl.trim())
   const mediaUrlError = mediaUrl.trim() && (() => {
     try { const url = new URL(mediaUrl.trim()); return !['http:', 'https:'].includes(url.protocol) || !url.hostname }
     catch { return true }
@@ -265,12 +279,15 @@ function EvaluationCard({ row, coachView = false }: { row: Evaluation; coachView
   const save = useMutation({ mutationFn: async () => {
     const learning_progress = learningProgressFromText(progress)
     const media = mediaUrl.trim() ? { new_media: { media_type: mediaType, url: mediaUrl.trim(), is_public: false } } : {}
-    await updateEvaluation(row.id, canEditAssessment ? { coach_notes: notes, learning_progress, trail_names: trails, completed_at: new Date().toISOString(), ...media } : media, coachView)
-  }, onSuccess: () => { qc.invalidateQueries({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations'] }); setEditing(false); setMediaUrl(''); setSelectedTrails(trails); setExtraTrails(''); notify.success(canEditAssessment ? '評量已儲存' : '課程附件已加入，評量內容未變更') }, onError: (e: any) => notify.error(e?.response?.data?.new_media?.url?.[0] || e?.response?.data?.completed_at?.[0] || e?.response?.data?.detail || e?.response?.data?.msg || '資料未儲存，請稍後再試') })
+    const skills = skillChanged && skillConfig ? { skill_review: { revision: skillConfig.revision, entries: skillEntries } } : {}
+    await updateEvaluation(row.id, canEditAssessment ? { coach_notes: notes, learning_progress, trail_names: trails, completed_at: new Date().toISOString(), ...skills, ...media } : media, coachView)
+  }, onSuccess: () => { qc.invalidateQueries({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations'] }); setEditing(false); setMediaUrl(''); setSelectedTrails(trails); setExtraTrails(''); notify.success(canEditAssessment ? '評量已儲存' : '課程附件已加入，評量內容未變更') }, onError: (e: any) => notify.error(e?.response?.data?.new_media?.url?.[0] || e?.response?.data?.skill_review?.[0] || e?.response?.data?.completed_at?.[0] || e?.response?.data?.detail || e?.response?.data?.msg || '資料未儲存，請稍後再試') })
   return <article className="rounded-xl border border-gray-100 p-4 dark:border-gray-700"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b>{row.member_name}</b><p className="mt-1 break-all text-xs text-violet-700 dark:text-violet-300">{row.order_number}</p><p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{row.course_date} · {row.course_name || '未設定課程'}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.campus_name || '未指定校區'} · {row.resort_name || '未指定雪場'} · 教練：{row.coach_name || '尚未指定'}</p></div><button disabled={uploading || save.isPending} onClick={() => setEditing(!editing)} className="min-h-11 shrink-0 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300">{editing ? '收起' : canEditAssessment ? '填寫評量' : '管理課程附件'}</button></div>
     {(!editing || !canEditAssessment) && <><p className="mt-3 whitespace-pre-wrap break-words text-sm text-gray-600 dark:text-gray-300">{row.coach_notes || '尚無評語'}</p>{learningProgressToText(row.learning_progress || {}) && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">學習進度：{learningProgressToText(row.learning_progress || {})}</p>}{row.trail_names?.length > 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">完成雪道：{row.trail_names.join('、')}</p>}<p className="mt-2 text-xs text-gray-500 dark:text-gray-400">媒體 {row.media?.length || 0} 個 · {row.completed_at ? '已完成' : '待填寫'}{!canEditAssessment && ' · 評量僅供查看，可另外加入課程附件'}</p></>}
+    {(!editing || !canEditAssessment) && row.skill_snapshot && <SkillSnapshotSummary snapshot={row.skill_snapshot} />}
     {editing && <div className="mt-4 space-y-3">
       {canEditAssessment && <>
+      {skillConfig && <SkillReviewFields rubric={skillConfig.rubric} entries={skillEntries} onChange={setSkillEntries} />}
       <Field label="給學員的教練評語"><textarea className={`${inputClass} min-h-24`} value={notes} onChange={e => setNotes(e.target.value)} placeholder="用簡單、鼓勵的方式說明這堂課的表現" /></Field>
       <Field label="學習進度（每行一項，例如：煞車：已完成）"><textarea className={`${inputClass} min-h-20`} value={progress} onChange={e => setProgress(e.target.value)} placeholder={'煞車：已完成\n轉彎：持續練習'} /></Field>
       <fieldset className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><legend className="px-1 text-sm font-medium text-gray-900 dark:text-white">完成雪道（可複選）</legend><p className="mb-2 text-xs text-gray-500 dark:text-gray-400">勾選這堂課實際完成的雪道；名單由「基本設定 → 雪場管理」維護。</p>{trailOptions.length ? <div className="grid gap-2 sm:grid-cols-2">{trailOptions.map(name => <label key={name} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:text-white"><input type="checkbox" checked={selectedTrails.includes(name)} onChange={event => setSelectedTrails(previous => event.target.checked ? [...previous, name] : previous.filter(value => value !== name))} className="h-4 w-4 shrink-0 accent-violet-600" /><span className="break-words">{name}{!(row.available_trails || []).includes(name) && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">（原有記錄）</span>}</span></label>)}</div> : <p className="text-sm text-gray-500 dark:text-gray-400">這個雪場尚未設定雪道名單，可先在下方補填。</p>}<div className="mt-3"><Field label="其他完成雪道（選填）"><input className={`${inputClass} min-h-11`} value={extraTrails} onChange={event => setExtraTrails(event.target.value)} placeholder="清單沒有的雪道可在此補填，多條用頓號或逗號分隔" /></Field></div></fieldset>
@@ -280,7 +297,7 @@ function EvaluationCard({ row, coachView = false }: { row: Evaluation; coachView
       <Field label="照片或影片網址（選填）"><div className="grid gap-2 sm:grid-cols-[120px_1fr]"><select className={`${inputClass} min-h-11`} value={mediaType} onChange={e => setMediaType(e.target.value as 'photo' | 'video')}><option value="photo">照片</option><option value="video">影片</option></select><input className={`${inputClass} min-h-11`} type="url" value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} placeholder="https://..." /></div></Field>
       {mediaUrlError && <p role="alert" className="text-xs text-red-600 dark:text-red-300">請輸入以 http:// 或 https:// 開頭的完整照片／影片網址。</p>}
       <p className="text-xs text-gray-500 dark:text-gray-400">加入後，這筆課程的學員與後台可查看；不會自動公開在官網。</p>
-      {!canComplete && !trailError && <p className="text-xs text-amber-700 dark:text-amber-300">{canEditAssessment ? '請先填寫教練評語、學習進度或完成雪道其中一項。' : '可選檔上傳，或填入照片／影片網址；加入附件不會更改評量內容或完成狀態。'}</p>}
+      {!canComplete && !trailError && <p className="text-xs text-amber-700 dark:text-amber-300">{canEditAssessment ? '請先填寫技術評量、教練評語、學習進度或完成雪道其中一項。' : '可選檔上傳，或填入照片／影片網址；加入附件不會更改評量內容或完成狀態。'}</p>}
       <button disabled={uploading || save.isPending || !canComplete || Boolean(mediaUrlError)} onClick={() => save.mutate()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}>{save.isPending ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}{canEditAssessment ? '儲存並標示完成' : '加入附件網址'}</button>
     </div>}
     {row.media?.length > 0 && <div aria-label="已加入的課程附件" className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">{row.media.map(media => <div key={media.id} className="min-w-0 rounded-lg border border-gray-200 p-2 dark:border-gray-700">{media.media_type === 'video' ? <video controls preload="metadata" className="aspect-video w-full rounded bg-black object-contain" src={media.url} /> : <a href={media.url} target="_blank" rel="noreferrer" aria-label="開啟課程照片原圖"><img loading="lazy" className="aspect-video w-full rounded bg-gray-100 object-contain dark:bg-gray-900" src={media.url} alt={media.caption || '課程照片'} /></a>}<p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{media.caption || (media.media_type === 'video' ? '課程影片' : '課程照片')} · {media.is_public ? '已公開' : '私密附件'}</p></div>)}</div>}

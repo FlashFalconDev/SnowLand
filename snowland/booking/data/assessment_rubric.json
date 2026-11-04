@@ -1,0 +1,248 @@
+{
+  "ratings": {
+    "1": "練習",
+    "2": "很好",
+    "3": "熟練"
+  },
+  "disciplines": {
+    "snowboard": {
+      "entry_level": 1,
+      "sections": [
+        {
+          "id": "beginner",
+          "title": "入門",
+          "skills": [
+            {"id": "gear", "title": "器材認識"},
+            {"id": "slope-safety", "title": "了解雪場安全事項"},
+            {"id": "fall-safety", "title": "了解安全摔倒"},
+            {"id": "step-up", "title": "階登上坡"},
+            {"id": "one-foot", "title": "單腳緩坡直滑"},
+            {"id": "j-turn", "title": "單腳 J Turn"},
+            {"id": "lift-carry", "title": "上下纜車（抱板）"},
+            {"id": "lift-wear", "title": "上下纜車（穿板）"},
+            {"id": "heel-slide", "title": "初級道橫滑 Heel"},
+            {"id": "toe-slide", "title": "初級道橫滑 Toe"},
+            {"id": "heel-leaf", "title": "初級道落葉飄 Heel"},
+            {"id": "toe-leaf", "title": "初級道落葉飄 Toe"}
+          ]
+        },
+        {
+          "id": "basic",
+          "title": "初階",
+          "skills": [
+            {"id": "power-leaf", "title": "強力落葉飄"},
+            {"id": "trick-turn", "title": "花式轉彎"},
+            {"id": "c-turn", "title": "C Turn"},
+            {"id": "linked", "title": "連續轉彎"},
+            {"id": "arc", "title": "弧形控制"}
+          ]
+        },
+        {
+          "id": "intermediate",
+          "title": "中階",
+          "skills": [
+            {"id": "red-linked", "title": "紅／藍道連續轉彎"},
+            {"id": "red-arc", "title": "紅／藍道弧形控制"},
+            {"id": "open-carve", "title": "綠道 Open Carve"},
+            {"id": "switch-turn", "title": "綠道 Switch Turn"},
+            {"id": "ollie", "title": "平花 Ollie / Nollie"}
+          ]
+        },
+        {
+          "id": "advanced",
+          "title": "高階",
+          "skills": [
+            {"id": "carve", "title": "紅／藍道 Carving"},
+            {"id": "short-turn", "title": "紅／藍道小轉"},
+            {"id": "switch", "title": "紅／藍道 Switch"},
+            {"id": "uneven", "title": "紅／藍道不整地"},
+            {"id": "nose-press", "title": "平花 nose press"}
+          ]
+        },
+        {
+          "id": "expert",
+          "title": "專家",
+          "skills": [
+            {"id": "black-linked", "title": "黑道連續轉彎"},
+            {"id": "black-short", "title": "黑道小轉"},
+            {"id": "black-uneven", "title": "黑線不整地"},
+            {"id": "trees", "title": "紅／藍線樹林"},
+            {"id": "box", "title": "公園 BOX"},
+            {"id": "jump", "title": "公園跳台"}
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "level": 2,
+          "match": "all",
+          "criteria": [
+            {"skill": "heel-leaf", "rating": 2},
+            {"skill": "toe-leaf", "rating": 2}
+          ]
+        },
+        {
+          "level": 3,
+          "match": "any",
+          "criteria": [
+            {"skill": "linked", "rating": 2}
+          ]
+        },
+        {
+          "level": 4,
+          "match": "any",
+          "criteria": [
+            {"skill": "red-linked", "rating": 2},
+            {"skill": "carve", "rating": 1},
+            {"skill": "short-turn", "rating": 1},
+            {"skill": "switch", "rating": 1}
+          ]
+        },
+        {
+          "level": 5,
+          "match": "any",
+          "criteria": [
+            {"skill": "carve", "rating": 2},
+            {"skill": "short-turn", "rating": 2},
+            {"skill": "switch", "rating": 2},
+            {"skill": "uneven", "rating": 1},
+            {"skill": "black-linked", "rating": 1},
+            {"skill": "black-short", "rating": 1},
+            {"skill": "black-uneven", "rating": 1},
+            {"skill": "trees", "rating": 1}
+          ]
+        },
+        {
+          "level": 6,
+          "match": "any",
+          "criteria": [
+            {"skill": "carve", "rating": 3},
+            {"skill": "short-turn", "rating": 3},
+            {"skill": "switch", "rating": 3},
+            {"skill": "uneven", "rating": 2},
+            {"skill": "black-linked", "rating": 2},
+            {"skill": "black-short", "rating": 2},
+            {"skill": "black-uneven", "rating": 2},
+            {"skill": "trees", "rating": 2}
+          ]
+        }
+      ]
+    },
+    "ski": {
+      "entry_level": 1,
+      "sections": [
+        {
+          "id": "beginner",
+          "title": "入門",
+          "skills": [
+            {"id": "gear", "title": "器材認識"},
+            {"id": "slope-safety", "title": "了解雪場安全事項"},
+            {"id": "fall-safety", "title": "了解安全摔倒"},
+            {"id": "step-up", "title": "階登上坡"},
+            {"id": "straight", "title": "緩坡直滑降"},
+            {"id": "wedge-slide", "title": "初級道－全制動滑行"},
+            {"id": "wedge-brake", "title": "初級道－全制動速度控制（煞車）"},
+            {"id": "wedge-turn", "title": "初級道－全制動轉彎"}
+          ]
+        },
+        {
+          "id": "basic",
+          "title": "初階",
+          "skills": [
+            {"id": "green-brake", "title": "綠道－全制動速度控制（煞車）"},
+            {"id": "green-slide", "title": "綠道－全制動滑行"},
+            {"id": "green-wedge", "title": "綠道－全制動轉彎"},
+            {"id": "green-christie", "title": "綠道－半制動滑行"}
+          ]
+        },
+        {
+          "id": "intermediate",
+          "title": "中階",
+          "skills": [
+            {"id": "red-christie", "title": "紅／藍道－半制動滑行"},
+            {"id": "parallel-brake", "title": "綠道－並腿速度控制（煞車）"},
+            {"id": "parallel-turn", "title": "綠道－並腿轉彎"},
+            {"id": "parallel-slide", "title": "綠道－並腿滑行"}
+          ]
+        },
+        {
+          "id": "advanced",
+          "title": "高階",
+          "skills": [
+            {"id": "red-parallel", "title": "紅／藍道－並腿轉彎"},
+            {"id": "red-slide", "title": "紅／藍道－並腿轉彎滑行"},
+            {"id": "pole-turn", "title": "紅／藍道－並腿轉彎點杖"},
+            {"id": "short-turn", "title": "紅／藍道－並腿小轉"},
+            {"id": "pole-short", "title": "紅／藍道－並腿小轉點杖"},
+            {"id": "carve", "title": "紅／藍道－Carving"}
+          ]
+        },
+        {
+          "id": "expert",
+          "title": "專家",
+          "skills": [
+            {"id": "black-pole", "title": "黑道－並腿點杖轉彎"},
+            {"id": "black-short", "title": "黑道－並腿小轉"},
+            {"id": "uneven", "title": "紅／藍道－不整地"},
+            {"id": "trees", "title": "紅／藍／綠道－樹林"},
+            {"id": "box", "title": "公園－BOX"},
+            {"id": "jump", "title": "公園－跳台"}
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "level": 2,
+          "match": "any",
+          "criteria": [
+            {"skill": "green-wedge", "rating": 3},
+            {"skill": "green-christie", "rating": 1}
+          ]
+        },
+        {
+          "level": 3,
+          "match": "any",
+          "criteria": [
+            {"skill": "green-christie", "rating": 2},
+            {"skill": "red-christie", "rating": 2},
+            {"skill": "parallel-brake", "rating": 1},
+            {"skill": "parallel-turn", "rating": 1},
+            {"skill": "parallel-slide", "rating": 1}
+          ]
+        },
+        {
+          "level": 4,
+          "match": "any",
+          "criteria": [
+            {"skill": "red-parallel", "rating": 2},
+            {"skill": "pole-turn", "rating": 1}
+          ]
+        },
+        {
+          "level": 5,
+          "match": "any",
+          "criteria": [
+            {"skill": "red-slide", "rating": 2},
+            {"skill": "pole-turn", "rating": 2},
+            {"skill": "uneven", "rating": 1},
+            {"skill": "trees", "rating": 1}
+          ]
+        },
+        {
+          "level": 6,
+          "match": "any",
+          "criteria": [
+            {"skill": "pole-turn", "rating": 3},
+            {"skill": "short-turn", "rating": 2},
+            {"skill": "pole-short", "rating": 2},
+            {"skill": "carve", "rating": 2},
+            {"skill": "uneven", "rating": 2},
+            {"skill": "trees", "rating": 2},
+            {"skill": "black-pole", "rating": 1},
+            {"skill": "black-short", "rating": 1}
+          ]
+        }
+      ]
+    }
+  }
+}

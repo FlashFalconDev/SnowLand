@@ -1,8 +1,10 @@
 """Administrator-reviewed deductions. No statutory rates and no money transfer."""
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from .models import PayrollStatement
 
@@ -30,7 +32,8 @@ def save_settlement(statement, data, user):
         raise ValueError('僅草稿可設定稅金與發放幣別')
     if not isinstance(data, dict) or data.get('reviewed') is not True:
         raise ValueError('請由行政核對扣項、匯率與適用金額後再儲存')
-    if data.get('expected_reviewed_at') != statement.settlement_snapshot.get('reviewed_at'):
+    previous_review = statement.settlement_snapshot.get('reviewed_at')
+    if data.get('expected_reviewed_at') != previous_review:
         raise ValueError('核對版本已變更，請重新載入，避免覆蓋其他行政人員的設定')
     expected = number(data.get('base_amount'), '台幣應發基準', 1000000000)
     if expected != statement.total_amount or statement.total_amount < 0:
@@ -67,10 +70,14 @@ def save_settlement(statement, data, user):
     net = gross - deduction_total
     # Allocate the original TWD basis, not a future/live exchange rate.
     base_net = rounded(expected * Decimal(net) / Decimal(gross)) if gross else int(expected)
+    reviewed_at = timezone.now()
+    previous_time = parse_datetime(previous_review) if previous_review else None
+    if previous_time and previous_time >= reviewed_at:
+        reviewed_at = previous_time + timedelta(microseconds=1)
     statement.settlement_snapshot = {'version': 1, 'base_currency': 'TWD', 'base_amount': int(expected),
         'currency': currency, 'rate': str(rate), 'gross_amount': gross, 'deductions': deductions,
         'deduction_total': deduction_total, 'net_amount': net, 'base_net_amount': base_net,
         'base_deduction_total': int(expected) - base_net, 'note': note.strip(),
-        'reviewed_by': user.pk, 'reviewed_at': timezone.now().isoformat()}
+        'reviewed_by': user.pk, 'reviewed_at': reviewed_at.isoformat()}
     statement.save(update_fields=['settlement_snapshot', 'updated_at'])
     return statement

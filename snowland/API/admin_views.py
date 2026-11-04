@@ -35,6 +35,7 @@ from booking.models import (
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
 from booking.marketing_source import display_marketing_source
+from booking.assessment import RUBRIC_LOCATION, school_rubric, validate_rubric
 
 from .admin_serializers import (
     SiteContentAdminSerializer,
@@ -697,7 +698,7 @@ class SiteContentAdminViewSet(ModelViewSet):
         if not tenant:
             return SiteContent.objects.none()
 
-        qs = SiteContent.objects.filter(client=tenant)
+        qs = SiteContent.objects.filter(client=tenant).exclude(location_key=RUBRIC_LOCATION)
         if not user_has_admin_permission(self.request.user, 'cms', getattr(self.request, 'tenant', None)):
             allowed = Q(pk__in=[])
             for kind, location in self._review_locations():
@@ -2513,6 +2514,35 @@ class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     serializer_class = CourseEvaluationAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'evaluations'
+
+    @action(detail=False, methods=['get', 'put'], url_path='rubric')
+    @transaction.atomic
+    def rubric(self, request, *args, **kwargs):
+        role = getattr(staff_profile(request.user, request.tenant), 'role', '')
+        can_edit = not getattr(self, 'coach_scoped', False) and (request.user.is_superuser or role == 'hq_admin')
+        if request.method == 'GET':
+            return Response({'code': 200, 'data': {**school_rubric(request.tenant), 'can_edit': can_edit}})
+        if not can_edit:
+            raise PermissionDenied('只有學校總部可以調整技術評量設定')
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        current = school_rubric(request.tenant)
+        if request.data.get('revision') != current['revision']:
+            return Response({'msg': '評量設定已更新，請重新載入再修改'}, status=409)
+        try:
+            rubric = validate_rubric(request.data.get('rubric'))
+        except ValueError as exc:
+            raise ValidationError({'rubric': str(exc)}) from exc
+        SiteContent.objects.update_or_create(
+            client=request.tenant, content_type='setting', location_key=RUBRIC_LOCATION,
+            defaults={'title': '技術評量設定', 'status': 'hidden', 'metadata': rubric},
+        )
+        return Response({'code': 200, 'data': {**school_rubric(request.tenant), 'can_edit': True}})
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        # Serialize edits with publishing and read the current snapshot under the same lock.
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        return super().update(request, *args, **kwargs)
 
     def _is_readonly_assistant(self):
         profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))

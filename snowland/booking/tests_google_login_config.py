@@ -27,12 +27,12 @@ class GoogleLoginConfigurationTests(TestCase):
         from Client.models import Client
         Client.objects.create(name='QA',internal_code='snowland')
         request = APIRequestFactory().post(
-            '/booking/api/google-login/',
+            '/booking/snowland/api/google-login/',
             {'credential': 'test-token'},
             format='json',
         )
 
-        response = GoogleLoginAPI.as_view()(request)
+        response = GoogleLoginAPI.as_view()(request, client_code='snowland')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['msg'], 'Google token 中缺少 email')

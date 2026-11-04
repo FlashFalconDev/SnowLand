@@ -29,6 +29,7 @@ from booking.models import (
     NotificationDelivery, OrderRevision, StaffBookingLink,
 )
 from booking.staff_link_snapshot import public_staff_cart_snapshot
+from booking.assessment import RUBRIC_LOCATION, TECHNICAL_KEY, school_rubric, technical_snapshot, validate_review
 from booking.marketing_source import display_marketing_source
 from .admin_permissions import user_has_admin_permission
 
@@ -273,6 +274,8 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         external_id = attrs.get('external_id', getattr(self.instance, 'external_id', ''))
         from booking.checkout_policies import POLICY_PAGES
         previous_location = getattr(self.instance, 'location_key', None)
+        if RUBRIC_LOCATION in (location, previous_location):
+            raise serializers.ValidationError({'location_key': '請到學習評量管理技術設定'})
         if previous_location in POLICY_PAGES.values() and location != previous_location:
             raise serializers.ValidationError({'location_key': '條款文件不能移至其他位置'})
         if location in POLICY_PAGES.values():
@@ -2130,6 +2133,8 @@ class EvaluationTrailNamesField(serializers.ListField):
 
 class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
     can_edit_assessment = serializers.SerializerMethodField()
+    skill_review = serializers.JSONField(write_only=True, required=False)
+    skill_snapshot = serializers.SerializerMethodField()
     trail_names = EvaluationTrailNamesField(
         child=serializers.CharField(max_length=120, error_messages={'blank': '雪道名稱不能空白', 'max_length': '每條雪道名稱最多120字'}),
         max_length=100, required=False,
@@ -2148,7 +2153,7 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CourseEvaluation
-        fields = ['id', 'booking', 'member', 'member_name', 'coach', 'coach_name', 'course_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'self_assessment', 'coach_assessment', 'learning_progress', 'trail_names', 'available_trails', 'coach_notes', 'completed_at', 'media', 'new_media', 'created_at', 'updated_at', 'can_edit_assessment']
+        fields = ['id', 'booking', 'member', 'member_name', 'coach', 'coach_name', 'course_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'self_assessment', 'coach_assessment', 'skill_review', 'skill_snapshot', 'learning_progress', 'trail_names', 'available_trails', 'coach_notes', 'completed_at', 'media', 'new_media', 'created_at', 'updated_at', 'can_edit_assessment']
         read_only_fields = ['id', 'member_name', 'coach_name', 'course_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'media', 'created_at', 'updated_at']
 
     def validate_new_media(self, value):
@@ -2171,6 +2176,15 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 
     def validate_trail_names(self, value):
         return list(dict.fromkeys(value))
+
+    def get_skill_snapshot(self, obj):
+        return technical_snapshot(obj)
+
+    def to_representation(self, instance):
+        result = super().to_representation(instance)
+        if isinstance(result['coach_assessment'], dict):
+            result['coach_assessment'] = {key: value for key, value in result['coach_assessment'].items() if key != TECHNICAL_KEY}
+        return result
 
     def get_available_trails(self, obj):
         reservation = obj.booking.reservation
@@ -2231,6 +2245,31 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'member': '學員不屬於這堂課'})
         if coach and coach.client_id != getattr(tenant, 'id', None):
             raise serializers.ValidationError({'coach': '不能選擇其他公司的教練'})
+        existing = technical_snapshot(self.instance)
+        if existing and (booking.pk != self.instance.booking_id or member.pk != self.instance.member_id):
+            raise serializers.ValidationError({'member': '已有技術評量的紀錄不能移到其他學員或課程'})
+        if 'coach_assessment' in attrs:
+            if not isinstance(attrs['coach_assessment'], dict) or TECHNICAL_KEY in attrs['coach_assessment']:
+                raise serializers.ValidationError({'coach_assessment': '技術評分必須使用學習評量表單'})
+            if existing:
+                attrs['coach_assessment'][TECHNICAL_KEY] = existing
+        if 'skill_review' in attrs:
+            if booking.reservation.status != 'completed':
+                raise serializers.ValidationError({'skill_review': '只有完課後才能填寫技術評量'})
+            try:
+                snapshot = validate_review(attrs.pop('skill_review'), existing or school_rubric(tenant))
+            except ValueError as exc:
+                raise serializers.ValidationError({'skill_review': str(exc)}) from exc
+            # Persist only the validated fields. Legacy assessments keep their original keys.
+            snapshot = {key: snapshot[key] for key in ('revision', 'rubric', 'entries')}
+            previous = getattr(self.instance, 'coach_assessment', {})
+            assessment = dict(attrs.get('coach_assessment', previous) or {})
+            if snapshot['entries']:
+                assessment[TECHNICAL_KEY] = snapshot
+            else:
+                assessment.pop(TECHNICAL_KEY, None)
+            attrs['coach_assessment'] = assessment
+            existing = snapshot
         completed_at = attrs.get('completed_at', getattr(self.instance, 'completed_at', None))
         if completed_at:
             notes = attrs.get('coach_notes', getattr(self.instance, 'coach_notes', ''))
@@ -2238,8 +2277,8 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
             trails = attrs.get('trail_names', getattr(self.instance, 'trail_names', []))
             has_progress = any(str(value).strip() for value in progress.values()) if isinstance(progress, dict) else bool(progress)
             has_trails = any(str(value).strip() for value in trails) if isinstance(trails, list) else bool(trails and str(trails).strip())
-            if not (notes.strip() or has_progress or has_trails):
-                raise serializers.ValidationError({'completed_at': '請先填寫教練評語、學習進度或完成雪道，再標示完成'})
+            if not (notes.strip() or has_progress or has_trails or existing and existing['entries']):
+                raise serializers.ValidationError({'completed_at': '請先填寫教練評語、學習進度、技術評量或完成雪道，再標示完成'})
         return attrs
 
 
