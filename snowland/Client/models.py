@@ -518,3 +518,17 @@ class ClientMemberProfile(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['client', 'user'], name='unique_member_profile_client_user')]
+
+
+class FrontendRelease(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='frontend_releases')
+    filename = models.CharField(max_length=255)
+    archive_name = models.CharField(max_length=255)
+    sha256 = models.CharField(max_length=64)
+    size = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_current = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-id']
+        constraints = [models.UniqueConstraint(fields=['client', 'sha256'], name='unique_frontend_release_archive')]

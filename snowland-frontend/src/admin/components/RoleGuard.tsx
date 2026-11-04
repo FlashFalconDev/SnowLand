@@ -17,11 +17,12 @@ import { Lock, Loader2 } from 'lucide-react'
 // @ts-ignore
 import { SiteBasePathContext } from '@/components/site/SiteLink'
 import { fetchAdminMe, type AdminUser } from '../api/auth'
-import { hasAdminPermission } from '../permissions'
+import { canUseFrontendSupport, hasAdminPermission } from '../permissions'
 
 interface Props {
   requireManager?: boolean
   requireCoach?: boolean
+  requireFrontendSupport?: boolean
   permission?: string
 }
 
@@ -50,7 +51,7 @@ function inferPermissionFromPath(pathname: string): string {
   return match?.[1] || ''
 }
 
-export default function RoleGuard({ requireManager, requireCoach, permission }: Props) {
+export default function RoleGuard({ requireManager, requireCoach, requireFrontendSupport, permission }: Props) {
   const navigate = useNavigate()
   const location = useLocation()
   const basePath = useContext(SiteBasePathContext)
@@ -100,6 +101,17 @@ export default function RoleGuard({ requireManager, requireCoach, permission }: 
   const isSuperuser = !!user.is_superuser
   const isManager = !!user.is_manager
   const isCoach = !!user.is_coach
+
+  if (requireFrontendSupport && !canUseFrontendSupport(basePath, user)) {
+    return (
+      <NoAccess
+        title="無權限存取"
+        message="前端支援僅開放給 FlashFalcon 的平台管理員。"
+        onAction={() => navigate(`${basePath}/console`)}
+        actionLabel="回到後台首頁"
+      />
+    )
+  }
 
   if (requireManager && !isSuperuser && !isManager) {
     return (

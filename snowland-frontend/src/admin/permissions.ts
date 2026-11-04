@@ -32,6 +32,10 @@ export const ADMIN_PERMISSION_DEFINITIONS: AdminPermissionDefinition[] = [
 
 export const ADMIN_PERMISSION_KEYS = ADMIN_PERMISSION_DEFINITIONS.map((item) => item.key)
 
+export function canUseFrontendSupport(basePath: string, user?: AdminUser | null): boolean {
+  return basePath === '/flashfalcon' && !!user?.is_superuser
+}
+
 export function hasAdminPermission(user: AdminUser | null | undefined, permission?: string): boolean {
   if (!permission) return !!user?.is_manager || !!user?.is_superuser
   if (user?.is_superuser) return true
