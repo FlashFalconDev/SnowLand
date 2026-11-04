@@ -13,7 +13,7 @@ from Client.models import Client
 from Coach.payroll import calculate_payroll_statement
 from Coursekit.models import CourseCategory
 from Resorts.models import PaymentAccount, Resorts
-from booking.models import NotificationDelivery, Payment, ReservationGroup
+from booking.models import CancellationRequest, NotificationDelivery, Payment, ReservationGroup
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -107,6 +107,25 @@ class OrderFeedbackTests(TestCase):
         with self.assertRaises(ValueError):
             calculate_payroll_statement(**period)
         self.assertEqual(list(lines.values_list('unit_amount', flat=True)), [1000, 1200])
+
+    def test_admin_cannot_create_or_approve_past_cancellation_but_can_reject_it(self):
+        self.booking_1.date = timezone.localdate() - timedelta(days=1)
+        self.booking_1.save(update_fields=['date'])
+        orders_url = f'{self.admin_base}/orders/{self.group.pk}'
+        preview = self.admin.get(f'{orders_url}/refund-preview/')
+        self.assertLess(preview.data['data']['days_before'], 0)
+        response = self.admin.post(f'{orders_url}/cancel/', {'reason': 'schedule'}, format='json')
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertFalse(self.group.cancellation_requests.exists())
+
+        cancellation = CancellationRequest.objects.create(group=self.group, reason='schedule', status='requested')
+        process_url = f'{self.admin_base}/cancellations/{cancellation.pk}/process/'
+        response = self.admin.post(process_url, {'status': 'approved'}, format='json')
+        self.assertEqual(response.status_code, 400, response.data)
+        cancellation.refresh_from_db()
+        self.assertEqual(cancellation.status, 'requested')
+        response = self.admin.post(process_url, {'status': 'rejected'}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
 
     def test_order_export_dates_sort_and_tenant_scope(self):
         url = self.admin_base + '/orders/export/'

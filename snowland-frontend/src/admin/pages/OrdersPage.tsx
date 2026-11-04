@@ -603,7 +603,14 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const [cancelForm, setCancelForm] = useState({ reason: 'schedule', reason_note: '', bank_name: '', account_number: '', account_holder: '',overseas_details:'' })
   const [refundChoice, setRefundChoice] = useState('auto')
   const [manualRefund, setManualRefund] = useState('')
-  const { data: refundPreview } = useQuery({ queryKey: ['admin', 'orders', order.id, 'refund-preview'], queryFn: () => previewOrderRefund(order.id), enabled: cancelOpen })
+  const canStartCancellation = !order.cancellation || order.cancellation.status === 'rejected'
+  const { data: refundPreview, isError: refundPreviewError, refetch: reloadRefundPreview } = useQuery({
+    queryKey: ['admin', 'orders', order.id, 'refund-preview'],
+    queryFn: () => previewOrderRefund(order.id),
+    enabled: !readOnly && (canStartCancellation || order.cancellation?.status === 'requested'),
+  })
+  const cancellationExpired = refundPreview != null && refundPreview.days_before < 0
+  const cancellationBlocked = !refundPreview || refundPreviewError || cancellationExpired
   const selectedRule = refundPreview?.available_rules.find(rule => refundChoice === `rule:${rule.days_before}`)
   const manualRefundValid = manualRefund !== '' && Number.isInteger(Number(manualRefund)) && Number(manualRefund) >= 0 && Number(manualRefund) <= (refundPreview?.original_amount ?? -1)
   const displayedRefund = refundChoice === 'manual' ? (manualRefundValid ? Number(manualRefund) : null) : selectedRule && refundPreview
@@ -789,7 +796,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                 >
                   <Mail size={12} />寄信
                 </button>
-                {(!order.cancellation || order.cancellation.status === 'rejected') && <button onClick={() => setCancelOpen(true)} className="min-h-11 rounded-md bg-red-500/80 px-3 py-2 text-xs font-medium hover:bg-red-500">{order.cancellation ? '重新申請取消／退款' : '取消／退款'}</button>}
+                {canStartCancellation && <button onClick={() => setCancelOpen(true)} disabled={cancellationBlocked} className="min-h-11 rounded-md bg-red-500/80 px-3 py-2 text-xs font-medium hover:bg-red-500 disabled:opacity-40">{order.cancellation ? '重新申請取消／退款' : '取消／退款'}</button>}
               </>
             )}
           </div>
@@ -797,6 +804,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {!readOnly && cancellationExpired && <p role="status" className="text-sm">首堂課日期已過，無法申請或核准取消。</p>}
+          {!readOnly && refundPreviewError && <p role="alert" className="text-sm">無法確認取消資格。 <button type="button" className="underline" onClick={() => reloadRefundPreview()}>重試</button></p>}
           <div className="flex flex-wrap gap-2">
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
@@ -845,7 +854,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                 </div>) : <p className="text-gray-500 dark:text-gray-400">這筆舊紀錄沒有保存課程明細。</p>}
               </div>
             </details>)}</div>
-            {order.cancellation && <CancellationStatusPanel cancellation={order.cancellation} readOnly={readOnly} />}
+            {order.cancellation && <CancellationStatusPanel cancellation={order.cancellation} readOnly={readOnly} approvalBlocked={cancellationBlocked} />}
           </section>
 
           {order.reservations.map((r, idx) => {
@@ -1106,7 +1115,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
 </div>}</div>
 <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
 <button disabled={cancelMutation.isPending} onClick={() => setCancelOpen(false)} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">返回</button>
-<button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending || !refundPreview || (refundPreview.settlement?.currency==='JPY'&&!refundPreview.requires_cash_review&&nativeRefund===null) || ((refundPreview.requires_cash_review || !['newebpay','credit_card','apple_pay','google_pay'].includes(order.payment_method)) && ![cancelForm.bank_name,cancelForm.account_number,cancelForm.account_holder].every(value=>value.trim())) || (!refundPreview?.requires_cash_review && refundChoice === 'manual' && !manualRefundValid)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{cancelMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認建立取消申請</button>
+<button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending || cancellationBlocked || !refundPreview || (refundPreview.settlement?.currency==='JPY'&&!refundPreview.requires_cash_review&&nativeRefund===null) || ((refundPreview.requires_cash_review || !['newebpay','credit_card','apple_pay','google_pay'].includes(order.payment_method)) && ![cancelForm.bank_name,cancelForm.account_number,cancelForm.account_holder].every(value=>value.trim())) || (!refundPreview?.requires_cash_review && refundChoice === 'manual' && !manualRefundValid)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{cancelMutation.isPending && <Loader2 size={14} className="animate-spin" />}確認建立取消申請</button>
 </div>
 </div>
 </div>}

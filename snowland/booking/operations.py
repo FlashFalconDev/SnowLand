@@ -162,11 +162,15 @@ def outstanding_amendments(group):
     return group.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due'])
 
 
-def calculate_refund(group):
+def days_until_first_course(group):
     active_courses = group.reservations.exclude(status__in=['deleted', 'cancelled'])
     first_course = active_courses.filter(bookings__date__isnull=False).values_list('bookings__date', flat=True).order_by('bookings__date').first()
-    today = timezone.localdate()
-    days_before = (first_course - today).days if first_course else 0
+    return (first_course - timezone.localdate()).days if first_course else 0
+
+
+def calculate_refund(group):
+    active_courses = group.reservations.exclude(status__in=['deleted', 'cancelled'])
+    days_before = days_until_first_course(group)
     policy = get_operating_policy(group)
     rules = sorted(policy.cancellation_rules or [], key=lambda item: int(item.get('days_before', 0)), reverse=True)
     refund_percent = 0
@@ -234,8 +238,8 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
     overseas=overseas.strip()
     bank = {key: bank.get(key, '').strip() for key in ('bank_name', 'account_number', 'account_holder')}
     preview = calculate_refund(group)
-    if require_paid and preview['days_before'] < 0:
-        raise ValueError('首堂課日期已過，無法線上申請取消，請聯絡客服')
+    if preview['days_before'] < 0:
+        raise ValueError('首堂課日期已過，無法申請取消，請聯絡客服')
     preview.pop('settlement',None)
     rules = preview.pop('available_rules')
     values = preview

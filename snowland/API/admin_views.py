@@ -2303,7 +2303,9 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             'rejected': set(),
             'refunded': set(),
         }
-        from booking.operations import outstanding_amendments
+        from booking.operations import days_until_first_course, outstanding_amendments
+        if cancellation.status == 'requested' and next_status == 'approved' and days_until_first_course(group) < 0:
+            return Response({'code': 400, 'msg': '首堂課日期已過，無法核准取消'}, status=400)
         pending=list(outstanding_amendments(group).values('id','balance_amount','status','currency_snapshot'))
         requires_review=cancellation.requires_cash_review or bool(pending)
         review_pending=requires_review and cancellation.actual_received_amount is None
