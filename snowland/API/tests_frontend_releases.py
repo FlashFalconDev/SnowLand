@@ -64,7 +64,7 @@ class FrontendReleaseTests(TestCase):
         self.assertIn('attachment;', download['Content-Disposition'])
         self.assertIn('no-store', download['Cache-Control'])
         self.assertEqual(b''.join(download.streaming_content), archive_bytes)
-        download.close()
+        self.assertTrue(download.closed)
         self.assertFalse(FrontendRelease.objects.filter(client=self.other).exists())
 
     def test_invalid_zip_does_not_create_version(self):
