@@ -234,6 +234,12 @@ def quote_order_amendment(group,data,actor):
     if len(set(ids))!=len(ids) or any(pk not in reservations for pk in ids):
         _fail('預約必須屬於這張訂單，且不可重複')
     items=[_quote_item(group,reservations[change['reservation_id']],change) for change in data['changes']]
+    from booking.models import OrderLoyalty
+    locked_discount = OrderLoyalty.objects.filter(group=group).values_list('discount_floor', flat=True).first() or 0
+    revised_discounts = {item['reservation_id']: item['discount_amount'] for item in items}
+    if locked_discount > sum(revised_discounts.get(reservation.pk, reservation.discount_amount or 0)
+                             for reservation in reservations.values() if reservation.status not in ('deleted', 'cancelled')):
+        _fail('已使用的會員紅利及推薦折抵須保留；請確認修改後的折抵金額')
     previous=sum(reservation.payment_amount for reservation in reservations.values() if reservation.status not in {'deleted','cancelled'})
     difference=sum(item['new_amount']-item['previous_amount'] for item in items)
     result={'previous_total':previous,'new_total':previous+difference,'difference_amount':difference,'items':items,

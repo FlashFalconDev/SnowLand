@@ -467,6 +467,7 @@ class MemberDetail(models.Model):
         related_name='updated_insurance_reports', verbose_name='投保作業更新人')
     waiver_signature = models.CharField(max_length=120, blank=True, default='', verbose_name='聲明書簽署姓名')
     waiver_document_version = models.CharField(max_length=80, blank=True, default='', verbose_name='聲明書版本')
+    pre_course_answers = models.JSONField(default=dict, blank=True)
     waiver_document_snapshot = models.TextField(blank=True, default='', verbose_name='簽署時聲明書內容')
     media_consent = models.CharField(
         max_length=10,
@@ -507,6 +508,22 @@ class MemberCourseDocumentRevision(models.Model):
     revision = models.ForeignKey('OrderRevision', on_delete=models.CASCADE, related_name='member_document_revisions')
     snapshot = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class MemberWaiverSignature(models.Model):
+    """Evidence for a handwritten signature on a specific waiver and course version."""
+
+    member = models.ForeignKey(MemberDetail, on_delete=models.CASCADE, related_name='online_waiver_signatures')
+    signer = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    signer_name = models.CharField(max_length=120)
+    signer_role = models.CharField(max_length=10)
+    signed_at = models.DateTimeField()
+    document_version = models.CharField(max_length=80)
+    document_snapshot = models.TextField()
+    form_snapshot = models.JSONField(default=dict, blank=True)
+    course_revision = models.PositiveBigIntegerField(default=0)
+    media_consent = models.CharField(max_length=10)
+    strokes = models.JSONField()
 
 
 class ParticipantInvitation(models.Model):
@@ -606,7 +623,8 @@ class MemberLoyaltyAccount(models.Model):
     """A school's reviewed membership state, never shared between tenants."""
     client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    points = models.PositiveIntegerField(default=0)
+    points = models.PositiveBigIntegerField(default=0)
+    reward_balance = models.BigIntegerField(default=0)
     previous_points = models.PositiveIntegerField(default=0)
     level = models.CharField(max_length=20, choices=MemberProfile.LEVEL_CHOICES, default='new')
     alumni_verified = models.BooleanField(default=False)
@@ -626,6 +644,36 @@ class MemberLoyaltyReview(models.Model):
 
     class Meta:
         ordering = ['-created_at', '-pk']
+
+
+class MemberLoyaltyPolicy(models.Model):
+    client = models.OneToOneField('Client.Client', on_delete=models.CASCADE)
+    revision = models.PositiveIntegerField(default=0)
+    rules = models.JSONField(default=dict)
+
+
+class OrderLoyalty(models.Model):
+    group = models.OneToOneField(ReservationGroup, on_delete=models.PROTECT, related_name='loyalty')
+    account = models.ForeignKey(MemberLoyaltyAccount, on_delete=models.PROTECT, related_name='orders')
+    policy_revision = models.PositiveIntegerField()
+    rules = models.JSONField()
+    paid_base = models.PositiveIntegerField(null=True)
+    points_earned = models.PositiveBigIntegerField(default=0)
+    rewards_earned = models.PositiveBigIntegerField(default=0)
+    rewards_spent = models.PositiveBigIntegerField(default=0)
+    rewards_restored = models.PositiveBigIntegerField(default=0)
+    discount_floor = models.PositiveIntegerField(default=0)
+    referrer = models.ForeignKey(MemberLoyaltyAccount, null=True, on_delete=models.PROTECT, related_name='referred_orders')
+    referral_earned = models.PositiveIntegerField(default=0)
+
+
+class MemberLoyaltyEntry(models.Model):
+    account = models.ForeignKey(MemberLoyaltyAccount, on_delete=models.PROTECT, related_name='entries')
+    order = models.ForeignKey(OrderLoyalty, on_delete=models.PROTECT, related_name='entries')
+    kind = models.CharField(max_length=24)
+    points_delta = models.BigIntegerField(default=0)
+    rewards_delta = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class OrderRevision(models.Model):

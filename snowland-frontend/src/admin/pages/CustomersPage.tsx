@@ -10,6 +10,7 @@ import { fetchAdminMe } from '../api/auth'
 import { hasAdminPermission } from '../permissions'
 import ManualNotificationComposer from '../components/ManualNotificationComposer'
 import MemberLoyaltyPanel from '../components/MemberLoyaltyPanel'
+import LoyaltyPolicyPanel from '../components/LoyaltyPolicyPanel'
 
 const PRIMARY = '#8b5cf6'
 
@@ -37,6 +38,7 @@ export default function CustomersPage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">會員管理</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">查看目前校區範圍內的會員資料、預約紀錄與滑雪程度</p>
       </div>
+      {(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin') && <LoyaltyPolicyPanel />}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="relative">

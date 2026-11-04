@@ -2149,6 +2149,29 @@ class CourseAvailableDatesAPI(APIView):
         }, status=status.HTTP_200_OK)
 
 
+def quote_reservation_rewards(request, tenant, user, summary, *, preview=False):
+    from .loyalty import checkout_rewards
+    requested = request.data.get('reward_points', 0)
+    code = request.data.get('member_referral_code', '')
+    try:
+        revision, rules, allocations, available = checkout_rewards(tenant, user, summary, requested, code)
+        error = ''
+    except ValueError as exc:
+        if not preview:
+            raise
+        revision, rules, allocations, available = checkout_rewards(tenant, user, summary, 0, '')
+        error = str(exc)
+    reward_total = sum(item['discount'] for item in allocations)
+    if not preview and (requested or code):
+        if request.data.get('loyalty_revision') != revision or request.data.get('loyalty_discount') != reward_total:
+            raise ValueError('紅利或推薦優惠已變更，請重新試算')
+    return revision, rules, allocations, {
+        'enabled': rules['enabled'] and bool(user), 'available': available, 'revision': revision,
+        'redemption_rate': rules['twd_per_reward'], 'discount': reward_total, 'error': error,
+        'referrals_enabled': bool(rules['referrer_rewards'] or rules['new_member_rewards']),
+    }
+
+
 class DiscountPreviewAPI(APIView):
     """
     POST /api/discount-preview/
@@ -2173,14 +2196,19 @@ class DiscountPreviewAPI(APIView):
                 contact_info=normalize_contact_info(request),
                 discount_code=request.data.get('discount_code') or request.data.get('discountCode') or '',
             )
+            _, _, rewards, loyalty = quote_reservation_rewards(
+                request, tenant_client, get_request_user_or_none(request), summary, preview=True,
+            )
             return Response({
                 'code': 200,
                 'msg': 'OK',
                 'subtotal': summary['subtotal'],
-                'discount_total': summary['discount_total'],
-                'total': summary['total'],
+                'discount_total': summary['discount_total'] + loyalty['discount'],
+                'total': summary['total'] - loyalty['discount'],
                 'item_subtotals': summary['item_subtotals'],
-                'item_discount_amounts': summary['item_discount_amounts'],
+                'item_discount_amounts': ([amount + reward['discount'] for amount, reward in zip(summary['item_discount_amounts'], rewards)]
+                                          if rewards else summary['item_discount_amounts']),
+                'loyalty': loyalty,
                 'applied_discounts': summary['applied_discounts'],
                 'discount_code_error': summary['discount_code_error'],
                 'is_new_customer': summary['is_new_customer'],
@@ -2323,11 +2351,19 @@ class CreateReservationAPI(APIView):
             reservation_groups = []
             item_discounts = discount_summary.get('item_discount_amounts') or []
             applied_discount_details = discount_summary.get('applied_discount_details') or []
+            from .loyalty import start_order_loyalty
+            loyalty_revision, loyalty_rules, reward_allocations, _ = quote_reservation_rewards(
+                request, tenant_client, request_user, discount_summary,
+            )
 
             # 為每個購物車項目創建預約組
             for index, item in enumerate(cart_data):
                 item_discount_amount = item_discounts[index] if index < len(item_discounts) else 0
                 item_applied_discounts = [discount for discount in applied_discount_details if discount.get('allocations', {}).get(index, 0) > 0]
+                reward = reward_allocations[index] if reward_allocations else {}
+                if reward.get('discount'):
+                    item_discount_amount += reward['discount']
+                    item_applied_discounts.append({'name': '會員紅利／推薦折抵'})
                 group_id, reservation, group = self._create_reservation_group(
                     request_user,
                     item,
@@ -2339,6 +2375,9 @@ class CreateReservationAPI(APIView):
                 created_group_ids.append(group_id)
                 created_reservations.append(reservation)
                 reservation_groups.append(group)
+                if reward.get('discount') and (reservation.discount_amount < item_discount_amount or reservation.payment_amount <= 0):
+                    raise ValueError('課程價格已變更，請重新試算紅利折抵')
+                start_order_loyalty(group, loyalty_revision, loyalty_rules, **reward)
 
             from .currency import initialize_order_currency
             for created_group in reservation_groups:
@@ -2873,6 +2912,8 @@ class MemberCenterAPI(APIView):
         profile = school_member_profile(request.user, tenant)
         from .models import MemberLoyaltyAccount
         loyalty, _ = MemberLoyaltyAccount.objects.get_or_create(client=tenant, user=request.user)
+        from .loyalty import get_loyalty_policy, level_label
+        _, loyalty_rules = get_loyalty_policy(tenant)
         from .class_group_qr import paid_group_qr_url
         waiver_document = get_current_waiver(tenant)
         groups = ReservationGroup.objects.filter(
@@ -3126,6 +3167,9 @@ class MemberCenterAPI(APIView):
             },
             'referral_code': profile.referral_code,
             'points': loyalty.points,
+            'reward_balance': loyalty.reward_balance,
+            'loyalty_enabled': loyalty_rules['enabled'],
+            'level_label': level_label(loyalty, loyalty_rules),
             'previous_points': loyalty.previous_points,
             'level': loyalty.level,
             'alumni_verified': loyalty.alumni_verified,
@@ -3783,6 +3827,10 @@ class SuperScheduleAPI(APIView):
 
             # Keep each cart item's campus/contact ownership, just like ordinary booking.
             created_groups=[]
+            from .loyalty import start_order_loyalty
+            loyalty_revision, loyalty_rules, reward_allocations, _ = quote_reservation_rewards(
+                request, tenant_client, request_user, discount_summary,
+            )
 
             created_reservations = []
             item_discounts = discount_summary.get('item_discount_amounts') or []
@@ -3800,11 +3848,16 @@ class SuperScheduleAPI(APIView):
                     discount for discount in applied_discount_details
                     if discount.get('allocations', {}).get(item_index, 0) > 0
                 ]
+                reward = reward_allocations[item_index] if reward_allocations else {}
+                if reward.get('discount'):
+                    item_discount_amount += reward['discount']
+                    item_applied_discounts.append({'name': '會員紅利／推薦折抵'})
                 course_count = max(len(courses), 1)
                 per_course_discount = item_discount_amount // course_count
                 discount_remainder = item_discount_amount - (per_course_discount * course_count)
 
                 # 對每一天的課程創建獨立的Reservation
+                item_reservations = []
                 for course_index, course in enumerate(courses):
                     course_discount_amount = per_course_discount + (discount_remainder if course_index == 0 else 0)
                     # 創建單日Reservation（強制不指定教練）
@@ -3818,6 +3871,13 @@ class SuperScheduleAPI(APIView):
                         charge_equipment_fee=(course_index == 0),
                     )
                     created_reservations.append(reservation)
+                    item_reservations.append(reservation)
+                if reward.get('discount') and (
+                    sum(row.discount_amount for row in item_reservations) < item_discount_amount
+                    or sum(row.payment_amount for row in item_reservations) <= 0
+                ):
+                    raise ValueError('拆課後部分課程無法套用全部紅利，請減少本次折抵')
+                start_order_loyalty(group, loyalty_revision, loyalty_rules, **reward)
 
             from .currency import initialize_order_currency
             for created_group in created_groups:
@@ -4908,6 +4968,7 @@ class CancelFailedReservationsAPI(APIView):
     使用者在排課失敗 modal 選「改其他日期」時呼叫，刪除剛才建立但尚未付款的失敗訂單。
     僅允許刪除：1) 屬於當前 user 的；2) 狀態為 auto_assignment_failed 的。
     """
+    @transaction.atomic
     def post(self, request, client_code=None):
         if not request.user.is_authenticated:
             return Response({'code': 401, 'msg': '請先登入'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -4916,15 +4977,26 @@ class CancelFailedReservationsAPI(APIView):
         if not ids:
             return Response({'code': 400, 'msg': '缺少 reservation_group_ids'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from .models import ReservationGroup
-        groups = ReservationGroup.objects.filter(pk__in=ids, user=request.user)
+        from .models import OrderLoyalty, ReservationGroup
+        from .loyalty import release_unpaid_redemption
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'code': 404, 'msg': str(exc)}, status=404)
+        Client.objects.select_for_update().get(pk=tenant.pk)
+        groups = ReservationGroup.objects.select_for_update().filter(pk__in=ids, user=request.user, client=tenant)
 
         deleted_count = 0
         for g in groups:
             # 安全條件：必須所有 reservation 都是 auto_assignment_failed
             statuses = list(g.reservations.values_list('status', flat=True))
-            if statuses and all(s == 'auto_assignment_failed' for s in statuses):
-                g.delete()
+            if statuses and all(s == 'auto_assignment_failed' for s in statuses) and not g.payments.filter(status__in=('paid','pending','refunded')).exists():
+                if OrderLoyalty.objects.filter(group=g).exists():
+                    release_unpaid_redemption(g)
+                    g.reservations.update(status='deleted')
+                    g.payments.filter(status='unpaid').update(status='expired')
+                else:
+                    g.delete()
                 deleted_count += 1
 
         return Response({

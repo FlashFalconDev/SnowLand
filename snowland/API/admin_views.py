@@ -1556,6 +1556,14 @@ class OrderAdminViewSet(ModelViewSet):
     serializer_class = OrderAdminSerializer
     permission_classes = [IsTenantManager]
 
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        from booking.models import OrderLoyalty
+        instance = ReservationGroup.objects.select_for_update().get(pk=instance.pk)
+        if OrderLoyalty.objects.filter(group=instance).exists():
+            raise ValidationError('此訂單已套用會員制度，請保留帳務紀錄並使用取消流程')
+        super().perform_destroy(instance)
+
     @action(detail=True,methods=['post'],url_path='amendment-quote')
     def amendment_quote(self,request,*args,**kwargs):
         from rest_framework.authentication import SessionAuthentication
@@ -1763,6 +1771,7 @@ class OrderAdminViewSet(ModelViewSet):
     def complete_course(self, request, *args, **kwargs):
         group = self.get_object()
         with transaction.atomic():
+            group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
             reservation = group.reservations.select_for_update().filter(pk=request.data.get('reservation_id')).first()
             if reservation is None:
                 return Response({'code': 404, 'msg': '此訂單沒有這門課程'}, status=404)
@@ -1789,6 +1798,8 @@ class OrderAdminViewSet(ModelViewSet):
                     )
             from booking.operations import record_order_revision
             record_order_revision(group, user=request.user, reason='後台確認課程完成')
+            from booking.loyalty import sync_order_loyalty
+            sync_order_loyalty(group)
         return Response({'code': 200, 'msg': '課程已完成，評量與薪資時數已可處理'})
 
     @action(detail=True, methods=['get'], url_path='refund-preview')
@@ -1891,6 +1902,14 @@ class OrderAdminViewSet(ModelViewSet):
             return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
         if payment_status and payment_status not in dict(Payment.STATUS_CHOICES):
             return Response({'code': 400, 'msg': '無效的付款狀態'}, status=400)
+        if payment_status:
+            from booking.models import OrderLoyalty
+            loyalty = OrderLoyalty.objects.filter(group=instance).first()
+            if loyalty and (
+                (loyalty.paid_base is not None and payment_status != 'paid')
+                or (payment_status == 'paid' and not instance.reservations.exclude(status__in=('cancelled', 'deleted')).exists())
+            ):
+                return Response({'code':400,'msg':'此訂單已結算會員紅利或已取消，請使用正式退款流程核對'}, status=400)
         foreign_receipt = None
         from booking.currency import foreign_currency
         if payment_status == 'paid' and foreign_currency((instance.currency_snapshot or {}).get('currency')):
@@ -2040,6 +2059,9 @@ class OrderAdminViewSet(ModelViewSet):
                 payment.DataJSON={**payload,'settlement':foreign_receipt,'settlement_confirmations':confirmations}
             payment.save()
             if payment_status == 'paid':
+                from booking.currency import settlement_summary
+                from booking.loyalty import sync_order_loyalty
+                sync_order_loyalty(instance, confirmed_base=settlement_summary(instance)['base_amount'])
                 from booking.operations import schedule_group_notifications
                 schedule_group_notifications(instance, 'payment_confirmed')
 
@@ -2395,6 +2417,9 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         if next_status == 'refunded':
             cancellation.group.payments.update(status='refunded')
             outstanding_amendments(group).update(status='cancelled',updated_at=timezone.now())
+            from booking.loyalty import release_unpaid_redemption, sync_order_loyalty
+            sync_order_loyalty(group, refund=cancellation.refund_amount or 0)
+            release_unpaid_redemption(group)
         return Response({'code': 200, 'msg': '取消申請已更新', 'data': self.get_serializer(cancellation).data})
 
 

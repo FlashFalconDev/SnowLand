@@ -65,4 +65,6 @@ def call_back(request, tunnel):
     payment.status='paid';payment.payment_method='newebpay';payment.user_id=group.user_id
     payment.DataJSON=stored
     payment.save(update_fields=['status','payment_method','user','DataJSON','updated_at'])
+    from .loyalty import sync_order_loyalty
+    sync_order_loyalty(group, confirmed_base=int(amount))
     return HttpResponse('OK')

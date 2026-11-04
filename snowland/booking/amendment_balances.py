@@ -102,6 +102,9 @@ def process_balance(group, actor, data, *, staff=False, scope=None):
         else:raise NotificationConflict('目前差額狀態不能回報此資料，請重新載入')
     row.updated_at=timezone.now()
     row.save(update_fields=['status','topup_reference','refund_bank','updated_at','settled_at','settled_by'])
+    if row.status == 'settled':
+        from .loyalty import sync_order_loyalty
+        sync_order_loyalty(group)
     payload={key:data[key] for key in ['reference','bank','note'] if key in data}
     if settlement:
         payload['settlement']={'currency':settlement['currency'],'amount':abs(settlement['balance_amount']),'rate':settlement['rate'],

@@ -184,6 +184,10 @@ export interface CreateReservationParams {
   }
   discount_code?: string
   discountCode?: string
+  reward_points?: number
+  member_referral_code?: string
+  loyalty_revision?: number
+  loyalty_discount?: number
   cart: Array<{
     coach: number | 'any'
     coachName: string
@@ -244,6 +248,7 @@ export interface DiscountPreviewResponse {
   applied_discounts: DiscountPreviewDiscount[]
   discount_code_error?: string
   is_new_customer?: boolean
+  loyalty?: { enabled: boolean; available: number; revision: number; redemption_rate: string; discount: number; error: string; referrals_enabled: boolean }
 }
 
 export const previewDiscounts = async (data: CreateReservationParams): Promise<DiscountPreviewResponse> => {

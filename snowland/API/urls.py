@@ -50,7 +50,7 @@ from .admin_views import (
 )
 from chatbooking.admin_views import ChatSupportViewSet
 from .staff_incentives import StaffIncentiveStatementAdminViewSet
-from .member_loyalty import customer_loyalty
+from .member_loyalty import customer_loyalty, loyalty_policy
 from .website_coach_editor import WebsiteCoachEditorViewSet
 from .contact_inbox import ContactInboxViewSet
 from .instagram_sync import InstagramSyncViewSet
@@ -103,6 +103,7 @@ urlpatterns = [
     # 後台跟預約系統共用同一套 OAuth session，所以不另開 login endpoint
     path('admin/<str:client_code>/me/', admin_me, name='admin-me'),
     path('admin/<str:client_code>/customers/', customers_list, name='admin-customers'),
+    path('admin/<str:client_code>/customers/loyalty-policy/', loyalty_policy, name='admin-loyalty-policy'),
     path('admin/<str:client_code>/customers/<int:user_id>/loyalty/', customer_loyalty, name='admin-customer-loyalty'),
     path('admin/<str:client_code>/customers/<int:user_id>/permission/', update_customer_permission, name='admin-customer-permission'),
     path('admin/<str:client_code>/staff/', staff_list, name='admin-staff-list'),

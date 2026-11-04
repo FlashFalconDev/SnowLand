@@ -841,6 +841,8 @@ export default function BookingFlowPage() {
     messengerId: '',
   })
   const [discountCode, setDiscountCode] = useState('')
+  const [rewardPoints, setRewardPoints] = useState('')
+  const [memberReferralCode, setMemberReferralCode] = useState('')
   const [discountPreviewResult, setDiscountPreviewResult] = useState<{
     key: string
     preview: DiscountPreviewResponse
@@ -878,10 +880,16 @@ export default function BookingFlowPage() {
     if (!detail) return source
     return `${source}：${detail}`
   }, [referrer, referrerDetail])
-  const discountPreviewKey = JSON.stringify([cart, contactInfo, discountCode.trim(), referralSourceValue, priceRetryKey])
+  const discountPreviewKey = JSON.stringify([cart, contactInfo, discountCode.trim(), rewardPoints, memberReferralCode, referralSourceValue, priceRetryKey, user?.email])
   const discountPreview = discountPreviewResult?.key === discountPreviewKey
     ? discountPreviewResult.preview
     : null
+  const loyaltyRequest = {
+    reward_points: Number(rewardPoints || 0),
+    member_referral_code: memberReferralCode.trim(),
+    loyalty_revision: discountPreview?.loyalty?.revision,
+    loyalty_discount: discountPreview?.loyalty?.discount,
+  }
   const jpyPreview=useMemo(()=>currencyQuote.currency!=='TWD'&&discountPreview
     ? quoteJpyPreview(discountPreview.item_subtotals,discountPreview.item_discount_amounts,currencyQuote.rate,false,currencyQuote.currency):null,
     [currencyQuote.currency,currencyQuote.rate,discountPreview])
@@ -1114,6 +1122,8 @@ export default function BookingFlowPage() {
           cart,
           contact: { ...contactInfo, referralSource: referralSourceValue },
           discount_code: discountCode.trim() || undefined,
+          reward_points: Number(rewardPoints || 0),
+          member_referral_code: memberReferralCode.trim(),
         })
         if (!cancelled) setDiscountPreviewResult({ key: discountPreviewKey, preview })
       } catch (e) {
@@ -1128,7 +1138,7 @@ export default function BookingFlowPage() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [cart, contactInfo, currentStep, discountCode, discountPreviewKey, referralSourceValue, submittedReservation])
+  }, [cart, contactInfo, currentStep, discountCode, discountPreviewKey, memberReferralCode, rewardPoints, referralSourceValue, submittedReservation])
 
   useEffect(() => {
     if (!failedCartSignatureRef.current) return
@@ -1941,6 +1951,10 @@ export default function BookingFlowPage() {
 
   // Step 3a：送出訂單；成功後抓付款資訊，停留在 Step 3 進入付款區塊
   const submitBooking = async () => {
+    if ((rewardPoints || memberReferralCode.trim()) && (!discountPreview?.loyalty?.enabled || discountPreview.loyalty.error || isDiscountPreviewLoading)) {
+      showToast(t(discountPreview?.loyalty?.error || '請先確認紅利及推薦優惠試算'), 'warning')
+      return
+    }
     if(currencyQuote.currency!=='TWD'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading)){showToast('請先確認匯率與試算金額，或改選台幣。','warning');return}
     if (cart.length === 0) {
       showToast('購物車是空的', 'warning')
@@ -1967,6 +1981,7 @@ export default function BookingFlowPage() {
         policy_acceptance: policyAcceptance,
         contact: { ...contactInfo, referralSource: referralSourceValue },
         discount_code: discountCode.trim() || undefined,
+        ...loyaltyRequest,
         staff_link: staffLinkToken || undefined,
       })
       if (response.code !== 200) {
@@ -2514,6 +2529,11 @@ export default function BookingFlowPage() {
                   setDiscountCode={setDiscountCode}
                   discountPreview={discountPreview}
                   isDiscountPreviewLoading={isDiscountPreviewLoading}
+                  rewardPoints={rewardPoints}
+                  setRewardPoints={setRewardPoints}
+                  memberReferralCode={memberReferralCode}
+                  setMemberReferralCode={setMemberReferralCode}
+                  showLoyalty={discountPreviewResult?.preview.loyalty?.enabled || Boolean(rewardPoints || memberReferralCode)}
                   referrer={referrer}
                   setReferrer={setReferrer}
                   referrerDetail={referrerDetail}
@@ -2692,6 +2712,7 @@ export default function BookingFlowPage() {
               policy_acceptance: policyAcceptance,
               contact: { ...contactInfo, referralSource: referralSourceValue },
               discount_code: discountCode.trim() || undefined,
+              ...loyaltyRequest,
             })
             if (response.code !== 200) {
               showToast(t('進階排課失敗：{message}',{message:t(response.msg || '未知錯誤')}), 'error')
@@ -3608,6 +3629,7 @@ function Step3Confirmation({
   clientCode, currencyQuote, setCurrencyQuote, onCurrencyReady, currencyReloadKey, jpyPreview, onRetryPrice,
   discountCode, setDiscountCode,
   discountPreview, isDiscountPreviewLoading,
+  rewardPoints, setRewardPoints, memberReferralCode, setMemberReferralCode, showLoyalty,
   referrer, setReferrer,
   referrerDetail, setReferrerDetail,
   messengerOptions, referralSourceOptions,
@@ -3964,6 +3986,22 @@ function Step3Confirmation({
             )}
           </div>}
 
+          {!isPaid && showLoyalty && <div className="space-y-3 rounded-sm border border-[#dbe3ec] bg-white p-3">
+            {(Number(discountPreview?.loyalty?.redemption_rate) > 0 || rewardPoints) && <label className="block text-sm">
+              {t('折抵紅利')}
+              {discountPreview?.loyalty && <span className="ml-2 text-xs text-[#64748b]">{t('可用 {count} 點', {count: discountPreview.loyalty.available})}</span>}
+              <input value={rewardPoints} type="text" inputMode="numeric" maxLength={10}
+                onChange={event => setRewardPoints(event.target.value.replace(/[^0-9]/g, ''))}
+                className="mt-1 min-h-11 w-full rounded-sm border border-[#e2e8f0] px-3 py-2" />
+            </label>}
+            {(discountPreview?.loyalty?.referrals_enabled || memberReferralCode) && <label className="block text-sm">
+              {t('會員推薦碼')}<input value={memberReferralCode} maxLength={32}
+                onChange={event => setMemberReferralCode(event.target.value)}
+                className="mt-1 min-h-11 w-full rounded-sm border border-[#e2e8f0] px-3 py-2" />
+            </label>}
+            {discountPreview?.loyalty?.error && <p role="alert" className="text-xs text-red-700">{t(discountPreview.loyalty.error)}</p>}
+          </div>}
+
           <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
               {t('從哪裡得知 / 活動來源')} <span className="text-red-500">*</span>
@@ -4000,6 +4038,9 @@ function Step3Confirmation({
               <span>-NT$ {Number(discount.amount || 0).toLocaleString()}</span>
             </div>
           ))}
+          {!isPaid && Number(discountPreview?.loyalty?.discount) > 0 && <div className="flex justify-between text-sm text-emerald-700">
+            <span>{t('會員紅利／推薦折抵')}</span><span>-NT$ {discountPreview.loyalty.discount.toLocaleString()}</span>
+          </div>}
           {!isPaid && discountTotal > 0 && (
             <div className="flex justify-between text-sm font-semibold text-emerald-700">
               <span>{t("折扣合計")}</span>

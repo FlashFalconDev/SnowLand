@@ -212,6 +212,49 @@ class CustomerJourneyTests(TestCase):
     def test_usd_checkout_and_cancellation_use_cents(self):
         self._exercise_foreign_payment('USD', '0.0312345', 31235, 23426)
 
+    def test_usd_receipt_and_refund_keep_loyalty_in_twd(self):
+        from Resorts.models import PaymentCurrencySettings
+        from booking.models import MemberLoyaltyAccount, MemberLoyaltyPolicy
+
+        MemberLoyaltyPolicy.objects.create(client=self.tenant, revision=1, rules={'enabled': True, 'earn_on': 'paid'})
+        account = MemberLoyaltyAccount.objects.create(client=self.tenant, user=self.owner, reward_balance=275)
+        PaymentCurrencySettings.objects.create(client=self.tenant, foreign_rates={'USD': '0.03123450'})
+        PaymentAccount.objects.create(client=self.tenant, name='QA USD', currency='USD', bank_name='QA Bank',
+                                      bank_branch='QA Branch', account_number='QA-ONLY', account_holder='QA Holder')
+        self.day = timezone.localdate() + timedelta(days=20)
+        reservation = self.create_order({'currency': 'USD', 'currency_rate': '0.03123450',
+                                         'reward_points': 100, 'loyalty_revision': 1, 'loyalty_discount': 100})
+        self.assertEqual(reservation.payment_amount, 9900)
+        self.assertEqual(reservation.group.currency_snapshot['amount'], 30922)
+        accepted = self.coach_api.post(f'/api/admin/snowland/coach/confirm/{reservation.pk}/', {'action': 'accept'}, format='json')
+        self.assertEqual(accepted.status_code, 200, accepted.data)
+        pay_url = '/booking/snowland/api/process-payment/'
+        pay = {'reservation_group_id': reservation.group_id, 'payment_type': 'bank_transfer',
+               'sender_account': '12345', 'currency': 'USD', 'expected_amount': 30922}
+        self.assertEqual(self.api.post(pay_url, pay, format='json').status_code, 200)
+        order_url = f'/api/admin/snowland/orders/{reservation.group_id}/'
+        paid = {'action': 'save', 'payment_status': 'paid', 'payment_currency': 'USD', 'payment_received_amount': 30922}
+        for _ in range(2):
+            response = self.hq.patch(order_url, paid, format='json')
+            self.assertEqual(response.status_code, 200, response.data)
+        account.refresh_from_db()
+        self.assertEqual((account.points, account.reward_balance), (9900, 571))
+
+        cancellation_url = f'/booking/snowland/api/member-cancellations/{reservation.group_id}/'
+        preview = self.api.get(cancellation_url).data
+        self.assertEqual((preview['handling_fee_amount'], preview['settlement']['refund_amount']), (495, 23192))
+        cancellation = self.api.post(cancellation_url, {'reason': 'schedule', 'bank_name': 'QA Bank',
+            'account_number': 'QA-ONLY', 'account_holder': 'QA Holder',
+            'currency': 'USD', 'expected_refund_amount': 23192}, format='json')
+        self.assertEqual(cancellation.status_code, 201, cancellation.data)
+        review_url = f"/api/admin/snowland/cancellations/{cancellation.data['id']}/process/"
+        for status in ('approved', 'refunded'):
+            response = self.hq.post(review_url, {'status': status, 'currency': 'USD',
+                'expected_refund_amount': 23192, 'confirmed_refund': status == 'refunded'}, format='json')
+            self.assertEqual(response.status_code, 200, response.data)
+        account.refresh_from_db()
+        self.assertEqual((account.points, account.reward_balance), (2475, 349))
+
     def test_hkd_checkout_and_cancellation_use_cents(self):
         self._exercise_foreign_payment('HKD', '0.245678', 245678, 184259)
 

@@ -43,6 +43,7 @@ function LoyaltyForm({ userId, data, onReload }: { userId: number; data: Loyalty
     <h3 className="font-semibold">舊生審核與補登點數</h3>
     <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">先核對舊季上課紀錄，再確認舊生身分。歷史點數填「累計總額」，不是本次加多少；重複儲存不會重加。此處不設定自動推薦回饋。</p>
     <p className="mt-3 text-sm">目前：{data.alumni_verified ? '舊生已確認' : '舊生尚未確認'} · 總點數 {data.points.toLocaleString()}（含歷史 {data.previous_points.toLocaleString()}）</p>
+    {data.reward_balance != null && <p className="mt-1 text-sm">紅利餘額 {data.reward_balance.toLocaleString()} 點</p>}
     <form onSubmit={save} className="mt-3 space-y-3">
       <fieldset disabled={busy} className="space-y-3 disabled:opacity-60">
         <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} />已核對並確認為舊生</label>
