@@ -1,5 +1,8 @@
 from Control.tenant_memberships import staff_profile
-"""Reviewed alumni status and historical-point totals; no automatic reward rules."""
+"""Tenant loyalty settings and audited historical member adjustments."""
+from decimal import Decimal
+
+from Client.models import Client
 from django.db import transaction
 from django.middleware.csrf import get_token
 from rest_framework import serializers
@@ -9,7 +12,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from django.contrib.auth.models import User
 
-from booking.models import MemberLoyaltyAccount, MemberLoyaltyReview, ReservationGroup
+from booking.loyalty import get_loyalty_policy
+from booking.models import MemberLoyaltyAccount, MemberLoyaltyPolicy, MemberLoyaltyReview, ReservationGroup
 from .admin_views import IsTenantManager, _require_admin_permission, _campus_ids
 
 
@@ -36,7 +40,7 @@ def loyalty_snapshot(account):
 
 
 def loyalty_payload(account):
-    return {**loyalty_snapshot(account), 'updated_at': account.updated_at.isoformat()}
+    return {**loyalty_snapshot(account), 'updated_at': account.updated_at.isoformat(), 'reward_balance': account.reward_balance}
 
 
 class WholePoints(serializers.IntegerField):
@@ -51,6 +55,60 @@ class ReviewInput(serializers.Serializer):
     previous_points = WholePoints(min_value=0, max_value=2147483647)
     reason = serializers.CharField(max_length=1000)
     expected_updated_at = serializers.CharField(max_length=50)
+
+
+class LoyaltyLevelInput(serializers.Serializer):
+    label = serializers.CharField(max_length=40)
+    minimum_points = WholePoints(min_value=1, max_value=2147483647)
+
+
+class LoyaltyPolicyInput(serializers.Serializer):
+    revision = WholePoints(min_value=0, max_value=2147483647)
+    enabled = serializers.BooleanField()
+    earn_on = serializers.ChoiceField(choices=('paid', 'completed'))
+    points_per_twd = serializers.DecimalField(max_digits=7, decimal_places=4, min_value=Decimal('0'), max_value=Decimal('100'))
+    rewards_per_twd = serializers.DecimalField(max_digits=7, decimal_places=4, min_value=Decimal('0'), max_value=Decimal('100'))
+    twd_per_reward = serializers.DecimalField(max_digits=7, decimal_places=4, min_value=Decimal('0'), max_value=Decimal('100'))
+    referrer_rewards = WholePoints(min_value=0, max_value=1000000)
+    new_member_rewards = WholePoints(min_value=0, max_value=1000000)
+    refund_rule = serializers.ChoiceField(choices=('proportional', 'keep'))
+    levels = LoyaltyLevelInput(many=True, max_length=10)
+
+    def validate_levels(self, levels):
+        if (len({level['label'] for level in levels}) != len(levels)
+                or len({level['minimum_points'] for level in levels}) != len(levels)):
+            raise serializers.ValidationError('等級名稱及門檻皆不能重複')
+        return sorted(levels, key=lambda level: level['minimum_points'])
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsTenantManager])
+def loyalty_policy(request, client_code):
+    denied = _require_admin_permission(request, 'customers')
+    if denied:
+        return denied
+    if not can_review_loyalty(request.user, request.tenant):
+        raise PermissionDenied('只有學校總部可以變更會員制度')
+    if request.method == 'GET':
+        get_token(request._request)
+        revision, rules = get_loyalty_policy(request.tenant)
+        return Response({'code': 200, 'data': {'revision': revision, **rules}})
+    SessionAuthentication().enforce_csrf(request)
+    serializer = LoyaltyPolicyInput(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = dict(serializer.validated_data)
+    expected_revision = data.pop('revision')
+    for key in ('points_per_twd', 'rewards_per_twd', 'twd_per_reward'):
+        data[key] = format(data[key].normalize(), 'f')
+    with transaction.atomic():
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        revision, rules = get_loyalty_policy(request.tenant)
+        if expected_revision != revision:
+            return Response({'msg': '設定已更新，請重新載入'}, status=409)
+        if data != rules:
+            revision += 1
+            MemberLoyaltyPolicy.objects.update_or_create(client=request.tenant, defaults={'revision': revision, 'rules': data})
+    return Response({'code': 200, 'data': {'revision': revision, **data}})
 
 
 @api_view(['GET', 'POST'])

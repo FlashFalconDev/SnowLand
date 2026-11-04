@@ -9,15 +9,15 @@ const ts = localRequire('typescript')
 const React = localRequire('react')
 const { renderToStaticMarkup } = localRequire('react-dom/server')
 const source = fs.readFileSync(path.join(root, 'src/pages/site/MembershipPage.jsx'), 'utf8')
-const balanceContext = vm.createContext({ exports: {}, require: name => localRequire(name) })
+const balanceContext = vm.createContext({ exports: {}, require: name => name.includes('settlementPreview') ? require('./helpers/settlement-harness.cjs') : localRequire(name) })
 vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,
   'src/components/OrderAmendmentBalance.jsx'), 'utf8'), { fileName: 'balance.jsx', compilerOptions: {
   jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true,
 } }).outputText, balanceContext)
 const between = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)))
-const moneyContext=vm.createContext({React,exports:{},require:()=>require('./helpers/site-locale-harness.cjs')(React)})
+const moneyContext=vm.createContext({React,exports:{},require:name=>name.includes('settlementPreview')?require('./helpers/settlement-harness.cjs'):require('./helpers/site-locale-harness.cjs')(React)})
 vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/components/booking/SettlementSummary.tsx'),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,moneyContext)
-const context = vm.createContext({ React, Intl, Date, Number,
+const context = vm.createContext({ React, Intl, Date, Number, formatPaymentValue:require('./helpers/settlement-harness.cjs').formatPaymentValue,
   useSiteLocale: require('./helpers/site-locale-harness.cjs')(React).useSiteLocale,
   SettlementSummary:moneyContext.exports.default,settlementAmount:moneyContext.exports.settlementAmount,
   OrderAmendmentBalance: balanceContext.exports.default,

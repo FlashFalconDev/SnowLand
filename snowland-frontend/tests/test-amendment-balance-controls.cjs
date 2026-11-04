@@ -4,7 +4,7 @@ function harness(file,extra,states,props,api){
   let si=0,ri=0;const refs=[],state=[...states]
   const hooks={...React,default:React,useEffect(){},useCallback:fn=>fn,useState(initial){const i=si++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return[state[i],value=>state[i]=typeof value==='function'?value(state[i]):value]},useRef(value){const i=ri++;return refs[i]||(refs[i]={current:value})}}
   const source=fs.readFileSync(path.join(root,file),'utf8')+`\nexports.testComponent=${extra};`
-  const context=vm.createContext({React,crypto,exports:{},require:name=>name==='react'?hooks:name==='@tanstack/react-query'?{useQueryClient:()=>({invalidateQueries(){}})}:name==='../context'?{useNotification:()=>({success(){}})}:api})
+  const context=vm.createContext({React,crypto,exports:{},require:name=>name.includes('settlementPreview')?require('./helpers/settlement-harness.cjs'):name==='react'?hooks:name==='@tanstack/react-query'?{useQueryClient:()=>({invalidateQueries(){}})}:name==='../context'?{useNotification:()=>({success(){}})}:api})
   vm.runInContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText,context)
   const render=()=>{si=0;ri=0;return context.exports.testComponent(props)}
   function find(node,predicate){if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const result=find(child,predicate);if(result)return result}return null}

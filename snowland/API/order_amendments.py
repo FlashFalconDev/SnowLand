@@ -5,6 +5,7 @@ import re
 from datetime import date, datetime
 
 from django.core import signing
+from django.utils import timezone
 from rest_framework import serializers
 
 from Coach.models import Coach
@@ -30,7 +31,7 @@ class WholeNumber(serializers.IntegerField):
 
 
 class AmendmentCourseInput(StrictInput):
-    booking_id=WholeNumber(min_value=1)
+    booking_id=WholeNumber(min_value=1,required=False,allow_null=True)
     template_id=WholeNumber(min_value=1)
     date=serializers.DateField()
     start_time=serializers.TimeField()
@@ -48,6 +49,7 @@ class AmendmentItemInput(StrictInput):
     discount_amount=WholeNumber(min_value=0,required=False)
     retained_member_ids=serializers.ListField(child=WholeNumber(min_value=1),required=False,allow_empty=True)
     ability_level_counts=serializers.DictField(child=WholeNumber(min_value=0),required=False)
+    removed_booking_ids=serializers.ListField(child=WholeNumber(min_value=1),required=False,max_length=100)
     courses=AmendmentCourseInput(many=True,allow_empty=False,max_length=100)
 
 
@@ -63,6 +65,11 @@ def _fail(message):
     raise serializers.ValidationError({'changes':message})
 
 
+def _can_remove_booking(booking, now):
+    return ((booking.date, booking.start_time) > (now.date(), now.time())
+        and not booking.evaluations.exists() and not booking.payroll_lines.exists())
+
+
 def _configured_addons(resort,coach,template,people,equipment):
     from booking.api_views import _resolve_coach_price_level, _resolve_template_coach_price_level
     level=_resolve_coach_price_level(coach,template.course_type) if coach else _resolve_template_coach_price_level(template,template.course_type)
@@ -75,6 +82,29 @@ def _configured_addons(resort,coach,template,people,equipment):
         legacy='equipment_1to3' if people<=3 else 'equipment_4to6' if people<=6 else ''
         if not tier and not ResortFee.objects.filter(resort=resort,fee_type=legacy,is_active=True).exists():
             _fail('請先設定這個人數的裝備協助費用，不能套用寫死的預設金額')
+
+
+def _lesson_fee(resort, template, people, day):
+    pricing = CoursePricing.objects.filter(resort=resort, templates=template, is_active=True).first()
+    if not pricing:
+        _fail('找不到這個雪場與課程的有效定價，請先在課程定價設定')
+    try:
+        return int(pricing.calculate_price(people, SeasonSetting.get_season_type_for_date(day) == 'peak',
+                                           billing_mode=template.billing_mode))
+    except ValueError as error:
+        _fail(str(error))
+
+
+def _historical_lesson_fees(reservation, bookings):
+    fees = {pk: row.fee_snapshot for pk, row in bookings.items() if row.fee_snapshot is not None}
+    remaining = {key: total - sum(fee[key] for fee in fees.values())
+                 for key, total in (('course', reservation.course_fee), ('coach', reservation.coach_fee))}
+    unknown = set(bookings) - fees.keys()
+    if any(value < 0 for value in remaining.values()) or (not unknown and any(remaining.values())):
+        return {}
+    if len(unknown) == 1:
+        fees[unknown.pop()] = remaining
+    return fees
 
 
 def _quote_item(group,reservation,change):
@@ -101,22 +131,28 @@ def _quote_item(group,reservation,change):
         if not coach or language not in coach.languages:
             _fail('這位教練不符合校區、雪場、語言或開放指定條件')
     existing={booking.pk:booking for booking in reservation.bookings.all()}
-    ids=[course['booking_id'] for course in change['courses']]
+    removed_ids=change.get('removed_booking_ids',[])
+    ids=[course['booking_id'] for course in change['courses'] if course.get('booking_id') is not None]+removed_ids
     if len(set(ids))!=len(ids) or set(ids)!=set(existing):
-        _fail('請完整列出這組原有課程，不可混入其他訂單、重複或漏掉課程')
+        _fail('請明確保留或移除每一堂原有課程，不可混入其他訂單、重複或漏掉課程')
+    now=timezone.localtime()
+    if any(not _can_remove_booking(existing[pk],now) for pk in removed_ids):
+        _fail('已開課、已有評量或已進入薪資紀錄的堂次不能移除')
     same_price_basis=(people==reservation.number_of_people and language==reservation.language and equipment==reservation.equipment
         and specified==reservation.is_preferred_coach and (not specified or coach_id==reservation.preferred_coach_id))
     courses=[];templates=[]
     for item in change['courses']:
-        booking=existing[item['booking_id']]
+        booking=existing.get(item.get('booking_id'))
         template=CourseTemplate.objects.select_related('course_type__category').prefetch_related('resorts','allowed_coaches','sessions').filter(
             pk=item['template_id'],course_type__category__client=group.client,course_type_id=reservation.course_type_id).first()
         if not template or (template.resorts.exists() and not template.resorts.filter(pk=reservation.resort_id).exists()):
             _fail('課程模板不屬於此公司、課程類型或雪場')
         if item['end_time']<=item['start_time']:_fail('課程結束時間必須晚於開始時間')
         duration=_seconds(item['start_time'],item['end_time'])
-        old_duration=_seconds(booking.start_time,booking.end_time)
-        unchanged_template=template.pk==(booking.course_template_id or reservation.course_template_id)
+        old_duration=_seconds(booking.start_time,booking.end_time) if booking else None
+        unchanged_template=booking is not None and template.pk==(booking.course_template_id or reservation.course_template_id)
+        if booking is None and (item['date'],item['start_time'])<=(now.date(),now.time()):
+            _fail('新加堂次須安排在未來的上課時段')
         allowed={template.duration_hours*3600,*(_seconds(session.start_time,session.end_time) for session in template.sessions.all() if session.is_active)}
         if duration not in allowed and not (unchanged_template and duration==old_duration):
             _fail('追加時數須選擇已設定時長與價格的課程模板，不會依時數猜測或免費加時')
@@ -127,8 +163,14 @@ def _quote_item(group,reservation,change):
             _fail('修改日期不在課程模板開放的上課期間')
         if coach and (not coach_matches_course_template(coach,template) or template.allowed_coaches.exists() and not template.allowed_coaches.filter(pk=coach.pk).exists()):
             _fail('指定教練不符合這個課程模板的等級或名單')
-        same_price_basis=same_price_basis and unchanged_template and item['date']==booking.date and duration==old_duration
-        templates.append(template);courses.append({**item,'template_name':template.name})
+        if booking is not None:
+            same_price_basis=same_price_basis and unchanged_template and item['date']==booking.date and duration==old_duration
+        templates.append(template);courses.append({**item,'booking_id':booking.pk if booking else None,'template_name':template.name})
+    dates_changed=bool(removed_ids) or any(course['booking_id'] is None for course in courses)
+    if dates_changed:
+        ordered=sorted((course['date'],course['start_time'],course['end_time']) for course in courses)
+        if any(left[0]==right[0] and left[2]>right[1] for left,right in zip(ordered,ordered[1:])):
+            _fail('同一組的上課時段不可重疊')
     old_discount=int(reservation.discount_amount or 0)
     discount=change.get('discount_amount',old_discount)
     try:
@@ -137,27 +179,46 @@ def _quote_item(group,reservation,change):
     except ValueError:_fail('請選擇適用於新課程、雪場與時段的裝備協助時間')
     if same_price_basis:
         course_fee,coach_fee,language_fee,equipment_fee=reservation.course_fee,reservation.coach_fee,reservation.language_fee,reservation.equipment_rental_fee
+        historical = _historical_lesson_fees(reservation, existing)
+        if any(pk not in historical for pk in removed_ids):
+            _fail('這筆舊訂單缺少要移除堂次的原始價格，請先人工核對；系統不會以現行價格代算退款')
+        for pk in removed_ids:
+            course_fee -= historical[pk]['course']
+            coach_fee -= historical[pk]['coach']
+        for course, template in zip(courses, templates):
+            if course['booking_id'] is not None:
+                course['fee_snapshot'] = historical.get(course['booking_id'])
+                continue
+            if not template.is_active:
+                _fail('課程模板已停用，請先確認可使用的課程與定價')
+            _configured_addons(reservation.resort, coach, template, people, None)
+            lesson_fee = _lesson_fee(reservation.resort, template, people, course['date'])
+            lesson_coach_fee, _, _ = compute_addon_fees_authoritative(
+                resort=reservation.resort, coach=coach, course_type=reservation.course_type, language=language,
+                equipment_value=None, people_count=people, bookings_count=1, course_template=template)
+            course['fee_snapshot'] = {'course': lesson_fee, 'coach': lesson_coach_fee}
+            course_fee += lesson_fee
+            coach_fee += lesson_coach_fee
     else:
         if any(not template.is_active for template in templates):_fail('課程模板已停用，請先確認可使用的課程與定價')
-        course_fee=0
-        for course,template in zip(courses,templates):
-            pricing=CoursePricing.objects.filter(resort=reservation.resort,templates=template,is_active=True).first()
-            if not pricing:_fail('找不到這個雪場與課程的有效定價，請先在課程定價設定')
-            try:course_fee+=int(pricing.calculate_price(people,SeasonSetting.get_season_type_for_date(course['date'])=='peak',billing_mode=template.billing_mode))
-            except ValueError as error:_fail(str(error))
         representative=select_cart_group_course_template([{'courseTemplateId':template.pk} for template in templates],reservation.course_type,reservation.resort)
         _configured_addons(reservation.resort,coach,representative,people,equipment)
         coach_fee,language_fee,equipment_fee=compute_addon_fees_authoritative(resort=reservation.resort,coach=coach,course_type=reservation.course_type,
             language=language,equipment_value=equipment,people_count=people,bookings_count=len(courses),course_template=representative)
+        for course, template in zip(courses, templates):
+            course['fee_snapshot'] = {'course': _lesson_fee(reservation.resort, template, people, course['date']),
+                                      'coach': coach_fee // len(courses)}
+        course_fee = sum(course['fee_snapshot']['course'] for course in courses)
     subtotal=course_fee+coach_fee+language_fee+equipment_fee
     if discount>subtotal:_fail('原折抵金額超過修改後總價，請先核對並調整折抵金額')
-    changed_documents=any(course['date']!=existing[course['booking_id']].date or course['template_id']!=(existing[course['booking_id']].course_template_id or reservation.course_template_id) for course in courses)
+    changed_documents=dates_changed or any(course['date']!=existing[course['booking_id']].date or course['template_id']!=(existing[course['booking_id']].course_template_id or reservation.course_template_id) for course in courses)
     retained=change.get('retained_member_ids')
     reviewed_members=[member for member in reservation.members.all() if retained is None or member.pk in retained] if changed_documents else []
     return {'reservation_id':reservation.pk,'number_of_people':people,'language':language,'equipment':equipment,
-        'is_preferred_coach':specified,'preferred_coach_id':coach_id,'courses':courses,'course_fee':course_fee,'coach_fee':coach_fee,
+        'is_preferred_coach':specified,'preferred_coach_id':coach_id,'courses':courses,'removed_booking_ids':removed_ids,
+        'course_documents_changed':changed_documents,'course_fee':course_fee,'coach_fee':coach_fee,
         'language_fee':language_fee,'equipment_fee':equipment_fee,'discount_amount':discount,'previous_amount':reservation.payment_amount,
-        'new_amount':subtotal-discount,'price_basis_changed':not same_price_basis,
+        'new_amount':subtotal-discount,'price_basis_changed':dates_changed or not same_price_basis,
         'participant_review_required':people!=reservation.number_of_people,
         'discount_changed':discount!=old_discount,'ability_level_counts':change.get('ability_level_counts'),
         'retained_member_ids':change.get('retained_member_ids'),
@@ -173,6 +234,7 @@ def amendment_editor_options(group):
     from django.db.models import Q
     from Resorts.models import EquipmentAssistanceTimeSlot
     result=[]
+    now=timezone.localtime()
     for reservation in group.reservations.select_related('resort','course_type').prefetch_related('bookings','members'):
         bookings=list(reservation.bookings.all())
         current_templates={booking.course_template_id or reservation.course_template_id for booking in bookings}
@@ -189,7 +251,7 @@ def amendment_editor_options(group):
             'is_preferred_coach':reservation.is_preferred_coach,'preferred_coach_id':reservation.preferred_coach_id if reservation.is_preferred_coach else None,
             'discount_amount':reservation.discount_amount,'ability_level_counts':reservation.ability_level_counts or {reservation.max_ability_level or 'no_exp':reservation.number_of_people},
             'members':[{'id':member.pk,'name':member.display_name} for member in reservation.members.all()],
-            'courses':[{'booking_id':booking.pk,'template_id':booking.course_template_id or reservation.course_template_id,
+            'courses':[{'booking_id':booking.pk,'can_remove':_can_remove_booking(booking,now),'template_id':booking.course_template_id or reservation.course_template_id,
                 'date':str(booking.date),'start_time':str(booking.start_time)[:5],'end_time':str(booking.end_time)[:5]} for booking in bookings],
             'templates':[{'id':template.pk,'name':template.name,'is_active':template.is_active,'duration_hours':template.duration_hours,
                 'minimum_group_size':template.minimum_group_size,'max_capacity':template.max_capacity,
@@ -214,6 +276,12 @@ def quote_order_amendment(group,data,actor):
     if len(set(ids))!=len(ids) or any(pk not in reservations for pk in ids):
         _fail('預約必須屬於這張訂單，且不可重複')
     items=[_quote_item(group,reservations[change['reservation_id']],change) for change in data['changes']]
+    from booking.models import OrderLoyalty
+    locked_discount = OrderLoyalty.objects.filter(group=group).values_list('discount_floor', flat=True).first() or 0
+    revised_discounts = {item['reservation_id']: item['discount_amount'] for item in items}
+    if locked_discount > sum(revised_discounts.get(reservation.pk, reservation.discount_amount or 0)
+                             for reservation in reservations.values() if reservation.status not in ('deleted', 'cancelled')):
+        _fail('已使用的會員紅利及推薦折抵須保留；請確認修改後的折抵金額')
     previous=sum(reservation.payment_amount for reservation in reservations.values() if reservation.status not in {'deleted','cancelled'})
     difference=sum(item['new_amount']-item['previous_amount'] for item in items)
     result={'previous_total':previous,'new_total':previous+difference,'difference_amount':difference,'items':items,

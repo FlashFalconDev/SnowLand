@@ -277,6 +277,7 @@ class CoachPayRule(models.Model):
     course_type = models.ForeignKey('Coursekit.CourseType', on_delete=models.CASCADE, null=True, blank=True, related_name='coach_pay_rules')
     discipline = models.CharField(max_length=20, choices=DISCIPLINE_CHOICES)
     certification_level = models.CharField(max_length=30, blank=True, default='')
+    effective_from = models.DateField(null=True, blank=True, verbose_name='新薪率生效日')
     hourly_rate = models.PositiveIntegerField(default=0)
     specified_fee = models.PositiveIntegerField(default=0, help_text='每組計算')
     referral_percent = models.DecimalField(max_digits=5, decimal_places=2, default=10)

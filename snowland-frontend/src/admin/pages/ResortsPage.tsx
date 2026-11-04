@@ -415,6 +415,7 @@ export default function ResortsPage() {
     const writeData: ResortWriteData = {
       name: data.name,
       display_name: data.display_name,
+      display_order: data.display_order ?? 0,
       auto_scheduling_enabled: data.auto_scheduling_enabled,
       trail_names: data.trail_names || [],
       fees_input: data.fees,
@@ -829,6 +830,12 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, saveE
                 <input type="text" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} placeholder="星野 Tomamu"
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30" />
               </div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                訂課顯示順序（數字越小越前）
+                <input type="number" min={0} max={2147483647} step={1} required
+                  value={form.display_order ?? 0} onChange={e => setForm({ ...form, display_order: e.target.value === '' ? undefined : Number(e.target.value) })}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700" />
+              </label>
             </div>
             <label className="flex items-center gap-3 mt-4 cursor-pointer">
               <input type="checkbox" checked={form.auto_scheduling_enabled} onChange={(e) => setForm({ ...form, auto_scheduling_enabled: e.target.checked })}

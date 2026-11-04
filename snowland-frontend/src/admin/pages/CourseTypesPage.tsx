@@ -106,10 +106,13 @@ export default function CourseTypesPage() {
           required: true,
           options: serviceTypeOptions,
         },
+        { name: 'display_order', label: '訂課顯示順序（數字越小越前）', required: true, defaultValue: String(0) },
       ],
+      validate: vals => /^-?\d+$/.test(vals.display_order) && Math.abs(Number(vals.display_order)) <= 2147483647
+        ? undefined : '顯示順序須為整數',
       onSubmit: async (vals) => {
         try {
-          await createCategory({ name: vals.name.trim(), service_type: vals.service_type as 'ski' | 'photo' })
+          await createCategory({ name: vals.name.trim(), service_type: vals.service_type as 'ski' | 'photo', display_order: Number(vals.display_order) })
           notify.success('已新增類別')
           refresh()
           setModal(null)
@@ -120,7 +123,7 @@ export default function CourseTypesPage() {
     })
   }
 
-  const handleEditCategory = (id: number, currentName: string, currentServiceType: 'ski' | 'photo') => {
+  const handleEditCategory = (id: number, currentName: string, currentServiceType: 'ski' | 'photo', displayOrder: number) => {
     setModal({
       title: '編輯類別',
       fields: [
@@ -133,10 +136,13 @@ export default function CourseTypesPage() {
           required: true,
           options: serviceTypeOptions,
         },
+        { name: 'display_order', label: '訂課顯示順序（數字越小越前）', required: true, defaultValue: String(displayOrder) },
       ],
+      validate: vals => /^-?\d+$/.test(vals.display_order) && Math.abs(Number(vals.display_order)) <= 2147483647
+        ? undefined : '顯示順序須為整數',
       onSubmit: async (vals) => {
         try {
-          await updateCategory(id, { name: vals.name.trim(), service_type: vals.service_type })
+          await updateCategory(id, { name: vals.name.trim(), service_type: vals.service_type, display_order: Number(vals.display_order) })
           notify.success('已更新')
           refresh()
           setModal(null)
@@ -467,7 +473,7 @@ export default function CourseTypesPage() {
                     </button>
                     {canManageCompanyStructure && <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => handleEditCategory(cat.id, cat.name, cat.service_type)}
+                        onClick={() => handleEditCategory(cat.id, cat.name, cat.service_type, cat.display_order)}
                         className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 rounded"
                         title="編輯大類"
                       >

@@ -121,6 +121,8 @@ class Client(models.Model):
         verbose_name='公司 Email'
     )
 
+    order_management_email = models.EmailField(max_length=200, blank=True, default='', verbose_name='訂單管理通知信箱')
+
     # ========== 收款銀行資訊 ==========
     bank_name = models.CharField(
         max_length=100, blank=True, default='',

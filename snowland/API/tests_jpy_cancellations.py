@@ -89,6 +89,29 @@ class JpyCancellationTests(TestCase):
         self.assertEqual(result.status_code,200,result.data)
         self.assertEqual(result.data['data']['refund_amount'],9500)
 
+    def test_usd_refund_request_preserves_the_previewed_cents(self):
+        reservation = self.group.reservations.get()
+        reservation.course_fee = 50
+        reservation.discount_amount = 0
+        reservation.save()
+        self.group.currency_snapshot = {'currency': 'USD', 'base_currency': 'TWD', 'rate': '0.01010000',
+                                        'locked_at': None, 'bank_info': {}}
+        self.group.save(update_fields=['currency_snapshot'])
+        self.payment.DataJSON = {'settlement': {**order_settlement(self.group),
+                                                'confirmed_at': timezone.now().isoformat()}}
+        self.payment.save(update_fields=['DataJSON'])
+        OperatingPolicy.objects.filter(client=self.tenant, campus=self.campus_a).update(
+            cancellation_rules=[{'days_before': 0, 'refund_percent': 100}])
+        preview = self.member_api.get(self.member_cancel)
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertEqual((preview.data['refund_amount'], preview.data['settlement']['refund_amount']), (47, 48))
+        result = self.member_api.post(self.member_cancel, {'reason': 'schedule', 'bank_name': 'QA Bank',
+            'account_number': 'QA-REFUND', 'account_holder': 'QA', 'currency': 'USD',
+            'expected_refund_amount': preview.data['settlement']['refund_amount']}, format='json')
+        self.assertEqual(result.status_code, 201, result.data)
+        row = CancellationRequest.objects.get(group=self.group)
+        self.assertEqual((row.refund_amount, row.currency_snapshot['refund_amount']), (47, 48))
+
     def test_native_preview_and_request_freeze_original_rate_and_policy_amount(self):
         preview=self.member_api.get(self.member_cancel)
         self.assertEqual(preview.status_code,200,preview.data)

@@ -1,4 +1,8 @@
+from datetime import time, timedelta
+from unittest.mock import patch
+
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 from API import tests_order_amendment_confirm as fixtures
 from booking.models import CancellationRequest,OrderAmendment
@@ -22,6 +26,39 @@ class CancellationCashReviewTests(TestCase):
     def review(self,**changes):
         return {'status':'approved','actual_received_amount':9500,'refund_amount':7000,
             'cash_review_note':'QA核對原匯款，補款未入帳','confirmed_received':True,**changes}
+
+    def test_loyalty_full_refund_uses_the_manually_verified_cash_received(self):
+        from booking.loyalty import DEFAULT_RULES, sync_order_loyalty
+        from booking.models import MemberLoyaltyAccount, OrderLoyalty
+
+        account = MemberLoyaltyAccount.objects.create(client=self.group.client, user=self.manager)
+        order = OrderLoyalty.objects.create(group=self.group, account=account, rewards_spent=100, policy_revision=1,
+            rules={**DEFAULT_RULES, 'earn_on': 'paid', 'refund_rule': 'proportional'})
+        sync_order_loyalty(self.group, confirmed_base=10000)
+        self.request_cancel()
+        approved = self.api.post(self.process_url, self.review(actual_received_amount=8000, refund_amount=8000), format='json')
+        self.assertEqual(approved.status_code, 200, approved.data)
+        refunded = self.api.post(self.process_url, {'status': 'refunded'}, format='json')
+        self.assertEqual(refunded.status_code, 200, refunded.data)
+        order.refresh_from_db()
+        self.assertEqual((order.points_earned, order.rewards_earned, order.rewards_restored), (0, 0, 100))
+
+    def test_course_cutoff_blocks_new_requests_without_blocking_admin_review(self):
+        from booking.models import Booking
+
+        today = timezone.localdate()
+        Booking.objects.filter(reservation__group=self.group).update(date=today, start_time=time.min)
+        preview = self.member_api.get(self.member_url)
+        self.assertFalse(preview.data['can_request'])
+        refused = self.member_api.post(self.member_url, {'reason': 'schedule', **self.bank_data}, format='json')
+        self.assertEqual(refused.status_code, 400, refused.data)
+        self.assertFalse(CancellationRequest.objects.filter(group=self.group).exists())
+
+        Booking.objects.filter(reservation__group=self.group).update(date=today + timedelta(days=1))
+        self.request_cancel()
+        with patch('django.utils.timezone.now', return_value=timezone.now() + timedelta(days=2)):
+            result = self.api.post(self.process_url, self.review(), format='json')
+        self.assertEqual(result.status_code, 200, result.data)
 
     def test_all_unsettled_statuses_suppress_automatic_refund(self):
         row=OrderAmendment.objects.get()

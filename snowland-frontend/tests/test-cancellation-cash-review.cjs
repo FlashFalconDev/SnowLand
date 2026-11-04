@@ -3,7 +3,7 @@ const root=path.resolve(__dirname,'..'),localRequire=Module.createRequire(path.j
 const compiled=ts.transpileModule(fs.readFileSync(path.join(root,'src/admin/components/CancellationStatusPanel.tsx'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText
 function harness(states,cancellation={id:5,status:'requested',refund_amount:null,requires_cash_review:true,actual_received_amount:null}){
   let index=0;const calls=[]
-  const context=vm.createContext({React,exports:{},require:name=>name==='react'?{useEffect(){},useState(){const i=index++;return[states[i],value=>states[i]=value]}}:name==='@tanstack/react-query'?{useQueryClient:()=>({invalidateQueries(){}}),useMutation:config=>({isPending:false,mutate:value=>config.mutationFn(value)})}:name==='../context'?{useNotification:()=>({success(){},error(){}})}:{processOrderCancellation:async(...args)=>calls.push(args)}})
+  const context=vm.createContext({React,exports:{},require:name=>name.includes('settlementPreview')?require('./helpers/settlement-harness.cjs'):name==='react'?{useEffect(){},useState(){const i=index++;return[states[i],value=>states[i]=value]}}:name==='@tanstack/react-query'?{useQueryClient:()=>({invalidateQueries(){}}),useMutation:config=>({isPending:false,mutate:value=>config.mutationFn(value)})}:name==='../context'?{useNotification:()=>({success(){},error(){}})}:{processOrderCancellation:async(...args)=>calls.push(args)}})
   vm.runInContext(compiled,context)
   const render=()=>{index=0;return context.exports.default({cancellation,readOnly:false})}
   function find(node,predicate){if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const result=find(child,predicate);if(result)return result}return null}
@@ -41,10 +41,10 @@ async function main(){
   }
   const memberSource=fs.readFileSync(path.join(root,'src/pages/site/MembershipPage.jsx'),'utf8')
   const memberCode=memberSource.slice(memberSource.indexOf('const formatDate ='),memberSource.indexOf('const ageOptions ='))+memberSource.slice(memberSource.indexOf('function CancellationForm('),memberSource.indexOf('function SharedClassSummary('))
-  const preview={requires_bank_account:true,requires_cash_review:false,refund_amount:7500,settlement:{currency:'JPY',refund_amount:33750,original_amount:45000,rate:'4.50000000'}}
+  const preview={can_request:true,requires_bank_account:true,requires_cash_review:false,refund_percent:80,handling_fee_percent:5,handling_fee_amount:500,refund_amount:7500,settlement:{currency:'JPY',refund_amount:33750,original_amount:45000,rate:'4.50000000'}}
   const memberCalls=[]
   let memberStates=[preview,'schedule','QA取消',{bank_name:'QA銀行',account_number:'QA-NOT-REAL',account_holder:'QA會員',overseas_details:''},'',false],mi=0
-  const memberContext=vm.createContext({React,useSiteLocale:require('./helpers/site-locale-harness.cjs')(React).useSiteLocale,useState(){const i=mi++;return[memberStates[i],value=>memberStates[i]=value]},requestJson:async(url,options)=>{memberCalls.push(JSON.parse(options.body));return{id:5,status:'requested'}}})
+  const memberContext=vm.createContext({React,formatPaymentValue:require('./helpers/settlement-harness.cjs').formatPaymentValue,useSiteLocale:require('./helpers/site-locale-harness.cjs')(React).useSiteLocale,useState(){const i=mi++;return[memberStates[i],value=>memberStates[i]=value]},requestJson:async(url,options)=>{memberCalls.push(JSON.parse(options.body));return{id:5,status:'requested'}}})
   vm.runInContext(ts.transpileModule(memberCode,{fileName:'member.jsx',compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText,memberContext)
   const renderMember=()=>{mi=0;return memberContext.CancellationForm({order:{id:42},onDone(){}})}
   const findMember=(node)=>{if(!node||typeof node!=='object')return null;if(node.type==='button'&&node.props.children==='確認送出')return node;for(const child of React.Children.toArray(node.props?.children)){const found=findMember(child);if(found)return found}return null}
@@ -53,6 +53,16 @@ async function main(){
   await findMember(renderMember()).props.onClick()
   assert.equal(memberCalls[0].currency,'JPY');assert.equal(memberCalls[0].expected_refund_amount,33750)
   assert.equal(memberCalls[0].refund_amount,undefined,'Member cannot set the refund basis')
+  memberStates[5]=false
+  memberStates[0]={...preview,settlement:{currency:'USD',refund_amount:23426,rate:'0.03123450'}}
+  const usdMarkup=localRequire('react-dom/server').renderToStaticMarkup(renderMember())
+  assert.match(usdMarkup,/USD 234.26/)
+  assert.match(usdMarkup,/NT\$ 500/)
+  await findMember(renderMember()).props.onClick()
+  assert.equal(memberCalls[1].currency,'USD')
+  assert.equal(memberCalls[1].expected_refund_amount,23426)
+  memberStates[0]={...preview,can_request:false}
+  assert.equal(findMember(renderMember()),null)
   console.log('PASS actual cancellation review: required actual receipt/note/ack, refund cap, integer checks, explicit restricted payload, rejection without financial override')
 }
 main().catch(error=>{console.error(error);process.exitCode=1})

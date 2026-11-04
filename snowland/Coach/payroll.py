@@ -1,7 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import F, Max, Q
 
 from booking.models import Booking
 
@@ -42,11 +42,11 @@ def _rule_for(booking, discipline, *, coach=None):
         coach=coach,
         discipline=discipline,
         is_active=True,
-    )
+    ).filter(Q(effective_from__isnull=True) | Q(effective_from__lte=booking.date))
     specific = rules.filter(course_type_id=booking.reservation.course_type_id)
     applicable = specific if booking.reservation.course_type_id and specific.exists() else rules.filter(course_type__isnull=True)
-    matches = list(applicable.order_by('pk')[:2])
-    if len(matches) > 1:
+    matches = list(applicable.order_by(F('effective_from').desc(nulls_last=True), 'pk')[:2])
+    if len(matches) > 1 and matches[0].effective_from == matches[1].effective_from:
         raise ValueError(f'{coach.name} 的同一工作類型及適用課程有多筆啟用薪資規則，請先停用不適用的規則再結算')
     return matches[0] if matches else None
 
@@ -155,13 +155,14 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
             totals['assistance'] += assistance_pay
             used_assistance_reservations.add(reservation.id)
 
-        if rule.supervisor_allowance and rule.id not in used_allowance_rules:
+        allowance_scope = (rule.discipline, rule.course_type_id)
+        if rule.supervisor_allowance and allowance_scope not in used_allowance_rules:
             PayrollLine.objects.create(
                 statement=statement, line_type='allowance', description='當期主管加給',
                 quantity=1, unit_amount=rule.supervisor_allowance, total_amount=rule.supervisor_allowance,
             )
             totals['allowance'] += rule.supervisor_allowance
-            used_allowance_rules.add(rule.id)
+            used_allowance_rules.add(allowance_scope)
 
     for booking, rule in referrals:
         reservation = booking.reservation

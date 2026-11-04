@@ -1,8 +1,9 @@
 import { useEffect, useId, useState } from 'react'
 import { useSiteLocale } from '../../contexts/SiteLocale'
+import { paymentCurrencyNames, type PaymentCurrency } from '../../utils/settlementPreview'
 
-export interface PaymentCurrencyQuote { currency: 'TWD' | 'JPY'; rate: string }
-interface Choice { code: 'TWD' | 'JPY'; rate: string }
+export interface PaymentCurrencyQuote { currency: PaymentCurrency; rate: string }
+interface Choice { code: PaymentCurrency; rate: string }
 const twd: Choice = {code:'TWD',rate:'1.00000000'}
 
 export default function CurrencySelection({clientCode,value,onChange,onReadyChange,reloadKey=0}: {
@@ -28,7 +29,7 @@ export default function CurrencySelection({clientCode,value,onChange,onReadyChan
         if(!response.ok)throw Error('currency unavailable')
         const payload=await response.json()
         if(!Array.isArray(payload.currencies))throw Error('invalid currency choices')
-        const rows=payload.currencies.filter((row:any)=>row && ['TWD','JPY'].includes(row.code)
+        const rows=payload.currencies.filter((row:any)=>row && Object.prototype.hasOwnProperty.call(paymentCurrencyNames,row.code)
           && typeof row.rate==='string' && /^[0-9]{1,9}(?:\.[0-9]{1,8})?$/.test(row.rate) && Number(row.rate)>0)
         if(!rows.some((row:Choice)=>row.code==='TWD'&&Number(row.rate)===1)
           || new Set(rows.map((row:Choice)=>row.code)).size!==rows.length)throw Error('invalid currency choices')
@@ -47,17 +48,18 @@ export default function CurrencySelection({clientCode,value,onChange,onReadyChan
         const choice=choices.find(row=>row.code===event.target.value)
         if(choice)onChange({currency:choice.code,rate:choice.rate})
       }} className="mt-2 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2 text-sm text-[#1f2937] disabled:opacity-60">
-        {choices.map(row=><option key={row.code} value={row.code}>{t(row.code==='JPY'?'日幣 JPY（銀行匯款）':'台幣 TWD')}</option>)}
-        {value.currency==='JPY'&&!selected&&<option value="JPY" disabled>{t(loading?'日幣 JPY（確認中）':'日幣 JPY（目前不可用）')}</option>}
+        {choices.map(row=><option key={row.code} value={row.code}>{row.code==='JPY'||row.code==='TWD'?t(row.code==='JPY'?'日幣 JPY（銀行匯款）':'台幣 TWD'):`${t(paymentCurrencyNames[row.code])}（${t('銀行匯款')}）`}</option>)}
+        {value.currency!=='TWD'&&!selected&&<option value={value.currency} disabled>{value.currency==='JPY'?t(loading?'日幣 JPY（確認中）':'日幣 JPY（目前不可用）'):t(paymentCurrencyNames[value.currency])}</option>}
       </select>
     </label>
     <p id={helpId} className="text-xs leading-5 text-[#64748b]">{value.currency==='JPY'
       ? t('本次匯率 1 TWD＝{rate} JPY。日幣金額由後端換算，成立訂單後鎖定；後續改匯率不影響本單。',{rate:value.rate})
-      : t('以下課程以台幣定價；可用幣別依學校收款設定提供，訂單成立後不能換幣別。')}</p>
+      : value.currency==='TWD'?t('以下課程以台幣定價；可用幣別依學校收款設定提供，訂單成立後不能換幣別。')
+      : t('本次匯率 1 TWD＝{rate} {currency}。訂單成立後保留本次匯率。',{rate:value.rate,currency:value.currency})}</p>
     {loading&&<p role="status" className="text-xs text-[#64748b]">{t('正在確認可用幣別…')}</p>}
     {error&&<p role="alert" className="text-sm text-[#b42318]">{t(error)}<button type="button" onClick={()=>setRetry(n=>n+1)} className="ml-2 min-h-11 rounded-sm border border-[#d4dbe4] px-3 font-semibold">{t('重新載入幣別')}</button></p>}
     {!loading&&!error&&!ready&&<p role="alert" className="text-sm text-[#92400e]">{selected
-      ? <>{t('匯率已更新，請重新確認。')}<button type="button" onClick={()=>onChange({currency:selected.code,rate:selected.rate})} className="mt-2 min-h-11 w-full rounded-sm border border-[#e0b760] px-3 font-semibold">{t('確認使用新匯率 1 TWD＝{rate} JPY',{rate:selected.rate})}</button></>
-      : t('目前不提供日幣付款，請改選台幣；原有課程與聯絡資料仍保留。')}</p>}
+      ? <>{t('匯率已更新，請重新確認。')}<button type="button" onClick={()=>onChange({currency:selected.code,rate:selected.rate})} className="mt-2 min-h-11 w-full rounded-sm border border-[#e0b760] px-3 font-semibold">{selected.code==='JPY'?t('確認使用新匯率 1 TWD＝{rate} JPY',{rate:selected.rate}):t('確認使用新匯率 1 TWD＝{rate} {currency}',{rate:selected.rate,currency:selected.code})}</button></>
+      : value.currency==='JPY'?t('目前不提供日幣付款，請改選台幣；原有課程與聯絡資料仍保留。'):t('目前不提供 {currency} 付款，請改選其他幣別。',{currency:value.currency})}</p>}
   </section>
 }

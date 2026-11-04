@@ -1556,6 +1556,14 @@ class OrderAdminViewSet(ModelViewSet):
     serializer_class = OrderAdminSerializer
     permission_classes = [IsTenantManager]
 
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        from booking.models import OrderLoyalty
+        instance = ReservationGroup.objects.select_for_update().get(pk=instance.pk)
+        if OrderLoyalty.objects.filter(group=instance).exists():
+            raise ValidationError('此訂單已套用會員制度，請保留帳務紀錄並使用取消流程')
+        super().perform_destroy(instance)
+
     @action(detail=True,methods=['post'],url_path='amendment-quote')
     def amendment_quote(self,request,*args,**kwargs):
         from rest_framework.authentication import SessionAuthentication
@@ -1731,6 +1739,13 @@ class OrderAdminViewSet(ModelViewSet):
         )
         return Response({'code': 200, 'msg': 'OK', 'data': serializer.data})
 
+    @action(detail=False, methods=['get'], url_path='export')
+    def export(self, request, *args, **kwargs):
+        from .order_export import export_orders
+
+        _require_headquarters(request)
+        return export_orders(self.filter_queryset(self.get_queryset()), request.query_params)
+
     @action(detail=True, methods=['get'], url_path='payment-link')
     def payment_link(self, request, *args, **kwargs):
         """Let headquarters reissue a guest's expiring payment link."""
@@ -1756,6 +1771,7 @@ class OrderAdminViewSet(ModelViewSet):
     def complete_course(self, request, *args, **kwargs):
         group = self.get_object()
         with transaction.atomic():
+            group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
             reservation = group.reservations.select_for_update().filter(pk=request.data.get('reservation_id')).first()
             if reservation is None:
                 return Response({'code': 404, 'msg': '此訂單沒有這門課程'}, status=404)
@@ -1782,6 +1798,8 @@ class OrderAdminViewSet(ModelViewSet):
                     )
             from booking.operations import record_order_revision
             record_order_revision(group, user=request.user, reason='後台確認課程完成')
+            from booking.loyalty import sync_order_loyalty
+            sync_order_loyalty(group)
         return Response({'code': 200, 'msg': '課程已完成，評量與薪資時數已可處理'})
 
     @action(detail=True, methods=['get'], url_path='refund-preview')
@@ -1884,15 +1902,24 @@ class OrderAdminViewSet(ModelViewSet):
             return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
         if payment_status and payment_status not in dict(Payment.STATUS_CHOICES):
             return Response({'code': 400, 'msg': '無效的付款狀態'}, status=400)
-        jpy_receipt = None
-        if payment_status == 'paid' and (instance.currency_snapshot or {}).get('currency') == 'JPY':
+        if payment_status:
+            from booking.models import OrderLoyalty
+            loyalty = OrderLoyalty.objects.filter(group=instance).first()
+            if loyalty and (
+                (loyalty.paid_base is not None and payment_status != 'paid')
+                or (payment_status == 'paid' and not instance.reservations.exclude(status__in=('cancelled', 'deleted')).exists())
+            ):
+                return Response({'code':400,'msg':'此訂單已結算會員紅利或已取消，請使用正式退款流程核對'}, status=400)
+        foreign_receipt = None
+        from booking.currency import foreign_currency
+        if payment_status == 'paid' and foreign_currency((instance.currency_snapshot or {}).get('currency')):
             prior_payment=instance.payments.select_for_update().order_by('-created_at','-pk').first()
             if not prior_payment or prior_payment.status != 'paid':
                 from booking.currency import order_settlement
                 expected=order_settlement(instance)
-                if data.get('payment_currency') != 'JPY' or type(data.get('payment_received_amount')) is not int or data['payment_received_amount'] != expected['amount']:
-                    return Response({'code':400,'msg':'請核對銀行實收日幣金額，確認幣別及金額與本單相同後再標記已付款'},status=400)
-                jpy_receipt={**expected,'confirmed_at':timezone.now().isoformat(),'confirmed_by_id':request.user.pk}
+                if data.get('payment_currency') != expected['currency'] or type(data.get('payment_received_amount')) is not int or data['payment_received_amount'] != expected['amount']:
+                    return Response({'code':400,'msg':'請核對銀行實收原幣金額，確認幣別及金額與本單相同後再標記已付款'},status=400)
+                foreign_receipt={**expected,'confirmed_at':timezone.now().isoformat(),'confirmed_by_id':request.user.pk}
         if payment_status and instance.reservations.filter(shared_course_class__status='collecting').exists():
             return Response({'code': 400, 'msg': '團體班仍在湊班中，成班後才能修改付款狀態'}, status=400)
         if not isinstance(reservation_updates, list) or not isinstance(booking_updates, list):
@@ -2025,13 +2052,16 @@ class OrderAdminViewSet(ModelViewSet):
                     user=instance.user,
                 )
             payment.status = payment_status
-            if jpy_receipt is not None:
+            if foreign_receipt is not None:
                 payload=payment.DataJSON if isinstance(payment.DataJSON,dict) else {}
                 confirmations=list(payload.get('settlement_confirmations',[]))
-                confirmations.append(jpy_receipt)
-                payment.DataJSON={**payload,'settlement':jpy_receipt,'settlement_confirmations':confirmations}
+                confirmations.append(foreign_receipt)
+                payment.DataJSON={**payload,'settlement':foreign_receipt,'settlement_confirmations':confirmations}
             payment.save()
             if payment_status == 'paid':
+                from booking.currency import settlement_summary
+                from booking.loyalty import sync_order_loyalty
+                sync_order_loyalty(instance, confirmed_base=settlement_summary(instance)['base_amount'])
                 from booking.operations import schedule_group_notifications
                 schedule_group_notifications(instance, 'payment_confirmed')
 
@@ -2296,7 +2326,13 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             'rejected': set(),
             'refunded': set(),
         }
-        from booking.operations import outstanding_amendments
+        from booking.currency import foreign_currency
+        from booking.operations import first_course_start, outstanding_amendments
+        if cancellation.status == 'requested' and next_status == 'approved':
+            first_course = first_course_start(group)
+            submitted = timezone.localtime(cancellation.created_at)
+            if first_course and first_course <= (submitted.date(), submitted.time()):
+                return Response({'code':400,'msg':'此申請在首堂課開始後才提出，無法核准取消'},status=400)
         pending=list(outstanding_amendments(group).values('id','balance_amount','status','currency_snapshot'))
         requires_review=cancellation.requires_cash_review or bool(pending)
         review_pending=requires_review and cancellation.actual_received_amount is None
@@ -2304,21 +2340,21 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         if next_status not in allowed.get(cancellation.status, set()) and not legacy_review:
             return Response({'code': 400, 'msg': f'「{cancellation.get_status_display()}」不能改為這個狀態'}, status=400)
         review_fields={'actual_received_amount','refund_amount','cash_review_note','confirmed_received'}
-        native_review_fields={'actual_received_currency_amount','refund_currency_amount'} if (cancellation.currency_snapshot or {}).get('currency')=='JPY' else set()
+        native_review_fields={'actual_received_currency_amount','refund_currency_amount'} if foreign_currency((cancellation.currency_snapshot or {}).get('currency')) else set()
         native_fields={'currency','expected_refund_amount','confirmed_refund'} if cancellation.currency_snapshot else set()
         if set(request.data)-({'status'}|review_fields|native_fields|native_review_fields):
             return Response({'code':400,'msg':'取消處理包含不支援的欄位'},status=400)
         if set(request.data)&native_review_fields and not (next_status=='approved' and review_pending):
             return Response({'code':400,'msg':'只有待實收款核對的取消申請可填寫原幣實收及退款金額'},status=400)
         native=cancellation.currency_snapshot or {}
-        if native.get('currency')=='JPY' and next_status in {'approved','refunded'}:
+        if foreign_currency(native.get('currency')) and next_status in {'approved','refunded'}:
             if review_pending and next_status!='approved':
-                return Response({'code':400,'msg':'日幣實收款尚待核對，請先確認原款及補退差額，不能直接核准退款'},status=400)
+                return Response({'code':400,'msg':'原幣實收款尚待核對，請先確認原款及補退差額，不能直接核准退款'},status=400)
             expected=request.data.get('expected_refund_amount')
-            if request.data.get('currency')!='JPY' or (not review_pending and (type(expected) is not int or expected!=native['refund_amount'])):
-                return Response({'code':400,'msg':'請重新核對本筆日幣退款幣別與金額'},status=400)
+            if request.data.get('currency')!=native['currency'] or (not review_pending and (type(expected) is not int or expected!=native['refund_amount'])):
+                return Response({'code':400,'msg':'請重新核對本筆原幣退款幣別與金額'},status=400)
             if next_status=='refunded' and request.data.get('confirmed_refund') is not True:
-                return Response({'code':400,'msg':'請先核對日幣金額，確認已在系統外完成退款'},status=400)
+                return Response({'code':400,'msg':'請先核對原幣金額，確認已在系統外完成退款'},status=400)
         if next_status=='refunded' and review_pending:
             return Response({'code':400,'msg':'請先核對實收款及退款金額，不能直接記錄退款完成'},status=400)
         update_fields=['status','reviewed_by','reviewed_at','updated_at']
@@ -2330,7 +2366,7 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
                 refund_amount=WholeNumber(min_value=0,max_value=2147483647)
                 cash_review_note=serializers.CharField(max_length=1000)
                 confirmed_received=serializers.BooleanField()
-                if native.get('currency')=='JPY':
+                if foreign_currency(native.get('currency')):
                     actual_received_currency_amount=WholeNumber(min_value=0,max_value=9007199254740991)
                     refund_currency_amount=WholeNumber(min_value=0,max_value=9007199254740991)
             review=CashReviewInput(data={key:request.data[key] for key in review_fields|native_review_fields if key in request.data})
@@ -2338,19 +2374,19 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
             values=review.validated_data
             if not values['confirmed_received'] or values['refund_amount']>values['actual_received_amount']:
                 return Response({'code':400,'msg':'請確認銀行實收紀錄；退款不可超過核對後的實收款'},status=400)
-            if native.get('currency')=='JPY':
+            if foreign_currency(native.get('currency')):
                 native_received=values['actual_received_currency_amount']
                 native_refund=values['refund_currency_amount']
                 if native_refund>native_received or type(request.data.get('expected_refund_amount')) is not int or request.data['expected_refund_amount']!=native_refund:
-                    return Response({'code':400,'msg':'請確認日幣實收與退款金額；日幣退款不可超過實收款，確認金額須一致'},status=400)
+                    return Response({'code':400,'msg':'請確認原幣實收與退款金額；原幣退款不可超過實收款，確認金額須一致'},status=400)
                 if native_received == 0 and values['actual_received_amount'] != 0:
-                    return Response({'code':400,'msg':'日幣實收為0但台幣帳務不為0，請先交行政核對帳外差異'},status=400)
+                    return Response({'code':400,'msg':'原幣實收為0但台幣帳務不為0，請先交行政核對帳外差異'},status=400)
                 # Integer HALF_UP: use the reviewed original receipts, never today's FX.
                 proportional_refund = ((2 * values['actual_received_amount'] * native_refund + native_received) // (2 * native_received)) if native_received else 0
                 if values['refund_amount'] != proportional_refund:
                     return Response({'code':400,'msg':'台幣退款帳務須按原實收比例計算，請重新核對；帳外差異請交行政處理'},status=400)
                 native={**native,'actual_received_amount':native_received,'refund_amount':native_refund,
-                    'cash_review':{'accounting_mode':'original_receipt_ratio','currency':'JPY','base_currency':'TWD',
+                    'cash_review':{'accounting_mode':'original_receipt_ratio','currency':native['currency'],'base_currency':'TWD',
                         'actual_received_amount':native_received,'refund_amount':native_refund,
                         'actual_received_base_amount':values['actual_received_amount'],'refund_base_amount':values['refund_amount'],
                         'note':values['cash_review_note'],'reviewed_by':request.user.pk,'reviewed_at':timezone.now().isoformat()}}
@@ -2369,8 +2405,8 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         cancellation.status = next_status
         cancellation.reviewed_by = request.user
         cancellation.reviewed_at = timezone.now()
-        if native.get('currency')=='JPY' and next_status in {'approved','refunded'}:
-            receipt={'currency':'JPY','amount':native['refund_amount'],'confirmed_by_id':request.user.pk,'confirmed_at':timezone.now().isoformat()}
+        if foreign_currency(native.get('currency')) and next_status in {'approved','refunded'}:
+            receipt={'currency':native['currency'],'amount':native['refund_amount'],'confirmed_by_id':request.user.pk,'confirmed_at':timezone.now().isoformat()}
             cancellation.currency_snapshot={**native,'approval' if next_status=='approved' else 'refund_receipt':receipt}
             update_fields.append('currency_snapshot')
         cancellation.save(update_fields=update_fields)
@@ -2384,6 +2420,10 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         if next_status == 'refunded':
             cancellation.group.payments.update(status='refunded')
             outstanding_amendments(group).update(status='cancelled',updated_at=timezone.now())
+            from booking.loyalty import release_unpaid_redemption, sync_order_loyalty
+            sync_order_loyalty(group, refund=cancellation.refund_amount or 0,
+                               actual_received_amount=cancellation.actual_received_amount)
+            release_unpaid_redemption(group)
         return Response({'code': 200, 'msg': '取消申請已更新', 'data': self.get_serializer(cancellation).data})
 
 
@@ -4933,6 +4973,9 @@ def payment_settings_view(request, client_code=None):
         return Response({'code': 404, 'msg': '找不到客戶'}, status=404)
 
     if request.method == 'GET':
+        from django.middleware.csrf import get_token
+
+        get_token(request._request)
         form_options = _get_booking_form_options(tenant)
         from booking.currency import currency_settings_payload
         return Response({
@@ -4942,6 +4985,7 @@ def payment_settings_view(request, client_code=None):
                 'bank_branch': tenant.bank_branch,
                 'bank_account_number': tenant.bank_account_number,
                 'bank_account_holder': tenant.bank_account_holder,
+                'order_management_email': tenant.order_management_email,
                 'currency_settings': currency_settings_payload(tenant),
                 **form_options,
             },
@@ -4949,6 +4993,14 @@ def payment_settings_view(request, client_code=None):
 
     # PUT
     payload = request.data or {}
+    if 'order_management_email' in payload:
+        from rest_framework.authentication import SessionAuthentication
+        from rest_framework.fields import EmailField
+
+        SessionAuthentication().enforce_csrf(request)
+        tenant.order_management_email = EmailField(max_length=200, allow_blank=True).run_validation(
+            payload['order_management_email'],
+        )
     from booking.currency import currency_settings_payload, validate_currency_settings
     currency_values = None
     if 'currency_settings' in payload:
@@ -4971,6 +5023,7 @@ def payment_settings_view(request, client_code=None):
             'bank_branch': tenant.bank_branch,
             'bank_account_number': tenant.bank_account_number,
             'bank_account_holder': tenant.bank_account_holder,
+            'order_management_email': tenant.order_management_email,
             'currency_settings': currency_settings_payload(tenant),
             **form_options,
         },

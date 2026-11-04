@@ -144,7 +144,7 @@ def confirm_order_amendment(request,group_id,data,scope):
     bank_snapshot={key:getattr(bank,key) for key in ['name','bank_name','bank_branch','account_number','account_holder','overseas_details']} if bank else {}
     if settlement and settlement['balance_amount']>0:
         original=group.currency_snapshot.get('bank_info',{})
-        bank_snapshot={'currency':'JPY','bank_name':original.get('bank_name',''),'bank_branch':original.get('bank_branch',''),
+        bank_snapshot={'currency':settlement['currency'],'bank_name':original.get('bank_name',''),'bank_branch':original.get('bank_branch',''),
             'account_number':original.get('bank_account_number',''),'account_holder':original.get('bank_account_holder',''),'overseas_details':original.get('overseas_details','')}
     if status=='topup_due' and not all(bank_snapshot.get(key) for key in ['bank_name','account_number','account_holder']):
         raise serializers.ValidationError({'bank_snapshot':'補款前請先在後台設定此校區可用的銀行、帳號及戶名'})
@@ -161,9 +161,8 @@ def confirm_order_amendment(request,group_id,data,scope):
         reservation=reservations[item['reservation_id']]
         bookings=list(reservation.bookings.order_by('pk'))
         old={booking.pk:booking for booking in bookings}
-        changes_course=any(course['date']!=old[course['booking_id']].date or course['template_id']!=(old[course['booking_id']].course_template_id or reservation.course_template_id) for course in item['courses'])
         active,keep,levels=_participants(reservation,item)
-        if changes_course:
+        if item['course_documents_changed']:
             document_archives.extend(capture_course_documents([member for member in active if member.pk in keep],
                 [{'id':row.pk,'date':row.date,'start_time':row.start_time,'end_time':row.end_time,
                   'template_id':row.course_template_id or reservation.course_template_id} for row in bookings],item['courses']))
@@ -194,11 +193,14 @@ def confirm_order_amendment(request,group_id,data,scope):
         reservation.equipment_assistance_time_slot=slot;reservation.equipment_assistance_time_label=label
         reservation.course_fee=item['course_fee'];reservation.coach_fee=item['coach_fee'];reservation.language_fee=item['language_fee']
         reservation.equipment_rental_fee=item['equipment_fee'];reservation.discount_amount=item['discount_amount'];reservation.save()
+        if item['removed_booking_ids']:
+            reservation.bookings.filter(pk__in=item['removed_booking_ids']).delete()
         for course in item['courses']:
-            booking=old[course['booking_id']]
+            booking=old.get(course['booking_id']) or Booking(reservation=reservation,course_type=reservation.course_type.name)
             booking.date=course['date'];booking.start_time=course['start_time'];booking.end_time=course['end_time']
             booking.course_template_id=course['template_id'];booking.course_name=course['template_name'];booking.is_scheduled=scheduled
-            booking.save(update_fields=['date','start_time','end_time','course_template','course_name','is_scheduled'])
+            booking.fee_snapshot = course['fee_snapshot']
+            booking.save()
         if data['reschedule'] and reservation.status=='created':to_schedule.append(reservation)
     if to_schedule:
         from booking.scheduler import assign_coachs

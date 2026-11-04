@@ -16,6 +16,7 @@ export interface NotificationDelivery {
 
 export interface PayRule {
   id: number; coach: number; coach_name: string; course_type: number | null; course_type_name?: string; discipline: string; certification_level: string
+  effective_from?: string | null
   hourly_rate: string; specified_fee: number; referral_percent: string
   assistance_hour_factor: string; supervisor_allowance: number; is_active: boolean
 }

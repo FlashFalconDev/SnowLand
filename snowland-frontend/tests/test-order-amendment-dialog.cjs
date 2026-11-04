@@ -9,7 +9,7 @@ function harness(initial,items=[item]){
   const state=[...initial],refs=[],calls=[];let si=0,ri=0,fail
   const api={fetchOrderAmendmentOptions:async()=>({items:[item]}),previewOrderAmendment:async(...args)=>{calls.push(['preview',...args]);return quote},confirmOrderAmendment:async(...args)=>{calls.push(['confirm',...args]);if(fail)throw fail;return {version:2,new_total:11500,balance_amount:2000,notice:'尚未收退款'}}}
   const hooks={useEffect(){},useState(initialValue){const i=si++;if(!(i in state))state[i]=typeof initialValue==='function'?initialValue():initialValue;return [state[i],value=>state[i]=typeof value==='function'?value(state[i]):value]},useRef(value){const i=ri++;return refs[i]||(refs[i]={current:value})}}
-  const context=vm.createContext({React,crypto,exports:{},require:name=>name==='react'?hooks:name==='@tanstack/react-query'?{useQuery:()=>({data:{items},isLoading:false}),useQueryClient:()=>({invalidateQueries(){}})}:api})
+  const context=vm.createContext({React,crypto,exports:{},require:name=>name.includes('settlementPreview')?require('./helpers/settlement-harness.cjs'):name==='react'?hooks:name==='@tanstack/react-query'?{useQuery:()=>({data:{items},isLoading:false}),useQueryClient:()=>({invalidateQueries(){}})}:api})
   vm.runInContext(compiled,context)
   function render(){si=0;ri=0;return context.exports.default({orderId:42,onClose(){}})}
   function find(node,predicate){if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=find(child,predicate);if(found)return found}return null}
@@ -21,6 +21,17 @@ async function main(){
   assert.match(localRequire('react-dom/server').renderToStaticMarkup(blocked.render()),/目前沒有可直接修改的課程/,'Explain the blocked reason visibly, not only inside an unselectable option')
   assert.equal(blocked.find(blocked.render(),node=>node.type==='select').props.disabled,true)
   const states=[1,draft,quote,null,'QA原因',true,false,false,'',false]
+  const course={booking_id:9,template_id:5,date:'2027-01-20',start_time:'09:00',end_time:'12:00',can_remove:true}
+  const days=harness([1,{...draft,courses:[course]},null,null,'',false,false,false,'',false],[{...item,courses:[course]}])
+  days.button('新增一堂課').props.onClick()
+  assert.equal(days.state[1].courses[1].booking_id,null)
+  assert.equal(days.state[1].courses[1].date,'')
+  await days.button('預覽差額').props.onClick()
+  assert.equal(days.calls.length,0)
+  assert.match(days.state[8],/請填完每堂課/)
+  days.button('移除這堂課').props.onClick()
+  assert.equal(days.state[1].removed_booking_ids[0],9)
+  assert.equal(days.button('移除這堂課').props.disabled,true,'At least one lesson must remain')
   let ui=harness(states)
   const previewHtml=localRequire('react-dom/server').renderToStaticMarkup(ui.render())
   assert.match(previewHtml,/舊簽署留底/)

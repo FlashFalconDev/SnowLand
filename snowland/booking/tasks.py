@@ -45,6 +45,8 @@ def expire_unpaid_payment(payment_id, now=None):
         cancelled = 0
         if not group.payments.filter(status__in=['paid', 'pending']).exists():
             cancelled = reservations.update(status='cancelled')
+            from .loyalty import release_unpaid_redemption
+            release_unpaid_redemption(group)
             for shared in shared_classes:
                 shared.refresh_readiness()
         payment.status = 'expired'

@@ -94,6 +94,7 @@ class CampusScopeApiTests(TestCase):
         )
         template.resorts.add(self.resort_a)
         selected_course = [{
+            'serviceType': 'ski',
             'campusId': self.campus_a.id,
             'resort': self.resort_a.name,
             'peopleCount': 2,
@@ -406,9 +407,11 @@ class CampusScopeApiTests(TestCase):
         self.assertEqual(completed_insurance.status_code, 200, completed_insurance.data)
         processed_cancellation = headquarters.post(
             f'/api/admin/snowland/cancellations/{cancellation.id}/process/',
-            {'status': 'approved'}, format='json',
+            {'status': 'rejected'}, format='json',
         )
         self.assertEqual(processed_cancellation.status_code, 200, processed_cancellation.data)
+        cancellation.refresh_from_db()
+        self.assertEqual(cancellation.status, 'rejected')
 
     def test_headquarters_keeps_inactive_campus_coach_payroll_and_notification_settings(self):
         coach = Coach.objects.create(client=self.tenant, name='停用校區教練')

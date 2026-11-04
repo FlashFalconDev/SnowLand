@@ -28,7 +28,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from datetime import datetime, timedelta
 
-from Client.models import SiteContent
+from Client.models import Client, SiteContent
 from Client.coach_profiles import read_coach_profile
 from Client.coach_reviews import public_coach_reviews
 from Coach.models import (
@@ -1651,7 +1651,7 @@ class CourseCategoryListAPI(APIView):
         if not has_service_type_column:
             categories = categories.only('id', 'name', 'display_order')
 
-        categories = categories.order_by('display_order')
+        categories = categories.order_by('display_order', 'pk')
 
         data = []
         for category in categories:
@@ -1692,7 +1692,7 @@ class ResortListAPI(APIView):
             'equipment_rental_items',
             'equipment_assistance_time_slots',
             'equipment_assistance_time_slots__course_templates',
-        ).distinct()
+        ).order_by('display_order', 'pk').distinct()
 
         data = []
         for resort in resorts:
@@ -2149,6 +2149,29 @@ class CourseAvailableDatesAPI(APIView):
         }, status=status.HTTP_200_OK)
 
 
+def quote_reservation_rewards(request, tenant, user, summary, *, preview=False):
+    from .loyalty import checkout_rewards
+    requested = request.data.get('reward_points', 0)
+    code = request.data.get('member_referral_code', '')
+    try:
+        revision, rules, allocations, available = checkout_rewards(tenant, user, summary, requested, code)
+        error = ''
+    except ValueError as exc:
+        if not preview:
+            raise
+        revision, rules, allocations, available = checkout_rewards(tenant, user, summary, 0, '')
+        error = str(exc)
+    reward_total = sum(item['discount'] for item in allocations)
+    if not preview and (requested or code):
+        if request.data.get('loyalty_revision') != revision or request.data.get('loyalty_discount') != reward_total:
+            raise ValueError('紅利或推薦優惠已變更，請重新試算')
+    return revision, rules, allocations, {
+        'enabled': rules['enabled'] and bool(user), 'available': available, 'revision': revision,
+        'redemption_rate': rules['twd_per_reward'], 'discount': reward_total, 'error': error,
+        'referrals_enabled': bool(rules['referrer_rewards'] or rules['new_member_rewards']),
+    }
+
+
 class DiscountPreviewAPI(APIView):
     """
     POST /api/discount-preview/
@@ -2173,14 +2196,19 @@ class DiscountPreviewAPI(APIView):
                 contact_info=normalize_contact_info(request),
                 discount_code=request.data.get('discount_code') or request.data.get('discountCode') or '',
             )
+            _, _, rewards, loyalty = quote_reservation_rewards(
+                request, tenant_client, get_request_user_or_none(request), summary, preview=True,
+            )
             return Response({
                 'code': 200,
                 'msg': 'OK',
                 'subtotal': summary['subtotal'],
-                'discount_total': summary['discount_total'],
-                'total': summary['total'],
+                'discount_total': summary['discount_total'] + loyalty['discount'],
+                'total': summary['total'] - loyalty['discount'],
                 'item_subtotals': summary['item_subtotals'],
-                'item_discount_amounts': summary['item_discount_amounts'],
+                'item_discount_amounts': ([amount + reward['discount'] for amount, reward in zip(summary['item_discount_amounts'], rewards)]
+                                          if rewards else summary['item_discount_amounts']),
+                'loyalty': loyalty,
                 'applied_discounts': summary['applied_discounts'],
                 'discount_code_error': summary['discount_code_error'],
                 'is_new_customer': summary['is_new_customer'],
@@ -2323,11 +2351,19 @@ class CreateReservationAPI(APIView):
             reservation_groups = []
             item_discounts = discount_summary.get('item_discount_amounts') or []
             applied_discount_details = discount_summary.get('applied_discount_details') or []
+            from .loyalty import start_order_loyalty
+            loyalty_revision, loyalty_rules, reward_allocations, _ = quote_reservation_rewards(
+                request, tenant_client, request_user, discount_summary,
+            )
 
             # 為每個購物車項目創建預約組
             for index, item in enumerate(cart_data):
                 item_discount_amount = item_discounts[index] if index < len(item_discounts) else 0
                 item_applied_discounts = [discount for discount in applied_discount_details if discount.get('allocations', {}).get(index, 0) > 0]
+                reward = reward_allocations[index] if reward_allocations else {}
+                if reward.get('discount'):
+                    item_discount_amount += reward['discount']
+                    item_applied_discounts.append({'name': '會員紅利／推薦折抵'})
                 group_id, reservation, group = self._create_reservation_group(
                     request_user,
                     item,
@@ -2339,6 +2375,9 @@ class CreateReservationAPI(APIView):
                 created_group_ids.append(group_id)
                 created_reservations.append(reservation)
                 reservation_groups.append(group)
+                if reward.get('discount') and (reservation.discount_amount < item_discount_amount or reservation.payment_amount <= 0):
+                    raise ValueError('課程價格已變更，請重新試算紅利折抵')
+                start_order_loyalty(group, loyalty_revision, loyalty_rules, **reward)
 
             from .currency import initialize_order_currency
             for created_group in reservation_groups:
@@ -2608,11 +2647,8 @@ class CreateReservationAPI(APIView):
             item,
             discount_amount=discount_amount,
             applied_discounts=applied_discounts or [],
+            persist_bookings=True,
         )
-
-        # 為每個課程日期創建 Booking
-        for course in item['courses']:
-            self._create_booking(reservation, course)
 
         if reservation.course_template and reservation.course_template.shared_class_enabled:
             self._join_shared_class(reservation, item)
@@ -2664,7 +2700,7 @@ class CreateReservationAPI(APIView):
         reservation.save(update_fields=['shared_course_class'])
 
 
-    def _create_reservation(self, group, item, discount_amount=0, applied_discounts=None):
+    def _create_reservation(self, group, item, discount_amount=0, applied_discounts=None, *, persist_bookings=False):
         """創建單個預約記錄"""
         from .models import Reservation
 
@@ -2726,14 +2762,15 @@ class CreateReservationAPI(APIView):
             required_rank = ABILITY_LEVEL_KEYS.index(course_template.minimum_student_level) if course_template.minimum_student_level in ABILITY_LEVEL_KEYS else 0
             if any(ABILITY_LEVEL_KEYS.index(level) < required_rank for level in ability_level_counts):
                 raise ValueError(f'「{course_template.name}」只開放等級 {required_rank} 以上學員')
-        course_fee = 0
+        course_fees = []
         for course in item['courses']:
-            course_fee += compute_course_price_authoritative(
+            course_fees.append(compute_course_price_authoritative(
                 template_id=course.get('courseTemplateId'),
                 resort_name=item['resort'],
                 people_count=people_count,
                 course_date=course['date'],
-            )
+            ))
+        course_fee = sum(course_fees)
 
         bookings_count = len(item['courses'])
         language_value = item.get('language', 'zh') or 'zh'
@@ -2792,9 +2829,14 @@ class CreateReservationAPI(APIView):
             equipment_assistance_time_label=equipment_time_label,
         )
 
+        if persist_bookings:
+            for course, lesson_fee in zip(item['courses'], course_fees):
+                self._create_booking(reservation, course, fee_snapshot={
+                    'course': lesson_fee, 'coach': coach_fee // len(course_fees),
+                })
         return reservation
 
-    def _create_booking(self, reservation, course):
+    def _create_booking(self, reservation, course, *, fee_snapshot=None):
         """創建單個課程預約記錄"""
         from .models import Booking
         template_id=course.get('courseTemplateId')
@@ -2819,6 +2861,7 @@ class CreateReservationAPI(APIView):
         # 創建預約課程
         booking = Booking.objects.create(
             reservation=reservation,
+            fee_snapshot=fee_snapshot,
             course_template_id=template_id,
             course_type=course.get('courseTypeName', ''),
             course_name=course.get('courseTemplateName', ''),
@@ -2873,6 +2916,8 @@ class MemberCenterAPI(APIView):
         profile = school_member_profile(request.user, tenant)
         from .models import MemberLoyaltyAccount
         loyalty, _ = MemberLoyaltyAccount.objects.get_or_create(client=tenant, user=request.user)
+        from .loyalty import get_loyalty_policy, level_label
+        _, loyalty_rules = get_loyalty_policy(tenant)
         from .class_group_qr import paid_group_qr_url
         waiver_document = get_current_waiver(tenant)
         groups = ReservationGroup.objects.filter(
@@ -3126,6 +3171,9 @@ class MemberCenterAPI(APIView):
             },
             'referral_code': profile.referral_code,
             'points': loyalty.points,
+            'reward_balance': loyalty.reward_balance,
+            'loyalty_enabled': loyalty_rules['enabled'],
+            'level_label': level_label(loyalty, loyalty_rules),
             'previous_points': loyalty.previous_points,
             'level': loyalty.level,
             'alumni_verified': loyalty.alumni_verified,
@@ -3661,6 +3709,7 @@ class MemberCancellationAPI(APIView):
         return group, None
 
     def get(self, request, client_code, group_id):
+        from decimal import Decimal, ROUND_HALF_UP
         from .operations import calculate_refund
 
         group, error = self._group(request, client_code, group_id)
@@ -3679,6 +3728,11 @@ class MemberCancellationAPI(APIView):
             **preview,
             'requires_bank_account': preview['requires_cash_review'] or payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay'),
             'request_status': existing.status if existing else None,
+            'can_request': not preview['course_started'] and (existing is None or existing.status == 'rejected'),
+            'handling_fee_amount': None if preview['requires_cash_review'] else int(
+                (Decimal(preview['original_amount']) * Decimal(preview['handling_fee_percent']) / 100)
+                .quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+            ),
         })
 
     def post(self, request, client_code, group_id):
@@ -3777,6 +3831,10 @@ class SuperScheduleAPI(APIView):
 
             # Keep each cart item's campus/contact ownership, just like ordinary booking.
             created_groups=[]
+            from .loyalty import start_order_loyalty
+            loyalty_revision, loyalty_rules, reward_allocations, _ = quote_reservation_rewards(
+                request, tenant_client, request_user, discount_summary,
+            )
 
             created_reservations = []
             item_discounts = discount_summary.get('item_discount_amounts') or []
@@ -3794,11 +3852,16 @@ class SuperScheduleAPI(APIView):
                     discount for discount in applied_discount_details
                     if discount.get('allocations', {}).get(item_index, 0) > 0
                 ]
+                reward = reward_allocations[item_index] if reward_allocations else {}
+                if reward.get('discount'):
+                    item_discount_amount += reward['discount']
+                    item_applied_discounts.append({'name': '會員紅利／推薦折抵'})
                 course_count = max(len(courses), 1)
                 per_course_discount = item_discount_amount // course_count
                 discount_remainder = item_discount_amount - (per_course_discount * course_count)
 
                 # 對每一天的課程創建獨立的Reservation
+                item_reservations = []
                 for course_index, course in enumerate(courses):
                     course_discount_amount = per_course_discount + (discount_remainder if course_index == 0 else 0)
                     # 創建單日Reservation（強制不指定教練）
@@ -3812,6 +3875,13 @@ class SuperScheduleAPI(APIView):
                         charge_equipment_fee=(course_index == 0),
                     )
                     created_reservations.append(reservation)
+                    item_reservations.append(reservation)
+                if reward.get('discount') and (
+                    sum(row.discount_amount for row in item_reservations) < item_discount_amount
+                    or sum(row.payment_amount for row in item_reservations) <= 0
+                ):
+                    raise ValueError('拆課後部分課程無法套用全部紅利，請減少本次折抵')
+                start_order_loyalty(group, loyalty_revision, loyalty_rules, **reward)
 
             from .currency import initialize_order_currency
             for created_group in created_groups:
@@ -4039,6 +4109,7 @@ class SuperScheduleAPI(APIView):
         Booking.objects.create(
             reservation=reservation,
             course_template=course_template,
+            fee_snapshot={'course': course_fee, 'coach': coach_fee},
             course_type=course.get('courseTypeName', ''),
             course_name=course.get('courseTemplateName', ''),
             date=booking_date,
@@ -4065,11 +4136,13 @@ class CurrencyOptionsAPI(APIView):
         from Resorts.models import PaymentAccount
         config = currency_settings_payload(tenant)
         currencies = [{'code':'TWD','rate':'1.00000000'}]
-        complete_accounts = PaymentAccount.objects.filter(client=tenant,is_active=True,currency='JPY')
+        complete_accounts = PaymentAccount.objects.filter(client=tenant,is_active=True)
         for field in ('bank_name','bank_branch','account_number','account_holder'):
             complete_accounts = complete_accounts.exclude(**{field:''})
-        if config['jpy_enabled'] and config['jpy_per_twd'] and Decimal(config['jpy_per_twd']) > 0 and complete_accounts.exists():
-            currencies.append({'code':'JPY','rate':config['jpy_per_twd']})
+        configured = {**({'JPY': config['jpy_per_twd']} if config['jpy_enabled'] else {}), **config.get('foreign_rates', {})}
+        account_codes = set(complete_accounts.values_list('currency', flat=True))
+        currencies.extend({'code': code, 'rate': rate} for code,rate in configured.items()
+                          if code in account_codes and rate and Decimal(rate)>0)
         response = Response({'base_currency':'TWD','currencies':currencies})
         response['Cache-Control']='no-store'
         return response
@@ -4209,7 +4282,7 @@ class PaymentInfoAPI(APIView):
                     }
             from .currency import order_settlement
             settlement = order_settlement(group, base_amount=total_amount)
-            if settlement['currency'] == 'JPY':
+            if settlement['currency'] != 'TWD':
                 bank_info = settlement['bank_info']
             is_taiwan = (group.source_country or 'TW') == 'TW'
             payment_methods = []
@@ -4454,11 +4527,11 @@ class ProcessPaymentAPI(APIView):
 
             from .currency import order_settlement
             settlement = order_settlement(group)
-            if settlement['currency'] == 'JPY':
+            if settlement['currency'] != 'TWD':
                 if payment_type != 'bank_transfer':
-                    return Response({'error':'日幣訂單僅提供日幣銀行匯款'}, status=400)
-                if request.data.get('currency') != 'JPY' or type(request.data.get('expected_amount')) is not int or request.data['expected_amount'] != settlement['amount']:
-                    return Response({'error':'請重新載入並確認日幣應付金額後回報匯款'}, status=409)
+                    return Response({'error':'外幣訂單僅提供原幣銀行匯款'}, status=400)
+                if request.data.get('currency') != settlement['currency'] or type(request.data.get('expected_amount')) is not int or request.data['expected_amount'] != settlement['amount']:
+                    return Response({'error':'請重新載入並確認原幣應付金額後回報匯款'}, status=409)
 
             if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
                 return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
@@ -4475,7 +4548,7 @@ class ProcessPaymentAPI(APIView):
                     if account else
                     (tenant.bank_name, tenant.bank_branch, tenant.bank_account_number, tenant.bank_account_holder)
                 )
-                if settlement['currency'] == 'JPY':
+                if settlement['currency'] != 'TWD':
                     snapshot_bank = settlement['bank_info']
                     bank_fields = tuple(snapshot_bank.get(key) for key in ('bank_name','bank_branch','bank_account_number','bank_account_holder'))
                 if not all(bank_fields):
@@ -4542,6 +4615,7 @@ class ProcessPaymentAPI(APIView):
             "html": html_form
         }, status=status.HTTP_200_OK)
 
+    @transaction.atomic
     def _process_bank_transfer(self, request, group):
         """處理銀行匯款"""
         sender_account = request.data.get('sender_account')
@@ -4558,15 +4632,23 @@ class ProcessPaymentAPI(APIView):
         if payment and payment.status not in {'unpaid', 'pending'}:
             return Response({'error': '付款狀態已更新，請重新載入訂單後確認'}, status=status.HTTP_400_BAD_REQUEST)
         if payment is None:
-            payment = Payment.objects.create(reservation_group=group, status='pending', payment_method='TT')
+            payment = Payment(reservation_group=group)
 
-        payment.status = 'pending'
-        payment.bank_account = sender_account
-        payment.user = user
-        payment.payment_method = 'TT'
-        from .currency import order_settlement
-        payment.DataJSON = {**(payment.DataJSON if isinstance(payment.DataJSON, dict) else {}), 'settlement':order_settlement(group)}
-        payment.save()
+        if payment.status != 'pending' or payment.payment_method != 'TT' or payment.bank_account != sender_account:
+            payment.status = 'pending'
+            payment.bank_account = sender_account
+            payment.user = user
+            payment.payment_method = 'TT'
+            from .currency import order_settlement
+            payment.DataJSON = {
+                **(payment.DataJSON if isinstance(payment.DataJSON, dict) else {}),
+                'settlement': order_settlement(group),
+            }
+            payment.save()
+
+        from .order_management_notices import prepare_management_notice
+        prepare_management_notice(group, event='transfer_reported', event_id=payment.pk,
+                                  subject='匯款已回報，待對帳', instruction='請到後台訂單管理核對匯款。')
 
         return Response({
             "payment_type": "bank_transfer",
@@ -4891,6 +4973,7 @@ class CancelFailedReservationsAPI(APIView):
     使用者在排課失敗 modal 選「改其他日期」時呼叫，刪除剛才建立但尚未付款的失敗訂單。
     僅允許刪除：1) 屬於當前 user 的；2) 狀態為 auto_assignment_failed 的。
     """
+    @transaction.atomic
     def post(self, request, client_code=None):
         if not request.user.is_authenticated:
             return Response({'code': 401, 'msg': '請先登入'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -4899,15 +4982,26 @@ class CancelFailedReservationsAPI(APIView):
         if not ids:
             return Response({'code': 400, 'msg': '缺少 reservation_group_ids'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from .models import ReservationGroup
-        groups = ReservationGroup.objects.filter(pk__in=ids, user=request.user)
+        from .models import OrderLoyalty, ReservationGroup
+        from .loyalty import release_unpaid_redemption
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError as exc:
+            return Response({'code': 404, 'msg': str(exc)}, status=404)
+        Client.objects.select_for_update().get(pk=tenant.pk)
+        groups = ReservationGroup.objects.select_for_update().filter(pk__in=ids, user=request.user, client=tenant)
 
         deleted_count = 0
         for g in groups:
             # 安全條件：必須所有 reservation 都是 auto_assignment_failed
             statuses = list(g.reservations.values_list('status', flat=True))
-            if statuses and all(s == 'auto_assignment_failed' for s in statuses):
-                g.delete()
+            if statuses and all(s == 'auto_assignment_failed' for s in statuses) and not g.payments.filter(status__in=('paid','pending','refunded')).exists():
+                if OrderLoyalty.objects.filter(group=g).exists():
+                    release_unpaid_redemption(g)
+                    g.reservations.update(status='deleted')
+                    g.payments.filter(status='unpaid').update(status='expired')
+                else:
+                    g.delete()
                 deleted_count += 1
 
         return Response({

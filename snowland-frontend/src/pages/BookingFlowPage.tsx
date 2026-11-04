@@ -17,6 +17,7 @@ import CheckoutPolicyConsent from '../components/booking/CheckoutPolicyConsent'
 import CurrencySelection, { type PaymentCurrencyQuote } from '../components/booking/CurrencySelection'
 import SettlementSummary, { settlementAmount, type OrderSettlement } from '../components/booking/SettlementSummary'
 import { quoteJpyPreview, sumJpyAmounts } from '../utils/settlementPreview'
+import bookingApi from '@/api/axios'
 import type { CheckoutPolicyAcceptance } from '../api/booking'
 import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -840,6 +841,8 @@ export default function BookingFlowPage() {
     messengerId: '',
   })
   const [discountCode, setDiscountCode] = useState('')
+  const [rewardPoints, setRewardPoints] = useState('')
+  const [memberReferralCode, setMemberReferralCode] = useState('')
   const [discountPreviewResult, setDiscountPreviewResult] = useState<{
     key: string
     preview: DiscountPreviewResponse
@@ -877,12 +880,18 @@ export default function BookingFlowPage() {
     if (!detail) return source
     return `${source}：${detail}`
   }, [referrer, referrerDetail])
-  const discountPreviewKey = JSON.stringify([cart, contactInfo, discountCode.trim(), referralSourceValue, priceRetryKey])
+  const discountPreviewKey = JSON.stringify([cart, contactInfo, discountCode.trim(), rewardPoints, memberReferralCode, referralSourceValue, priceRetryKey, user?.email])
   const discountPreview = discountPreviewResult?.key === discountPreviewKey
     ? discountPreviewResult.preview
     : null
-  const jpyPreview=useMemo(()=>currencyQuote.currency==='JPY'&&discountPreview
-    ? quoteJpyPreview(discountPreview.item_subtotals,discountPreview.item_discount_amounts,currencyQuote.rate):null,
+  const loyaltyRequest = {
+    reward_points: Number(rewardPoints || 0),
+    member_referral_code: memberReferralCode.trim(),
+    loyalty_revision: discountPreview?.loyalty?.revision,
+    loyalty_discount: discountPreview?.loyalty?.discount,
+  }
+  const jpyPreview=useMemo(()=>currencyQuote.currency!=='TWD'&&discountPreview
+    ? quoteJpyPreview(discountPreview.item_subtotals,discountPreview.item_discount_amounts,currencyQuote.rate,false,currencyQuote.currency):null,
     [currencyQuote.currency,currencyQuote.rate,discountPreview])
 
   // 排課失敗 modal 狀態
@@ -1113,6 +1122,8 @@ export default function BookingFlowPage() {
           cart,
           contact: { ...contactInfo, referralSource: referralSourceValue },
           discount_code: discountCode.trim() || undefined,
+          reward_points: Number(rewardPoints || 0),
+          member_referral_code: memberReferralCode.trim(),
         })
         if (!cancelled) setDiscountPreviewResult({ key: discountPreviewKey, preview })
       } catch (e) {
@@ -1127,7 +1138,7 @@ export default function BookingFlowPage() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [cart, contactInfo, currentStep, discountCode, discountPreviewKey, referralSourceValue, submittedReservation])
+  }, [cart, contactInfo, currentStep, discountCode, discountPreviewKey, memberReferralCode, rewardPoints, referralSourceValue, submittedReservation])
 
   useEffect(() => {
     if (!failedCartSignatureRef.current) return
@@ -1221,13 +1232,15 @@ export default function BookingFlowPage() {
   const resortsForSelectedCategory = useMemo(() => {
     if (!selectedCourseCategoryInfo) return []
     const resortMap = new Map<string, any>()
+    const resortRank = new Map(resorts.map((resort, index) => [resort.name, index]))
     resorts.forEach((resort: any) => {
       if (resort?.name) resortMap.set(String(resort.name), resort)
       if (resort?.display_name) resortMap.set(String(resort.display_name), resort)
     })
 
     const seen = new Set<string>()
-    return selectedCategoryResortNames
+    return [...selectedCategoryResortNames]
+      .sort((a, b) => (resortRank.get(resortMap.get(a)?.name) ?? resorts.length) - (resortRank.get(resortMap.get(b)?.name) ?? resorts.length))
       .map((name: string) => {
         const resort = resortMap.get(name)
         const resolved = resort || {
@@ -1503,7 +1516,7 @@ export default function BookingFlowPage() {
       if (createdReservationIds.length > 0 && !submittedReservation) return false
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
-        if(currencyQuote.currency==='JPY'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading))return false
+        if(currencyQuote.currency!=='TWD'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading))return false
         if (hasUnconfirmedCartPrice(cart)) return false
         return cart.length > 0 && !!contactInfo.name.trim() && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
       }
@@ -1938,7 +1951,11 @@ export default function BookingFlowPage() {
 
   // Step 3a：送出訂單；成功後抓付款資訊，停留在 Step 3 進入付款區塊
   const submitBooking = async () => {
-    if(currencyQuote.currency==='JPY'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading)){showToast('請先確認日幣匯率與試算金額，或改選台幣。','warning');return}
+    if ((rewardPoints || memberReferralCode.trim()) && (!discountPreview?.loyalty?.enabled || discountPreview.loyalty.error || isDiscountPreviewLoading)) {
+      showToast(t(discountPreview?.loyalty?.error || '請先確認紅利及推薦優惠試算'), 'warning')
+      return
+    }
+    if(currencyQuote.currency!=='TWD'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading)){showToast('請先確認匯率與試算金額，或改選台幣。','warning');return}
     if (cart.length === 0) {
       showToast('購物車是空的', 'warning')
       return
@@ -1964,6 +1981,7 @@ export default function BookingFlowPage() {
         policy_acceptance: policyAcceptance,
         contact: { ...contactInfo, referralSource: referralSourceValue },
         discount_code: discountCode.trim() || undefined,
+        ...loyaltyRequest,
         staff_link: staffLinkToken || undefined,
       })
       if (response.code !== 200) {
@@ -2018,7 +2036,7 @@ export default function BookingFlowPage() {
       } else if (isTimeoutError(e)) {
         showToast('預約處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
       } else {
-        if(currencyQuote.currency==='JPY'){setCurrencyReloadKey(value=>value+1);setPriceRetryKey(value=>value+1)}
+        if(currencyQuote.currency!=='TWD'){setCurrencyReloadKey(value=>value+1);setPriceRetryKey(value=>value+1)}
         showToast(t('預約失敗：{message}',{message:t(getPriceErrorMessage(e, '請重新確認課程或聯絡客服'))}), 'error')
       }
     } finally {
@@ -2044,24 +2062,14 @@ export default function BookingFlowPage() {
       setLoadingMessage('提交匯款資訊中...')
       try {
         for (const reservationGroupId of submittedReservation.reservation_group_ids) {
-          const res = await fetch(`${getBackendURL()}/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              reservation_group_id: reservationGroupId,
-              payment_type: 'bank_transfer',
-              sender_account: senderAccount,
-              currency:submittedReservation.payment_infos.find(info=>info.reservation_group_id===reservationGroupId)?.settlement?.currency || 'TWD',
-              expected_amount:submittedReservation.payment_infos.find(info=>info.reservation_group_id===reservationGroupId)?.settlement?.amount,
-              access_token: submittedReservation.payment_access_tokens[reservationGroupId] || '',
-            }),
+          await bookingApi.post('/process-payment/', {
+            reservation_group_id: reservationGroupId,
+            payment_type: 'bank_transfer',
+            sender_account: senderAccount,
+            currency: submittedReservation.payment_infos.find(info => info.reservation_group_id === reservationGroupId)?.settlement?.currency || 'TWD',
+            expected_amount: submittedReservation.payment_infos.find(info => info.reservation_group_id === reservationGroupId)?.settlement?.amount,
+            access_token: submittedReservation.payment_access_tokens[reservationGroupId] || '',
           })
-          const data = await res.json().catch(() => ({}))
-          if (!res.ok) {
-            showToast(data.error || t('預約 #{id} 提交失敗',{id:reservationGroupId}), 'error')
-            return
-          }
         }
         showToast(
           submittedReservation.reservation_group_ids.length > 1 ? '多筆匯款資訊已提交，等待確認' : '匯款資訊已提交，等待確認',
@@ -2071,7 +2079,7 @@ export default function BookingFlowPage() {
         setCompletionFlow('bank_submitted')
         setCurrentStep(4)
       } catch (e: any) {
-        showToast(t('提交失敗：{message}',{message:t(e.message || '未知錯誤')}), 'error')
+        showToast(t('提交失敗：{message}',{message:t(getPriceErrorMessage(e, '未知錯誤'))}), 'error')
       } finally {
         setIsSubmitting(false)
         setLoadingMessage('')
@@ -2088,21 +2096,11 @@ export default function BookingFlowPage() {
     setIsSubmitting(true)
     setLoadingMessage('跳轉到藍新付款頁面...')
     try {
-      const res = await fetch(`${getBackendURL()}/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          reservation_group_id: submittedReservation.reservation_group_ids[0],
-          payment_type: 'newebpay',
-          access_token: submittedReservation.payment_access_tokens[submittedReservation.reservation_group_ids[0]] || '',
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        showToast(data.error || '付款請求失敗', 'error')
-        return
-      }
+      const data = await bookingApi.post('/process-payment/', {
+        reservation_group_id: submittedReservation.reservation_group_ids[0],
+        payment_type: 'newebpay',
+        access_token: submittedReservation.payment_access_tokens[submittedReservation.reservation_group_ids[0]] || '',
+      }) as unknown as { html?: string }
       if (data.html) {
         const w = window.open('', '_blank')
         if (w) {
@@ -2117,7 +2115,7 @@ export default function BookingFlowPage() {
         }
       }
     } catch (e: any) {
-        showToast(t('跳轉失敗：{message}',{message:t(e.message || '未知錯誤')}), 'error')
+        showToast(t('跳轉失敗：{message}',{message:t(getPriceErrorMessage(e, '未知錯誤'))}), 'error')
     } finally {
       setIsSubmitting(false)
       setLoadingMessage('')
@@ -2531,6 +2529,11 @@ export default function BookingFlowPage() {
                   setDiscountCode={setDiscountCode}
                   discountPreview={discountPreview}
                   isDiscountPreviewLoading={isDiscountPreviewLoading}
+                  rewardPoints={rewardPoints}
+                  setRewardPoints={setRewardPoints}
+                  memberReferralCode={memberReferralCode}
+                  setMemberReferralCode={setMemberReferralCode}
+                  showLoyalty={discountPreviewResult?.preview.loyalty?.enabled || Boolean(rewardPoints || memberReferralCode)}
                   referrer={referrer}
                   setReferrer={setReferrer}
                   referrerDetail={referrerDetail}
@@ -2709,6 +2712,7 @@ export default function BookingFlowPage() {
               policy_acceptance: policyAcceptance,
               contact: { ...contactInfo, referralSource: referralSourceValue },
               discount_code: discountCode.trim() || undefined,
+              ...loyaltyRequest,
             })
             if (response.code !== 200) {
               showToast(t('進階排課失敗：{message}',{message:t(response.msg || '未知錯誤')}), 'error')
@@ -3625,6 +3629,7 @@ function Step3Confirmation({
   clientCode, currencyQuote, setCurrencyQuote, onCurrencyReady, currencyReloadKey, jpyPreview, onRetryPrice,
   discountCode, setDiscountCode,
   discountPreview, isDiscountPreviewLoading,
+  rewardPoints, setRewardPoints, memberReferralCode, setMemberReferralCode, showLoyalty,
   referrer, setReferrer,
   referrerDetail, setReferrerDetail,
   messengerOptions, referralSourceOptions,
@@ -3643,11 +3648,10 @@ function Step3Confirmation({
     ? submittedReservation.total_amount
     : (discountPreview?.total ?? Math.max(cartSubtotal - discountTotal, 0))
   const isPaid = !!submittedReservation
-  const currencyIsJpy=submittedReservation
-    ? submittedReservation.payment_infos.length>0&&submittedReservation.payment_infos.every((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.currency==='JPY')
-    : currencyQuote?.currency==='JPY'
+  const paymentCurrency = submittedReservation ? submittedReservation.payment_infos[0]?.settlement?.currency || 'TWD' : currencyQuote.currency
+  const currencyIsJpy=paymentCurrency!=='TWD'
   const actualJpyTotal=submittedReservation&&currencyIsJpy
-    ? sumJpyAmounts(submittedReservation.payment_infos.map((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.amount)):null
+    ? sumJpyAmounts(submittedReservation.payment_infos.map((info:SubmittedReservation['payment_infos'][number])=>info.settlement?.currency===paymentCurrency?info.settlement?.amount:null),paymentCurrency):null
   const canEditCart = !isPaid && !staffSelectedCart
   const isSharedClassCart = cart.some((group: CartItem) =>
     group.courses?.some((course) => course.sharedClassEnabled),
@@ -3982,6 +3986,22 @@ function Step3Confirmation({
             )}
           </div>}
 
+          {!isPaid && showLoyalty && <div className="space-y-3 rounded-sm border border-[#dbe3ec] bg-white p-3">
+            {(Number(discountPreview?.loyalty?.redemption_rate) > 0 || rewardPoints) && <label className="block text-sm">
+              {t('折抵紅利')}
+              {discountPreview?.loyalty && <span className="ml-2 text-xs text-[#64748b]">{t('可用 {count} 點', {count: discountPreview.loyalty.available})}</span>}
+              <input value={rewardPoints} type="text" inputMode="numeric" maxLength={10}
+                onChange={event => setRewardPoints(event.target.value.replace(/[^0-9]/g, ''))}
+                className="mt-1 min-h-11 w-full rounded-sm border border-[#e2e8f0] px-3 py-2" />
+            </label>}
+            {(discountPreview?.loyalty?.referrals_enabled || memberReferralCode) && <label className="block text-sm">
+              {t('會員推薦碼')}<input value={memberReferralCode} maxLength={32}
+                onChange={event => setMemberReferralCode(event.target.value)}
+                className="mt-1 min-h-11 w-full rounded-sm border border-[#e2e8f0] px-3 py-2" />
+            </label>}
+            {discountPreview?.loyalty?.error && <p role="alert" className="text-xs text-red-700">{t(discountPreview.loyalty.error)}</p>}
+          </div>}
+
           <div>
             <label className="block text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-1">
               {t('從哪裡得知 / 活動來源')} <span className="text-red-500">*</span>
@@ -4018,6 +4038,9 @@ function Step3Confirmation({
               <span>-NT$ {Number(discount.amount || 0).toLocaleString()}</span>
             </div>
           ))}
+          {!isPaid && Number(discountPreview?.loyalty?.discount) > 0 && <div className="flex justify-between text-sm text-emerald-700">
+            <span>{t('會員紅利／推薦折抵')}</span><span>-NT$ {discountPreview.loyalty.discount.toLocaleString()}</span>
+          </div>}
           {!isPaid && discountTotal > 0 && (
             <div className="flex justify-between text-sm font-semibold text-emerald-700">
               <span>{t("折扣合計")}</span>
@@ -4029,18 +4052,18 @@ function Step3Confirmation({
         {!isPaid && <CurrencySelection clientCode={clientCode} value={currencyQuote} onChange={setCurrencyQuote} onReadyChange={onCurrencyReady} reloadKey={currencyReloadKey} />}
         <div className="border-t border-[#d4dbe4] pt-4 mb-6">
           <div className="flex justify-between items-baseline">
-            <span className="text-sm font-semibold text-[#1f2937]">{t(currencyIsJpy ? (isPaid?'日幣應付合計':'預估日幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額')}</span>
+            <span className="text-sm font-semibold text-[#1f2937]">{t(currencyIsJpy ? (isPaid?'外幣應付合計':'預估外幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額')}</span>
             <span className="text-2xl font-bold text-[#2b5f8f]">
               {pricePending ? t("價格待確認") : currencyIsJpy
-                ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`JPY ¥ ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:t("日幣金額待確認")
+                ? (isPaid?actualJpyTotal:jpyPreview?.totalLabel)!=null?`${paymentCurrency==='JPY'?'JPY ¥':paymentCurrency} ${isPaid?actualJpyTotal:jpyPreview.totalLabel}`:t("外幣金額待確認")
                 : `NT$ ${total.toLocaleString()}`}
             </span>
           </div>
-          {currencyIsJpy&&<p className="mt-2 text-xs leading-6 text-[#64748b]">{t('台幣計價基準合計 NT$ {amount}。',{amount:total.toLocaleString()})}{t(isPaid?'請依每筆訂單的日幣金額分別匯至對應帳戶。':'預估金額採各預約組分開換算；成立後會列出每筆應付金額。')}</p>}
+          {currencyIsJpy&&<p className="mt-2 text-xs leading-6 text-[#64748b]">{t('台幣計價基準合計 NT$ {amount}。',{amount:total.toLocaleString()})}{t(isPaid?'請依每筆訂單的指定幣別和金額分別匯至對應帳戶。':'預估金額採各預約組分開換算；成立後會列出每筆應付金額。')}</p>}
         </div>
 
         {pricePending && <p role="status" className="mb-4 text-sm text-amber-800">{t(isDiscountPreviewLoading ? '正在確認最新價格…' : '尚未取得最新價格，請按課程「修改」重新確認日期、時段與價格後再送出。')}</p>}
-        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">{t("日幣金額尚未確認，暫不能送出訂單。")}<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?t("正在確認價格…"):t("重新確認價格")}</button></p>}
+        {currencyIsJpy&&!isPaid&&!jpyPreview&&<p role="status" className="mb-4 text-sm leading-6 text-amber-800">{t("外幣金額尚未確認，暫不能送出訂單。")}<button type="button" disabled={isDiscountPreviewLoading} onClick={onRetryPrice} className="mt-2 min-h-11 w-full rounded-sm border border-amber-300 px-3 font-semibold disabled:opacity-50">{isDiscountPreviewLoading?t("正在確認價格…"):t("重新確認價格")}</button></p>}
 
         <h4 className="text-sm font-semibold text-[#1f2937] mb-3">{t("付款方式")}</h4>
         {isSharedClassCart && !isPaid && (

@@ -839,7 +839,7 @@ class ResortAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resorts
         fields = [
-            'id', 'name', 'display_name', 'auto_scheduling_enabled', 'trail_names', 'can_manage', 'campus_assignments',
+            'id', 'name', 'display_name', 'display_order', 'auto_scheduling_enabled', 'trail_names', 'can_manage', 'campus_assignments',
             'fees', 'equipment_tiers', 'equipment_rental_items', 'equipment_time_slots',
             'fees_input', 'equipment_tiers_input', 'equipment_rental_items_input', 'equipment_time_slots_input',
         ]
@@ -1725,8 +1725,10 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         pending=list(obj.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
         if not pending:return None
         result={'amount':sum(row.balance_amount for row in pending),'statuses':sorted({row.status for row in pending})}
-        if (obj.currency_snapshot or {}).get('currency')=='JPY':
-            result['settlement']={'currency':'JPY','amount':sum(row.currency_snapshot['balance_amount'] for row in pending)}
+        from booking.currency import foreign_currency
+        currency = (obj.currency_snapshot or {}).get('currency')
+        if foreign_currency(currency):
+            result['settlement']={'currency':currency,'amount':sum(row.currency_snapshot['balance_amount'] for row in pending)}
         return result
 
     def get_user_name(self, obj):
@@ -2265,7 +2267,7 @@ class CoachPayRuleAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CoachPayRule
-        fields = ['id', 'coach', 'coach_name', 'course_type', 'course_type_name', 'discipline', 'certification_level', 'hourly_rate', 'specified_fee', 'referral_percent', 'assistance_hour_factor', 'supervisor_allowance', 'is_active', 'created_at', 'updated_at']
+        fields = ['id', 'coach', 'coach_name', 'course_type', 'course_type_name', 'discipline', 'certification_level', 'effective_from', 'hourly_rate', 'specified_fee', 'referral_percent', 'assistance_hour_factor', 'supervisor_allowance', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'coach_name', 'course_type_name', 'created_at', 'updated_at']
         validators = []
 
@@ -2284,10 +2286,14 @@ class CoachPayRuleAdminSerializer(serializers.ModelSerializer):
             certification_level=certification_level,
         ).exclude(pk=getattr(self.instance, 'pk', None)).exists():
             raise serializers.ValidationError({'non_field_errors': '這位教練的相同薪資規則已存在，請編輯原規則'})
+        effective_from = attrs.get('effective_from', getattr(self.instance, 'effective_from', None))
+        if self.instance and effective_from != self.instance.effective_from:
+            raise serializers.ValidationError({'effective_from': '既有規則的生效日不能修改，請新增新版規則。'})
         active = attrs.get('is_active', getattr(self.instance, 'is_active', True))
         if active and CoachPayRule.objects.filter(coach=coach, course_type=course_type,
-            discipline=discipline, is_active=True).exclude(pk=getattr(self.instance, 'pk', None)).exists():
-            raise serializers.ValidationError({'non_field_errors': '同一教練、工作類型與適用課程只能有一筆啟用規則。請先停用原規則，或將新版存成停用，再切換啟用。'})
+            discipline=discipline, is_active=True, effective_from=effective_from
+        ).exclude(pk=getattr(self.instance, 'pk', None)).exists():
+            raise serializers.ValidationError({'non_field_errors': '相同教練、工作類型、適用課程與生效日已有啟用規則。請編輯原規則，或為新版設定不同生效日。'})
         return attrs
 
 
@@ -2419,6 +2425,8 @@ class StaffBookingLinkAdminSerializer(serializers.ModelSerializer):
         for item in snapshot:
             if not isinstance(item, dict) or type(item.get('peopleCount')) is not int or item['peopleCount'] < 1:
                 raise serializers.ValidationError({'cart_snapshot': '請確認每組課程與人數'})
+            if item.get('serviceType') not in (None, 'ski', 'photo'):
+                raise serializers.ValidationError({'cart_snapshot': '選課服務類型不正確'})
             if item.get('campusId') not in (None, campus.id):
                 raise serializers.ValidationError({'cart_snapshot': '選課校區與連結校區不一致'})
             resort = Resorts.objects.filter(

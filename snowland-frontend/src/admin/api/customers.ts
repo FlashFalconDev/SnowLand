@@ -25,8 +25,32 @@ export interface LoyaltyReview {
   previous_points: number
   alumni_verified: boolean
   level: string
+  reward_balance?: number
   updated_at: string
   history: { id: number; before: { points: number }; after: { points: number }; reason: string; reviewed_by: string; created_at: string }[]
+}
+
+export interface LoyaltyPolicy {
+  revision: number
+  enabled: boolean
+  earn_on: 'paid' | 'completed'
+  points_per_twd: string
+  rewards_per_twd: string
+  twd_per_reward: string
+  referrer_rewards: number
+  new_member_rewards: number
+  refund_rule: 'proportional' | 'keep'
+  levels: { label: string; minimum_points: number }[]
+}
+
+export async function fetchLoyaltyPolicy(): Promise<LoyaltyPolicy> {
+  const result = await adminApi.get('/customers/loyalty-policy/') as unknown as { data: LoyaltyPolicy }
+  return result.data
+}
+
+export async function saveLoyaltyPolicy(policy: LoyaltyPolicy): Promise<LoyaltyPolicy> {
+  const result = await adminApi.put('/customers/loyalty-policy/', policy) as unknown as { data: LoyaltyPolicy }
+  return result.data
 }
 
 export async function fetchCustomerLoyalty(id: number): Promise<LoyaltyReview> {
