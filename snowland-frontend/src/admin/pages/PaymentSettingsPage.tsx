@@ -125,6 +125,13 @@ export default function PaymentSettingsPage() {
           {saveNotice && <p role="status" aria-label="付款設定儲存結果" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">{saveNotice}</p>}
           {authorityReady && !canManageCompany && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">全公司預設收款資訊僅供查看；請在上方建立自己校區的收款帳戶。</p>}
           <fieldset disabled={!authorityReady || !canManageCompany || saveMutation.isPending} className={`space-y-5 ${!canManageCompany ? 'opacity-60' : ''}`}>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            訂單管理通知信箱（匯款待對帳、取消申請）
+            <input type="email" maxLength={200} value={form.order_management_email ?? ''}
+              onChange={e => setForm({ ...form, order_management_email: e.target.value })}
+              className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900" />
+            <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">留空時不寄管理通知，仍可在後台查看訂單。</span>
+          </label>
           <section aria-label="日幣匯款設定" className="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">日幣匯款與匯率</h2>
             <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">課程仍以台幣定價，日幣金額＝台幣金額 × 下方匯率，四捨五入至整日圓。訂單成立後保留當時匯率，不受後續設定影響。日幣付款還須有適用校區的日幣收款帳戶。</p>

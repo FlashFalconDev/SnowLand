@@ -72,6 +72,15 @@ class CustomerJourneyTests(TestCase):
             return response
         return Reservation.objects.get(group_id=response.data['reservation_group_ids'][0])
 
+    def test_configured_discount_code_applies_at_checkout(self):
+        result = self.hq.post('/api/admin/snowland/discount-codes/', {
+            'code': ' qa-season ', 'name': 'QA seasonal offer', 'discount_type': 'percent',
+            'discount_value': 10, 'apply_scope': 'ski',
+        }, format='json')
+        self.assertEqual(result.status_code, 201, result.data)
+        order = self.create_order({'discount_code': 'qa-season'})
+        self.assertEqual((order.discount_code, order.discount_amount, order.payment_amount), ('QA-SEASON', 1000, 9000))
+
     def test_both_booking_paths_reject_missing_partial_and_stale_policy_without_writes(self):
         proof = checkout_policy_acknowledgement()['policy_acceptance']
         for endpoint in ('create-reservation', 'super-schedule'):

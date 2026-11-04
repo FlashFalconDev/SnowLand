@@ -1651,7 +1651,7 @@ class CourseCategoryListAPI(APIView):
         if not has_service_type_column:
             categories = categories.only('id', 'name', 'display_order')
 
-        categories = categories.order_by('display_order')
+        categories = categories.order_by('display_order', 'pk')
 
         data = []
         for category in categories:
@@ -1692,7 +1692,7 @@ class ResortListAPI(APIView):
             'equipment_rental_items',
             'equipment_assistance_time_slots',
             'equipment_assistance_time_slots__course_templates',
-        ).distinct()
+        ).order_by('display_order', 'pk').distinct()
 
         data = []
         for resort in resorts:
@@ -3661,6 +3661,7 @@ class MemberCancellationAPI(APIView):
         return group, None
 
     def get(self, request, client_code, group_id):
+        from decimal import Decimal, ROUND_HALF_UP
         from .operations import calculate_refund
 
         group, error = self._group(request, client_code, group_id)
@@ -3679,6 +3680,11 @@ class MemberCancellationAPI(APIView):
             **preview,
             'requires_bank_account': preview['requires_cash_review'] or payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay'),
             'request_status': existing.status if existing else None,
+            'can_request': preview['days_before'] >= 0 and (existing is None or existing.status == 'rejected'),
+            'handling_fee_amount': None if preview['requires_cash_review'] else int(
+                (Decimal(preview['original_amount']) * Decimal(preview['handling_fee_percent']) / 100)
+                .quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+            ),
         })
 
     def post(self, request, client_code, group_id):
@@ -4542,6 +4548,7 @@ class ProcessPaymentAPI(APIView):
             "html": html_form
         }, status=status.HTTP_200_OK)
 
+    @transaction.atomic
     def _process_bank_transfer(self, request, group):
         """處理銀行匯款"""
         sender_account = request.data.get('sender_account')
@@ -4558,15 +4565,23 @@ class ProcessPaymentAPI(APIView):
         if payment and payment.status not in {'unpaid', 'pending'}:
             return Response({'error': '付款狀態已更新，請重新載入訂單後確認'}, status=status.HTTP_400_BAD_REQUEST)
         if payment is None:
-            payment = Payment.objects.create(reservation_group=group, status='pending', payment_method='TT')
+            payment = Payment(reservation_group=group)
 
-        payment.status = 'pending'
-        payment.bank_account = sender_account
-        payment.user = user
-        payment.payment_method = 'TT'
-        from .currency import order_settlement
-        payment.DataJSON = {**(payment.DataJSON if isinstance(payment.DataJSON, dict) else {}), 'settlement':order_settlement(group)}
-        payment.save()
+        if payment.status != 'pending' or payment.payment_method != 'TT' or payment.bank_account != sender_account:
+            payment.status = 'pending'
+            payment.bank_account = sender_account
+            payment.user = user
+            payment.payment_method = 'TT'
+            from .currency import order_settlement
+            payment.DataJSON = {
+                **(payment.DataJSON if isinstance(payment.DataJSON, dict) else {}),
+                'settlement': order_settlement(group),
+            }
+            payment.save()
+
+        from .order_management_notices import prepare_management_notice
+        prepare_management_notice(group, event='transfer_reported', event_id=payment.pk,
+                                  subject='匯款已回報，待對帳', instruction='請到後台訂單管理核對匯款。')
 
         return Response({
             "payment_type": "bank_transfer",

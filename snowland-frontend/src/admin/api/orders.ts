@@ -329,3 +329,10 @@ export type CancellationReviewPayload=Partial<CancellationCashReview>&{currency?
 export async function processOrderCancellation(cancellationId: number, status: 'approved' | 'rejected' | 'refunded', review?:CancellationReviewPayload): Promise<void> {
   await adminApi.post(`/cancellations/${cancellationId}/process/`, { status, ...review })
 }
+
+export async function exportOrders(params: {
+  date_basis: 'created' | 'lesson'; start: string; end: string; sort: 'asc' | 'desc'
+  search?: string; status?: string; payment_status?: string
+}): Promise<Blob> {
+  return await adminApi.get('/orders/export/', { params, responseType: 'blob' }) as unknown as Blob
+}

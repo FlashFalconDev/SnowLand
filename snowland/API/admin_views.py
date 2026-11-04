@@ -1731,6 +1731,13 @@ class OrderAdminViewSet(ModelViewSet):
         )
         return Response({'code': 200, 'msg': 'OK', 'data': serializer.data})
 
+    @action(detail=False, methods=['get'], url_path='export')
+    def export(self, request, *args, **kwargs):
+        from .order_export import export_orders
+
+        _require_headquarters(request)
+        return export_orders(self.filter_queryset(self.get_queryset()), request.query_params)
+
     @action(detail=True, methods=['get'], url_path='payment-link')
     def payment_link(self, request, *args, **kwargs):
         """Let headquarters reissue a guest's expiring payment link."""
@@ -4933,6 +4940,9 @@ def payment_settings_view(request, client_code=None):
         return Response({'code': 404, 'msg': '找不到客戶'}, status=404)
 
     if request.method == 'GET':
+        from django.middleware.csrf import get_token
+
+        get_token(request._request)
         form_options = _get_booking_form_options(tenant)
         from booking.currency import currency_settings_payload
         return Response({
@@ -4942,6 +4952,7 @@ def payment_settings_view(request, client_code=None):
                 'bank_branch': tenant.bank_branch,
                 'bank_account_number': tenant.bank_account_number,
                 'bank_account_holder': tenant.bank_account_holder,
+                'order_management_email': tenant.order_management_email,
                 'currency_settings': currency_settings_payload(tenant),
                 **form_options,
             },
@@ -4949,6 +4960,14 @@ def payment_settings_view(request, client_code=None):
 
     # PUT
     payload = request.data or {}
+    if 'order_management_email' in payload:
+        from rest_framework.authentication import SessionAuthentication
+        from rest_framework.fields import EmailField
+
+        SessionAuthentication().enforce_csrf(request)
+        tenant.order_management_email = EmailField(max_length=200, allow_blank=True).run_validation(
+            payload['order_management_email'],
+        )
     from booking.currency import currency_settings_payload, validate_currency_settings
     currency_values = None
     if 'currency_settings' in payload:
@@ -4971,6 +4990,7 @@ def payment_settings_view(request, client_code=None):
             'bank_branch': tenant.bank_branch,
             'bank_account_number': tenant.bank_account_number,
             'bank_account_holder': tenant.bank_account_holder,
+            'order_management_email': tenant.order_management_email,
             'currency_settings': currency_settings_payload(tenant),
             **form_options,
         },

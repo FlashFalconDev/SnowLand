@@ -9,6 +9,21 @@ from django.http import HttpResponse
 _ILLEGAL_SPREADSHEET_CHARACTERS = re.compile(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]')
 
 
+def csv_report(rows, filename):
+    stream = io.StringIO(newline='')
+    writer = csv.writer(stream)
+    for row in rows:
+        clean = [_ILLEGAL_SPREADSHEET_CHARACTERS.sub('', value) if isinstance(value, str) else value for value in row]
+        writer.writerow([
+            "'" + value if isinstance(value, str) and value.lstrip().startswith(('=', '+', '-', '@')) else value
+            for value in clean
+        ])
+    response = HttpResponse(stream.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Cache-Control'] = 'private, no-store'
+    return response
+
+
 def dashboard_report(data, *, file_format, start, end, date_basis, resort_name):
     rows = [
         ['SnowLand 營運統計'],
@@ -37,13 +52,7 @@ def dashboard_report(data, *, file_format, start, end, date_basis, resort_name):
     rows = [[_ILLEGAL_SPREADSHEET_CHARACTERS.sub('', value) if isinstance(value, str) else value
              for value in row] for row in rows]
     if file_format == 'csv':
-        stream = io.StringIO(newline='')
-        # A quoted CSV field can still execute as a spreadsheet formula.
-        csv.writer(stream).writerows([
-            ["'" + value if isinstance(value, str) and value.lstrip().startswith(('=', '+', '-', '@')) else value
-             for value in row] for row in rows
-        ])
-        response = HttpResponse(stream.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
+        return csv_report(rows, f'SnowLand-report-{start}-{end}.csv')
     else:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment

@@ -234,6 +234,8 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
     overseas=overseas.strip()
     bank = {key: bank.get(key, '').strip() for key in ('bank_name', 'account_number', 'account_holder')}
     preview = calculate_refund(group)
+    if require_paid and preview['days_before'] < 0:
+        raise ValueError('首堂課日期已過，無法線上申請取消，請聯絡客服')
     preview.pop('settlement',None)
     rules = preview.pop('available_rules')
     values = preview
@@ -304,6 +306,10 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         **values,
     )
     record_order_revision(group, user=user, change_type='cancel', reason=reason_note or reason)
+    if require_paid:
+        from .order_management_notices import prepare_management_notice
+        prepare_management_notice(group, event='cancellation_requested', event_id=cancellation.pk,
+                                  subject='收到取消申請', instruction='請到後台訂單管理審核取消申請。')
     return cancellation
 
 

@@ -94,6 +94,7 @@ class CampusScopeApiTests(TestCase):
         )
         template.resorts.add(self.resort_a)
         selected_course = [{
+            'serviceType': 'ski',
             'campusId': self.campus_a.id,
             'resort': self.resort_a.name,
             'peopleCount': 2,

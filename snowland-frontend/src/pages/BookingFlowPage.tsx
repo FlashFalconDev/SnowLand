@@ -17,6 +17,7 @@ import CheckoutPolicyConsent from '../components/booking/CheckoutPolicyConsent'
 import CurrencySelection, { type PaymentCurrencyQuote } from '../components/booking/CurrencySelection'
 import SettlementSummary, { settlementAmount, type OrderSettlement } from '../components/booking/SettlementSummary'
 import { quoteJpyPreview, sumJpyAmounts } from '../utils/settlementPreview'
+import bookingApi from '@/api/axios'
 import type { CheckoutPolicyAcceptance } from '../api/booking'
 import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -1221,13 +1222,15 @@ export default function BookingFlowPage() {
   const resortsForSelectedCategory = useMemo(() => {
     if (!selectedCourseCategoryInfo) return []
     const resortMap = new Map<string, any>()
+    const resortRank = new Map(resorts.map((resort, index) => [resort.name, index]))
     resorts.forEach((resort: any) => {
       if (resort?.name) resortMap.set(String(resort.name), resort)
       if (resort?.display_name) resortMap.set(String(resort.display_name), resort)
     })
 
     const seen = new Set<string>()
-    return selectedCategoryResortNames
+    return [...selectedCategoryResortNames]
+      .sort((a, b) => (resortRank.get(resortMap.get(a)?.name) ?? resorts.length) - (resortRank.get(resortMap.get(b)?.name) ?? resorts.length))
       .map((name: string) => {
         const resort = resortMap.get(name)
         const resolved = resort || {
@@ -2044,24 +2047,14 @@ export default function BookingFlowPage() {
       setLoadingMessage('提交匯款資訊中...')
       try {
         for (const reservationGroupId of submittedReservation.reservation_group_ids) {
-          const res = await fetch(`${getBackendURL()}/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              reservation_group_id: reservationGroupId,
-              payment_type: 'bank_transfer',
-              sender_account: senderAccount,
-              currency:submittedReservation.payment_infos.find(info=>info.reservation_group_id===reservationGroupId)?.settlement?.currency || 'TWD',
-              expected_amount:submittedReservation.payment_infos.find(info=>info.reservation_group_id===reservationGroupId)?.settlement?.amount,
-              access_token: submittedReservation.payment_access_tokens[reservationGroupId] || '',
-            }),
+          await bookingApi.post('/process-payment/', {
+            reservation_group_id: reservationGroupId,
+            payment_type: 'bank_transfer',
+            sender_account: senderAccount,
+            currency: submittedReservation.payment_infos.find(info => info.reservation_group_id === reservationGroupId)?.settlement?.currency || 'TWD',
+            expected_amount: submittedReservation.payment_infos.find(info => info.reservation_group_id === reservationGroupId)?.settlement?.amount,
+            access_token: submittedReservation.payment_access_tokens[reservationGroupId] || '',
           })
-          const data = await res.json().catch(() => ({}))
-          if (!res.ok) {
-            showToast(data.error || t('預約 #{id} 提交失敗',{id:reservationGroupId}), 'error')
-            return
-          }
         }
         showToast(
           submittedReservation.reservation_group_ids.length > 1 ? '多筆匯款資訊已提交，等待確認' : '匯款資訊已提交，等待確認',
@@ -2071,7 +2064,7 @@ export default function BookingFlowPage() {
         setCompletionFlow('bank_submitted')
         setCurrentStep(4)
       } catch (e: any) {
-        showToast(t('提交失敗：{message}',{message:t(e.message || '未知錯誤')}), 'error')
+        showToast(t('提交失敗：{message}',{message:t(getPriceErrorMessage(e, '未知錯誤'))}), 'error')
       } finally {
         setIsSubmitting(false)
         setLoadingMessage('')
@@ -2088,21 +2081,11 @@ export default function BookingFlowPage() {
     setIsSubmitting(true)
     setLoadingMessage('跳轉到藍新付款頁面...')
     try {
-      const res = await fetch(`${getBackendURL()}/booking/${encodeURIComponent(clientCode)}/api/process-payment/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          reservation_group_id: submittedReservation.reservation_group_ids[0],
-          payment_type: 'newebpay',
-          access_token: submittedReservation.payment_access_tokens[submittedReservation.reservation_group_ids[0]] || '',
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        showToast(data.error || '付款請求失敗', 'error')
-        return
-      }
+      const data = await bookingApi.post('/process-payment/', {
+        reservation_group_id: submittedReservation.reservation_group_ids[0],
+        payment_type: 'newebpay',
+        access_token: submittedReservation.payment_access_tokens[submittedReservation.reservation_group_ids[0]] || '',
+      }) as unknown as { html?: string }
       if (data.html) {
         const w = window.open('', '_blank')
         if (w) {
@@ -2117,7 +2100,7 @@ export default function BookingFlowPage() {
         }
       }
     } catch (e: any) {
-        showToast(t('跳轉失敗：{message}',{message:t(e.message || '未知錯誤')}), 'error')
+        showToast(t('跳轉失敗：{message}',{message:t(getPriceErrorMessage(e, '未知錯誤'))}), 'error')
     } finally {
       setIsSubmitting(false)
       setLoadingMessage('')

@@ -15,6 +15,7 @@ import { hasAdminPermission } from '../permissions'
 import ManualNotificationComposer from '../components/ManualNotificationComposer'
 import ClassGroupQRPanel from '../components/ClassGroupQRPanel'
 import CancellationStatusPanel from '../components/CancellationStatusPanel'
+import OrderExportForm from '../components/OrderExportForm'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
@@ -275,6 +276,7 @@ function FullOrdersPage() {
             {Object.entries(PAYMENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
+        <OrderExportForm search={search} status={statusFilter} paymentStatus={paymentFilter} />
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -314,6 +316,7 @@ function FullOrdersPage() {
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
+                  {order.cancellation?.status === 'requested' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">申請取消・待審核</span>}
                   {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {order.amendment_balance.settlement?.currency==='JPY'?'日幣 JPY ¥':'NT$'} {Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount).toLocaleString()}</span>}
                   <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
                 </div>
@@ -342,7 +345,10 @@ function FullOrdersPage() {
                   const paymentPill = getPaymentPill(order.payment_status)
                   return (
                     <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                      <td className="px-5 py-3 font-mono whitespace-nowrap" style={{ color: PRIMARY }}>{order.sn}</td>
+                      <td className="px-5 py-3 font-mono whitespace-nowrap" style={{ color: PRIMARY }}>
+                        {order.sn}
+                        {order.cancellation?.status === 'requested' && <div className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">申請取消・待審核</div>}
+                      </td>
                       <td className="px-5 py-3 text-gray-600 dark:text-gray-300 hidden md:table-cell whitespace-nowrap">
                         {order.created_at ? (
                           <>
@@ -360,6 +366,7 @@ function FullOrdersPage() {
                           <>
                             <div>{firstR.resort}</div>
                             <div className="text-xs text-gray-500">{firstR.course_type}</div>
+                            {firstR.bookings[0] && <div className="text-xs text-gray-500">{firstR.bookings[0].date} {firstR.bookings[0].start_time.slice(0, 5)}–{firstR.bookings[0].end_time.slice(0, 5)}</div>}
                           </>
                         ) : '—'}
                       </td>

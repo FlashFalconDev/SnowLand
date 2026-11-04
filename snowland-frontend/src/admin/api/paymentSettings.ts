@@ -1,6 +1,7 @@
 import adminApi from './axios'
 
 export interface PaymentSettings {
+  order_management_email?: string
   currency_settings?: { jpy_enabled: boolean; jpy_per_twd: string }
   bank_name: string
   bank_branch: string

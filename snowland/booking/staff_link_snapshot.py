@@ -1,7 +1,7 @@
 """Fields a staff booking link may share with the customer booking flow."""
 
 CART_FIELDS = {
-    'id', 'coach', 'coachName', 'peopleCount', 'abilityLevel', 'abilityLevelName',
+    'id', 'serviceType', 'coach', 'coachName', 'peopleCount', 'abilityLevel', 'abilityLevelName',
     'abilityLevelCounts', 'equipment', 'equipmentOption',
     'equipmentAssistanceTimeSlotId', 'equipmentAssistanceTimeLabel',
     'language', 'resort', 'resortName', 'campusId', 'campusName',
