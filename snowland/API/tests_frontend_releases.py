@@ -6,7 +6,7 @@ from zipfile import ZipFile, ZipInfo
 from django.contrib.auth import get_user_model
 from django.core.files.storage import FileSystemStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TransactionTestCase
 from rest_framework.test import APIClient
 
 from Client.models import Client, FrontendRelease
@@ -19,21 +19,19 @@ def build_zip(name='dist.zip', path='index.html', content='test frontend'):
     return SimpleUploadedFile(name, buffer.getvalue(), content_type='application/zip')
 
 
-class FrontendReleaseTests(TestCase):
+class FrontendReleaseTests(TransactionTestCase):
     endpoint = '/api/admin/flashfalcon/frontend-releases/'
 
-    @classmethod
-    def setUpTestData(cls):
-        cls.tenant = Client.objects.create(name='FlashFalcon', internal_code='flashfalcon')
-        cls.other = Client.objects.create(name='SnowLand', internal_code='snowland')
-        users = get_user_model().objects
-        cls.admin = users.create_superuser(username='platform', email='platform@example.test')
-        cls.staff = users.create_user(username='staff', is_staff=True)
-
     def setUp(self):
+        self.tenant, _ = Client.objects.get_or_create(internal_code='flashfalcon', defaults={'name': 'FlashFalcon'})
+        self.other, _ = Client.objects.get_or_create(internal_code='snowland', defaults={'name': 'SnowLand'})
+        users = get_user_model().objects
+        self.admin = users.create_superuser(username='platform', email='platform@example.test')
+        self.staff = users.create_user(username='staff', is_staff=True)
         directory = self.enterContext(TemporaryDirectory())
         self.storage = FileSystemStorage(location=directory)
         self.enterContext(patch('API.frontend_releases.release_storage', return_value=self.storage))
+        self.enterContext(patch('API.frontend_publish.start_deployment'))
         self.client = APIClient(enforce_csrf_checks=True)
         self.client.force_login(self.admin)
         library = self.client.get(self.endpoint).json()
