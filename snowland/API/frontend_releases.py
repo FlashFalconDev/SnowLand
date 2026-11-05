@@ -13,6 +13,7 @@ from django.db import transaction
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.authentication import SessionAuthentication
@@ -24,7 +25,8 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 from storages.backends.s3 import S3Storage
 
-from Client.models import Client, FrontendRelease
+from Client.models import Client, FrontendRelease, FrontendDeployment
+from . import frontend_publish
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,9 @@ STORAGE_ERRORS = (OSError, BotoCoreError, ClientError)
 
 
 def release_storage():
+    target, _ = frontend_publish.target_configuration()
+    if target and target['mode'] == 'local':
+        return FileSystemStorage(location=settings.BASE_DIR / 'tmp' / 'frontend-publish-private')
     if settings.SNOWLAND_PRIVATE_MEDIA_BUCKET:
         return S3Storage(
             bucket_name=settings.SNOWLAND_PRIVATE_MEDIA_BUCKET,
@@ -92,13 +97,14 @@ def archive_digest(upload):
     return digest.hexdigest()
 
 
-def release_data(release):
+def release_data(release, published_id=None, backup_ids=()):
     return {
         'id': release.pk,
         'filename': release.filename,
         'size': release.size,
         'created_at': release.created_at.isoformat(),
-        'is_current': release.is_current,
+        'is_current': release.pk == published_id,
+        'is_backup': release.pk in backup_ids,
     }
 
 
@@ -127,15 +133,48 @@ class FrontendReleaseViewSet(ViewSet):
         return FrontendRelease.objects.filter(client=self.tenant)
 
     def list(self, request, **kwargs):
+        jobs = FrontendDeployment.objects.filter(client=self.tenant)
+        published = jobs.filter(status='succeeded').first()
+        target, reason = frontend_publish.target_configuration()
+        latest = jobs.first()
+        if published and (published.target != target or (latest and latest.status != 'succeeded')):
+            published = None
+        backups = set(jobs.exclude(backup=None).values_list('backup_id', flat=True))
         return Response({
-            'versions': [release_data(release) for release in self.releases()],
+            'versions': [release_data(release, published.release_id if published else None, backups) for release in self.releases()],
             'storage_ready': release_storage() is not None,
+            'publish_ready': target is not None,
+            'publish_reason': reason,
+            'target_label': target['label'] if target else '',
+            'deployment': frontend_publish.job_data(jobs.first()),
         })
+
+    def queue_publication(self, request, release, target, operation):
+        with transaction.atomic():
+            get_object_or_404(Client.objects.select_for_update(), pk=self.tenant.pk, is_active=True)
+            active = FrontendDeployment.objects.filter(client=self.tenant, status__in=FrontendDeployment.ACTIVE).first()
+            if active:
+                return Response({'detail': '已有發布工作進行中，請等待完成。',
+                                 'deployment': frontend_publish.job_data(active)}, status=409)
+            job = FrontendDeployment.objects.create(client=self.tenant, release=release, target=target,
+                                                     requested_by=request.user, operation=operation)
+            transaction.on_commit(lambda: frontend_publish.start_deployment(job.pk))
+        return Response({'deployment': frontend_publish.job_data(job)}, status=202)
 
     def create(self, request, **kwargs):
         storage = release_storage()
         if storage is None:
             return storage_unavailable()
+        if request.FILES.getlist('files'):
+            target, reason = frontend_publish.target_configuration()
+            if target is None:
+                return Response({'detail': reason}, status=503)
+            try:
+                with frontend_publish.folder_archive(request.FILES.getlist('files'), request.data.getlist('paths'), target.get('prefix', '')) as buffer:
+                    release = frontend_publish.save_release(self.tenant, storage, buffer, 'snowland-' + timezone.now().strftime('%Y%m%d-%H%M%S') + '.zip')
+            except frontend_publish.PublishError as exc:
+                raise ValidationError({'detail': str(exc)}) from exc
+            return self.queue_publication(request, release, target, 'publish')
         upload = request.FILES.get('archive')
         digest = archive_digest(upload)
         existing = self.releases().filter(sha256=digest).first()
@@ -177,13 +216,10 @@ class FrontendReleaseViewSet(ViewSet):
         except STORAGE_ERRORS:
             logger.exception('Frontend release archive check failed')
             return storage_unavailable()
-
-        with transaction.atomic():
-            get_object_or_404(Client.objects.select_for_update(), pk=self.tenant.pk, is_active=True)
-            self.releases().filter(is_current=True).exclude(pk=version.pk).update(is_current=False)
-            self.releases().filter(pk=version.pk).update(is_current=True)
-        version.is_current = True
-        return Response(release_data(version))
+        target, reason = frontend_publish.target_configuration()
+        if target is None:
+            return Response({'detail': reason}, status=503)
+        return self.queue_publication(request, version, target, 'restore')
 
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None, **kwargs):

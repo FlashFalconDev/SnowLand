@@ -532,3 +532,6 @@ class FrontendRelease(models.Model):
     class Meta:
         ordering = ['-id']
         constraints = [models.UniqueConstraint(fields=['client', 'sha256'], name='unique_frontend_release_archive')]
+
+
+from .frontend_models import FrontendDeployment  # noqa: E402,F401

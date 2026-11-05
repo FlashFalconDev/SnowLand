@@ -446,3 +446,7 @@ LINE_SESSION_TTL_DAYS = int(os.getenv("LINE_SESSION_TTL_DAYS", "30"))
 LINE_WEBHOOK_MAX_BODY_BYTES = int(
     os.getenv("LINE_WEBHOOK_MAX_BODY_BYTES", str(1024 * 1024))
 )
+
+# Platform-only folder publication validates at most 3,000 files / 1 GiB.
+DATA_UPLOAD_MAX_NUMBER_FILES = 3000
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 3032

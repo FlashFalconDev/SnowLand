@@ -1,0 +1,22 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const ts = require('typescript')
+const vm = require('node:vm')
+const file = path.join(__dirname, '../src/admin/pages/frontendBuild.ts')
+const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {compilerOptions: {module: ts.ModuleKind.CommonJS}}).outputText
+const sandbox = {exports: {}, Set, Error}
+vm.runInNewContext(code, sandbox)
+const prepare = sandbox.exports.prepareFrontendBuild
+const f = (p, size = 100) => ({name: p.split('/').pop(), webkitRelativePath: p, size})
+let result = prepare([f('dist/index.html'), f('dist/assets/app.js'), f('dist/.DS_Store')])
+assert.equal(result.entries.length, 2)
+assert.equal(result.entries[0].path, 'index.html')
+assert.equal(result.entries[1].path, 'assets/app.js')
+assert.equal(result.bytes, 200)
+assert.throws(() => prepare([f('dist/assets/app.js')]), /index.html/)
+assert.throws(() => prepare([f('dist/index.html'), f('other/a.js')]), /一個完整/)
+assert.throws(() => prepare([f('dist/index.html'), f('dist/INDEX.HTML')]), /重複/)
+assert.throws(() => prepare([f('dist/index.html'), f('dist/a.js', 101 * 1024 * 1024)]), /100 MB/)
+assert.throws(() => prepare([f('dist/index.html'), ...Array.from({length: 3000}, (_, i) => f(`dist/assets/${i}.js`))]), /3,000/)
+console.log('Folder preparation validates root/index, strips exactly one directory, ignores system files and rejects invalid input.')
