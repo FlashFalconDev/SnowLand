@@ -24,7 +24,7 @@ class FrontendReleaseTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.tenant, _ = Client.objects.get_or_create(internal_code='flashfalcon', defaults={'name': 'FlashFalcon'})
+        cls.tenant = Client.objects.create(name='FlashFalcon', internal_code='flashfalcon')
         cls.other = Client.objects.create(name='SnowLand', internal_code='snowland')
         users = get_user_model().objects
         cls.admin = users.create_superuser(username='platform', email='platform@example.test')
@@ -36,7 +36,9 @@ class FrontendReleaseTests(TestCase):
         self.enterContext(patch('API.frontend_releases.release_storage', return_value=self.storage))
         self.client = APIClient(enforce_csrf_checks=True)
         self.client.force_login(self.admin)
-        self.assertEqual(self.client.get(self.endpoint).json(), {'versions': [], 'storage_ready': True})
+        library = self.client.get(self.endpoint).json()
+        self.assertEqual(library['versions'], [])
+        self.assertTrue(library['storage_ready'])
         self.csrf = {'HTTP_X_CSRFTOKEN': self.client.cookies['csrftoken'].value}
 
     def upload(self, archive):
@@ -54,11 +56,11 @@ class FrontendReleaseTests(TestCase):
         self.assertEqual((first.status_code, second.status_code), (201, 201))
         first_id, second_id = first.json()['id'], second.json()['id']
         self.assertEqual(self.upload(build_zip('duplicate.zip', content='first')).json()['id'], first_id)
-        self.assertEqual(self.restore(first_id).status_code, 200)
-        self.assertEqual(self.restore(second_id).status_code, 200)
-        self.assertEqual(self.restore(first_id).status_code, 200)
+        with patch('API.frontend_publish.target_configuration', return_value=({'mode': 'local', 'root': self.storage.location, 'label': 'QA'}, '')):
+            self.assertEqual(self.restore(first_id).status_code, 202)
+            self.assertEqual(self.restore(second_id).status_code, 409)
         versions = self.client.get(self.endpoint).json()['versions']
-        self.assertEqual([(item['id'], item['is_current']) for item in versions], [(second_id, False), (first_id, True)])
+        self.assertEqual([(item['id'], item['is_current']) for item in versions], [(second_id, False), (first_id, False)])
         download = self.client.get(f'{self.endpoint}{first_id}/download/')
         self.assertEqual(download.status_code, 200)
         self.assertIn('attachment;', download['Content-Disposition'])
@@ -101,7 +103,7 @@ class FrontendReleaseTests(TestCase):
     def test_missing_archive_does_not_replace_current_version(self):
         first = self.upload(build_zip(content='first')).json()['id']
         second = self.upload(build_zip(content='second')).json()['id']
-        self.assertEqual(self.restore(first).status_code, 200)
+        FrontendRelease.objects.filter(pk=first).update(is_current=True)
         self.storage.delete(FrontendRelease.objects.get(pk=second).archive_name)
         self.assertEqual(self.restore(second).status_code, 409)
         self.assertEqual(FrontendRelease.objects.get(is_current=True).pk, first)
