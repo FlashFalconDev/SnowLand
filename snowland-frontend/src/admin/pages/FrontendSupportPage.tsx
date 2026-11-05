@@ -127,8 +127,8 @@ export default function FrontendSupportPage() {
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
               {library.data?.storage_ready && <a className={button} href={`/api/admin/${clientCode}${endpoint}${version.id}/download/`}><Download size={16} />下載版本</a>}
-              {version.is_current ? <span className="inline-flex items-center px-2 text-sm font-medium text-violet-700 dark:text-violet-300">已發布版本</span> :
-                <button type="button" className={button} disabled={busy || !ready} onClick={() => setRestoreTarget(version)}>還原此版本</button>}
+              {version.is_current && <span className="inline-flex items-center px-2 text-sm font-medium text-violet-700 dark:text-violet-300">上次成功發布</span>}
+              <button type="button" className={button} disabled={busy || !ready} onClick={() => setRestoreTarget(version)}>還原此版本</button>
             </div>
           </li>)}
         </ul>

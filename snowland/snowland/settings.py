@@ -449,3 +449,4 @@ LINE_WEBHOOK_MAX_BODY_BYTES = int(
 
 # Platform-only folder publication validates at most 3,000 files / 1 GiB.
 DATA_UPLOAD_MAX_NUMBER_FILES = 3000
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 3032

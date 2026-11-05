@@ -45,10 +45,10 @@ class FrontendPublicationTests(TransactionTestCase):
         self.client.get(self.endpoint)
         self.csrf = {'HTTP_X_CSRFTOKEN': self.client.cookies['csrftoken'].value}
 
-    def upload(self, index=None, paths=None):
+    def upload(self, index=None, paths=None, script=b'new javascript'):
         return self.client.post(self.endpoint, {
             'files': [SimpleUploadedFile('index.html', html() if index is None else index),
-                      SimpleUploadedFile('app.js', b'new javascript')],
+                      SimpleUploadedFile('app.js', script)],
             'paths': ['index.html', 'assets/app.js'] if paths is None else paths,
         }, format='multipart', **self.csrf)
 
@@ -171,6 +171,48 @@ class FrontendPublicationTests(TransactionTestCase):
         self.assertEqual(FrontendDeployment.objects.count(), 1)
         self.assertEqual(FrontendDeployment.objects.get().status, 'queued')
 
+    def test_full_3000_file_multipart_build_is_accepted(self):
+        files = [SimpleUploadedFile('index.html', html())] + [SimpleUploadedFile(f'app-{i}.js', b'x') for i in range(2999)]
+        paths = ['index.html'] + [f'assets/app-{i}.js' for i in range(2999)]
+        with patch('API.frontend_publish.start_deployment'):
+            response = self.client.post(self.endpoint, {'files': files, 'paths': paths}, format='multipart', **self.csrf)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(FrontendDeployment.objects.count(), 1)
+
+    def test_last_successful_release_can_recover_after_failed_rollback(self):
+        first = self.upload(html('B'), script=b'B javascript')
+        good_release = FrontendDeployment.objects.get(pk=first.json()['deployment']['id']).release_id
+        original_write = publish.LocalPublisher.write
+        calls = 0
+
+        def fail_after_one_write(provider, name, body, headers):
+            nonlocal calls
+            calls += 1
+            if calls >= 2:
+                raise OSError('publication and rollback unavailable')
+            return original_write(provider, name, body, headers)
+
+        with patch.object(publish.LocalPublisher, 'write', fail_after_one_write):
+            self.upload(html('C'), script=b'C javascript')
+        self.assertEqual((self.root/'assets/app.js').read_bytes(), b'C javascript')
+        self.assertFalse(any(item['is_current'] for item in self.client.get(self.endpoint).json()['versions']))
+        restored = self.client.post(f'{self.endpoint}{good_release}/restore/', **self.csrf)
+        self.assertEqual(restored.status_code, 202)
+        job = FrontendDeployment.objects.get(pk=restored.json()['deployment']['id'])
+        self.assertEqual(job.status, 'succeeded', job.message)
+        self.assertEqual((self.root/'index.html').read_bytes(), html('B'))
+        self.assertEqual((self.root/'assets/app.js').read_bytes(), b'B javascript')
+
+    def test_trusted_backup_restores_non_utf8_legacy_html(self):
+        old = b'<html>legacy original \xff</html>'
+        (self.root/'index.html').write_bytes(old)
+        response = self.upload()
+        backup_id = FrontendDeployment.objects.get(pk=response.json()['deployment']['id']).backup_id
+        restored = self.client.post(f'{self.endpoint}{backup_id}/restore/', **self.csrf)
+        job = FrontendDeployment.objects.get(pk=restored.json()['deployment']['id'])
+        self.assertEqual(job.status, 'succeeded', job.message)
+        self.assertEqual((self.root/'index.html').read_bytes(), old)
+
     @skipUnlessDBFeature('has_select_for_update')
     def test_two_concurrent_requests_create_only_one_active_job(self):
         from django.db import connections
@@ -240,6 +282,32 @@ class S3PublicationContractTests(SimpleTestCase):
         self.assertEqual(args.kwargs['ExtraArgs']['ExpectedBucketOwner'], '799381135280')
         self.assertEqual(args.kwargs['ExtraArgs']['CacheControl'], 'no-cache, no-store, must-revalidate')
         self.assertNotIn('ACL', args.kwargs['ExtraArgs'])
+
+    def test_prefixed_custom_django_static_files_cannot_be_overwritten_or_deleted(self):
+        self.target['prefix'] = 'site'
+        self.s3.get_paginator.return_value.paginate.return_value = [{
+            'Contents': [{'Key': 'site/index.html'}, {'Key': 'site/django-assets/admin.css'}, {'Key': 'site/assets/app.js'}],
+        }]
+        with override_settings(STATIC_URL='https://snowland.tw/site/django-assets/'):
+            provider = publish.S3Publisher(self.target)
+            self.assertEqual(provider.names(), {'index.html', 'assets/app.js'})
+            with self.assertRaises(publish.PublishError):
+                provider.write('django-assets/admin.css', BytesIO(b'bad'), {})
+            with self.assertRaises(publish.PublishError):
+                provider.delete('django-assets/admin.css')
+        self.s3.upload_fileobj.assert_not_called()
+        self.s3.delete_object.assert_not_called()
+
+    def test_replacing_large_build_does_not_accumulate_unrestorable_assets(self):
+        objects = {'index.html'} | {f'assets/old-{i}.js' for i in range(1600)} | {f'assets/new-{i}.js' for i in range(1600)}
+        desired = {'index.html'} | {f'assets/new-{i}.js' for i in range(1600)}
+        self.s3.get_paginator.return_value.paginate.side_effect = lambda **options: [{'Contents': [{'Key': name} for name in objects]}]
+        self.s3.delete_object.side_effect = lambda Key, **options: objects.remove(Key)
+        provider = publish.S3Publisher(self.target)
+        self.assertGreater(len(provider.names()), publish.MAX_FILES)
+        publish.cleanup(provider, desired)
+        self.assertEqual(provider.names(), desired)
+        self.assertLessEqual(len(provider.names()), publish.MAX_FILES)
 
 
 class FrontendTargetConfigurationTests(SimpleTestCase):

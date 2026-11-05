@@ -36,14 +36,15 @@ class PublishError(Exception):
     pass
 
 
-def valid_path(path):
+def valid_path(path, prefix=''):
     if not isinstance(path, str) or not path or len(path) > 500 or path != path.strip():
         return False
     if any(c in path for c in '\\:\x00<>|?*') or any(ord(c) < 32 for c in path):
         return False
     static_prefix = urlparse(getattr(settings, 'STATIC_URL', '/static/')).path.strip('/')
-    protected = PROTECTED + ((static_prefix.lower() + '/',) if static_prefix else ())
-    return all(part and not part.startswith('.') and part == part.rstrip(' .') for part in path.split('/')) and not path.lower().startswith(protected)
+    full_path = '/'.join(part for part in (prefix.strip('/'), path) if part).lower()
+    overlaps_static = bool(static_prefix) and (full_path == static_prefix.lower() or full_path.startswith(static_prefix.lower() + '/'))
+    return all(part and not part.startswith('.') and part == part.rstrip(' .') for part in path.split('/')) and not path.lower().startswith(PROTECTED) and not overlaps_static
 
 
 class BuildIdentity(HTMLParser):
@@ -55,17 +56,19 @@ class BuildIdentity(HTMLParser):
             self.name = attrs.get('content', '')
 
 
-def validate_build(archive, require_identity=True):
+def validate_build(archive, require_identity=True, prefix=''):
     entries = [entry for entry in archive.infolist() if not entry.is_dir()]
     names = [entry.filename for entry in entries]
     if not names or len(names) > MAX_FILES or sum(e.file_size for e in entries) > MAX_BYTES:
         raise PublishError('建置檔案數或總大小超過限制。')
-    if len(set(name.casefold() for name in names)) != len(names) or any(not valid_path(name) for name in names):
+    if len(set(name.casefold() for name in names)) != len(names) or any(not valid_path(name, prefix) for name in names):
         raise PublishError('建置包含非法、受保護或重複的路徑。')
     if 'index.html' not in names or any(e.flag_bits & 1 or e.file_size > MAX_FILE_BYTES for e in entries):
         raise PublishError('請選擇含根目錄 index.html 的完整建置資料夾。')
     if archive.getinfo('index.html').file_size > 4 * 1024 * 1024 or archive.testzip() is not None:
         raise PublishError('建置檔案無法完整讀取。')
+    if not require_identity:
+        return set(names)  # A server-generated backup may predate UTF-8/build identity markers.
     identity = BuildIdentity()
     try:
         identity.feed(archive.read('index.html').decode('utf-8-sig'))
@@ -123,6 +126,9 @@ class LocalPublisher:
     def preflight(self):
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def allowed(self, name):
+        return valid_path(name)
+
     def names(self):
         return {p.relative_to(self.root).as_posix() for p in self.root.rglob('*') if p.is_file() and not p.is_symlink() and valid_path(p.relative_to(self.root).as_posix())}
 
@@ -168,6 +174,9 @@ class S3Publisher:
     def options(self):
         return {'Bucket': self.target['bucket'], 'ExpectedBucketOwner': self.target['owner']}
 
+    def allowed(self, name):
+        return valid_path(name, self.target['prefix'])
+
     def preflight(self):
         self.s3.head_bucket(**self.options())
         distribution = self.cdn.get_distribution(Id=self.target['distribution'])['Distribution']
@@ -186,10 +195,11 @@ class S3Publisher:
         for page in self.s3.get_paginator('list_objects_v2').paginate(Prefix=self.prefix, **self.options()):
             for item in page.get('Contents', []):
                 name = item['Key'][len(self.prefix):]
-                if valid_path(name):
+                if self.allowed(name):
                     names.add(name)
-                if len(names) > MAX_FILES:
-                    raise PublishError('現有網站檔案數超過備份上限，網站檔案未變更。')
+                # During replacement both the old and new valid builds coexist.
+                if len(names) > MAX_FILES * 2:
+                    raise PublishError('網站檔案數超過發布整理上限，請管理員確認目標。')
         return names
 
     @contextmanager
@@ -201,10 +211,14 @@ class S3Publisher:
             item['Body'].close()
 
     def write(self, name, body, headers):
+        if not self.allowed(name):
+            raise PublishError('網站檔案與受保護路徑重疊。')
         self.s3.upload_fileobj(body, self.target['bucket'], self.prefix + name,
                                ExtraArgs={'ExpectedBucketOwner': self.target['owner'], **headers})
 
     def delete(self, name):
+        if not self.allowed(name):
+            raise PublishError('網站檔案與受保護路徑重疊。')
         self.s3.delete_object(Key=self.prefix + name, **self.options())
 
     def invalidate(self):
@@ -244,12 +258,12 @@ def save_release(client, storage, buffer, label):
     return release
 
 
-def folder_archive(files, paths):
+def folder_archive(files, paths, prefix=''):
     if not files or len(files) != len(paths) or len(files) > MAX_FILES:
         raise PublishError('檔案與路徑數量不正確，或超過 3,000 個檔案。')
     if sum(f.size for f in files) > MAX_BYTES or any(f.size > MAX_FILE_BYTES for f in files):
         raise PublishError('建置總大小超過 1 GB 或單檔超過 100 MB。')
-    if any(not valid_path(p) for p in paths) or len({p.casefold() for p in paths}) != len(paths):
+    if any(not valid_path(p, prefix) for p in paths) or len({p.casefold() for p in paths}) != len(paths):
         raise PublishError('建置包含非法、受保護或重複的路徑。')
     buffer = SpooledTemporaryFile(max_size=8 * 1024 * 1024)
     try:
@@ -260,7 +274,7 @@ def folder_archive(files, paths):
                         output.write(chunk)
         buffer.seek(0)
         with ZipFile(buffer) as archive:
-            validate_build(archive)
+            validate_build(archive, prefix=prefix)
         buffer.seek(0)
         return buffer
     except Exception:
@@ -272,6 +286,8 @@ def snapshot(provider, storage, client):
     names = provider.names()
     if not names:
         return None, {}
+    if len(names) > MAX_FILES:
+        raise PublishError('現有網站超過備份檔數上限，網站檔案未變更。')
     if 'index.html' not in names:
         raise PublishError('現有發布位置沒有 index.html，請先確認網站目標。')
     headers, total = {}, 0
@@ -293,7 +309,7 @@ def snapshot(provider, storage, client):
 
 def apply_archive(provider, archive, metadata=None, progress=None):
     names = {e.filename for e in archive.infolist() if not e.is_dir()}
-    if any(not valid_path(name) for name in names) or 'index.html' not in names:
+    if any(not provider.allowed(name) for name in names) or 'index.html' not in names:
         raise PublishError('版本檔案路徑不正確。')
     for index, name in enumerate(sorted(names - {'index.html'}) + ['index.html']):
         with archive.open(name) as body:
@@ -305,9 +321,7 @@ def apply_archive(provider, archive, metadata=None, progress=None):
 
 def cleanup(provider, names):
     for name in provider.names() - names:
-        # Existing browser sessions may still need an earlier lazy-loaded Vite chunk.
-        if not name.startswith('assets/'):
-            provider.delete(name)
+        provider.delete(name)
 
 
 def job_data(job):
@@ -343,7 +357,7 @@ def run_deployment(job_id):
             source.seek(0)
             with ZipFile(source) as archive:
                 original_backup = FrontendDeployment.objects.filter(backup=job.release).order_by('-id').first()
-                validate_build(archive, require_identity=original_backup is None)
+                validate_build(archive, require_identity=original_backup is None, prefix=job.target.get('prefix', ''))
                 provider = publisher(job.target)
                 provider.preflight()
                 backup, headers = snapshot(provider, storage, job.client)

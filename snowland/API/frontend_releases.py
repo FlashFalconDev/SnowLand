@@ -136,7 +136,8 @@ class FrontendReleaseViewSet(ViewSet):
         jobs = FrontendDeployment.objects.filter(client=self.tenant)
         published = jobs.filter(status='succeeded').first()
         target, reason = frontend_publish.target_configuration()
-        if published and published.target != target:
+        latest = jobs.first()
+        if published and (published.target != target or (latest and latest.status != 'succeeded')):
             published = None
         backups = set(jobs.exclude(backup=None).values_list('backup_id', flat=True))
         return Response({
@@ -169,7 +170,7 @@ class FrontendReleaseViewSet(ViewSet):
             if target is None:
                 return Response({'detail': reason}, status=503)
             try:
-                with frontend_publish.folder_archive(request.FILES.getlist('files'), request.data.getlist('paths')) as buffer:
+                with frontend_publish.folder_archive(request.FILES.getlist('files'), request.data.getlist('paths'), target.get('prefix', '')) as buffer:
                     release = frontend_publish.save_release(self.tenant, storage, buffer, 'snowland-' + timezone.now().strftime('%Y%m%d-%H%M%S') + '.zip')
             except frontend_publish.PublishError as exc:
                 raise ValidationError({'detail': str(exc)}) from exc
