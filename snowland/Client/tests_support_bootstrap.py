@@ -21,6 +21,10 @@ class SupportClientBootstrapTests(TestCase):
             ])
         cls.migration_apps = state.apps
 
+    def setUp(self):
+        Client.objects.filter(internal_code='flashfalcon').delete()
+        self.initial_client_count = Client.objects.count()
+
     def run_bootstrap(self):
         bootstrap.initialize_support_client(self.migration_apps, connection.schema_editor())
 
@@ -38,7 +42,7 @@ class SupportClientBootstrapTests(TestCase):
         self.assertTrue(support.is_active)
         self.assertFalse(is_password_usable(support.password))
         self.assertEqual(Client.objects.values().get(pk=snowland.pk), before)
-        self.assertEqual(Client.objects.count(), 2)
+        self.assertEqual(Client.objects.count(), self.initial_client_count + 2)
 
     def test_preserves_an_existing_support_client(self):
         support = Client.objects.create(
@@ -50,7 +54,7 @@ class SupportClientBootstrapTests(TestCase):
         self.run_bootstrap()
 
         self.assertEqual(Client.objects.values().get(pk=support.pk), before)
-        self.assertEqual(Client.objects.count(), 1)
+        self.assertEqual(Client.objects.count(), self.initial_client_count + 1)
 
     def test_repeat_execution_preserves_created_client(self):
         self.run_bootstrap()
@@ -59,7 +63,7 @@ class SupportClientBootstrapTests(TestCase):
         self.run_bootstrap()
 
         self.assertEqual(Client.objects.values().get(internal_code='flashfalcon'), before)
-        self.assertEqual(Client.objects.count(), 1)
+        self.assertEqual(Client.objects.count(), self.initial_client_count + 1)
 
     def test_reverse_keeps_client_data(self):
         self.run_bootstrap()

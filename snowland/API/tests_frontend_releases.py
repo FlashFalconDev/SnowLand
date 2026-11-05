@@ -24,7 +24,7 @@ class FrontendReleaseTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.tenant = Client.objects.create(name='FlashFalcon', internal_code='flashfalcon')
+        cls.tenant, _ = Client.objects.get_or_create(internal_code='flashfalcon', defaults={'name': 'FlashFalcon'})
         cls.other = Client.objects.create(name='SnowLand', internal_code='snowland')
         users = get_user_model().objects
         cls.admin = users.create_superuser(username='platform', email='platform@example.test')
