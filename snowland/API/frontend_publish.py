@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 MAX_FILES = 3000
 MAX_BYTES = 1024 * 1024 * 1024
 MAX_FILE_BYTES = 100 * 1024 * 1024
+MAX_BACKUP_FILES = MAX_FILES * 2
+MAX_BACKUP_BYTES = MAX_BYTES * 2
 PROTECTED = ('static/', 'media/', 'private_course_media/', 'private_frontend_releases/', 'admin/', 'api/', 'booking/', 'control/')
 
 
@@ -59,7 +61,9 @@ class BuildIdentity(HTMLParser):
 def validate_build(archive, require_identity=True, prefix=''):
     entries = [entry for entry in archive.infolist() if not entry.is_dir()]
     names = [entry.filename for entry in entries]
-    if not names or len(names) > MAX_FILES or sum(e.file_size for e in entries) > MAX_BYTES:
+    file_limit = MAX_FILES if require_identity else MAX_BACKUP_FILES
+    byte_limit = MAX_BYTES if require_identity else MAX_BACKUP_BYTES
+    if not names or len(names) > file_limit or sum(e.file_size for e in entries) > byte_limit:
         raise PublishError('建置檔案數或總大小超過限制。')
     if len(set(name.casefold() for name in names)) != len(names) or any(not valid_path(name, prefix) for name in names):
         raise PublishError('建置包含非法、受保護或重複的路徑。')
@@ -198,7 +202,7 @@ class S3Publisher:
                 if self.allowed(name):
                     names.add(name)
                 # During replacement both the old and new valid builds coexist.
-                if len(names) > MAX_FILES * 2:
+                if len(names) > MAX_BACKUP_FILES * 2:
                     raise PublishError('網站檔案數超過發布整理上限，請管理員確認目標。')
         return names
 
@@ -286,7 +290,7 @@ def snapshot(provider, storage, client):
     names = provider.names()
     if not names:
         return None, {}
-    if len(names) > MAX_FILES:
+    if len(names) > MAX_BACKUP_FILES:
         raise PublishError('現有網站超過備份檔數上限，網站檔案未變更。')
     if 'index.html' not in names:
         raise PublishError('現有發布位置沒有 index.html，請先確認網站目標。')
@@ -300,7 +304,7 @@ def snapshot(provider, storage, client):
                     while chunk := body.read(1024 * 1024):
                         total += len(chunk)
                         file_bytes += len(chunk)
-                        if total > MAX_BYTES or file_bytes > MAX_FILE_BYTES:
+                        if total > MAX_BACKUP_BYTES or file_bytes > MAX_FILE_BYTES or (name == 'index.html' and file_bytes > 4 * 1024 * 1024):
                             raise PublishError('現有網站超過備份大小上限，網站檔案未變更。')
                         output.write(chunk)
         release = save_release(client, storage, buffer, 'backup-' + timezone.now().strftime('%Y%m%d-%H%M%S') + '.zip')

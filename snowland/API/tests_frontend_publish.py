@@ -213,6 +213,26 @@ class FrontendPublicationTests(TransactionTestCase):
         self.assertEqual(job.status, 'succeeded', job.message)
         self.assertEqual((self.root/'index.html').read_bytes(), old)
 
+    def test_mixed_large_site_after_cleanup_failure_can_still_be_backed_up_and_restored(self):
+        original_index = (self.root/'index.html').read_bytes()
+        (self.root/'assets').mkdir()
+        for index in range(1600):
+            (self.root/f'assets/old-{index}.js').write_bytes(b'A')
+        files = [SimpleUploadedFile('index.html', html('B'))] + [SimpleUploadedFile(f'new-{i}.js', b'B') for i in range(1600)]
+        paths = ['index.html'] + [f'assets/new-{i}.js' for i in range(1600)]
+        with patch.object(publish.LocalPublisher, 'delete', side_effect=OSError('delete permission temporarily unavailable')):
+            response = self.client.post(self.endpoint, {'files': files, 'paths': paths}, format='multipart', **self.csrf)
+        failed = FrontendDeployment.objects.get(pk=response.json()['deployment']['id'])
+        self.assertEqual(failed.status, 'failed')
+        self.assertGreater(len(publish.LocalPublisher(failed.target).names()), publish.MAX_FILES)
+        restored = self.client.post(f'{self.endpoint}{failed.backup_id}/restore/', **self.csrf)
+        job = FrontendDeployment.objects.get(pk=restored.json()['deployment']['id'])
+        self.assertEqual(job.status, 'succeeded', job.message)
+        self.assertEqual((self.root/'index.html').read_bytes(), original_index)
+        self.assertEqual((self.root/'assets/old-0.js').read_bytes(), b'A')
+        self.assertFalse((self.root/'assets/new-0.js').exists())
+        self.assertLessEqual(len(publish.LocalPublisher(job.target).names()), publish.MAX_FILES)
+
     @skipUnlessDBFeature('has_select_for_update')
     def test_two_concurrent_requests_create_only_one_active_job(self):
         from django.db import connections
