@@ -39,6 +39,7 @@ function setup({fail=false,error=false,loading=false,rows=[row]}={}){
   find(rejected.render(),n=>n.type==='form'&&n.props.className==='mt-5 space-y-4').props.onSubmit({preventDefault(){}});await new Promise(setImmediate)
   assert.equal(rejected.states[4].id,7);assert.equal(rejected.states[6],'QA錯誤保留');assert.ok(rejected.states[7].includes('儲存失敗'))
   const failed=setup({error:true});find(failed.render(),n=>n.type==='button'&&n.props.children==='重新載入留言').props.onClick();assert.equal(failed.retries(),1)
-  const routes=fs.readFileSync(path.join(root,'src/admin/AdminRoutes.tsx'),'utf8');assert.ok(routes.includes('permission="contact_inbox"'))
+  const nav=fs.readFileSync(path.join(root,'src/admin/consoleNavigation.ts'),'utf8')
+  assert.match(nav, /path: 'contact-inbox'[^\n]*access: 'contact_inbox'/)
   console.log('PASS actual inbox handlers: retained failed draft, typed update/refresh/success, unsaved guard/cancel, list retry and dedicated route permission')
 })().catch(e=>{console.error(e);process.exit(1)})

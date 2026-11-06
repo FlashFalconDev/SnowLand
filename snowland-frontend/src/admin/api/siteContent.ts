@@ -66,8 +66,26 @@ export type SiteContentWriteData = Omit<SiteContentItem, 'id' | 'computed_status
 interface ListResp<T> { code: number; msg: string; data: { list: T[]; total: number } }
 interface DetailResp<T> { code: number; msg: string; data: T }
 
-export async function fetchCurrentWaiver(): Promise<{title:string;body:string;version:string;source_url:string;is_draft:boolean}> {
-  const response = await adminApi.get('/site-content/waiver-current/') as unknown as DetailResp<{title:string;body:string;version:string;source_url:string;is_draft:boolean}>
+export interface PreCourseQuestion {
+  key: string
+  title: string
+  section: 'insurance' | 'waiver'
+  kind: 'text' | 'single' | 'multiple'
+  required: boolean
+  options: string[]
+}
+
+interface WaiverDocument {
+  title: string
+  body: string
+  version: string
+  source_url: string
+  is_draft: boolean
+  questions: PreCourseQuestion[]
+}
+
+export async function fetchCurrentWaiver(): Promise<WaiverDocument> {
+  const response = await adminApi.get('/site-content/waiver-current/') as unknown as DetailResp<WaiverDocument>
   return response.data
 }
 

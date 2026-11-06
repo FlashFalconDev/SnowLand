@@ -845,7 +845,7 @@ export default function CourseTypesPage() {
           allResorts={selectableResorts}
           allCoaches={selectableCoaches}
           companyWideScope={companyWideScope}
-          canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll')}
+          canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll_rules')}
           onClose={() => setEditingTemplate(null)}
           onSave={handleSaveTemplate}
         />
@@ -857,7 +857,7 @@ export default function CourseTypesPage() {
           allResorts={selectableResorts}
           allCoaches={selectableCoaches}
           companyWideScope={companyWideScope}
-          canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll')}
+          canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll_rules')}
           onClose={() => setCreatingTemplateForType(null)}
           onSave={handleCreateTemplate}
         />

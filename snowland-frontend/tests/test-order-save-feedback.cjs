@@ -28,7 +28,7 @@ for(const failed of [true,false]){
  else assert.equal(html,'')
 }
 assert.ok(saveButton.openingElement.attributes.getText(ast).includes('min-h-11'),'Save is at least a 44px touch target')
-ctx.editing=true
+ctx.editing=true;ctx.canEdit=true
 for(const status of ['created','completed','cancelled','deleted']){
  ctx.r={status,shared_course_class_id:null}
  vm.runInContext('exports.editable='+editable.getText(ast),ctx)

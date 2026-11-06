@@ -84,10 +84,10 @@ class LoyaltyPolicyInput(serializers.Serializer):
 @api_view(['GET', 'PUT'])
 @permission_classes([IsTenantManager])
 def loyalty_policy(request, client_code):
-    denied = _require_admin_permission(request, 'customers')
+    denied = _require_admin_permission(request, 'member_loyalty')
     if denied:
         return denied
-    if not can_review_loyalty(request.user, request.tenant):
+    if not request.can_view_all_campuses or not can_review_loyalty(request.user, request.tenant):
         raise PermissionDenied('只有學校總部可以變更會員制度')
     if request.method == 'GET':
         get_token(request._request)
@@ -114,10 +114,10 @@ def loyalty_policy(request, client_code):
 @api_view(['GET', 'POST'])
 @permission_classes([IsTenantManager])
 def customer_loyalty(request, client_code, user_id):
-    denied = _require_admin_permission(request, 'customers')
+    denied = _require_admin_permission(request, 'member_loyalty')
     if denied:
         return denied
-    if not can_review_loyalty(request.user, request.tenant):
+    if not request.can_view_all_campuses or not can_review_loyalty(request.user, request.tenant):
         raise PermissionDenied('只有總部管理員可以審核舊生與補登點數')
     if user_id not in visible_customer_ids(request):
         return Response({'msg': '找不到目前範圍內的會員'}, status=404)

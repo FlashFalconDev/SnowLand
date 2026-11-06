@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, Building2, Check, ChevronRight, Edit3, Loader2, MapPin, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useNotification } from '../context'
-import { fetchAllAccessibleResorts } from '../api/resorts'
+import { fetchCampusResortOptions } from '../api/resorts'
 import { fetchAdminMe } from '../api/auth'
 import { useAdminDialog } from '../hooks/useAdminDialog'
 import {
@@ -58,7 +58,7 @@ export default function CampusesPage() {
   const [policyCampusId, setPolicyCampusId] = useState<number | null>(null)
 
   const campusesQuery = useQuery({ queryKey: ['admin', 'campuses'], queryFn: fetchCampuses })
-  const resortsQuery = useQuery({ queryKey: ['admin', 'resorts', 'all-accessible'], queryFn: fetchAllAccessibleResorts })
+  const resortsQuery = useQuery({ queryKey: ['admin', 'resorts', 'campus-options'], queryFn: fetchCampusResortOptions })
   const policiesQuery = useQuery({ queryKey: ['admin', 'operating-policies'], queryFn: fetchOperatingPolicies })
   const adminMeQuery = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
 

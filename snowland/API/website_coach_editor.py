@@ -88,7 +88,7 @@ class WebsiteCoachEditorSerializer(serializers.ModelSerializer):
 
 class WebsiteCoachEditorViewSet(ModelViewSet):
     permission_classes=[IsTenantManager]
-    permission_key='cms'
+    permission_key='site_coaches'
     serializer_class=WebsiteCoachEditorSerializer
     http_method_names=['get','patch','head','options']
 

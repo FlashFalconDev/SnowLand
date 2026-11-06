@@ -104,8 +104,8 @@ export async function fetchResorts(): Promise<Resort[]> {
   return res.data?.list || []
 }
 
-export async function fetchAllAccessibleResorts(): Promise<Resort[]> {
-  const res = (await adminApi.get('/resorts/', { headers: { 'X-Campus-ID': 'all' } })) as unknown as ListResp
+export async function fetchCampusResortOptions(): Promise<Pick<Resort, 'id' | 'display_name'>[]> {
+  const res = (await adminApi.get('/resorts/campus-options/', { headers: { 'X-Campus-ID': 'all' } })) as unknown as ListResp
   return res.data?.list || []
 }
 

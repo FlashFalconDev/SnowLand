@@ -115,7 +115,10 @@ export interface CampusManagerOrder {
   }[]
 }
 
+export type OrderWorkflow = 'edit' | 'payments' | 'refunds'
+
 export interface OrdersQuery {
+  workflow?: OrderWorkflow
   page?: number
   page_size?: number
   search?: string
@@ -136,6 +139,7 @@ export async function fetchOrdersPaged(query: OrdersQuery = {}): Promise<OrdersP
     page: query.page ?? 1,
     page_size: query.page_size ?? 10,
   }
+  if (query.workflow) params.workflow = query.workflow
   if (query.search) params.search = query.search
   if (query.status) params.status = query.status
   if (query.payment_status) params.payment_status = query.payment_status
@@ -151,11 +155,12 @@ export async function fetchOrdersPaged(query: OrdersQuery = {}): Promise<OrdersP
 }
 
 /** 校區主管專用：只讀近期課程摘要。 */
-export async function fetchCampusManagerOrdersPaged(query: Pick<OrdersQuery, 'page' | 'page_size' | 'search'> = {}) {
+export async function fetchCampusManagerOrdersPaged(query: Pick<OrdersQuery, 'page' | 'page_size' | 'search' | 'workflow'> = {}) {
   const res = (await adminApi.get('/orders/', { params: {
     page: query.page ?? 1,
     page_size: query.page_size ?? 10,
     ...(query.search ? { search: query.search } : {}),
+    ...(query.workflow ? { workflow: query.workflow } : {}),
   } })) as unknown as {
     data: { list: CampusManagerOrder[]; total: number; page: number; total_pages: number }
   }
@@ -168,8 +173,8 @@ export async function fetchOrders(): Promise<Order[]> {
   return page.items
 }
 
-export async function fetchOrder(id: number): Promise<Order> {
-  const res = (await adminApi.get(`/orders/${id}/`)) as any
+export async function fetchOrder(id: number, workflow?: OrderWorkflow): Promise<Order> {
+  const res = (await adminApi.get(`/orders/${id}/`, { params: { workflow } })) as any
   return res.data || res
 }
 

@@ -14,11 +14,11 @@ import LoyaltyPolicyPanel from '../components/LoyaltyPolicyPanel'
 
 const PRIMARY = '#8b5cf6'
 
-export default function CustomersPage() {
+export default function CustomersPage({ loyalty = false }: { loyalty?: boolean }) {
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const { data: customers = [], isLoading, error } = useQuery({
-    queryKey: ['admin', 'customers'],
-    queryFn: fetchCustomers,
+    queryKey: ['admin', 'customers', { loyalty }],
+    queryFn: () => fetchCustomers(loyalty),
   })
 
   const [search, setSearch] = useState('')
@@ -35,10 +35,10 @@ export default function CustomersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">會員管理</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{loyalty ? '會員制度與舊生審核' : '會員管理'}</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">查看目前校區範圍內的會員資料、預約紀錄與滑雪程度</p>
       </div>
-      {(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin') && <LoyaltyPolicyPanel />}
+      {loyalty && <LoyaltyPolicyPanel />}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="relative">
@@ -103,15 +103,15 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {viewing && <CustomerDetailDrawer customer={viewing} canManageStaff={canManageStaff} onClose={() => setViewingId(null)} />}
+      {viewing && <CustomerDetailDrawer customer={viewing} canManageStaff={canManageStaff && !loyalty} loyalty={loyalty} onClose={() => setViewingId(null)} />}
     </div>
   )
 }
 
-function CustomerDetailDrawer({ customer, canManageStaff, onClose }: { customer: Customer; canManageStaff: boolean; onClose: () => void }) {
+function CustomerDetailDrawer({ customer, canManageStaff, loyalty, onClose }: { customer: Customer; canManageStaff: boolean; loyalty: boolean; onClose: () => void }) {
   const [composing, setComposing] = useState(false)
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
-  const canNotify = hasAdminPermission(adminMe?.user, 'notifications') && hasAdminPermission(adminMe?.user, 'customers')
+  const canNotify = hasAdminPermission(adminMe?.user, 'notifications') && hasAdminPermission(adminMe?.user, 'member_directory') && !loyalty
     && !['campus_manager', 'campus_principal'].includes(adminMe?.user?.role || '')
   return (
     <>
@@ -125,7 +125,7 @@ function CustomerDetailDrawer({ customer, canManageStaff, onClose }: { customer:
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {canNotify && <button onClick={() => setComposing(true)} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white">發送站內通知給此會員</button>}
-          {(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin') && <MemberLoyaltyPanel userId={customer.id} />}
+          {loyalty && <MemberLoyaltyPanel userId={customer.id} />}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
               <div className="text-xs text-gray-500 dark:text-gray-400">總預約次數</div>

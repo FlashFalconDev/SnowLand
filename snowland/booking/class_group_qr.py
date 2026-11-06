@@ -64,7 +64,7 @@ def replace_group_qr(group, upload=None):
 
 
 class ClassGroupQRAPI(APIView):
-    permission_key = 'orders'
+    permission_keys = ('order_view', 'order_edit')
 
     def get(self, request, client_code, group_id):
         if not request.user.is_authenticated:
@@ -76,7 +76,9 @@ class ClassGroupQRAPI(APIView):
         if request.user.is_superuser or (profile and profile.is_manager):
             from API.admin_views import IsTenantManager
             from API.admin_permissions import user_has_admin_permission
-            if (not profile or profile.role not in {'campus_principal', 'campus_manager'}) and user_has_admin_permission(request.user, 'orders', group.client):
+            if (not profile or profile.role not in {'campus_principal', 'campus_manager'}) and any(
+                user_has_admin_permission(request.user, key, group.client) for key in self.permission_keys
+            ):
                 if IsTenantManager().has_permission(request, self):
                     allowed = (request.can_view_all_campuses and request.selected_campus_id is None) or group.campus_id in request.campus_ids
         if not allowed and paid_group_qr_url(group):

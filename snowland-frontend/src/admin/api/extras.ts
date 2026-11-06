@@ -21,7 +21,7 @@ export async function sendOrderEmail(
 // ==================== 客戶權限 ====================
 export async function updateCustomerPermission(
   userId: number,
-  payload: { is_superuser?: boolean; is_manager: boolean; is_coach: boolean; permissions?: string[]; role?: string; campus_ids?: number[] }
+  payload: { is_superuser: boolean } | { position_ids: number[] }
 ): Promise<Resp> {
   const res = (await adminApi.post(`/customers/${userId}/permission/`, payload)) as unknown as Resp
   return res
@@ -39,8 +39,11 @@ export interface StaffMember {
   is_manager: boolean
   is_coach: boolean
   permissions?: string[]
+  position_ids?: number[]
+  position_names?: string[]
   role?: string
   campus_ids?: number[]
+  all_campuses?: boolean
   has_coach_record: boolean
   coach_id: number | null
   coach_name: string | null
@@ -51,6 +54,34 @@ export interface StaffMember {
 export async function fetchStaff(q?: string, invite = false): Promise<StaffMember[]> {
   const res = (await adminApi.get('/staff/', { params: q ? { q, ...(invite ? { invite: 1 } : {}) } : {} })) as any
   return res.data?.list || []
+}
+
+export interface StaffPositionInput {
+  name: string
+  role: string
+  permissions: string[]
+  all_campuses: boolean
+  campus_ids: number[]
+}
+
+export interface StaffPosition {
+  id: number
+  name: string
+  built_in: boolean
+  settings?: StaffPositionInput
+}
+
+export async function fetchStaffPositions(): Promise<StaffPosition[]> {
+  const response = await adminApi.get('/staff-positions/') as unknown as { data: StaffPosition[] }
+  return response.data
+}
+
+export async function saveStaffPosition(id: number | null, data: StaffPositionInput) {
+  return id === null ? adminApi.post('/staff-positions/', data) : adminApi.put(`/staff-positions/${id}/`, data)
+}
+
+export async function deleteStaffPosition(id: number) {
+  return adminApi.delete(`/staff-positions/${id}/`)
 }
 
 // ==================== 雪場費用批量 ====================

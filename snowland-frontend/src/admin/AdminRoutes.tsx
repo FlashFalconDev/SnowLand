@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import AdminLayout from './layout/AdminLayout'
 import RoleGuard from './components/RoleGuard'
 import DashboardPage from './pages/DashboardPage'
@@ -28,114 +28,87 @@ import MyPayrollPage from './pages/my/MyPayrollPage'
 import OperationsHubPage from './pages/OperationsHubPage'
 import FrontendSupportPage from './pages/FrontendSupportPage'
 
+import type { ReactElement } from 'react'
+import type { SiteContentType } from './api/siteContent'
+import { consoleNavigation, type ConsolePath } from './consoleNavigation'
+
+const REVIEW_TYPES: SiteContentType[] = ['review']
+const MEDIA_TYPES: SiteContentType[] = ['media']
+const pages: Record<ConsolePath, ReactElement> = {
+  '': <DashboardPage />,
+  'orders': <OrdersPage />,
+  'orders/edit': <OrdersPage key="edit" mode="edit" />,
+  'orders/payments': <OrdersPage key="payments" mode="payments" />,
+  'orders/refunds': <OrdersPage key="refunds" mode="refunds" />,
+  'booking-links': <OperationsHubPage initialTab="links" fixed />,
+  'orders/export': <OrdersPage mode="export" />,
+  'contact-inbox': <ContactInboxPage />,
+  'chat-support': <ChatSupportPage />,
+  'notifications': <OperationsHubPage initialTab="notifications" fixed />,
+  'customers': <CustomersPage />,
+  'insurance': <OperationsHubPage initialTab="insurance" fixed />,
+  'customers/loyalty': <CustomersPage key="loyalty" loyalty />,
+  'cms/membership': <SiteContentPage initialGroup="membership" section="course_documents" />,
+  'scheduling': <SchedulingPage />,
+  'coaches': <CoachesPage />,
+  'coaches/leaves': <CoachLeavesPage />,
+  'evaluations': <OperationsHubPage initialTab="evaluations" fixed />,
+  'my/pending': <PendingConfirmationsPage />,
+  'my/courses': <MyCoursesPage />,
+  'my/calendar': <MyCalendarPage />,
+  'my/evaluations': <OperationsHubPage initialTab="evaluations" fixed coachView />,
+  'my/leaves': <MyLeavesPage />,
+  'my/leaves/apply': <ApplyLeavePage />,
+  'course-types': <CourseTypesPage />,
+  'pricing': <PricingPage />,
+  'resorts': <ResortsPage />,
+  'payment-settings': <PaymentSettingsPage section="accounts" />,
+  'payroll/rules': <OperationsHubPage initialTab="payroll-rules" fixed />,
+  'payroll': <OperationsHubPage initialTab="payroll" fixed />,
+  'payroll/incentives': <OperationsHubPage initialTab="staff-incentives" fixed />,
+  'payroll/documents': <OperationsHubPage initialTab="payroll-documents" fixed />,
+  'my/payroll': <MyPayrollPage />,
+  'discounts': <DiscountsPage />,
+  'cms/offers': <SiteContentPage initialGroup="news" section="site_campaigns" />,
+  'social-sync': <SocialSyncPage />,
+  'cms/homepage': <SiteContentPage initialGroup="homepage" section="site_home" />,
+  'cms/courses': <SiteContentPage initialGroup="courses" section="site_courses" />,
+  'cms/photography': <SiteContentPage initialGroup="photography" section="site_photography" />,
+  'cms/guides': <SiteContentPage initialGroup="guides" section="site_guides" />,
+  'cms/news': <SiteContentPage initialGroup="news" section="site_news" />,
+  'cms/about': <SiteContentPage initialGroup="about" section="site_about" />,
+  'cms/coaches': <CoachEditorPage />,
+  'reviews/manual': <SiteContentPage contentTypes={REVIEW_TYPES} />,
+  'media': <SiteContentPage initialGroup="photography" contentTypes={MEDIA_TYPES} />,
+  'cms/tracking': <SiteContentPage initialGroup="homepage" section="site_tracking" />,
+  'cms/structure': <SiteContentPage section="site_structure" />,
+  'campuses': <CampusesPage />,
+  'staff': <StaffPermissionsPage />,
+  'cms/policies': <SiteContentPage initialGroup="membership" section="checkout_policies" />,
+  'booking-form-settings': <PaymentSettingsPage section="booking-form" />,
+  'system/support': <FrontendSupportPage />,
+}
+
+// Existing bookmarks continue to open the owning tab and its permission guard.
+const legacyPaths: Record<string, ConsolePath> = {
+  'cms/resorts': 'cms/courses',
+  'cms/faq': 'cms/guides',
+  'cms/articles': 'cms/guides',
+  'reviews/google': 'reviews/manual',
+}
+
 export default function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route element={<RoleGuard requireFrontendSupport />}>
-          <Route path="system/support" element={<FrontendSupportPage />} />
-        </Route>
-
-        {/* 儀表板：manager 才能看 */}
-        <Route element={<RoleGuard requireManager />}>
-          <Route element={<RoleGuard permission="analytics" />}>
-            <Route index element={<DashboardPage />} />
+        {consoleNavigation.flatMap(group => group.pages.map(page => (
+          <Route key={page.path} element={<RoleGuard page={page} />}>
+            {page.path ? <Route path={page.path} element={pages[page.path]} /> : <Route index element={pages['']} />}
           </Route>
-
-          {/* 營運管理 */}
-          <Route element={<RoleGuard permission="orders" />}>
-            <Route path="orders" element={<OrdersPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="scheduling" />}>
-            <Route path="scheduling" element={<SchedulingPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="customers" />}>
-            <Route path="customers" element={<CustomersPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="chat_support" />}>
-            <Route path="chat-support" element={<ChatSupportPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="notifications" />}>
-            <Route path="notifications" element={<OperationsHubPage initialTab="notifications" fixed />} />
-          </Route>
-          <Route element={<RoleGuard permission="payroll" />}>
-            <Route path="payroll" element={<OperationsHubPage initialTab="payroll" fixed />} />
-          </Route>
-          <Route element={<RoleGuard permission="evaluations" />}>
-            <Route path="evaluations" element={<OperationsHubPage initialTab="evaluations" fixed />} />
-          </Route>
-          <Route element={<RoleGuard permission="insurance_records" />}>
-            <Route path="insurance" element={<OperationsHubPage initialTab="insurance" fixed />} />
-          </Route>
-          <Route element={<RoleGuard permission="orders" />}>
-            <Route path="booking-links" element={<OperationsHubPage initialTab="links" fixed />} />
-          </Route>
-
-          <Route element={<RoleGuard permission="contact_inbox" />}>
-            <Route path="contact-inbox" element={<ContactInboxPage />} />
-          </Route>
-          {/* 基本設定 */}
-          <Route element={<RoleGuard permission="coaches" />}>
-            <Route path="coaches" element={<CoachesPage />} />
-            <Route path="coaches/leaves" element={<CoachLeavesPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="resorts" />}>
-            <Route path="resorts" element={<ResortsPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="campuses" />}>
-            <Route path="campuses" element={<CampusesPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="course_types" />}>
-            <Route path="course-types" element={<CourseTypesPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="pricing" />}>
-            <Route path="pricing" element={<PricingPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="discounts" />}>
-            <Route path="discounts" element={<DiscountsPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="staff" />}>
-            <Route path="staff" element={<StaffPermissionsPage />} />
-          </Route>
-          <Route element={<RoleGuard permission="payment_settings" />}>
-            <Route path="payment-settings" element={<PaymentSettingsPage />} />
-          </Route>
-
-          {/* CMS */}
-          <Route element={<RoleGuard permission="cms" />}>
-            <Route path="social-sync" element={<SocialSyncPage />} />
-            <Route path="cms/homepage" element={<SiteContentPage initialGroup="homepage" />} />
-            <Route path="cms/courses" element={<SiteContentPage initialGroup="courses" />} />
-            <Route path="cms/photography" element={<SiteContentPage initialGroup="photography" />} />
-            <Route path="cms/guides" element={<SiteContentPage initialGroup="guides" />} />
-            <Route path="cms/news" element={<SiteContentPage initialGroup="news" />} />
-            <Route path="cms/about" element={<SiteContentPage initialGroup="about" />} />
-            <Route path="cms/membership" element={<SiteContentPage initialGroup="membership" />} />
-            <Route path="cms/coaches" element={<CoachEditorPage />} />
-            <Route path="cms/resorts" element={<SiteContentPage initialGroup="courses" />} />
-            <Route path="cms/offers" element={<SiteContentPage initialGroup="news" />} />
-            <Route path="cms/faq" element={<SiteContentPage initialGroup="guides" />} />
-            <Route path="cms/articles" element={<SiteContentPage initialGroup="guides" />} />
-          </Route>
-
-          {/* 評論與媒體 */}
-          <Route element={<RoleGuard permission="reviews" />}>
-            <Route path="reviews/google" element={<SiteContentPage initialGroup="homepage" contentTypes={['review']} />} />
-            <Route path="reviews/manual" element={<SiteContentPage initialGroup="homepage" contentTypes={['review']} />} />
-            <Route path="media" element={<SiteContentPage initialGroup="photography" contentTypes={['media']} />} />
-          </Route>
-        </Route>
-
-        {/* 教練視角：coach 才能看 */}
-        <Route element={<RoleGuard requireCoach />}>
-          <Route path="my/pending" element={<PendingConfirmationsPage />} />
-          <Route path="my/courses" element={<MyCoursesPage />} />
-          <Route path="my/calendar" element={<MyCalendarPage />} />
-          <Route path="my/payroll" element={<MyPayrollPage />} />
-          <Route path="my/evaluations" element={<OperationsHubPage initialTab="evaluations" fixed coachView />} />
-          <Route path="my/leaves" element={<MyLeavesPage />} />
-          <Route path="my/leaves/apply" element={<ApplyLeavePage />} />
-        </Route>
+        )))}
+        {Object.entries(legacyPaths).map(([path, destination]) => (
+          <Route key={path} path={path} element={<Navigate to={`../${destination}`} replace />} />
+        ))}
       </Route>
     </Routes>
   )

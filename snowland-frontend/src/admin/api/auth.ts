@@ -1,4 +1,5 @@
 import { currentClientCode, campusScopeKey } from '@/utils/tenant'
+import type { AdminPermissionDefinition } from '../permissions'
 /**
  * 後台認證 API
  *
@@ -15,6 +16,7 @@ export interface AdminUser {
   is_manager?: boolean
   is_coach?: boolean
   permissions?: string[]
+  permission_definitions?: AdminPermissionDefinition[]
   role?: string
   assigned_campus_ids?: number[]
   campuses?: { id: number; name: string; code: string; is_active: boolean }[]

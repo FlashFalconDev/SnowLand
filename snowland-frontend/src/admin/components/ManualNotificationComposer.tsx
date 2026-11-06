@@ -22,8 +22,8 @@ export default function ManualNotificationComposer({ onClose, initialTarget }: {
   initialTarget?: { kind: 'order' | 'member'; id: number; label: string }
 }) {
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
-  const canOrder = hasAdminPermission(adminMe?.user, 'orders')
-  const canMember = hasAdminPermission(adminMe?.user, 'customers')
+  const canOrder = hasAdminPermission(adminMe?.user, 'order_view')
+  const canMember = hasAdminPermission(adminMe?.user, 'member_directory')
   const qc = useQueryClient(); const notify = useNotification()
   const [kind, setKind] = useState<'order' | 'member'>(initialTarget?.kind || (canOrder ? 'order' : 'member'))
   const [query, setQuery] = useState('')

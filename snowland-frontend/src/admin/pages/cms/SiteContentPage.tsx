@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { currentClientCode } from '@/utils/tenant'
 import {
   AlertCircle,
   CalendarDays,
@@ -516,7 +517,28 @@ const buildOfficialPreviewUrl = (locationKey: string, externalId = '') => {
   return `${url}${url.includes('?') ? '&' : '?'}${query}${route.hash ? `#${route.hash}` : ''}`
 }
 
-export default function SiteContentPage({ initialGroup = 'homepage', contentTypes }: { initialGroup?: ContentGroup; contentTypes?: SiteContentType[] }) {
+const CMS_SECTION_PREFIXES: Record<string, string> = {
+  homepage: 'site_home', course: 'site_courses', photography: 'site_photography',
+  guides: 'site_guides', news: 'site_news', about: 'site_about',
+  offers: 'site_campaigns', policy: 'checkout_policies', coaches: 'site_coaches',
+}
+
+const CMS_SECTION_LOCATIONS: Record<string, string> = {
+  'homepage.reviews': 'site_reviews', 'photography.gallery': 'site_media',
+  'homepage.offers': 'site_campaigns', 'site.tracking': 'site_tracking',
+  'site.footer': 'site_home', 'membership.waiver': 'course_documents',
+  'news.offers': 'site_campaigns', 'news.social': 'site_campaigns',
+  'news.instagram': 'site_campaigns', 'news.facebook': 'site_campaigns',
+}
+
+function cmsLocationSection(group: GroupInfo, location: LocationInfo) {
+  return CMS_SECTION_LOCATIONS[location.key] ||
+    (location.type === 'review' ? 'site_reviews' : location.type === 'media' ? 'site_media' :
+      CMS_SECTION_PREFIXES[location.key.split('.')[0]] ||
+      CMS_SECTION_PREFIXES[group.id === 'courses' ? 'course' : group.id] || 'site_structure')
+}
+
+export default function SiteContentPage({ initialGroup = 'homepage', contentTypes, section }: { initialGroup?: ContentGroup; contentTypes?: SiteContentType[]; section?: string }) {
   const notify = useNotification()
   const qc = useQueryClient()
   const [activeGroup, setActiveGroup] = useState<ContentGroup>(initialGroup)
@@ -545,8 +567,14 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   const structureKey = JSON.stringify(contentTypes ? { groups: reviewGroups.data || [] } : structureItem?.metadata || {})
   const groups = useMemo(() => {
     const source = normalizeCmsStructureGroups(JSON.parse(structureKey))
-    return contentTypes ? source.map((group) => ({ ...group, locations: group.locations.filter((location) => contentTypes.includes(location.type)) })).filter((group) => group.locations.length) : source
-  }, [structureKey, contentTypes])
+    if (section === 'site_structure') return source
+    return source.map(group => ({
+      ...group,
+      locations: group.locations.filter(location =>
+        (!contentTypes || contentTypes.includes(location.type)) &&
+        (!section || cmsLocationSection(group, location) === section)),
+    })).filter(group => group.locations.length)
+  }, [structureKey, contentTypes, section])
   const locationMap = useMemo(() => buildLocationMap(groups), [groups])
   const defaultLocationByGroup = useMemo(() => getDefaultLocationByGroup(groups), [groups])
   const contentItems = useMemo(() => contents.filter((item) => item.location_key !== CMS_STRUCTURE_LOCATION_KEY && (!contentTypes || contentTypes.includes(item.content_type))).map(toEditorSiteContent), [contents, contentTypes])
@@ -647,7 +675,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
     onError: (e: any) => notify.error(e.response?.data?.msg || e.response?.data?.detail || '更新頁面結構失敗'),
   })
 
-  const groupInfo = groups.find((group) => group.id === activeGroup) || groups[0]
+  const groupInfo = groups.find((group) => group.id === activeGroup) || groups[0] || { id: '', label: '', description: '', locations: [] }
   const groupLocationKeys = groupInfo.locations.map((location) => location.key)
   const activeLocation = groupInfo.locations.find((location) => location.key === activeLocationKey) || groupInfo.locations[0]
   const groupContents = useMemo(() => {
@@ -664,7 +692,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
   const locationContents = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     return groupContents
-      .filter((item) => item.location_key === activeLocation.key)
+      .filter((item) => item.location_key === activeLocation?.key)
       .filter((item) => {
         if (!keyword) return true
         return [
@@ -676,7 +704,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           item.tags?.join(' '),
         ].some((value) => String(value || '').toLowerCase().includes(keyword))
       })
-  }, [activeLocation.key, groupContents, locationMap, search])
+  }, [activeLocation?.key, groupContents, locationMap, search])
 
   const selectedItem = useMemo(() => {
     return locationContents.find((item) => item.id === selectedId) || locationContents[0] || null
@@ -715,6 +743,23 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
       </div>
     )
   }
+
+  if (section === 'site_structure') {
+    return <section className="space-y-4">
+      <h1 className="text-2xl font-bold">官網頁面與區塊</h1>
+      <button type="button" onClick={() => setStructureOpen(true)} className="min-h-11 rounded-lg bg-violet-700 px-4 text-white">
+        管理頁面與區塊
+      </button>
+      {structureOpen && <StructureDrawer
+        groups={groups}
+        activeGroupId={activeGroup}
+        onClose={() => setStructureOpen(false)}
+        onSubmit={nextGroups => structureMutation.mutate(nextGroups)}
+        isSaving={structureMutation.isPending}
+      />}
+    </section>
+  }
+  if (!groups.length) return <p role="status" className="rounded-lg p-5">目前沒有可編輯的內容區塊。</p>
 
   return (
     <div className="rounded-2xl bg-[#f5f7fb] p-5 text-slate-900 shadow-sm dark:bg-[#0f1724] dark:text-slate-100 dark:shadow-none">
@@ -785,7 +830,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
                   </button>
                 )
               })}
-              {!contentTypes && <button
+              {!contentTypes && !section && <button
                 type="button"
                 onClick={() => setStructureOpen(true)}
                 className="min-w-[132px] rounded-xl border border-dashed border-slate-300 px-3 py-3 text-left text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-[#1f2937]"
@@ -931,7 +976,7 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           saveError={saveError}
         />
       )}
-      {structureOpen && !contentTypes && (
+      {structureOpen && !contentTypes && !section && (
         <StructureDrawer
           groups={groups}
           activeGroupId={activeGroup}

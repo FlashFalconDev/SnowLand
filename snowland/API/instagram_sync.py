@@ -21,7 +21,7 @@ class ConnectionInput(serializers.Serializer):
 
 class InstagramSyncViewSet(PayrollCsrfMixin, GenericViewSet):
     permission_classes = [IsTenantManager]
-    permission_key = 'cms'
+    permission_key = 'social_sync'
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)

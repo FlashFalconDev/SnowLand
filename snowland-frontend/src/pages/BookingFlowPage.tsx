@@ -755,7 +755,7 @@ export default function BookingFlowPage() {
     if (!staffPreparing) return
     let cancelled = false
     fetchAdminMe().then(result => {
-      if (!cancelled) setStaffOperator(hasAdminPermission(result.user, 'orders'))
+      if (!cancelled) setStaffOperator(hasAdminPermission(result.user, 'booking_links'))
     }).finally(() => { if (!cancelled) setStaffOperatorLoading(false) })
     return () => { cancelled = true }
   }, [staffPreparing])

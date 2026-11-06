@@ -12,9 +12,7 @@ import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useState, useEffect, useContext } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Settings, ChevronDown, Menu, X, Bell, Users,
-  LogOut, Sun, Moon, MessageCircle, FileText,
-  BarChart3, Globe, BookOpen, ClipboardCheck, type LucideIcon,
+  ChevronDown, Menu, X, Bell, LogOut, Sun, Moon, Globe, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 // @ts-ignore
@@ -23,21 +21,26 @@ import { ThemeProvider, useTheme, NotificationProvider } from '../context'
 import { GlobalNotification } from '../components/GlobalNotification'
 import LoginPage from '@/pages/LoginPage'
 import { fetchAdminMe, type AdminMeResult } from '../api/auth'
-import { canUseFrontendSupport, hasAdminPermission } from '../permissions'
+import { hasAdminPermission } from '../permissions'
+import { canOpenConsolePage, consoleNavigation } from '../consoleNavigation'
 import { fetchNotificationDeliveries } from '../api/operations'
 
 // 主色 — 完全採用 console 配色（紫色 #8b5cf6）
 const PRIMARY = '#8b5cf6'
 
 // ============== NAV 結構 ==============
+interface CompactMenu {
+  id: string
+  top: number
+  left: number
+}
+
 interface NavItem {
   id: string
   label: string
   icon: LucideIcon
-  path?: string
-  permission?: string
-  badge?: string | number
-  children?: { id: string; label: string; path: string; permission?: string; badge?: string }[]
+  hasSubmenu: boolean
+  children: { id: string; label: string; path: string }[]
 }
 
 // ============== 通知鈴鐺（從 console 完整移植）==============
@@ -202,172 +205,105 @@ function NotificationBell() {
   )
 }
 
-// ============== 側邊欄項目（從 console 完整移植，主色換成 PRIMARY）==============
-function SidebarItem({
-  item,
-  collapsed,
-  isExpanded,
-  onToggle,
-}: {
+function SidebarItem({ item, collapsed, active, expanded, popup, onToggle, onOpen, onDismiss, onNavigate }: {
   item: NavItem
   collapsed: boolean
-  isExpanded: boolean
+  active: boolean
+  expanded: boolean
+  popup?: CompactMenu
   onToggle: () => void
+  onOpen: (trigger: HTMLButtonElement) => void
+  onDismiss: () => void
+  onNavigate: () => void
 }) {
-  const location = useLocation()
-  const [showPopup, setShowPopup] = useState(false)
-  const hasChildren = item.children && item.children.length > 0
+  const entryClassName = `flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors no-underline
+    ${collapsed ? 'justify-center' : ''} ${active
+      ? 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200'
+      : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'}`
+  const entryLabel = <>
+    <item.icon size={20} className="shrink-0" aria-hidden />
+    {!collapsed && <span className="flex-1 text-sm font-medium">{item.label}</span>}
+  </>
 
-  const isActive = item.path
-    ? location.pathname === item.path
-    : item.children?.some((child) => location.pathname === child.path || location.pathname.startsWith(child.path + '/'))
-
-  // 收合 + 有子選單 → hover popup
-  if (hasChildren && collapsed) {
-    return (
-      <div
-        className="relative"
-        onMouseEnter={() => setShowPopup(true)}
-        onMouseLeave={() => setShowPopup(false)}
-      >
-        <button
-          type="button"
-          className="w-full flex items-center justify-center p-2.5 rounded-lg transition-all cursor-pointer text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          style={isActive ? { backgroundColor: `${PRIMARY}1a`, color: PRIMARY } : undefined}
-        >
-          <item.icon size={20} className={isActive ? '' : 'text-gray-400'} style={isActive ? { color: PRIMARY } : undefined} />
-        </button>
-
-        {showPopup && (
-          <>
-            <div className="absolute left-full top-0 w-2 h-full" />
-            <div className="absolute left-full top-0 ml-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-2 min-w-[160px] z-[100]">
-              <div className="px-3 py-2 text-sm font-medium text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-                <item.icon size={16} style={{ color: PRIMARY }} />
-                {item.label}
-              </div>
-              <div className="py-1">
-                {item.children?.map((child) => (
-                  <NavLink
-                    key={child.id}
-                    to={child.path}
-                    end
-                    className={({ isActive }) =>
-                      `block px-3 py-2 text-sm transition-all no-underline ${
-                        isActive ? 'text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`
-                    }
-                    style={({ isActive }) => (isActive ? { backgroundColor: PRIMARY } : undefined)}
-                    onClick={() => setShowPopup(false)}
-                  >
-                    {child.label}
-                  </NavLink>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    )
+  if (!item.hasSubmenu) {
+    return <NavLink
+      to={item.children[0].path}
+      end
+      aria-label={item.label}
+      title={collapsed ? item.label : undefined}
+      className={entryClassName}
+      onClick={onNavigate}
+    >{entryLabel}</NavLink>
   }
 
-  // 展開 + 有子選單
-  if (hasChildren) {
-    return (
-      <div>
-        <button
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onToggle()
-          }}
-          type="button"
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all cursor-pointer text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          style={isActive ? { backgroundColor: `${PRIMARY}1a`, color: PRIMARY } : undefined}
-        >
-          <item.icon size={20} className={isActive ? '' : 'text-gray-400'} style={isActive ? { color: PRIMARY } : undefined} />
-          <span className="flex-1 text-sm font-medium">{item.label}</span>
-          {item.badge && (
-            <span
-              className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                typeof item.badge === 'number' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
-              }`}
-            >
-              {item.badge}
-            </span>
-          )}
-          <ChevronDown
-            size={16}
-            className={`transition-transform duration-200 ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
-          />
-        </button>
-        <div
-          hidden={!isExpanded}
-          className={`ml-8 mt-1 space-y-1 overflow-hidden transition-all duration-200 ${
-            isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-          }`}
-        >
-          {item.children?.map((child) => (
-            <NavLink
-              key={child.id}
-              to={child.path}
-              end
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all no-underline ${
-                  isActive ? 'text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`
-              }
-              style={({ isActive }) => (isActive ? { backgroundColor: PRIMARY } : undefined)}
-            >
-              <span className="flex-1">{child.label}</span>
-              {child.badge && (
-                <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full">{child.badge}</span>
-              )}
-            </NavLink>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  // 收合 + 無子選單 → tooltip
-  if (collapsed) {
-    return (
-      <div className="relative group">
-        <NavLink
-          to={item.path!}
-          end={item.id === 'dashboard'}
-          className={({ isActive }) =>
-            `flex items-center justify-center p-2.5 rounded-lg transition-all no-underline ${
-              isActive ? 'text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`
-          }
-          style={({ isActive }) => (isActive ? { backgroundColor: PRIMARY } : undefined)}
-        >
-          <item.icon size={20} />
-        </NavLink>
-        <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-          {item.label}
-        </div>
-      </div>
-    )
-  }
-
-  // 展開 + 無子選單
+  const submenuId = `console-submenu-${item.id}`
+  const submenuVisible = collapsed ? !!popup : expanded
   return (
-    <NavLink
-      to={item.path!}
-      end={item.id === 'dashboard'}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all no-underline ${
-          isActive ? 'text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-        }`
-      }
-      style={({ isActive }) => (isActive ? { backgroundColor: PRIMARY } : undefined)}
+    <div
+      onPointerLeave={event => {
+        if (collapsed && event.pointerType === 'mouse' && !event.currentTarget.querySelector('ul')?.contains(document.activeElement)) {
+          onDismiss()
+        }
+      }}
+      onBlur={event => {
+        if (collapsed && !event.currentTarget.contains(event.relatedTarget)) onDismiss()
+      }}
+      onKeyDown={event => {
+        if (collapsed && submenuVisible && event.key === 'Escape') {
+          event.stopPropagation()
+          event.currentTarget.querySelector('button')?.focus()
+          onDismiss()
+        }
+      }}
     >
-      <item.icon size={20} />
-      <span className="text-sm font-medium">{item.label}</span>
-    </NavLink>
+      <button
+        type="button"
+        aria-label={item.label}
+        aria-expanded={submenuVisible}
+        aria-controls={submenuId}
+        title={collapsed ? item.label : undefined}
+        className={entryClassName}
+        onPointerEnter={event => {
+          if (collapsed && event.pointerType === 'mouse') onOpen(event.currentTarget)
+        }}
+        onClick={event => {
+          if (collapsed) onOpen(event.currentTarget)
+          else onToggle()
+        }}
+      >
+        {entryLabel}
+        {!collapsed && <ChevronDown size={16} aria-hidden className={`shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />}
+      </button>
+      <div
+        id={submenuId}
+        hidden={!submenuVisible}
+        className={collapsed
+          ? 'fixed z-50 w-56 pl-3'
+          : 'mb-2 ml-5 mt-1 border-l border-gray-200 pl-2 dark:border-gray-700'}
+        style={collapsed ? { top: popup?.top, left: popup?.left } : undefined}
+      >
+        <div className={collapsed ? 'flex max-h-[calc(100dvh-1rem)] flex-col rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800' : undefined}>
+          {collapsed && <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-gray-100 px-3 text-sm font-semibold dark:border-gray-700">
+            <item.icon size={16} className="text-violet-500" aria-hidden />
+            {item.label}
+          </div>}
+          <ul className={collapsed ? 'min-h-0 overflow-y-auto p-1' : 'space-y-1'}>
+            {item.children.map(child => (
+              <li key={child.id}>
+                <NavLink
+                  to={child.path}
+                  end
+                  onClick={onNavigate}
+                  className={({ isActive }) => `flex items-center rounded-lg px-3 py-2 text-sm no-underline ${collapsed ? 'min-h-10' : 'min-h-11'} ${isActive
+                    ? 'bg-violet-700 font-semibold text-white'
+                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                >{child.label}</NavLink>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -395,7 +331,8 @@ function AdminLayoutContent() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({})
+  const [expandedGroup, setExpandedGroup] = useState<string | null>()
+  const [compactMenu, setCompactMenu] = useState<CompactMenu | null>(null)
 
   // 檢查當前登入的使用者是否有 manager 權限
   const [adminCheck, setAdminCheck] = useState<AdminMeResult | null>(null)
@@ -469,197 +406,44 @@ function AdminLayoutContent() {
   const displayUser = adminCheck?.user
     ? { ...user, ...adminCheck.user, picture: user?.picture }
     : user
-  const navPermissionById: Record<string, string> = {
-    dashboard: 'analytics',
-    orders: 'orders',
-    scheduling: 'scheduling',
-    customers: 'customers',
-    'chat-support': 'chat_support',
-    notifications: 'notifications',
-    payroll: 'payroll',
-    evaluations: 'evaluations',
-    insurance: 'insurance_records',
-    'booking-links': 'orders',
-    resorts: 'resorts',
-    campuses: 'campuses',
-    'course-types': 'course_types',
-    pricing: 'pricing',
-    discounts: 'discounts',
-    coaches: 'coaches',
-    'coach-leaves': 'coaches',
-    'payment-settings': 'payment_settings',
-    staff: 'staff',
-    'cms-homepage': 'cms',
-    'cms-courses': 'cms',
-    'cms-photography': 'cms',
-    'cms-guides': 'cms',
-    'cms-news': 'cms',
-    'social-sync': 'cms',
-    'cms-about': 'cms',
-    'cms-membership': 'cms',
-    'cms-coaches': 'cms',
-    'cms-resorts': 'cms',
-    'cms-offers': 'cms',
-    'cms-faq': 'cms',
-    'cms-articles': 'cms',
-    'reviews-google': 'reviews',
-    'reviews-manual': 'reviews',
-    media: 'reviews',
-  }
-  const canUseNavItem = (item: { id: string; permission?: string }) => {
-    const permission = item.permission || navPermissionById[item.id]
-    return !permission || hasAdminPermission(adminCheck?.user, permission)
-  }
-  const filterNavByPermission = (items: NavItem[]): NavItem[] =>
-    items
-      .map((item) => {
-        if (item.children?.length) {
-          const children = item.children.filter(canUseNavItem)
-          return children.length ? { ...item, children } : null
-        }
-        return canUseNavItem(item) ? item : null
-      })
-      .filter((item): item is NavItem => Boolean(item))
+  const consolePath = `${basePath}/console`
+  const navItems: NavItem[] = consoleNavigation.flatMap(group => {
+    const children = group.pages
+      .filter(page => canOpenConsolePage(page, adminCheck?.user, basePath))
+      .map(page => ({ id: page.path, label: page.label, path: page.path ? `${consolePath}/${page.path}` : consolePath }))
+    return children.length ? [{
+      id: group.id,
+      label: group.label,
+      icon: group.icon,
+      hasSubmenu: group.pages.length > 1 || group.id === 'system',
+      children,
+    }] : []
+  })
+  const pathname = location.pathname.replace(/\/$/, '')
+  const currentGroup = navItems.find(item => item.children.some(child => child.path === pathname))
+  const visibleGroup = expandedGroup === undefined ? currentGroup?.id : expandedGroup
+  const firstAvailablePath = navItems[0]?.children[0].path
 
-  const managerNav: NavItem[] = [
-    { id: 'dashboard', label: '主面板', icon: LayoutDashboard, path: `${basePath}/console` },
-    { id: 'customers', label: '會員', icon: Users, path: `${basePath}/console/customers` },
-    {
-      id: 'operations',
-      label: '營運管理',
-      icon: BarChart3,
-      children: [
-        { id: 'orders', label: '訂單管理', path: `${basePath}/console/orders` },
-        { id: 'contact-inbox', label: '聯絡收件', path: `${basePath}/console/contact-inbox`, permission: 'contact_inbox' },
-        { id: 'scheduling', label: '排課管理', path: `${basePath}/console/scheduling` },
-        { id: 'chat-support', label: 'AI 客服', path: `${basePath}/console/chat-support` },
-        { id: 'notifications', label: '自動通知', path: `${basePath}/console/notifications` },
-        { id: 'payroll', label: '薪資結算', path: `${basePath}/console/payroll` },
-        { id: 'evaluations', label: '學習評量', path: `${basePath}/console/evaluations` },
-        { id: 'insurance', label: '保險與聲明書', path: `${basePath}/console/insurance` },
-        { id: 'booking-links', label: '代客訂課連結', path: `${basePath}/console/booking-links` },
-      ],
-    },
-    {
-      id: 'settings',
-      label: '基本設定',
-      icon: Settings,
-      children: [
-        { id: 'campuses', label: '校區與營運規則', path: `${basePath}/console/campuses` },
-        { id: 'resorts', label: '雪場管理', path: `${basePath}/console/resorts` },
-        { id: 'course-types', label: '課程架構', path: `${basePath}/console/course-types` },
-        { id: 'pricing', label: '課程定價', path: `${basePath}/console/pricing` },
-        { id: 'discounts', label: '優惠折扣', path: `${basePath}/console/discounts` },
-        { id: 'coaches', label: '教練管理', path: `${basePath}/console/coaches` },
-        { id: 'coach-leaves', label: '請假審核', path: `${basePath}/console/coaches/leaves` },
-        { id: 'payment-settings', label: '付款設定', path: `${basePath}/console/payment-settings` },
-        { id: 'staff', label: '員工權限', path: `${basePath}/console/staff` },
-      ],
-    },
-    {
-      id: 'cms',
-      label: '官網內容',
-      icon: FileText,
-      children: [
-        { id: 'cms-homepage', label: '首頁', path: `${basePath}/console/cms/homepage` },
-        { id: 'cms-courses', label: '滑雪課程', path: `${basePath}/console/cms/courses` },
-        { id: 'cms-photography', label: '海外攝影', path: `${basePath}/console/cms/photography` },
-        { id: 'cms-guides', label: '滑雪攻略', path: `${basePath}/console/cms/guides` },
-        { id: 'cms-news', label: '最新消息', path: `${basePath}/console/cms/news` },
-        { id: 'social-sync', label: '官方社群同步', path: `${basePath}/console/social-sync` },
-        { id: 'cms-about', label: '關於 Snowland', path: `${basePath}/console/cms/about` },
-        { id: 'cms-membership', label: '會員文件', path: `${basePath}/console/cms/membership` },
-        { id: 'cms-coaches', label: '教練資料', path: `${basePath}/console/cms/coaches` },
-      ],
-    },
-    {
-      id: 'reviews',
-      label: '評論與媒體',
-      icon: MessageCircle,
-      children: [
-        { id: 'reviews-google', label: 'Google 評論', path: `${basePath}/console/reviews/google` },
-        { id: 'reviews-manual', label: '學員心得', path: `${basePath}/console/reviews/manual` },
-        { id: 'media', label: '圖庫管理', path: `${basePath}/console/media` },
-      ],
-    },
-  ]
-
-  // 教練視角 NAV（教練自己看自己的）
-  const coachNav: NavItem[] = [
-    {
-      id: 'my-courses',
-      label: '我的課程',
-      icon: BookOpen,
-      children: [
-        { id: 'my-pending', label: '待確認課程', path: `${basePath}/console/my/pending` },
-        { id: 'my-courses-list', label: '我的所有課程', path: `${basePath}/console/my/courses` },
-        { id: 'my-calendar', label: '我的月曆', path: `${basePath}/console/my/calendar` },
-        { id: 'my-evaluations', label: '我的學習評量', path: `${basePath}/console/my/evaluations` },
-        { id: 'my-payroll', label: '我的薪資', path: `${basePath}/console/my/payroll` },
-      ],
-    },
-    {
-      id: 'my-leaves',
-      label: '請假',
-      icon: ClipboardCheck,
-      children: [
-        { id: 'my-apply-leave', label: '申請請假', path: `${basePath}/console/my/leaves/apply` },
-        { id: 'my-leaves-list', label: '我的請假紀錄', path: `${basePath}/console/my/leaves` },
-      ],
-    },
-  ]
-
-  // 組合 NAV：manager 看全部 + 教練選單 / coach 只看教練選單
-  let navItems: NavItem[] = []
-  if (isManager) {
-    navItems = filterNavByPermission(managerNav)
-    if (isCoach) {
-      // manager 同時是 coach → 管理主選單優先，教練視角放後面
-      navItems = [...navItems, ...coachNav]
-    }
-  } else if (isCoach) {
-    navItems = [...coachNav]
-  }
-  if (canUseFrontendSupport(basePath, adminCheck?.user)) {
-    navItems.push({
-      id: 'system-frontend', label: '系統管理-前端', icon: Globe,
-      children: [{ id: 'frontend-support', label: '支援', path: `${basePath}/console/system/support` }],
+  const openCompactMenu = (item: NavItem, trigger: HTMLButtonElement) => {
+    const { top, right } = trigger.getBoundingClientRect()
+    const estimatedHeight = 50 + item.children.length * 40
+    setCompactMenu({
+      id: item.id,
+      top: Math.max(8, Math.min(top, window.innerHeight - estimatedHeight - 8)),
+      left: right,
     })
   }
 
-  // A campus staff member may have Orders/Scheduling but no dashboard permission.
-  // Send them to their first available module instead of a permission error after login.
-  const firstAvailablePath = navItems.flatMap((item) => item.children?.map((child) => child.path) || [item.path])
-    .find((path) => path && path !== `${basePath}/console`)
   useEffect(() => {
-    if (adminCheck?.user && location.pathname === `${basePath}/console`
-      && !hasAdminPermission(adminCheck.user, 'analytics') && firstAvailablePath) {
+    if (adminCheck?.user && pathname === consolePath && firstAvailablePath && firstAvailablePath !== consolePath) {
       navigate(firstAvailablePath, { replace: true })
     }
-  }, [adminCheck, basePath, firstAvailablePath, location.pathname, navigate])
+  }, [adminCheck, consolePath, firstAvailablePath, pathname, navigate])
 
-  // 切換選單展開（單選模式）
-  const toggleMenu = (menuId: string) => {
-    setExpandedMenus((prev) => {
-      if (prev[menuId]) return { ...prev, [menuId]: false }
-      const newState: Record<string, boolean> = {}
-      navItems.forEach((item) => {
-        newState[item.id] = item.id === menuId
-      })
-      return newState
-    })
-  }
-
-  // 進入頁面自動展開所在區塊
   useEffect(() => {
     setMobileMenuOpen(false)
-    const currentMenu = navItems.find((item) =>
-      item.children?.some((child) => location.pathname === child.path || location.pathname.startsWith(child.path + '/'))
-    )
-    if (currentMenu) {
-      setExpandedMenus((prev) => (prev[currentMenu.id] ? prev : { ...prev, [currentMenu.id]: true }))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setExpandedGroup(undefined)
+    setCompactMenu(null)
   }, [location.pathname])
 
   // ============== 認證檢查 ==============
@@ -714,12 +498,12 @@ function AdminLayoutContent() {
 
       {/* 側邊欄 */}
       <aside
-        className={`fixed top-0 left-0 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 z-50 transition-all duration-300 flex flex-col ${
+        className={`fixed top-0 left-0 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 z-50 transition-all duration-300 flex flex-col md:transform-none ${
           sidebarCollapsed ? 'w-16 overflow-visible' : 'w-64'
-        } ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+        } ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100 dark:border-gray-700">
+        <div className="h-16 shrink-0 flex items-center justify-between px-4 border-b border-gray-100 dark:border-gray-700">
           {!sidebarCollapsed && (
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <div
@@ -732,12 +516,16 @@ function AdminLayoutContent() {
             </div>
           )}
           <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            type="button"
+            aria-label={sidebarCollapsed ? '展開側欄' : '收合側欄'}
+            onClick={() => { setSidebarCollapsed(!sidebarCollapsed); setCompactMenu(null) }}
             className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg hidden md:block flex-shrink-0"
           >
             <Menu size={18} />
           </button>
           <button
+            type="button"
+            aria-label="關閉導覽選單"
             onClick={() => setMobileMenuOpen(false)}
             className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 md:hidden flex-shrink-0"
           >
@@ -746,14 +534,19 @@ function AdminLayoutContent() {
         </div>
 
         {/* Nav */}
-        <nav className={`flex-1 p-3 space-y-1 ${sidebarCollapsed ? 'overflow-visible' : 'overflow-y-auto'}`}>
+        <nav aria-label="後台導覽" className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3" onScroll={() => setCompactMenu(null)}>
           {navItems.map((item) => (
             <SidebarItem
               key={item.id}
               item={item}
               collapsed={sidebarCollapsed}
-              isExpanded={!!expandedMenus[item.id]}
-              onToggle={() => toggleMenu(item.id)}
+              active={currentGroup?.id === item.id}
+              expanded={visibleGroup === item.id}
+              popup={compactMenu?.id === item.id ? compactMenu : undefined}
+              onToggle={() => setExpandedGroup(visibleGroup === item.id ? null : item.id)}
+              onOpen={trigger => openCompactMenu(item, trigger)}
+              onDismiss={() => setCompactMenu(current => current?.id === item.id ? null : current)}
+              onNavigate={() => { setMobileMenuOpen(false); setCompactMenu(null) }}
             />
           ))}
         </nav>
@@ -800,7 +593,7 @@ function AdminLayoutContent() {
         <header className="h-16 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30 px-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
-              onClick={() => setMobileMenuOpen(true)}
+              onClick={() => { setSidebarCollapsed(false); setCompactMenu(null); setMobileMenuOpen(true) }}
               aria-label="開啟導覽選單"
               className="min-h-11 min-w-11 p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
             >
@@ -888,18 +681,8 @@ function PageBreadcrumb({ navItems }: { navItems: NavItem[] }) {
   let child: { id: string; label: string; path: string } | null = null
 
   for (const item of navItems) {
-    if (!item.children) {
-      if (item.path === location.pathname) {
-        return (
-          <h1 className="text-base font-semibold text-gray-900 dark:text-white truncate">
-            {item.label}
-          </h1>
-        )
-      }
-      continue
-    }
     for (const c of item.children) {
-      if ((location.pathname === c.path || location.pathname.startsWith(c.path + '/')) && (!child || c.path.length > child.path.length)) {
+      if ((location.pathname === c.path || (c.id && location.pathname.startsWith(c.path + '/'))) && (!child || c.path.length > child.path.length)) {
         parent = item
         child = c
       }
