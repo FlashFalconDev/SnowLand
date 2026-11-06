@@ -1,39 +1,57 @@
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm')
-const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript')
-const {renderToStaticMarkup}=req('react-dom/server')
-const source=fs.readFileSync(path.join(root,'src/admin/pages/StaffPermissionsPage.tsx'),'utf8')+'\nexport { EditPermissionModal };'
-const staff={id:91,name:'QA員工',username:'qa-staff',is_superuser:false,is_manager:true,is_coach:false,role:'campus_manager',permissions:['orders'],campus_ids:[11]}
-function setup(superuser,target=staff){
-  let mutation,submitted
-  const context=vm.createContext({React,exports:{},require(name){
-    if(name==='react')return {...React,useState:v=>[v,()=>{}]}
-    if(name==='react-router-dom')return {}
-    if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
-    if(name==='../context')return {useNotification:()=>({success(){},error(){}})}
-    if(name==='../permissions')return {ADMIN_PERMISSION_DEFINITIONS:[],groupPermissions:()=>({})}
-    if(name==='../api/auth')return {fetchAdminMe(){}}
-    if(name==='../api/campuses')return {fetchCampuses(){}}
-    if(name==='../api/extras')return {fetchStaff(){},updateCustomerPermission:async(id,body)=>{submitted={id,body};return {code:200}}}
-    if(name==='@tanstack/react-query')return {
-      useQuery:o=>({data:o.queryKey[1]==='me'?{user:{is_superuser:superuser}}:[{id:11,name:'QA校區',is_active:true}]}),
-      useQueryClient:()=>({invalidateQueries(){}}),
-      useMutation:o=>{mutation=o;return {isPending:false,mutate(){}}},
-    }
-    throw new Error(name)
-  }})
-  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context)
-  const tree=context.exports.EditPermissionModal({staff:target,onClose(){}})
-  return {tree,html:renderToStaticMarkup(tree),submit:async()=>{await mutation.mutationFn();return submitted}}
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const vm = require('node:vm')
+const React = require('react')
+const ts = require('typescript')
+const { renderToStaticMarkup } = require('react-dom/server')
+
+const source = fs.readFileSync(path.join(__dirname, '../src/admin/pages/StaffPermissionsPage.tsx'), 'utf8')
+const compiled = ts.transpileModule(source + '\nexport { EditPermissionModal }', {
+  compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText
+const positions = [{ id: 0, name: '教練', built_in: true }, { id: 12, name: '校區主管' }, { id: 15, name: '網頁人員' }]
+const staff = { id: 91, name: 'QA 員工', is_superuser: false, is_manager: true, has_coach_record: true, position_ids: [0, 12] }
+
+function setup(canManagePlatform, target = staff, platformMode = false) {
+  let stateIndex = 0
+  let submit
+  let payload
+  const exports = {}
+  const mocks = {
+    react: { ...React, useState(value) {
+      stateIndex++
+      return [stateIndex === 2 ? platformMode : stateIndex === 3 && platformMode ? true : value, () => {}]
+    } },
+    'react-router-dom': {},
+    'lucide-react': new Proxy({}, { get: () => () => null }),
+    '../context': { useNotification: () => ({}) },
+    '../permissions': {},
+    '../consoleNavigation': {},
+    '../api/auth': {},
+    '../hooks/useAdminDialog': { useAdminDialog() {} },
+    '../api/campuses': {},
+    '../api/extras': { async updateCustomerPermission(id, data) { payload = data } },
+    '@tanstack/react-query': {
+      useQuery: ({ queryKey }) => ({ data: queryKey[1] === 'me' ? { user: { is_superuser: canManagePlatform } } : positions }),
+      useQueryClient: () => ({}),
+      useMutation: options => { submit = options.mutationFn; return {} },
+    },
+  }
+  vm.runInNewContext(compiled, { React, exports, require: name => mocks[name] })
+  const tree = exports.EditPermissionModal({ staff: target, onClose() {} })
+  return { html: renderToStaticMarkup(tree), submit: async () => { await submit(); return JSON.parse(JSON.stringify(payload)) } }
 }
-function find(n,p){if(!n||typeof n!=='object')return null;if(p(n))return n;for(const c of React.Children.toArray(n.props?.children)){const r=find(c,p);if(r)return r}return null}
-;(async()=>{
-  const hq=setup(false),sent=await hq.submit()
-  assert.equal('is_superuser' in sent.body,false,'普通總部不可送出受保護的超級管理員欄位')
-  assert.equal(sent.body.role,'campus_manager');assert.deepEqual(Array.from(sent.body.campus_ids),[11])
-  assert.ok(!hq.html.includes('擁有全部後台權限'))
-  const owner=setup(true),ownerSent=await owner.submit()
-  assert.equal(ownerSent.body.is_superuser,false);assert.ok(owner.html.includes('擁有全部後台權限'))
-  const protectedTarget=setup(false,{...staff,is_superuser:true})
-  assert.equal(find(protectedTarget.tree,n=>n.type==='button'&&React.Children.toArray(n.props.children).includes('儲存')).props.disabled,true)
-  console.log('PASS staff editor: ordinary HQ omits protected flag, normal scope retained, superuser flag owner-only, protected account save disabled')
-})().catch(e=>{console.error(e);process.exit(1)})
+
+;(async () => {
+  const normal = setup(false)
+  assert.deepEqual(await normal.submit(), { position_ids: [0, 12] })
+  assert.match(normal.html, /教練.*校區主管.*網頁人員/)
+  assert.doesNotMatch(normal.html, /最大管理員設定|可查看校區|可使用的側欄分頁/)
+  const protectedTarget = setup(false, { ...staff, is_superuser: true })
+  assert.match(protectedTarget.html, /disabled=""[^>]*>儲存/)
+  const platform = setup(true, staff, true)
+  assert.match(platform.html, /最大管理員設定/)
+  assert.deepEqual(await platform.submit(), { is_superuser: true })
+  console.log('PASS employee editor submits positions only, and maximum administrator uses a separate action')
+})().catch(error => { console.error(error); process.exit(1) })

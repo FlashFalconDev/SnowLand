@@ -67,7 +67,10 @@ class AdminIdentityScopeTests(TestCase):
         user = response.data['data']
         self.assertTrue(user['is_manager'])
         self.assertFalse(user['is_coach'])
-        self.assertEqual(user['permissions'], ['orders', 'resorts', 'campuses'])
+        self.assertEqual(set(user['permissions']), {
+            'orders', 'order_view', 'order_edit', 'order_payments', 'order_refunds', 'booking_links',
+            'order_export', 'resorts', 'campuses',
+        })
         self.assertEqual(user['role'], 'campus_manager')
 
     def test_superuser_remains_company_scoped_and_can_open_console(self):

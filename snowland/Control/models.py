@@ -48,9 +48,29 @@ class TenantStaffMembership(models.Model):
     admin_permissions = models.JSONField(default=None, blank=True, null=True)
     campuses = models.ManyToManyField('Resorts.Campus', blank=True, related_name='staff_memberships')
 
+    positions = models.ManyToManyField('TenantStaffPosition', blank=True, related_name='memberships')
+
+    # Null preserves the campus scope of memberships created before explicit scope selection.
+    all_campuses = models.BooleanField(default=None, null=True, blank=True)
+
     @property
     def manager_client_id(self):
         return self.client_id if self.is_manager else None
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['client', 'user'], name='unique_staff_membership_client_user')]
+
+
+class TenantStaffPosition(models.Model):
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE, related_name='staff_positions')
+    name = models.CharField(max_length=100)
+    role = models.CharField(max_length=30, blank=True, default='')
+    permissions = models.JSONField(default=list, blank=True, null=True)
+    all_campuses = models.BooleanField(default=False)
+    campuses = models.ManyToManyField('Resorts.Campus', blank=True, related_name='staff_positions')
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['client', 'name'], name='unique_staff_position_name')]
+
+    def __str__(self):
+        return self.name

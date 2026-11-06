@@ -83,7 +83,7 @@ function walkOrders(node){
 walkOrders(orders);assert.ok(viewingGuard);assert.ok(viewingData);assert.ok(viewingQuery)
 ctx.setViewingId=()=>{};ctx.refetchViewing=()=>{}
 run('exports.viewing=()=> <>{'+viewingGuard.getText(orders)+'}{'+viewingData.getText(orders)+'}</>')
-ctx.viewingId=213;ctx.viewing={id:213};ctx.viewingError={response:{status:403}};ctx.isViewingLoading=false
+ctx.workflow=undefined;ctx.viewingId=213;ctx.viewing={id:213};ctx.viewingError={response:{status:403}};ctx.isViewingLoading=false
 const hidden=ctx.exports.viewing(),html=renderToStaticMarkup(hidden)
 assert.ok(html.includes('目前沒有權限'));assert.ok(html.includes('重新載入明細'))
 assert.equal(React.Children.toArray(hidden.props.children).find(node=>node.type==='div').props['aria-hidden'],true)

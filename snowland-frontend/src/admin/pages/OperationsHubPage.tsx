@@ -6,10 +6,9 @@ import { Bell, Calculator, ClipboardCheck, Link2, Loader2, Plus, Save } from 'lu
 import { fetchCampuses } from '../api/campuses'
 import { fetchAdminMe } from '../api/auth'
 import { hasAdminPermission } from '../permissions'
-import { fetchCourseCategories, fetchCourseTemplates } from '../api/courses'
 import {
   calculatePayroll, createStaffBookingLink, fetchEvaluations, fetchNotificationDeliveries,
-  fetchNotificationTemplates, fetchPayrollStatements, fetchPayrollCoaches, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, addPayrollAdjustment, editPayrollAdjustment, removePayrollAdjustment, deletePayrollDraft,
+  fetchNotificationTemplates, fetchNotificationCourseOptions, fetchPayrollStatements, fetchPayrollCoaches, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, addPayrollAdjustment, editPayrollAdjustment, removePayrollAdjustment, deletePayrollDraft,
   fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceRecordDetail,
   fetchCourseUploadLimits, uploadCourseFile,
   updateEvaluation, type Evaluation,
@@ -33,11 +32,14 @@ import AssessmentSettings from '../components/AssessmentSettings'
 import { SkillReviewFields, SkillSnapshotSummary } from '../components/SkillReviewFields'
 
 const PRIMARY = '#8b5cf6'
-type Tab = 'notifications' | 'payroll' | 'evaluations' | 'insurance' | 'links'
+type Tab = 'notifications' | 'payroll' | 'payroll-rules' | 'staff-incentives' | 'payroll-documents' | 'evaluations' | 'insurance' | 'links'
 
 const tabs: { id: Tab; label: string; icon: typeof Bell }[] = [
   { id: 'notifications', label: '自動通知', icon: Bell },
-  { id: 'payroll', label: '薪資結算', icon: Calculator },
+  { id: 'payroll', label: '薪資單與月結', icon: Calculator },
+  { id: 'payroll-rules', label: '教練計薪規則', icon: Calculator },
+  { id: 'staff-incentives', label: '行政獎金', icon: Calculator },
+  { id: 'payroll-documents', label: '薪資文件設定', icon: Calculator },
   { id: 'evaluations', label: '學習評量', icon: ClipboardCheck },
   { id: 'insurance', label: '保險與聲明書', icon: ClipboardCheck },
   { id: 'links', label: '代客訂課連結', icon: Link2 },
@@ -45,7 +47,10 @@ const tabs: { id: Tab; label: string; icon: typeof Bell }[] = [
 
 const descriptions: Record<Tab, string> = {
   notifications: '設定 Email、LINE 與站內通知，並查看最近發送結果。',
-  payroll: '設定教練薪資規則，依校區與期間完成結算。',
+  payroll: '依校區與期間試算、核對及發布薪資單。',
+  'payroll-rules': '設定各教練的計薪條件。',
+  'staff-incentives': '管理行政獎金設定與月結。',
+  'payroll-documents': '維護薪資文件。',
   evaluations: '記錄學員進度、教練評語與課程媒體。',
   insurance: '查核學員保險、課前聲明與法定代理人資料，追蹤待補項目。',
   links: '建立有校區歸屬的連結，協助客人完成訂課。',
@@ -96,7 +101,10 @@ export default function OperationsHubPage({ initialTab = 'notifications', fixed 
         {visibleTabs.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold ${activeTab === item.id ? 'bg-white text-violet-600 shadow-sm dark:bg-gray-700' : 'text-gray-500 dark:text-gray-400'}`}><item.icon size={16} />{item.label}</button>)}
       </div>}
       {activeTab === 'notifications' && <NotificationsPanel />}
-      {activeTab === 'payroll' && <><StaffIncentiveRulesPanel /><StaffIncentiveStatementsPanel /><PayrollPanel /></>}
+      {activeTab === 'payroll' && <PayrollPanel />}
+      {activeTab === 'payroll-rules' && <PayrollRulesPanel />}
+      {activeTab === 'staff-incentives' && <><StaffIncentiveRulesPanel /><StaffIncentiveStatementsPanel /></>}
+      {activeTab === 'payroll-documents' && <PayrollDocumentSettingsPanel />}
       {activeTab === 'evaluations' && <EvaluationsPanel coachView={coachView} />}
       {activeTab === 'insurance' && <InsurancePanel />}
       {activeTab === 'links' && <BookingLinksPanel />}
@@ -108,12 +116,11 @@ function NotificationsPanel() {
   const qc = useQueryClient(); const notify = useNotification()
   const [composing, setComposing] = useState(false)
   const { data: notificationAdmin } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
-  const canCompose = (hasAdminPermission(notificationAdmin?.user, 'orders') || hasAdminPermission(notificationAdmin?.user, 'customers'))
+  const canCompose = (hasAdminPermission(notificationAdmin?.user, 'order_view') || hasAdminPermission(notificationAdmin?.user, 'member_directory'))
     && !['campus_manager', 'campus_principal'].includes(notificationAdmin?.user?.role || '')
   const { campuses, selectedCampus } = useScopedCampuses()
   const { data: templates = [], isLoading } = useQuery({ queryKey: ['admin', 'notification-templates'], queryFn: fetchNotificationTemplates })
-  const { data: courseTemplates = [], isLoading: coursesLoading, isError: coursesError } = useQuery({ queryKey: ['admin', 'course-templates'], queryFn: fetchCourseTemplates })
-  const { data: categories = [] } = useQuery({ queryKey: ['admin', 'course-categories'], queryFn: fetchCourseCategories })
+  const { data: courseTemplates = [], isLoading: coursesLoading, isError: coursesError } = useQuery({ queryKey: ['admin', 'notification-templates', 'course-options'], queryFn: fetchNotificationCourseOptions })
   const { data: deliveries = [] } = useQuery({ queryKey: ['admin', 'notification-deliveries'], queryFn: fetchNotificationDeliveries })
   const emptyForm = () => ({ id: undefined as number | undefined, name: '', campus: selectedCampus, event: 'pre_course', channel: 'email', subject: '', body: '', days_before: '3', repeat_interval_days: '0', course_template_ids: [] as number[], is_active: true })
   const [form, setForm] = useState(emptyForm)
@@ -133,8 +140,7 @@ function NotificationsPanel() {
   const courseLabel = (id: number) => {
     const course = courseTemplates.find(item => item.id === id)
     if (!course) return `課程 #${id}`
-    const category = categories.find(item => item.types.some(type => type.id === course.course_type))
-    return `${course.name}（${category?.name || course.course_type_name} · #${id}）`
+    return `${course.name}（${course.category_name} · #${id}）`
   }
   return <><section className={`${cardClass} mb-5 flex flex-wrap items-center justify-between gap-3`}><div><h2 className="font-semibold text-gray-900 dark:text-white">手動站內通知</h2><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">針對單筆訂單或一位會員發送；先預覽，不會寄 Email／LINE。</p></div><button disabled={!canCompose} onClick={() => setComposing(true)} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">新增站內通知</button>{!canCompose && <p className="w-full text-xs text-gray-500 dark:text-gray-400">需要完整訂單或會員管理權限；校區摘要帳號請由行政人員協助。</p>}</section><div className="grid gap-5 xl:grid-cols-[380px_1fr]">
     <section className={cardClass}><div className="flex items-center justify-between gap-2"><h2 className="font-semibold text-gray-900 dark:text-white">{form.id ? '編輯通知範本' : '新增通知範本'}</h2>{form.id && <button type="button" onClick={() => setForm(emptyForm())} className="text-sm text-violet-700 hover:underline dark:text-violet-300">取消編輯</button>}</div><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">選事件、管道、課程與時間，系統會依校區自動排程。</p><div className="space-y-3">
@@ -156,13 +162,18 @@ function NotificationsPanel() {
   </div>{composing && <ManualNotificationComposer onClose={() => setComposing(false)} />}</>
 }
 
+function PayrollRulesPanel() {
+  const { data: coaches = [], isError: coachesError } = useQuery({ queryKey: ['admin', 'payroll-coaches'], queryFn: fetchPayrollCoaches })
+  const { data: rules = [], isLoading, isError } = useQuery({ queryKey: ['admin', 'pay-rules'], queryFn: fetchPayRules })
+  return <PayRuleEditor rules={rules} coaches={coaches} loading={isLoading} failed={isError || coachesError} />
+}
+
 function PayrollPanel() {
   const qc = useQueryClient(); const notify = useNotification()
   const { campuses, selectedCampus } = useScopedCampuses()
   const activeCampuses = campuses.filter(campus => campus.is_active)
   const { data: coaches = [], isError: coachesError } = useQuery({ queryKey: ['admin', 'payroll-coaches'], queryFn: fetchPayrollCoaches })
   const { data: statements = [], isLoading } = useQuery({ queryKey: ['admin', 'payroll'], queryFn: fetchPayrollStatements })
-  const { data: rules = [], isLoading: rulesLoading, isError: rulesError } = useQuery({ queryKey: ['admin', 'pay-rules'], queryFn: fetchPayRules })
   const { first, last } = payrollMonthRange()
   const [form, setForm] = useState({ coach: '', campus: selectedCampus, period_start: first, period_end: last })
   const campusCoaches = form.campus ? coaches.filter(coach => coach.campus_ids.includes(Number(form.campus))) : []
@@ -192,7 +203,7 @@ function PayrollPanel() {
     item.coach === other.coach && item.campus === other.campus &&
     item.period_start <= other.period_end && other.period_start <= item.period_end
   )), [statements])
-  return <div className="space-y-5"><PayrollDocumentSettingsPanel />{coachesError && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">教練清單載入失敗，請重新整理後再操作薪資。</p>}<PayRuleEditor rules={rules} coaches={coaches} loading={rulesLoading} failed={rulesError || coachesError} /><section className={cardClass}><h2 className="font-semibold text-gray-900 dark:text-white">計算教練薪資</h2><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">完成課程才列入；時薪、指定費、介紹費、裝備協助與主管加給會分開計算。</p><div className="grid items-end gap-3 md:grid-cols-5">
+  return <div className="space-y-5">{coachesError && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">教練清單載入失敗，請重新整理後再操作薪資。</p>}<section className={cardClass}><h2 className="font-semibold text-gray-900 dark:text-white">計算教練薪資</h2><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">完成課程才列入；時薪、指定費、介紹費、裝備協助與主管加給會分開計算。</p><div className="grid items-end gap-3 md:grid-cols-5">
     <Field label="校區"><select className={inputClass} value={form.campus} onChange={e => { setForm({ ...form, campus: e.target.value, coach: '' }); setRunError('') }}><option value="">請選校區</option>{activeCampuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
     <Field label="教練"><select className={inputClass} value={form.coach} disabled={!form.campus || coachesError} onChange={e => setForm({ ...form, coach: e.target.value })}><option value="">{form.campus ? '請選教練' : '請先選校區'}</option>{campusCoaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
     <Field label="結算開始日"><input className={inputClass} type="date" value={form.period_start} onChange={e => setForm({ ...form, period_start: e.target.value })} /></Field>

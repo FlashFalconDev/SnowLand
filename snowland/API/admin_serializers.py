@@ -13,7 +13,7 @@ from django.utils import timezone
 from datetime import timedelta
 from copy import deepcopy
 from uuid import uuid4
-from Client.models import SiteContent
+from Client.models import Client, SiteContent
 from Coach.models import (
     Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest, normalize_ability_levels,
     CoachPayRule, PayrollStatement, PayrollLine, StaffIncentiveRule,
@@ -670,11 +670,14 @@ class CoachAdminSerializer(serializers.ModelSerializer):
             self._sync_course_levels(instance, course_levels_input)
         return instance
 
+    @transaction.atomic
     def _sync_coach_permission(self, user_id):
         if not user_id:
             return
         try:
-            profile = writable_staff_profile(User.objects.get(pk=user_id), self.context['request'].tenant)
+            tenant = self.context['request'].tenant
+            Client.objects.select_for_update().get(pk=tenant.pk)
+            profile = writable_staff_profile(User.objects.get(pk=user_id), tenant)
             profile.is_coach = True
             if not profile.is_manager and not profile.role:
                 profile.role = 'coach'
@@ -758,7 +761,7 @@ class CoachLeaveRequestAdminSerializer(serializers.ModelSerializer):
 
     def get_review_block_reason(self, obj):
         request = self.context.get('request')
-        if not request or not user_has_admin_permission(request.user, 'coaches', getattr(request, 'tenant', None)):
+        if not request or not user_has_admin_permission(request.user, 'coach_leaves', getattr(request, 'tenant', None)):
             return '沒有請假審核權限'
         profile = staff_profile(request.user, getattr(request, 'tenant', None))
         if not request.user.is_superuser and profile and profile.role == 'assistant':
@@ -1257,7 +1260,7 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
 
     def get_can_manage_payroll_hours(self, obj):
         request = self.context.get('request')
-        return self.get_can_manage(obj) and user_has_admin_permission(getattr(request, 'user', None), 'payroll', getattr(request, 'tenant', None))
+        return self.get_can_manage(obj) and user_has_admin_permission(getattr(request, 'user', None), 'payroll_rules', getattr(request, 'tenant', None))
 
     def get_resort_names(self, obj):
         return [resort.display_name for resort in self._visible_resorts(obj)]
@@ -1279,7 +1282,7 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         tenant = getattr(request, 'tenant', None)
         if 'payroll_hours' in attrs and attrs['payroll_hours'] != getattr(self.instance, 'payroll_hours', None):
-            if not user_has_admin_permission(getattr(request, 'user', None), 'payroll', getattr(request, 'tenant', None)):
+            if not user_has_admin_permission(getattr(request, 'user', None), 'payroll_rules', getattr(request, 'tenant', None)):
                 raise PermissionDenied('需要薪資管理權限才能修改計薪時數')
         course_type = attrs.get('course_type', getattr(self.instance, 'course_type', None))
         if not course_type or course_type.category.client_id != getattr(tenant, 'id', None):
@@ -1722,7 +1725,12 @@ class OrderAdminSerializer(serializers.ModelSerializer):
 
     def get_cancellation(self, obj):
         cancellation = obj.cancellation_requests.order_by('-created_at').first()
-        return CancellationRequestAdminSerializer(cancellation).data if cancellation else None
+        if not cancellation:
+            return None
+        request = self.context.get('request')
+        if request is not None and not user_has_admin_permission(request.user, 'order_refunds', getattr(request, 'tenant', None)):
+            return {'id': cancellation.pk, 'status': cancellation.status}
+        return CancellationRequestAdminSerializer(cancellation).data
 
     def get_amendment_balance(self, obj):
         pending=list(obj.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
@@ -2366,8 +2374,8 @@ class StaffIncentiveRuleAdminSerializer(serializers.ModelSerializer):
         profile = staff_profile(user, request.tenant)
         if profile and not profile.is_manager:
             profile = None
-        headquarters_roles = {'hq_admin', 'marketing', 'web_editor', 'insurance', 'assistant'}
-        if not disabling_existing and (not profile or not (profile.role in headquarters_roles or profile.campuses.filter(pk=campus.pk).exists())):
+        from .admin_views import _staff_all_campuses
+        if not disabling_existing and (not profile or not (_staff_all_campuses(profile) or profile.campuses.filter(pk=campus.pk).exists())):
             raise serializers.ValidationError({'user': '請選擇本公司且可管理此校區的員工'})
         if StaffIncentiveRule.objects.filter(user=user, campus=campus).exclude(pk=getattr(self.instance, 'pk', None)).exists():
             raise serializers.ValidationError({'non_field_errors': '此員工在這個校區已有獎金比例，請編輯原設定'})

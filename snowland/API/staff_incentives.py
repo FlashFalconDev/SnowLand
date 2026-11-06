@@ -59,7 +59,7 @@ class AcknowledgeInput(serializers.Serializer):
 class StaffIncentiveStatementAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     serializer_class = StaffIncentiveStatementSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'payroll'
+    permission_key = 'staff_incentives'
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def _campuses(self):

@@ -8,7 +8,7 @@ from .admin_permissions import user_has_admin_permission
 def order_email_response(request, group_id):
     if not request.user.is_authenticated:
         return JsonResponse({'code': 401, 'msg': '請先登入'}, status=401)
-    if not user_has_admin_permission(request.user, 'orders', getattr(request, 'tenant', None)):
+    if not user_has_admin_permission(request.user, 'order_edit', getattr(request, 'tenant', None)):
         return JsonResponse({'code': 403, 'msg': '需要訂單管理權限'}, status=403)
     try:
         group_id = int(group_id)

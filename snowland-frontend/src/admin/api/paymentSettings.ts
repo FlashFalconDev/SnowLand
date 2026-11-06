@@ -29,14 +29,26 @@ export interface PaymentAccount {
 
 interface Resp { code: number; msg: string; data: PaymentSettings }
 
-export async function fetchPaymentSettings(): Promise<PaymentSettings> {
-  const res = (await adminApi.get('/payment-settings/')) as unknown as Resp
+export type PaymentSettingsSection = 'accounts' | 'booking-form'
+
+export async function fetchPaymentSettings(section?: PaymentSettingsSection): Promise<PaymentSettings> {
+  const res = (await adminApi.get('/payment-settings/', { params: { section } })) as unknown as Resp
   return res.data
 }
 
-export async function updatePaymentSettings(data: PaymentSettings): Promise<PaymentSettings> {
-  const res = (await adminApi.put('/payment-settings/', data)) as unknown as Resp
+export async function updatePaymentSettings(data: Partial<PaymentSettings>, section?: PaymentSettingsSection): Promise<PaymentSettings> {
+  const res = (await adminApi.put('/payment-settings/', data, { params: { section } })) as unknown as Resp
   return res.data
+}
+
+interface PaymentAccountScopeOptions {
+  campuses: { id: number; name: string; is_active: boolean; resort_ids: number[] }[]
+  resorts: { id: number; display_name: string }[]
+}
+
+export async function fetchPaymentAccountScopeOptions(): Promise<PaymentAccountScopeOptions> {
+  const response = await adminApi.get('/payment-accounts/scope-options/', { headers: { 'X-Campus-ID': 'all' } }) as unknown as { data: PaymentAccountScopeOptions }
+  return response.data
 }
 
 export async function fetchPaymentAccounts(): Promise<PaymentAccount[]> {

@@ -55,7 +55,7 @@ def allowed_members(request):
 def require_target_permission(request, kind):
     if kind not in {'order', 'member'}:
         raise serializers.ValidationError({'kind': '請選訂單或會員'})
-    key = 'orders' if kind == 'order' else 'customers'
+    key = 'order_view' if kind == 'order' else 'member_directory'
     if not user_has_admin_permission(request.user, key, getattr(request, 'tenant', None)):
         raise PermissionDenied('需要訂單管理權限' if kind == 'order' else '需要會員管理權限')
     profile = staff_profile(request.user, getattr(request, 'tenant', None))

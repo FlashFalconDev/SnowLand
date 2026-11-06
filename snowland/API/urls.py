@@ -55,6 +55,7 @@ from .website_coach_editor import WebsiteCoachEditorViewSet
 from .contact_inbox import ContactInboxViewSet
 from .instagram_sync import InstagramSyncViewSet
 from .frontend_releases import FrontendReleaseViewSet
+from .staff_positions import staff_positions, staff_position_detail
 
 
 # 後台 ViewSet router
@@ -109,6 +110,8 @@ urlpatterns = [
     path('admin/<str:client_code>/customers/<int:user_id>/loyalty/', customer_loyalty, name='admin-customer-loyalty'),
     path('admin/<str:client_code>/customers/<int:user_id>/permission/', update_customer_permission, name='admin-customer-permission'),
     path('admin/<str:client_code>/staff/', staff_list, name='admin-staff-list'),
+    path('admin/<str:client_code>/staff-positions/', staff_positions, name='admin-staff-positions'),
+    path('admin/<str:client_code>/staff-positions/<int:position_id>/', staff_position_detail, name='admin-staff-position-detail'),
     path('admin/<str:client_code>/dashboard/', dashboard_stats, name='admin-dashboard'),
     path('admin/<str:client_code>/orders/<int:order_id>/send-email/', send_order_email, name='admin-order-send-email'),
     path('admin/<str:client_code>/resorts/<int:resort_id>/bulk-fees/', bulk_update_resort_fees, name='admin-resort-bulk-fees'),

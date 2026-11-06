@@ -1,3 +1,4 @@
+import type { OrderWorkflow } from '../api/orders'
 import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 /**
  * 訂單管理（接 API）
@@ -132,22 +133,28 @@ function getVisiblePageItems(currentPage: number, totalPages: number): Array<num
   return items
 }
 
-export default function OrdersPage() {
+const ORDER_WORKFLOW_LABELS = { edit: '修改與排課', payments: '對帳與差額', refunds: '取消與退款' } as const
+
+export default function OrdersPage({ mode }: { mode?: OrderWorkflow | 'export' } = {}) {
   const { data, isLoading } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-purple-500" /></div>
+  if (mode === 'export') return <section className="rounded-xl bg-white p-5 dark:bg-gray-800">
+    <h1 className="text-2xl font-bold">匯出訂單</h1>
+    <OrderExportForm search="" status="" paymentStatus="" />
+  </section>
   return data?.user?.role === 'campus_manager' || data?.user?.role === 'campus_principal'
-    ? <CampusManagerOrdersPage isPrincipal={data?.user?.role === 'campus_principal'} />
-    : <FullOrdersPage />
+    ? <CampusManagerOrdersPage workflow={mode} isPrincipal={data?.user?.role === 'campus_principal'} />
+    : <FullOrdersPage workflow={mode} />
 }
 
-function CampusManagerOrdersPage({ isPrincipal }: { isPrincipal: boolean }) {
+function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boolean; workflow?: OrderWorkflow }) {
   const [searchParams] = useSearchParams()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const { data, isLoading, error } = useQuery({
-    queryKey: ['admin', 'campus-orders', isPrincipal, page, search],
-    queryFn: () => fetchCampusManagerOrdersPaged({ page, page_size: PAGE_SIZE, search }),
+    queryKey: ['admin', 'campus-orders', isPrincipal, page, search, workflow],
+    queryFn: () => fetchCampusManagerOrdersPaged({ workflow, page, page_size: PAGE_SIZE, search }),
   })
   return <div className="space-y-5">
     <div>
@@ -192,7 +199,8 @@ function CampusManagerOrdersPage({ isPrincipal }: { isPrincipal: boolean }) {
   </div>
 }
 
-function FullOrdersPage() {
+function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const [searchParams] = useSearchParams()
   const querySearch = searchParams.get('search') || ''
   const [searchInput, setSearchInput] = useState(querySearch)
@@ -213,13 +221,14 @@ function FullOrdersPage() {
   useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter])
 
   const { data: pageData, isLoading, error, isFetching } = useQuery({
-    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter }],
+    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, workflow }],
     queryFn: () => fetchOrdersPaged({
       page,
       page_size: PAGE_SIZE,
       search: search || undefined,
       status: statusFilter || undefined,
       payment_status: paymentFilter || undefined,
+      workflow,
     }),
     placeholderData: keepPreviousData,  // 翻頁時保留舊資料避免畫面閃白
   })
@@ -239,8 +248,8 @@ function FullOrdersPage() {
   }, [page, pageData?.page])
 
   const { data: viewing, isFetching: isViewingLoading, error: viewingError, refetch: refetchViewing } = useQuery({
-    queryKey: ['admin', 'orders', 'detail', viewingId],
-    queryFn: () => fetchOrder(viewingId as number),
+    queryKey: ['admin', 'orders', 'detail', viewingId, workflow],
+    queryFn: () => fetchOrder(viewingId as number, workflow),
     enabled: viewingId !== null,
     retry: false,
     staleTime: 0,
@@ -250,7 +259,7 @@ function FullOrdersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">訂單管理</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{workflow ? ORDER_WORKFLOW_LABELS[workflow] : '訂單管理'}</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">
           {(localStorage.getItem(campusScopeKey(currentClientCode())) || 'all') === 'all'
             ? '查看與管理全部校區的預約訂單'
@@ -276,7 +285,7 @@ function FullOrdersPage() {
             {Object.entries(PAYMENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
-        <OrderExportForm search={search} status={statusFilter} paymentStatus={paymentFilter} />
+        {!workflow && hasAdminPermission(adminMe?.user, 'order_export') && <OrderExportForm search={search} status={statusFilter} paymentStatus={paymentFilter} />}
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -460,7 +469,7 @@ function FullOrdersPage() {
           onClose={() => setViewingId(null)}
         />
       )}
-      {viewingId !== null && viewing && <div className={isViewingLoading || viewingError ? 'invisible' : undefined} aria-hidden={Boolean(isViewingLoading || viewingError)}><OrderDetailDrawer order={viewing} onClose={() => setViewingId(null)} /></div>}
+      {viewingId !== null && viewing && <div className={isViewingLoading || viewingError ? 'invisible' : undefined} aria-hidden={Boolean(isViewingLoading || viewingError)}><OrderDetailDrawer order={viewing} workflow={workflow} onClose={() => setViewingId(null)} /></div>}
     </div>
   )
 }
@@ -524,7 +533,7 @@ export function OrderDetailStatusDrawer({ title, message = '請稍候...', onClo
   )
 }
 
-export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order: Order; onClose: () => void; readOnly?: boolean }) {
+export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }: { order: Order; onClose: () => void; readOnly?: boolean; workflow?: OrderWorkflow }) {
   const notify = useNotification()
   const qc = useQueryClient()
   const orderPanel = useRef<HTMLDivElement>(null)
@@ -538,7 +547,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const [composingNotice, setComposingNotice] = useState(false)
   const [amending, setAmending] = useState(false)
   const { data: noticeAdmin } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
-  const canNotify = !readOnly && hasAdminPermission(noticeAdmin?.user, 'notifications') && hasAdminPermission(noticeAdmin?.user, 'orders')
+  const canEdit = !readOnly && (!workflow || workflow === 'edit') && hasAdminPermission(noticeAdmin?.user, 'order_edit')
+  const canReconcile = !readOnly && (!workflow || workflow === 'payments') && hasAdminPermission(noticeAdmin?.user, 'order_payments')
+  const mayRefund = hasAdminPermission(noticeAdmin?.user, 'order_refunds')
+  const canRefund = !readOnly && (!workflow || workflow === 'refunds') && mayRefund
+  const canNotify = !readOnly && !workflow && hasAdminPermission(noticeAdmin?.user, 'notifications') && hasAdminPermission(noticeAdmin?.user, 'order_view')
     && !['campus_manager', 'campus_principal'].includes(noticeAdmin?.user?.role || '')
 
   // 編輯狀態（reservation id → 教練 id 或 null）
@@ -607,7 +620,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
   const { data: refundPreview, isError: refundPreviewError, refetch: reloadRefundPreview } = useQuery({
     queryKey: ['admin', 'orders', order.id, 'refund-preview'],
     queryFn: () => previewOrderRefund(order.id),
-    enabled: !readOnly && (canStartCancellation || order.cancellation?.status === 'requested'),
+    enabled: canRefund && (canStartCancellation || order.cancellation?.status === 'requested'),
   })
   const cancellationExpired = refundPreview != null && (refundPreview.course_started === true || refundPreview.days_before < 0)
   const cancellationBlocked = !refundPreview || refundPreviewError || cancellationExpired
@@ -705,13 +718,13 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
           .filter((r) => r.is_preferred_coach)
           .map((r) => r.id),
       )
-      const updates = Object.entries(coachAssignments)
+      const updates = Object.entries(canEdit ? coachAssignments : {})
         .filter(([rid]) => !studentSpecifiedIds.has(Number(rid)))
         .map(([rid, cid]) => ({
           reservation_id: Number(rid),
           coach_id: cid,
         }))
-      const bookingUpdates = Object.entries(bookingEdits).map(([bookingId, value]) => ({
+      const bookingUpdates = Object.entries(canEdit ? bookingEdits : {}).map(([bookingId, value]) => ({
         booking_id: Number(bookingId),
         date: value.date,
         start_time: value.start_time,
@@ -781,22 +794,22 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
           <div className="flex flex-wrap items-center gap-2 pr-10">
             <h2 className="mr-1 font-mono text-base font-semibold sm:text-lg">{order.sn}</h2>
             {!editing && canNotify && <button onClick={() => setComposingNotice(true)} className="min-h-10 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30">發送站內通知</button>}
-            {!editing && !readOnly && (
+            {!editing && (canEdit || canReconcile || canRefund) && (
               <>
-                <button
+                {(canEdit || canReconcile) && <button
                   onClick={() => { resetOrderEdits(); setEditing(true) }}
                   className="flex min-h-10 items-center gap-1 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30"
                 >
-                  <Edit2 size={12} />付款／排課
-                </button>
-                <button onClick={() => setAmending(true)} className="min-h-10 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30">修改課程／人數與差額</button>
-                <button
+                  <Edit2 size={12} />{canEdit && canReconcile ? '付款／排課' : canEdit ? '修改排課' : '核對付款'}
+                </button>}
+                {canEdit && <button onClick={() => setAmending(true)} className="min-h-10 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30">修改課程／人數與差額</button>}
+                {canEdit && <button
                   onClick={openOrderEmail}
                   className="flex min-h-10 items-center gap-1 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30"
                 >
                   <Mail size={12} />寄信
-                </button>
-                {canStartCancellation && <button onClick={() => setCancelOpen(true)} disabled={cancellationBlocked} className="min-h-11 rounded-md bg-red-500/80 px-3 py-2 text-xs font-medium hover:bg-red-500 disabled:opacity-40">{order.cancellation ? '重新申請取消／退款' : '取消／退款'}</button>}
+                </button>}
+                {canRefund && canStartCancellation && <button onClick={() => setCancelOpen(true)} disabled={cancellationBlocked} className="min-h-11 rounded-md bg-red-500/80 px-3 py-2 text-xs font-medium hover:bg-red-500 disabled:opacity-40">{order.cancellation ? '重新申請取消／退款' : '取消／退款'}</button>}
               </>
             )}
           </div>
@@ -804,14 +817,14 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {!readOnly && cancellationExpired && <p role="status" className="text-sm">首堂課已開始，無法新增取消申請。</p>}
-          {!readOnly && refundPreviewError && <p role="alert" className="text-sm">無法確認取消資格。 <button type="button" className="underline" onClick={() => reloadRefundPreview()}>重試</button></p>}
+          {canRefund && cancellationExpired && <p role="status" className="text-sm">首堂課已開始，無法新增取消申請。</p>}
+          {canRefund && refundPreviewError && <p role="alert" className="text-sm">無法確認取消資格。 <button type="button" className="underline" onClick={() => reloadRefundPreview()}>重試</button></p>}
           <div className="flex flex-wrap gap-2">
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
           </div>
           {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
-          {!readOnly&&<AmendmentBalancesPanel orderId={order.id} cancellationStatus={order.cancellation?.status}/>}
+          {canReconcile&&<AmendmentBalancesPanel orderId={order.id} cancellationStatus={order.cancellation?.status}/>}
 
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><User size={14} style={{ color: PRIMARY }} />訂單聯絡資料</h3>
@@ -824,7 +837,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             </div>
           </section>
 
-          {!readOnly && <section className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+          {canEdit && <section className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">上課群組連結</h3>
             <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">先由行政建立群組，再貼上完整 HTTPS 邀請連結。已付款會員可在這張訂單加入；通知依「自動通知」的群組邀請範本與天數排程，儲存不會立即寄信或重寄已發送通知。</p>
             <label className="mt-3 block text-xs font-medium text-gray-700 dark:text-gray-300">群組邀請網址
@@ -854,7 +867,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                 </div>) : <p className="text-gray-500 dark:text-gray-400">這筆舊紀錄沒有保存課程明細。</p>}
               </div>
             </details>)}</div>
-            {order.cancellation && <CancellationStatusPanel cancellation={order.cancellation} readOnly={readOnly} approvalBlocked={cancellationBlocked} />}
+            {canRefund && order.cancellation && <CancellationStatusPanel cancellation={order.cancellation} readOnly={readOnly} approvalBlocked={cancellationBlocked} />}
           </section>
 
           {order.reservations.map((r, idx) => {
@@ -864,8 +877,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             const reservationStatusPill = getStatusPill(r.status)
             const isSchedulingFailed = r.status === 'auto_assignment_failed' || r.status === 'manual_assignment_needed'
             const isStudentSpecifiedCoach = Boolean(r.is_preferred_coach && r.preferred_coach_id)
-            const canEditCourse = editing && !['completed', 'cancelled', 'deleted'].includes(r.status) && !r.shared_course_class_id
-            const canComplete = !readOnly && !editing && order.payment_status === 'paid' &&
+            const canEditCourse = canEdit && editing && !['completed', 'cancelled', 'deleted'].includes(r.status) && !r.shared_course_class_id
+            const canComplete = canEdit && !editing && order.payment_status === 'paid' &&
               ['auto_assigned', 'manually_assigned', 'form_filled'].includes(r.status) &&
               Boolean(r.preferred_coach_id) && r.bookings.length > 0 &&
               r.bookings.every(b => new Date(`${b.date}T${formatTime(b.end_time)}:00`).getTime() <= Date.now())
@@ -981,14 +994,14 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-2 text-sm">
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">付款狀態</span>
-                {editing && !sharedPaymentHeld ? (
+                {canReconcile && editing && !sharedPaymentHeld ? (
                   <select
                     aria-label="訂單付款狀態"
                     value={paymentStatus}
                     onChange={(e) => {setJpyReceiptConfirmed(false);setPaymentStatus(e.target.value as PaymentStatus)}}
                     className="px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30"
                   >
-                    {Object.entries(PAYMENT_LABEL).map(([k, v]) => (
+                    {Object.entries(PAYMENT_LABEL).filter(([key]) => key !== 'refunded' || mayRefund || paymentStatus === key).map(([k, v]) => (
                       <option key={k} value={k}>{v.label}</option>
                     ))}
                   </select>
@@ -1008,7 +1021,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                 <span className="font-medium text-gray-900 dark:text-white">總金額</span>
                 <span className="text-lg font-bold" style={{ color: PRIMARY }}>NT$ {(order.total_fee || 0).toLocaleString()}</span>
               </div>
-              {!readOnly && !editing && !sharedPaymentHeld && order.user === null && ['unpaid', 'pending'].includes(paymentStatus) && (
+              {canReconcile && !editing && !sharedPaymentHeld && order.user === null && ['unpaid', 'pending'].includes(paymentStatus) && (
                 <div className="border-t border-gray-200 pt-3 dark:border-gray-600">
                   <button type="button" onClick={() => paymentLinkMutation.mutate()} disabled={paymentLinkMutation.isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-2 font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:border-violet-600 dark:bg-gray-800 dark:text-violet-300 dark:hover:bg-gray-700">
                     {paymentLinkMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
@@ -1036,7 +1049,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               <p role={invalidBooking ? 'alert' : undefined} className={`w-full text-sm ${invalidBooking ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
                 {invalidBooking ? '課程結束時間須晚於開始時間，請檢查日期與時段。' : !hasOrderChanges ? canScheduleUnassigned ? '有尚未安排教練的課程，可直接按「儲存並 AI 排課」；不必先改資料。' : '尚未修改任何資料。' : '請確認課程、教練與付款狀態後再儲存。'}
               </p>
-              <p className="w-full text-xs leading-6 text-gray-500 dark:text-gray-400">改成「不指定」後，只儲存會移除教練並等待排課，不會在背景立即重排；要立即安排請按「儲存並 AI 排課」。未修改的已排課程會保留。</p>
+              {canEdit && <p className="w-full text-xs leading-6 text-gray-500 dark:text-gray-400">改成「不指定」後，只儲存會移除教練並等待排課，不會在背景立即重排；要立即安排請按「儲存並 AI 排課」。未修改的已排課程會保留。</p>}
               <button
                 onClick={() => { resetOrderEdits(); setEditing(false) }}
                 disabled={saveMutation.isPending}
@@ -1053,7 +1066,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
                 {saveMutation.isPending && <Loader2 size={14} className="animate-spin" />}
                 <Save size={14} />只儲存
               </button>
-              <button
+              {canEdit && <button
                 onClick={() => saveMutation.mutate('schedule')}
                 disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
@@ -1061,7 +1074,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false }: { order:
               >
                 {saveMutation.isPending && <Loader2 size={14} className="animate-spin" />}
                 <Zap size={14} />儲存並 AI 排課
-              </button>
+              </button>}
             </>
           ) : (
             <button onClick={onClose} className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600">關閉</button>

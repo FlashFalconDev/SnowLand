@@ -65,7 +65,7 @@ export async function saveCustomerLoyalty(id: number, values: { alumni_verified:
 
 interface ListResp { code: number; msg: string; data: { list: Customer[]; total: number } }
 
-export async function fetchCustomers(): Promise<Customer[]> {
-  const res = (await adminApi.get('/customers/')) as unknown as ListResp
+export async function fetchCustomers(loyalty = false): Promise<Customer[]> {
+  const res = (await adminApi.get('/customers/', { params: loyalty ? { workflow: 'loyalty' } : undefined })) as unknown as ListResp
   return res.data?.list || []
 }

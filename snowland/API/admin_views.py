@@ -112,6 +112,13 @@ def _resolve_tenant(request, view):
 HEADQUARTERS_ROLES = {'hq_admin', 'marketing', 'web_editor', 'insurance', 'assistant'}
 
 
+def _staff_all_campuses(profile):
+    explicit = getattr(profile, 'all_campuses', None)
+    if explicit is not None:
+        return explicit
+    return profile.role in HEADQUARTERS_ROLES or (not profile.role and profile.admin_permissions is None)
+
+
 def _campus_scope_for_user(user, tenant):
     if user.is_superuser:
         return Campus.objects.filter(client=tenant, is_active=True), True
@@ -127,7 +134,7 @@ def _campus_scope_for_user(user, tenant):
         coach = Coach.objects.filter(user=user, client=tenant).first()
         return (coach.campuses.filter(client=tenant, is_active=True) if coach else Campus.objects.none()), False
     # 舊管理員資料尚未設定 role；維持原本可管理全公司的行為，避免升級後全部 403。
-    if profile.role in HEADQUARTERS_ROLES or (not profile.role and profile.admin_permissions is None):
+    if _staff_all_campuses(profile):
         return Campus.objects.filter(client=tenant, is_active=True), True
     return profile.campuses.filter(client=tenant, is_active=True), False
 
@@ -174,12 +181,13 @@ class IsTenantManager(IsAuthenticated):
             return False
 
         permission_key = getattr(view, 'permission_key', None)
-        if permission_key and not user_has_admin_permission(request.user, permission_key, getattr(request, 'tenant', None)):
-            read_permissions = getattr(view, 'read_permission_keys', ())
-            if request.method not in SAFE_METHODS or not any(
-                user_has_admin_permission(request.user, key, getattr(request, 'tenant', None)) for key in read_permissions
-            ):
-                return False
+        allowed = getattr(view, 'permission_keys', ())
+        if permission_key:
+            allowed = (*allowed, permission_key)
+        if request.method in SAFE_METHODS and allowed:
+            allowed = (*allowed, *getattr(view, 'read_permission_keys', ()))
+        if allowed and not set(allowed).intersection(get_user_admin_permissions(request.user, tenant)):
+            return False
         return _resolve_campus_scope(request, tenant)
 
 
@@ -247,7 +255,7 @@ def _require_headquarters(request):
     if request.user.is_superuser:
         return
     try:
-        if staff_profile(request.user, getattr(request, 'tenant', None)).role == 'hq_admin':
+        if request.can_view_all_campuses and staff_profile(request.user, request.tenant).role == 'hq_admin':
             return
     except Exception:
         pass
@@ -559,11 +567,15 @@ def _booking_in_date_range(booking, start_date=None, end_date=None):
 class SiteContentAdminViewSet(ModelViewSet):
     serializer_class = SiteContentAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'cms'
+    permission_keys = (
+        'site_home', 'site_courses', 'site_photography', 'site_guides', 'site_news',
+        'site_about', 'site_coaches', 'site_campaigns', 'site_reviews', 'site_media',
+        'site_tracking', 'site_structure', 'course_documents', 'checkout_policies',
+    )
 
     @action(detail=False, methods=['get'], url_path='waiver-current')
     def waiver_current(self, request, *args, **kwargs):
-        denied = _require_admin_permission(request, 'cms')
+        denied = _require_admin_permission(request, 'course_documents')
         if denied is not None:
             return denied
         from booking.legal_documents import get_current_waiver
@@ -571,7 +583,7 @@ class SiteContentAdminViewSet(ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='join-schema')
     def join_schema(self, request, *args, **kwargs):
-        denied = _require_admin_permission(request, 'cms')
+        denied = _require_admin_permission(request, 'site_about')
         if denied is not None:
             return denied
         from Client.about_pages import about_schema
@@ -579,7 +591,7 @@ class SiteContentAdminViewSet(ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='about-schema')
     def about_schema(self, request, *args, **kwargs):
-        denied = _require_admin_permission(request, 'cms')
+        denied = _require_admin_permission(request, 'site_about')
         if denied is not None:
             return denied
         from Client.about_pages import about_schema
@@ -587,7 +599,7 @@ class SiteContentAdminViewSet(ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='photography-schema')
     def photography_schema(self, request, *args, **kwargs):
-        denied = _require_admin_permission(request, 'cms')
+        denied = _require_admin_permission(request, 'site_photography')
         if denied is not None:
             return denied
         from Client.photography_pages import photography_schema
@@ -596,11 +608,6 @@ class SiteContentAdminViewSet(ModelViewSet):
         except ValueError as exc:
             raise ValidationError({'season': str(exc)})
         return Response({'code': 200, 'data': schema})
-
-    def get_permissions(self):
-        _resolve_tenant(self.request, self)
-        self.permission_key = 'cms' if user_has_admin_permission(self.request.user, 'cms', getattr(self.request, 'tenant', None)) else 'reviews'
-        return super().get_permissions()
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -637,33 +644,101 @@ class SiteContentAdminViewSet(ModelViewSet):
                 groups.append(clean)
         return groups
 
-    def _review_locations(self):
-        return {(entry['type'], entry['key']) for group in self._review_content_groups() for entry in group['locations']}
+    def _custom_locations(self):
+        if not hasattr(self, '_location_groups'):
+            structure = SiteContent.objects.filter(client=self.request.tenant, location_key='cms.structure',
+                                                   content_type='setting').first()
+            groups = (structure.metadata or {}).get('groups', []) if structure and isinstance(structure.metadata, dict) else []
+            self._location_groups = {}
+            for group in groups if isinstance(groups, list) else []:
+                if not isinstance(group, dict) or not isinstance(group.get('locations'), list):
+                    continue
+                for item in group['locations']:
+                    if isinstance(item, dict) and isinstance(item.get('key'), str) and isinstance(item.get('type'), str):
+                        self._location_groups.setdefault((item['type'], item['key']), group.get('id'))
+        return self._location_groups
+
+    def _content_permission(self, kind, location):
+        exact = {
+            'homepage.reviews': 'site_reviews', 'photography.gallery': 'site_media',
+            'homepage.offers': 'site_campaigns', 'site.tracking': 'site_tracking',
+            'site.footer': 'site_home', 'cms.structure': 'site_structure', 'coach.profiles': 'site_coaches',
+            'membership.waiver': 'course_documents', 'news.offers': 'site_campaigns',
+            'news.social': 'site_campaigns', 'news.instagram': 'site_campaigns',
+            'news.facebook': 'site_campaigns',
+        }
+        required_type = {'homepage.reviews': 'review', 'photography.gallery': 'media', 'cms.structure': 'setting'}
+        if location in required_type and kind != required_type[location]:
+            return None
+        if location in exact:
+            return exact[location]
+        by_prefix = {
+            'homepage': 'site_home', 'course': 'site_courses', 'photography': 'site_photography',
+            'guides': 'site_guides', 'news': 'site_news', 'about': 'site_about',
+            'offers': 'site_campaigns', 'policy': 'checkout_policies', 'coaches': 'site_coaches',
+        }
+        group = self._custom_locations().get((kind, location))
+        if group is not None and kind in ('review', 'media'):
+            return 'site_reviews' if kind == 'review' else 'site_media'
+        if location.partition('.')[0] in by_prefix:
+            return by_prefix[location.partition('.')[0]]
+        if group is not None:
+            return by_prefix.get('course' if group == 'courses' else group, 'site_structure') if isinstance(group, str) else 'site_structure'
+        return 'site_structure'
+
+    @staticmethod
+    def _internal_site_content(location):
+        return location.startswith(('internal.', 'booking.form.'))
+
+    def _content_permissions(self):
+        if not hasattr(self, '_site_permissions'):
+            self._site_permissions = set(get_user_admin_permissions(self.request.user, self.request.tenant))
+        return self._site_permissions
 
     @action(detail=False, methods=['get'], url_path='review-locations')
     def review_locations(self, request, *args, **kwargs):
-        return Response({'code': 200, 'data': {'groups': self._review_content_groups()}})
+        allowed = self._content_permissions()
+        groups = self._review_content_groups()
+        for group in groups:
+            group['locations'] = [
+                entry for entry in group['locations']
+                if self._content_permission(entry['type'], entry['key']) in allowed
+            ]
+        return Response({'code': 200, 'data': {'groups': [group for group in groups if group['locations']]}})
 
     @action(detail=False, methods=['get'], url_path='review-coaches')
     def review_coaches(self, request, *args, **kwargs):
-        rows=list(Coach.objects.filter(client=request.tenant).order_by('name','pk').values('id','name','website_enabled'))
+        if 'site_reviews' not in self._content_permissions():
+            raise PermissionDenied('需要網站評論權限')
+        coaches = Coach.objects.filter(client=request.tenant)
+        if not request.can_view_all_campuses:
+            coaches = coaches.filter(campuses__id__in=_campus_ids(request)).distinct()
+        rows = list(coaches.order_by('name', 'pk').values('id', 'name', 'website_enabled'))
         return Response({'code':200,'data':{'list':rows}})
 
+    def _check_requested_location(self, request, instance=None):
+        location = request.data.get('location_key', getattr(instance, 'location_key', ''))
+        kind = request.data.get('content_type', getattr(instance, 'content_type', ''))
+        if isinstance(location, str) and isinstance(kind, str):
+            self._require_content_write(kind, location)
+
     def _check_content_scope(self, serializer):
-        from booking.checkout_policies import POLICY_PAGES
-        if any(location in POLICY_PAGES.values() for location in (serializer.validated_data.get('location_key'), getattr(serializer.instance, 'location_key', None))):
-            self._require_policy_headquarters()
-        if 'site.tracking' in (
-            serializer.validated_data.get('location_key'),
-            getattr(serializer.instance, 'location_key', None),
-        ):
-            self._require_tracking_headquarters()
-        if user_has_admin_permission(self.request.user, 'cms', getattr(self.request, 'tenant', None)):
-            return
-        pair = tuple(serializer.validated_data.get(field, getattr(serializer.instance, field, None))
-                     for field in ('content_type', 'location_key'))
-        if pair not in self._review_locations():
-            raise ValidationError({'location_key': '此帳號僅可管理評價與攝影作品，不能修改其他官網內容'})
+        instance = serializer.instance
+        kind = serializer.validated_data.get('content_type', getattr(instance, 'content_type', ''))
+        location = serializer.validated_data.get('location_key', getattr(instance, 'location_key', ''))
+        self._require_content_write(kind, location)
+        if instance is not None:
+            self._require_content_write(instance.content_type, instance.location_key)
+
+    def _require_content_write(self, kind, location):
+        permission = self._content_permission(kind, location)
+        allowed = self._content_permissions()
+        if self._internal_site_content(location) or permission not in allowed:
+            if allowed and allowed <= {'site_reviews', 'site_media'}:
+                raise ValidationError({'location_key': '此帳號僅可管理已授權的評價與攝影作品位置'})
+            raise PermissionDenied('沒有此官網分頁的管理權限')
+        if permission in ('checkout_policies', 'site_tracking'):
+            _require_headquarters(self.request)
 
     def perform_create(self, serializer):
         self._check_content_scope(serializer)
@@ -673,24 +748,12 @@ class SiteContentAdminViewSet(ModelViewSet):
         self._check_content_scope(serializer)
         super().perform_update(serializer)
 
-    def _require_tracking_headquarters(self):
-        user = self.request.user
-        if user.is_superuser or getattr(staff_profile(user, self.request.tenant), 'role', None) == 'hq_admin':
-            return
-        raise PermissionDenied('只有總部管理員可以變更分析追蹤設定')
-
-    def _require_policy_headquarters(self):
-        user = self.request.user
-        if user.is_superuser or getattr(staff_profile(user, self.request.tenant), 'role', None) == 'hq_admin':
-            return
-        raise PermissionDenied('只有總部管理員可以變更訂課條款')
-
     def perform_destroy(self, instance):
-        from booking.checkout_policies import POLICY_PAGES
-        if instance.location_key in POLICY_PAGES.values():
-            self._require_policy_headquarters()
-        if instance.location_key == 'site.tracking':
-            self._require_tracking_headquarters()
+        self._require_content_write(instance.content_type, instance.location_key)
+        if instance.location_key == 'membership.waiver':
+            with transaction.atomic():
+                Client.objects.select_for_update().get(pk=instance.client_id)
+                return super().perform_destroy(instance)
         super().perform_destroy(instance)
 
     def get_queryset(self):
@@ -699,11 +762,18 @@ class SiteContentAdminViewSet(ModelViewSet):
             return SiteContent.objects.none()
 
         qs = SiteContent.objects.filter(client=tenant).exclude(location_key=RUBRIC_LOCATION)
-        if not user_has_admin_permission(self.request.user, 'cms', getattr(self.request, 'tenant', None)):
-            allowed = Q(pk__in=[])
-            for kind, location in self._review_locations():
-                allowed |= Q(content_type=kind, location_key=location)
-            qs = qs.filter(allowed)
+        permissions = self._content_permissions()
+        locations_by_type = {}
+        for kind, location in qs.order_by().values_list('content_type', 'location_key').distinct():
+            if not self._internal_site_content(location) and self._content_permission(kind, location) in permissions:
+                locations_by_type.setdefault(kind, []).append(location)
+        allowed = Q(pk__in=[])
+        editor_permissions = set(self.permission_keys) - {'site_reviews', 'site_media'}
+        if self.action == 'list' and permissions.intersection(editor_permissions):
+            allowed |= Q(location_key='cms.structure', content_type='setting')
+        for kind, locations in locations_by_type.items():
+            allowed |= Q(content_type=kind, location_key__in=locations)
+        qs = qs.filter(allowed)
         content_type = (self.request.query_params.get('content_type') or '').strip()
         location_key = (self.request.query_params.get('location_key') or '').strip()
         status_filter = (self.request.query_params.get('status') or '').strip()
@@ -740,6 +810,7 @@ class SiteContentAdminViewSet(ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
+        self._check_requested_location(request)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -749,6 +820,7 @@ class SiteContentAdminViewSet(ModelViewSet):
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
+        self._check_requested_location(request, instance)
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
@@ -765,7 +837,7 @@ class SiteContentAdminViewSet(ModelViewSet):
 class CoachAdminViewSet(ModelViewSet):
     serializer_class = CoachAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'coaches'
+    permission_key = 'coach_directory'
 
     def _require_exclusive_campus(self, coach):
         if getattr(self.request, 'can_view_all_campuses', False):
@@ -828,7 +900,7 @@ class CoachAdminViewSet(ModelViewSet):
 class CoachLeaveAdminViewSet(PayrollCsrfMixin, UpdateModelMixin, ReadOnlyModelViewSet):
     serializer_class = CoachLeaveRequestAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'coaches'
+    permission_key = 'coach_leaves'
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
@@ -978,7 +1050,25 @@ class CampusAdminViewSet(ModelViewSet):
 class PaymentAccountAdminViewSet(ModelViewSet):
     serializer_class = PaymentAccountAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'payment_settings'
+    permission_key = 'payment_accounts'
+
+    @action(detail=False, methods=['get'], url_path='scope-options')
+    def scope_options(self, request, client_code=None):
+        campuses = Campus.objects.filter(client=request.tenant)
+        if not request.can_view_all_campuses or request.selected_campus_id is not None:
+            campuses = campuses.filter(id__in=_campus_ids(request))
+        resorts = _visible_course_resorts_for_request(request, request.tenant)
+        resort_ids = set(resorts.values_list('id', flat=True))
+        campuses = campuses.prefetch_related('resorts').order_by('display_order', 'id')
+        return Response({'code': 200, 'msg': 'OK', 'data': {
+            'campuses': [{
+                'id': campus.id,
+                'name': campus.name,
+                'is_active': campus.is_active,
+                'resort_ids': [resort.id for resort in campus.resorts.all() if resort.id in resort_ids],
+            } for campus in campuses],
+            'resorts': list(resorts.order_by('id').values('id', 'display_name')),
+        }})
 
     @transaction.atomic
     def update(self, request, *args, **kwargs):
@@ -1046,7 +1136,13 @@ class ResortAdminViewSet(ModelViewSet):
     serializer_class = ResortAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'resorts'
-    read_permission_keys = ('coaches',)
+    read_permission_keys = ('coach_directory',)
+
+    @action(detail=False, methods=['get'], url_path='campus-options', read_permission_keys=('campuses',))
+    def campus_options(self, request, client_code=None):
+        resorts = _visible_course_resorts_for_request(request, request.tenant)
+        options = list(resorts.order_by('id').values('id', 'display_name'))
+        return Response({'code': 200, 'msg': 'OK', 'data': {'list': options, 'total': len(options)}})
 
     @action(detail=False, methods=['get'], url_path='course-template-options')
     def course_template_options(self, request, client_code=None):
@@ -1233,7 +1329,7 @@ class CourseCategoryAdminViewSet(HeadquartersCourseStructureWriteMixin, ModelVie
     serializer_class = CourseCategoryAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'course_types'
-    read_permission_keys = ('coaches',)
+    read_permission_keys = ('coach_directory',)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
@@ -1259,7 +1355,7 @@ class CourseTypeAdminViewSet(HeadquartersCourseStructureWriteMixin, ModelViewSet
     serializer_class = CourseTypeAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'course_types'
-    read_permission_keys = ('coaches',)
+    read_permission_keys = ('coach_directory',)
 
     def get_queryset(self):
         tenant = getattr(self.request, 'tenant', None)
@@ -1552,10 +1648,29 @@ class SeasonSettingAdminViewSet(ModelViewSet):
 # ==================== Orders ====================
 
 class OrderAdminViewSet(ModelViewSet):
-    permission_key = 'orders'
+
     """訂單管理：列表 / 詳情 / 編輯（指派教練、改付款、觸發排課）"""
     serializer_class = OrderAdminSerializer
     permission_classes = [IsTenantManager]
+
+    def get_permissions(self):
+        self.permission_keys = ()
+        if self.action in ('list', 'retrieve'):
+            view = self.request.query_params.get('workflow')
+            self.permission_key = {'edit': 'order_edit', 'payments': 'order_payments', 'refunds': 'order_refunds'}.get(view, 'order_view')
+        elif self.action == 'update' or self.action == 'partial_update':
+            self.permission_key = None
+            self.permission_keys = ('order_edit', 'order_payments')
+        else:
+            self.permission_key = {
+                'export': 'order_export',
+                'payment_link': 'order_payments',
+                'amendment_balances': 'order_payments',
+                'refund_preview': 'order_refunds',
+                'cancel_order': 'order_refunds',
+                'revision_history': 'order_view',
+            }.get(self.action, 'order_edit')
+        return super().get_permissions()
 
     @transaction.atomic
     def perform_destroy(self, instance):
@@ -1898,6 +2013,13 @@ class OrderAdminViewSet(ModelViewSet):
         payment_status = data.get('payment_status')
         reservation_updates = data.get('reservation_updates', []) or []
         booking_updates = data.get('booking_updates', []) or []
+        permissions = set(get_user_admin_permissions(request.user, request.tenant))
+        if payment_status and 'order_payments' not in permissions:
+            raise PermissionDenied('需要對帳與差額權限')
+        if payment_status == 'refunded' and 'order_refunds' not in permissions:
+            raise PermissionDenied('需要取消與退款權限')
+        if (reservation_updates or booking_updates or action == 'schedule' or not payment_status) and 'order_edit' not in permissions:
+            raise PermissionDenied('需要修改與排課權限')
 
         if action not in ('save', 'schedule'):
             return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
@@ -2278,7 +2400,7 @@ class OrderAdminViewSet(ModelViewSet):
 class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
     serializer_class = CancellationRequestAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'orders'
+    permission_key = 'order_refunds'
 
     def _summary_only(self):
         profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
@@ -2432,6 +2554,23 @@ class NotificationTemplateAdminViewSet(ModelViewSet):
     serializer_class = NotificationTemplateAdminSerializer
     permission_classes = [IsTenantManager]
     permission_key = 'notifications'
+
+    @action(detail=False, methods=['get'], url_path='course-options')
+    def course_options(self, request, client_code=None):
+        resorts = _visible_course_resorts_for_request(request, request.tenant).order_by('id')
+        templates = _visible_course_templates_for_request(request, request.tenant).select_related(
+            'course_type__category',
+        ).prefetch_related(Prefetch('resorts', queryset=resorts)).order_by(
+            'course_type__category__display_order', 'course_type__display_order',
+            'display_order', 'duration_hours', 'id',
+        )
+        options = [{
+            'id': template.id,
+            'name': template.name,
+            'category_name': template.course_type.category.name,
+            'resort_names': [resort.display_name for resort in template.resorts.all()],
+        } for template in templates]
+        return Response({'code': 200, 'msg': 'OK', 'data': {'list': options, 'total': len(options)}})
 
     def get_queryset(self):
         qs = NotificationTemplate.objects.filter(client=self.request.tenant).exclude(event='manual').prefetch_related('course_templates')
@@ -2736,7 +2875,12 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
 class CoachPayRuleAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     serializer_class = CoachPayRuleAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'payroll'
+    permission_key = 'payroll_rules'
+
+    def get_permissions(self):
+        if self.action == 'coaches':
+            self.read_permission_keys = ('payroll_statements',)
+        return super().get_permissions()
 
     @action(detail=False, methods=['get'], url_path='coaches')
     def coaches(self, request, *args, **kwargs):
@@ -2803,7 +2947,7 @@ class CoachPayRuleAdminViewSet(PayrollCsrfMixin, ModelViewSet):
 class StaffIncentiveRuleAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     serializer_class = StaffIncentiveRuleAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'payroll'
+    permission_key = 'staff_incentives'
 
     @action(detail=False, methods=['get'], url_path='employees')
     def employees(self, request, *args, **kwargs):
@@ -2817,7 +2961,7 @@ class StaffIncentiveRuleAdminViewSet(PayrollCsrfMixin, ModelViewSet):
             profile = staff_profile(user,request.tenant)
             if not profile or not profile.is_manager:
                 continue
-            assigned = allowed_ids if profile.role in HEADQUARTERS_ROLES else allowed_ids.intersection(profile.campuses.values_list('pk',flat=True))
+            assigned = allowed_ids if _staff_all_campuses(profile) else allowed_ids.intersection(profile.campuses.values_list('pk',flat=True))
             if assigned:
                 rows.append({'id': user.pk, 'name': user.get_full_name() or user.username,
                              'campus_ids': sorted(assigned)})
@@ -2871,7 +3015,12 @@ class StaffIncentiveRuleAdminViewSet(PayrollCsrfMixin, ModelViewSet):
 class PayrollStatementAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     serializer_class = PayrollStatementAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'payroll'
+    permission_key = 'payroll_statements'
+
+    def get_permissions(self):
+        if self.action == 'document_settings':
+            self.permission_key = 'payroll_documents'
+        return super().get_permissions()
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def create(self, request, *args, **kwargs):
@@ -3036,7 +3185,7 @@ class CoachPayrollViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
 class StaffBookingLinkAdminViewSet(ModelViewSet):
     serializer_class = StaffBookingLinkAdminSerializer
     permission_classes = [IsTenantManager]
-    permission_key = 'orders'
+    permission_key = 'booking_links'
 
     def get_queryset(self):
         qs = StaffBookingLink.objects.filter(client=self.request.tenant).select_related('campus', 'created_by')
@@ -3070,9 +3219,12 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
 @api_view(['GET'])
 @permission_classes([IsTenantManager])
 def customers_list(request, client_code):
-    denied = _require_admin_permission(request, 'customers')
+    loyalty = request.query_params.get('workflow') == 'loyalty'
+    denied = _require_admin_permission(request, 'member_loyalty' if loyalty else 'member_directory')
     if denied:
         return denied
+    if loyalty:
+        _require_headquarters(request)
     """聚合 User + 預約紀錄成為 Customer"""
     # 注入 tenant（FBV 的 view kwargs 來自 client_code 參數）
     if not getattr(request, 'tenant', None):
@@ -3981,9 +4133,13 @@ def dashboard_stats(request, client_code):
 @api_view(['GET'])
 @permission_classes([IsTenantManager])
 def staff_list(request, client_code):
+    from django.middleware.csrf import get_token
+
     denied = _require_admin_permission(request, 'staff')
     if denied:
         return denied
+    _require_headquarters(request)
+    get_token(request._request)
     """
     列出所有有權限的使用者（is_manager 或 is_coach）+ 可選搜尋 user
     GET /api/admin/<client>/staff/?q=name
@@ -4030,6 +4186,14 @@ def staff_list(request, client_code):
         .values_list('user_id', 'count')
     )
 
+    from .staff_positions import COACH_POSITION_ID
+
+    positions_by_user = {}
+    for user_id, position_id, position_name in TenantStaffMembership.objects.filter(
+        client=request.tenant, user_id__in=user_ids, positions__client=request.tenant,
+    ).values_list('user_id', 'positions__id', 'positions__name').order_by('positions__id'):
+        positions_by_user.setdefault(user_id, []).append((position_id, position_name))
+
     # 組裝資料
     items = []
     seen_ids = set()
@@ -4045,12 +4209,14 @@ def staff_list(request, client_code):
             admin_permissions = get_user_admin_permissions(u, request.tenant)
             role = profile.role
             campus_ids = list(profile.campuses.filter(client=request.tenant).values_list('id', flat=True))
+            all_campuses = bool(is_manager and _staff_all_campuses(profile))
         except Exception:
             is_manager = False
             is_coach = False
             admin_permissions = []
             role = ''
             campus_ids = []
+            all_campuses = u.is_superuser
 
         # 找對應的 Coach 紀錄（如果有）
         coach_record = Coach.objects.filter(user=u, client=request.tenant).first()
@@ -4068,8 +4234,11 @@ def staff_list(request, client_code):
             'is_manager': is_manager,
             'is_coach': is_coach,
             'permissions': admin_permissions,
+            'position_ids': [*([COACH_POSITION_ID] if is_coach else []), *(pk for pk, _ in positions_by_user.get(u.id, []))],
+            'position_names': [name for _, name in positions_by_user.get(u.id, [])],
             'role': role,
             'campus_ids': campus_ids,
+            'all_campuses': all_campuses,
             'has_coach_record': bool(coach_record),
             'coach_id': coach_record.id if coach_record else None,
             'coach_name': coach_record.name if coach_record else None,
@@ -4089,6 +4258,8 @@ def staff_list(request, client_code):
 @permission_classes([IsTenantManager])
 @transaction.atomic
 def update_customer_permission(request, client_code, user_id):
+    from rest_framework.authentication import SessionAuthentication
+
     denied = _require_admin_permission(request, 'staff')
     if denied:
         return denied
@@ -4097,6 +4268,9 @@ def update_customer_permission(request, client_code, user_id):
     POST /api/admin/<client>/customers/<user_id>/permission/
     最大管理員與後台人員只能擇一。
     """
+    _require_headquarters(request)
+    SessionAuthentication().enforce_csrf(request)
+    Client.objects.select_for_update().get(pk=request.tenant.pk)
     try:
         target_user = User.objects.select_for_update().get(pk=user_id)
     except User.DoesNotExist:
@@ -4105,6 +4279,26 @@ def update_customer_permission(request, client_code, user_id):
     if target_user.is_superuser and not request.user.is_superuser:
         return Response({'code': 403, 'msg': '只有 Superuser 可以調整 Superuser 權限'}, status=403)
 
+    if set(request.data) == {'is_superuser'}:
+        if not request.user.is_superuser:
+            raise PermissionDenied('只有最大管理員可以調整最大管理員。')
+        value = request.data['is_superuser']
+        if type(value) is not bool:
+            raise ValidationError({'msg': '最大管理員設定格式不正確。'})
+        if not value and target_user.pk == request.user.pk:
+            raise ValidationError({'msg': '請由另一位最大管理員調整此帳號。'})
+        target_user.is_superuser = value
+        target_user.save(update_fields=['is_superuser'])
+        return Response({'code': 200, 'msg': '最大管理員已更新', 'data': {'is_superuser': value}})
+
+    if 'position_ids' in request.data:
+        from .staff_positions import assign_staff_positions
+
+        if set(request.data) != {'position_ids'}:
+            raise ValidationError({'msg': '員工職位與最大管理員請分開設定。'})
+        assign_staff_positions(request, writable_staff_profile(target_user, request.tenant), request.data['position_ids'])
+        return Response({'code': 200, 'msg': '員工職位已更新'})
+
     raw_permissions = request.data.get('permissions', None)
     admin_permissions = normalize_admin_permissions(raw_permissions) if raw_permissions is not None else None
 
@@ -4112,11 +4306,17 @@ def update_customer_permission(request, client_code, user_id):
         from Control.models import UserProfile
         _require_headquarters(request)
         profile = writable_staff_profile(target_user, request.tenant)
+        if profile.pk and profile.positions.exists():
+            return Response({'code': 409, 'msg': '此員工已改用職位指派，請重新整理新版後台後再設定。'}, status=409)
         was_manager = profile.is_manager
         requested_superuser = request.data.get('is_superuser', None)
         if requested_superuser is not None:
             if not request.user.is_superuser:
                 return Response({'code': 403, 'msg': '只有最大管理員可以調整最大管理員'}, status=403)
+            if type(requested_superuser) is not bool:
+                return Response({'code': 400, 'msg': '最大管理員設定格式不正確。'}, status=400)
+            if not requested_superuser and target_user.pk == request.user.pk:
+                return Response({'code': 400, 'msg': '請由另一位最大管理員調整此帳號。'}, status=400)
 
         is_manager = bool(request.data.get('is_manager', False))
         will_be_superuser = bool(requested_superuser) if requested_superuser is not None else target_user.is_superuser
@@ -4140,7 +4340,12 @@ def update_customer_permission(request, client_code, user_id):
         campuses = list(Campus.objects.filter(client=request.tenant, id__in=campus_ids))
         if len(campuses) != len(campus_ids):
             return Response({'code': 400, 'msg': '包含無效或其他公司的校區'}, status=400)
-        if is_manager and role not in HEADQUARTERS_ROLES:
+        all_campuses = request.data.get('all_campuses', role in HEADQUARTERS_ROLES)
+        if not isinstance(all_campuses, bool):
+            return Response({'code': 400, 'msg': '全部校區設定格式不正確'}, status=400)
+        if 'all_campuses' in request.data and all_campuses and campuses:
+            return Response({'code': 400, 'msg': '全部校區與指定校區只能擇一'}, status=400)
+        if is_manager and not all_campuses:
             if not campuses:
                 return Response({'code': 400, 'msg': '請先選擇這位後台人員負責的校區'}, status=400)
             if any(not campus.is_active for campus in campuses):
@@ -4151,6 +4356,7 @@ def update_customer_permission(request, client_code, user_id):
         profile.is_manager = is_manager
         profile.is_coach = is_coach
         profile.role = role
+        profile.all_campuses = all_campuses if is_manager else None
         if is_manager:
             if admin_permissions is not None:
                 profile.admin_permissions = admin_permissions
@@ -4169,6 +4375,7 @@ def update_customer_permission(request, client_code, user_id):
                 'permissions': get_user_admin_permissions(target_user, request.tenant),
                 'role': profile.role,
                 'campus_ids': list(profile.campuses.values_list('id', flat=True)),
+                'all_campuses': profile.all_campuses,
             },
         })
     except PermissionDenied:
@@ -4755,7 +4962,7 @@ def coach_apply_leave(request, client_code):
 @api_view(['GET', 'POST'])
 @permission_classes([IsTenantManager])
 def send_order_email(request, client_code, order_id):
-    denied = _require_admin_permission(request, 'orders')
+    denied = _require_admin_permission(request, 'order_edit')
     if denied:
         return denied
     """
@@ -4833,6 +5040,8 @@ def admin_logout(request, client_code):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def admin_me(request, client_code):
+    from .admin_permissions import console_permissions_for_user
+
     if not request.user.is_authenticated:
         return Response({'code': 401, 'msg': '未登入'}, status=401)
 
@@ -4887,7 +5096,7 @@ def admin_me(request, client_code):
             'assigned_campus_ids': assigned_campus_ids,
             'campuses': campus_items,
             'can_view_all_campuses': can_view_all,
-            'permissions': get_user_admin_permissions(request.user, request.tenant) if (is_superuser or is_manager) else [],
+            'permissions': console_permissions_for_user(request.user, request.tenant) if (is_superuser or is_manager) else [],
             'permission_definitions': ADMIN_PERMISSION_DEFINITIONS,
         },
     })
@@ -4989,9 +5198,18 @@ def _save_booking_form_options(tenant, payload):
 @permission_classes([IsTenantManager])
 @transaction.atomic
 def payment_settings_view(request, client_code=None):
-    denied = _require_admin_permission(request, 'payment_settings')
-    if denied:
-        return denied
+    permissions = set(get_user_admin_permissions(request.user, request.tenant))
+    section = request.query_params.get('section')
+    account_fields = {'bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder',
+                      'order_management_email', 'currency_settings'}
+    option_fields = {'messenger_options', 'referral_source_options'}
+    selected_fields = set()
+    if section in (None, 'accounts') and 'payment_accounts' in permissions:
+        selected_fields.update(account_fields)
+    if section in (None, 'booking-form') and 'booking_form_options' in permissions:
+        selected_fields.update(option_fields)
+    if not selected_fields or (request.method == 'PUT' and set(request.data) - selected_fields):
+        raise PermissionDenied('沒有此設定的管理權限')
     if request.method == 'PUT' and not getattr(request, 'can_view_all_campuses', False):
         raise PermissionDenied('全公司付款設定只能由總部管理員修改')
     """
@@ -5010,7 +5228,7 @@ def payment_settings_view(request, client_code=None):
         from booking.currency import currency_settings_payload
         return Response({
             'code': 200, 'msg': 'OK',
-            'data': {
+            'data': {key: value for key, value in {
                 'bank_name': tenant.bank_name,
                 'bank_branch': tenant.bank_branch,
                 'bank_account_number': tenant.bank_account_number,
@@ -5018,7 +5236,7 @@ def payment_settings_view(request, client_code=None):
                 'order_management_email': tenant.order_management_email,
                 'currency_settings': currency_settings_payload(tenant),
                 **form_options,
-            },
+            }.items() if key in selected_fields},
         })
 
     # PUT
@@ -5042,13 +5260,13 @@ def payment_settings_view(request, client_code=None):
         if f in payload:
             setattr(tenant, f, (payload[f] or '').strip())
     tenant.save()
-    form_options = _save_booking_form_options(tenant, payload)
+    form_options = _save_booking_form_options(tenant, payload) if option_fields.intersection(payload) else {}
     if currency_values is not None:
         from Resorts.models import PaymentCurrencySettings
         PaymentCurrencySettings.objects.update_or_create(client=tenant, defaults=currency_values)
     return Response({
         'code': 200, 'msg': '已更新',
-        'data': {
+        'data': {key: value for key, value in {
             'bank_name': tenant.bank_name,
             'bank_branch': tenant.bank_branch,
             'bank_account_number': tenant.bank_account_number,
@@ -5056,5 +5274,5 @@ def payment_settings_view(request, client_code=None):
             'order_management_email': tenant.order_management_email,
             'currency_settings': currency_settings_payload(tenant),
             **form_options,
-        },
+        }.items() if key in selected_fields},
     })

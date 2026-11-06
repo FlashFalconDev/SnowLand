@@ -27,10 +27,14 @@ class TenantMembershipTests(TestCase):
         self.assertEqual(a.status_code,200,a.data)
         self.assertEqual(b.status_code,200,b.data)
         self.assertEqual(a.data['data']['role'],'campus_manager')
-        self.assertEqual(a.data['data']['permissions'],['orders'])
+        self.assertEqual(set(a.data['data']['permissions']), {
+            'orders', 'order_view', 'order_edit', 'order_payments', 'order_refunds', 'order_export', 'booking_links',
+        })
         self.assertEqual(a.data['data']['assigned_campus_ids'],[self.ca.pk])
         self.assertEqual(b.data['data']['role'],'hq_admin')
-        self.assertEqual(b.data['data']['permissions'],['staff','cms'])
+        self.assertIn('staff', b.data['data']['permissions'])
+        self.assertIn('site_home', b.data['data']['permissions'])
+        self.assertNotIn('order_view', b.data['data']['permissions'])
         self.assertEqual(self.api.get('/api/admin/school-a/staff/').status_code,403)
         self.assertEqual(self.api.get('/api/admin/school-b/orders/').status_code,403)
 

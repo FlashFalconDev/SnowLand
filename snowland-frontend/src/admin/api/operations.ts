@@ -105,6 +105,8 @@ const list = async <T>(path: string): Promise<T[]> => {
 }
 
 export const fetchNotificationTemplates = () => list<NotificationTemplate>('/notification-templates/')
+export const fetchNotificationCourseOptions = () =>
+  list<{ id: number; name: string; category_name: string; resort_names: string[] }>('/notification-templates/course-options/')
 export const fetchNotificationDeliveries = () => list<NotificationDelivery>('/notification-deliveries/')
 export interface ManualNotificationDraft {
   kind: 'order' | 'member'; target_id: number; audience: 'owner' | 'participants'; subject: string; body: string

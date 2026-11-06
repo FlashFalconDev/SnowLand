@@ -1,9 +1,8 @@
+import type { PaymentSettingsSection } from '../api/paymentSettings'
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, AlertCircle, CreditCard, Plus, Pencil, Trash2, X } from 'lucide-react'
-import { fetchPaymentSettings, updatePaymentSettings, fetchPaymentAccounts, createPaymentAccount, updatePaymentAccount, deletePaymentAccount, type PaymentAccount, type PaymentSettings } from '../api/paymentSettings'
-import { fetchCampuses } from '../api/campuses'
-import { fetchAllAccessibleResorts } from '../api/resorts'
+import { fetchPaymentSettings, updatePaymentSettings, fetchPaymentAccounts, fetchPaymentAccountScopeOptions, createPaymentAccount, updatePaymentAccount, deletePaymentAccount, type PaymentAccount, type PaymentSettings } from '../api/paymentSettings'
 import { fetchAdminMe } from '../api/auth'
 import { useNotification } from '../context'
 import { useAdminDialog } from '../hooks/useAdminDialog'
@@ -42,7 +41,8 @@ const splitOptions = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean)
 
-export default function PaymentSettingsPage() {
+export default function PaymentSettingsPage({ section = 'accounts' }: { section?: PaymentSettingsSection } = {}) {
+  const accounts = section === 'accounts'
   const notify = useNotification()
   const qc = useQueryClient()
   const [form, setForm] = useState<PaymentSettings>(EMPTY)
@@ -56,8 +56,8 @@ export default function PaymentSettingsPage() {
   const canManageCompany = !!adminMe?.user?.can_view_all_campuses
 
   const { data, isLoading, error } = useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: fetchPaymentSettings,
+    queryKey: [...QUERY_KEY, section],
+    queryFn: () => fetchPaymentSettings(section),
   })
 
   useEffect(() => {
@@ -77,7 +77,7 @@ export default function PaymentSettingsPage() {
   }, [data])
 
   const saveMutation = useMutation({
-    mutationFn: (payload: PaymentSettings) => updatePaymentSettings(payload),
+    mutationFn: (payload: Partial<PaymentSettings>) => updatePaymentSettings(payload, section),
     onSuccess: () => {
       setSaveError('')
       setSaveNotice('付款設定已更新')
@@ -91,24 +91,30 @@ export default function PaymentSettingsPage() {
     e.preventDefault()
     setSaveError('')
     setSaveNotice('')
+    if (!accounts) {
+      saveMutation.mutate({
+        messenger_options: splitOptions(messengerText),
+        referral_source_options: splitOptions(referralSourceText),
+      })
+      return
+    }
+    const { messenger_options, referral_source_options, ...accountFields } = form
     saveMutation.mutate({
-      ...form,
+      ...accountFields,
       currency_settings: form.currency_settings && {...form.currency_settings, ...(form.currency_settings.foreign_rates ? {foreign_rates: Object.fromEntries(Object.entries(form.currency_settings.foreign_rates).filter(([,rate])=>rate?.trim()))} : {})},
-      messenger_options: splitOptions(messengerText),
-      referral_source_options: splitOptions(referralSourceText),
     })
   }
 
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">付款設定</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{accounts ? '收款帳戶與幣別' : '訂單表單選項'}</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">各校區可分別設定台幣／日幣帳戶；日幣不會套用台幣備用帳戶。</p>
       </div>
 
       {adminMeQuery.isError && <div role="alert" className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">無法確認付款設定權限，尚未開放編輯。<button type="button" className="ml-2 min-h-11 rounded-lg border px-3" onClick={()=>adminMeQuery.refetch()}>重新確認權限</button></div>}
       {adminMeQuery.isPending && <p role="status">付款設定權限確認中…</p>}
-      <PaymentAccountsSection authorityReady={authorityReady} canManageCompany={canManageCompany} allowedCampusIds={adminMe?.user?.assigned_campus_ids || []} />
+      {accounts && <PaymentAccountsSection authorityReady={authorityReady} canManageCompany={canManageCompany} allowedCampusIds={adminMe?.user?.assigned_campus_ids || []} />}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
@@ -128,6 +134,7 @@ export default function PaymentSettingsPage() {
           {saveNotice && <p role="status" aria-label="付款設定儲存結果" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">{saveNotice}</p>}
           {authorityReady && !canManageCompany && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">全公司預設收款資訊僅供查看；請在上方建立自己校區的收款帳戶。</p>}
           <fieldset disabled={!authorityReady || !canManageCompany || saveMutation.isPending} className={`space-y-5 ${!canManageCompany ? 'opacity-60' : ''}`}>
+          {accounts && <div className="space-y-5">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             訂單管理通知信箱（匯款待對帳、取消申請）
             <input type="email" maxLength={200} value={form.order_management_email ?? ''}
@@ -169,7 +176,8 @@ export default function PaymentSettingsPage() {
               onChange={(v) => setForm({ ...form, bank_account_holder: v })} />
           </div>
 
-          <div className="pt-5 border-t border-gray-200 dark:border-gray-700 space-y-4">
+          </div>}
+          {!accounts && <div className="pt-5 border-t border-gray-200 dark:border-gray-700 space-y-4">
             <div>
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white">訂單表單選項</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -190,7 +198,7 @@ export default function PaymentSettingsPage() {
                 onChange={setReferralSourceText}
               />
             </div>
-          </div>
+          </div>}
 
           <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-end">
             <button
@@ -214,13 +222,12 @@ function PaymentAccountsSection({ authorityReady, canManageCompany, allowedCampu
   const qc = useQueryClient()
   const notify = useNotification()
   const accountsQuery = useQuery({ queryKey: ['admin', 'payment-accounts'], queryFn: fetchPaymentAccounts })
-  const campusesQuery = useQuery({ queryKey: ['admin', 'campuses'], queryFn: fetchCampuses })
-  const resortsQuery = useQuery({ queryKey: ['admin', 'resorts', 'all-accessible'], queryFn: fetchAllAccessibleResorts })
+  const scopeQuery = useQuery({ queryKey: ['admin', 'payment-accounts', 'scope-options'], queryFn: fetchPaymentAccountScopeOptions })
   const accounts = accountsQuery.data ?? []
-  const campuses = campusesQuery.data ?? []
-  const resorts = resortsQuery.data ?? []
-  const isLoadingAccounts = !authorityReady || accountsQuery.isPending || campusesQuery.isPending || resortsQuery.isPending
-  const hasAccountsError = accountsQuery.isError || campusesQuery.isError || resortsQuery.isError
+  const campuses = scopeQuery.data?.campuses ?? []
+  const resorts = scopeQuery.data?.resorts ?? []
+  const isLoadingAccounts = !authorityReady || accountsQuery.isPending || scopeQuery.isPending
+  const hasAccountsError = accountsQuery.isError || scopeQuery.isError
   const [open, setOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState<{ id: number; name: string } | null>(null)
@@ -263,7 +270,7 @@ function PaymentAccountsSection({ authorityReady, canManageCompany, allowedCampu
   return <>
     <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold text-gray-900 dark:text-white">多校區收款帳戶</h2><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">優先使用符合校區、雪場的帳戶；總部可不選校區，作為全公司共用帳戶。</p></div>{!isLoadingAccounts && !hasAccountsError && <button onClick={() => { setEditingId(null); setForm({ ...EMPTY_ACCOUNT }); setOpen(true) }} className="flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: PRIMARY }}><Plus size={15} />新增帳戶</button>}</div>
-      {hasAccountsError ? <div role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>收款帳戶或適用校區資料載入失敗，請重新載入後再編輯。</p><button type="button" onClick={() => { closeForm(); setDeleting(null); void Promise.all([accountsQuery.refetch(), campusesQuery.refetch(), resortsQuery.refetch()]) }} className="mt-3 rounded-lg border border-red-300 px-3 py-2 font-semibold hover:bg-red-100 dark:border-red-700 dark:hover:bg-red-900/30">重新載入</button></div> : isLoadingAccounts ? <div role="status" className="mt-5 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400"><Loader2 size={16} className="animate-spin" />正在載入收款帳戶…</div> : <div className="mt-5 grid gap-3 md:grid-cols-2">{accounts.map(a => {
+      {hasAccountsError ? <div role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>收款帳戶或適用校區資料載入失敗，請重新載入後再編輯。</p><button type="button" onClick={() => { closeForm(); setDeleting(null); void Promise.all([accountsQuery.refetch(), scopeQuery.refetch()]) }} className="mt-3 rounded-lg border border-red-300 px-3 py-2 font-semibold hover:bg-red-100 dark:border-red-700 dark:hover:bg-red-900/30">重新載入</button></div> : isLoadingAccounts ? <div role="status" className="mt-5 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400"><Loader2 size={16} className="animate-spin" />正在載入收款帳戶…</div> : <div className="mt-5 grid gap-3 md:grid-cols-2">{accounts.map(a => {
         const canManage = authorityReady && (canManageCompany || (a.campus_ids.length > 0 && a.campus_ids.every(id => allowedCampusIds.includes(id))))
         const hasOtherCampuses = a.campus_ids.some(id => !campuses.some(c => c.id === id))
         const accountReady = [a.bank_name, a.bank_branch, a.account_number, a.account_holder].every(value => value.trim().length > 0)

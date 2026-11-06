@@ -67,7 +67,7 @@ const declarations=page.body.statements.filter(node=>ts.isVariableStatement(node
 const selected=declarations.filter(node=>node.declarationList.declarations.some(decl=>['structureItem','structureKey','groups'].includes(decl.name.getText(cmsAst))))
 let savedDeps,savedGroups
 const memo=vm.createContext({exports:{},CMS_STRUCTURE_LOCATION_KEY:'cms.structure',normalizeCmsStructureGroups:metadata=>metadata.groups || [],useMemo:(callback,deps)=>{if(!savedDeps||deps.some((value,index)=>value!==savedDeps[index])){savedDeps=deps;savedGroups=callback()}return savedGroups}})
-vm.runInContext(compile('function groupsFor(contents,contentTypes,reviewGroups){'+selected.map(node=>node.getText(cmsAst)).join('\n')+';return groups}\nexports.groupsFor=groupsFor'),memo)
+vm.runInContext(compile('function groupsFor(contents,contentTypes,reviewGroups,section){'+selected.map(node=>node.getText(cmsAst)).join('\n')+';return groups}\nexports.groupsFor=groupsFor'),memo)
 const structure=()=>({content_type:'setting',location_key:'cms.structure',metadata:{groups:[{id:'homepage',locations:[{key:'site.footer',type:'setting'}]}]}})
 const firstGroups=memo.exports.groupsFor([structure()],undefined,{})
 const nextGroups=memo.exports.groupsFor([structure(),{id:7,title:'更新過的頁尾'}],undefined,{})
