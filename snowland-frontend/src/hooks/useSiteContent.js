@@ -47,6 +47,11 @@ export function useSiteContent(locationKey, options = {}) {
   return { items, isLoading, error, refetch: () => setReloadKey(value => value + 1) };
 }
 
+export function useSummerPhotographyAvailable() {
+  const { items, isLoading, error } = useSiteContent('photography.summer', { limit: 1 });
+  return !isLoading && !error && items.length > 0;
+}
+
 export function useCoursePricing(resortSlug) {
   const result = useSiteContent('course.pricing');
   const item = result.items.find((candidate) => candidate.external_id === resortSlug);

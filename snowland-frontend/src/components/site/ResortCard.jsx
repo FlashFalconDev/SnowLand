@@ -22,9 +22,11 @@ function ResortCard({ resort }) {
         />
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <div className="text-[10px] font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
-          {t(resort.region)}
-        </div>
+        {resort.region && (
+          <div className="text-[10px] font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
+            {t(resort.region)}
+          </div>
+        )}
         <div>
           <h3 className="text-sm font-semibold text-[#1f2937]">{resort.nameChinese}</h3>
           <p className="text-xs text-[#64748b]">{resort.nameEnglish}</p>

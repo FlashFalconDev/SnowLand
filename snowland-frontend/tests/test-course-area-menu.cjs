@@ -25,13 +25,14 @@ function setup(extra={}){
    if(name.includes('logo-white'))return'logo.png'
    if(name.includes('assetPaths'))return{homepageAssetBase:'/assets'}
    if(name.includes('navigationLinks'))return{faqLink:'/faq'}
-   if(name.includes('useSiteContent'))return{useSiteContent:key=>{assert.equal(key,'course.areas');return{items:defaults,isLoading:false,error:null,refetch(){retries++},...extra}}}
+   if(name.includes('useSiteContent'))return{useSummerPhotographyAvailable:()=>false,useSiteContent:key=>{assert.equal(key,'course.areas');return{items:defaults,isLoading:false,error:null,refetch(){retries++},...extra}}}
    throw Error(name)
  }})
  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,ctx)
  return{render:()=>{index=0;return ctx.exports.default({})},retries:()=>retries}
 }
 let app=setup(),tree=app.render(),html=renderToStaticMarkup(tree)
+assert.ok(!html.includes('/snowland/photography/summer'))
 for(const row of defaults){assert.ok(html.includes('/snowland/course/'+row.external_id));assert.ok(html.includes(row.title.replaceAll('&','&amp;')))}
 const trigger=findAll(tree,n=>n.type==='button'&&Array.isArray(n.props.children)&&n.props.children[0]==='滑雪課程')[0]
 assert.ok(trigger);trigger.props.onClick();assert.equal(findAll(app.render(),n=>n.type==='button'&&n.props['aria-expanded']===true).length,1)

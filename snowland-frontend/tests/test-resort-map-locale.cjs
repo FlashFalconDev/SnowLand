@@ -24,5 +24,8 @@ for(const language of ['en','ja']){
  const card=load('ResortCard.jsx',language),markup=render(card.render({resort}))
  assert.ok(markup.includes(language==='en'?'View resort information':'スキー場の詳細を見る'))
  assert.ok(markup.includes('href="/snowland/course/tomamu"'));assert.ok(markup.includes('QA自訂雪場')&&markup.includes('QA自訂標籤'))
+ const {region, ...resortWithoutRegion}=resort
+ assert.ok(render(card.render({resort:resortWithoutRegion})).includes('href="/snowland/course/tomamu"'))
+ assert.ok(render(map.render({resorts:[resortWithoutRegion]})).includes('QA自訂雪場'))
  console.log('PASS resort map/card locale',language,'zoom, marker toggle, canonical target and original custom name/tag')
 }

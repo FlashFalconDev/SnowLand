@@ -323,9 +323,11 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
             }`}
             ref={cardRef}
           >
-            <div className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
-              {t(activeResort.region)}
-            </div>
+            {activeResort.region && (
+              <div className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
+                {t(activeResort.region)}
+              </div>
+            )}
             <div className="mt-2 text-lg font-semibold font-display">
               {activeResort.nameChinese}
             </div>
@@ -353,9 +355,11 @@ function HokkaidoMap({ resorts, initialActiveSlug }) {
             isCardVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
           }`}
         >
-          <div className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
-            {t(activeResort.region)}
-          </div>
+          {activeResort.region && (
+            <div className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8]">
+              {t(activeResort.region)}
+            </div>
+          )}
           <div className="mt-2 text-lg font-semibold font-display">
             {activeResort.nameChinese}
           </div>

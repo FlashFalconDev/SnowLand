@@ -1524,13 +1524,27 @@ function ContentDrawer({
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">請以-area結尾；校區名稱、雪場分組及排序仍可隨時修改。</p>
                 </label>
               )}
-              {form.location_key === 'course.resorts' && (
+              {form.location_key === 'course.resorts' && <>
                 <label className="mt-4 block">
                   <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">官網雪場網址代號</span>
                   <input required value={form.external_id} onChange={(event) => setForm((prev) => ({ ...prev, external_id: event.target.value.trim().toLowerCase() }))} placeholder="例如 tomamu" className={inputClass} />
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">填入網址 /course/tomamu 中的 tomamu；後續價目會依此雪場連結顯示。</p>
                 </label>
-              )}
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">北海道地區</span>
+                  <select
+                    value={String(form.metadata?.region ?? '')}
+                    onChange={(event) => setForm((prev) => ({
+                      ...prev,
+                      metadata: { ...prev.metadata, region: event.target.value },
+                    }))}
+                    className={inputClass}
+                  >
+                    <option value="">未設定</option>
+                    {['道北', '道東', '道央', '道南'].map((region) => <option key={region}>{region}</option>)}
+                  </select>
+                </label>
+              </>}
               {form.location_key === 'course.resort-pages' && (
                 <label className="mt-4 block">
                   <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">這份介紹屬於哪個雪場？</span>
