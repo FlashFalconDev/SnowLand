@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import logo from '../../assets/site/logo-white.png';
 import { homepageAssetBase } from '../../data/site/assetPaths';
 import { faqLink } from '../../data/site/navigationLinks';
-import { useSiteContent } from '../../hooks/useSiteContent';
+import { useSiteContent, useSummerPhotographyAvailable } from '../../hooks/useSiteContent';
 import { useSiteLocale } from '../../contexts/SiteLocale';
 import SiteLanguageSelect from './SiteLanguageSelect';
 
@@ -68,6 +68,13 @@ function SiteHeader({
   const {t}=useSiteLocale();
   const location = useLocation();
   const courseAreas = useSiteContent('course.areas', {contentType:'page'});
+  const showSummerPhotography = useSummerPhotographyAvailable();
+  const photographyMenuItems = [
+    { label: "冬季雪地攝影", to: "/photography/winter" },
+    ...(showSummerPhotography ? [{ label: "夏季旅拍攝影", to: "/photography/summer" }] : []),
+    { label: "攝影作品", to: "/Gallery" },
+    { label: "預約攝影流程", to: "/photography/how-to-book" },
+  ];
   const courseMenuItems = [
     ...courseAreas.items.filter(item => /^[a-z0-9]+(?:-[a-z0-9]+)*-area$/.test(item.external_id)).map(item => ({label:item.title,to:`/course/${item.external_id}`,contentLabel:true})),
     {label:'北海道所有雪場',to:'/course/hokkaido'},
@@ -112,12 +119,7 @@ function SiteHeader({
     滑雪課程: [
       ...courseMenuItems,
     ],
-    海外攝影: [
-      { label: "冬季雪地攝影", to: "/photography/winter" },
-      { label: "夏季旅拍攝影", to: "/photography/summer" },
-      { label: "攝影作品", to: "/Gallery" },
-      { label: "預約攝影流程", to: "/photography/how-to-book" },
-    ],
+    海外攝影: photographyMenuItems,
     滑雪攻略: [
       { label: "雪場攻略", to: "/guides/skiresorts" },
       { label: "行前須知", to: "/guides/preparation" },
@@ -266,12 +268,7 @@ function SiteHeader({
                       {item.label === '滑雪課程' && courseAreas.isLoading && <p role="status" className="px-4 py-3 text-xs text-[#64748b]">{t('校區載入中…')}</p>}
                       {item.label === '滑雪課程' && courseAreas.error && <button type="button" onClick={courseAreas.refetch} className="min-h-11 px-4 text-left text-xs text-red-700">{t('校區載入失敗，點此重試')}</button>}
                       {(item.label === "海外攝影"
-                        ? [
-                            { label: "冬季雪地攝影", to: "/photography/winter" },
-                            { label: "夏季旅拍攝影", to: "/photography/summer" },
-                            { label: "攝影作品", to: "/Gallery" },
-                            { label: "預約攝影流程", to: "/photography/how-to-book" },
-                          ]
+                        ? photographyMenuItems
                         : item.label === "滑雪課程"
                           ? courseMenuItems
                           : item.label === "滑雪攻略"

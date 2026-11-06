@@ -7,9 +7,11 @@ import PhotographyContentGate from '../../components/site/PhotographyContentGate
 import SiteHeader from '../../components/site/SiteHeader';
 import aboutSnowland from '../../assets/site/About snowland.jpg';
 import { useSiteLocale } from '../../contexts/SiteLocale';
+import { useSummerPhotographyAvailable } from '../../hooks/useSiteContent';
 
 function WinterPhotographyLayout({ content }) {
   const { t } = useSiteLocale();
+  const showSummerPhotography = useSummerPhotographyAvailable();
   const c = (key) => content.values[key] ?? '';
   const scrollerRef = useRef(null);
   const itemRefs = useRef([]);
@@ -720,7 +722,7 @@ function WinterPhotographyLayout({ content }) {
         </section>
         <section id="related-content" className="scroll-mt-28 md:scroll-mt-32">
           <div className="max-w-6xl mx-auto px-6 md:px-12 py-6 md:py-8">
-            <div className="grid gap-8 md:grid-cols-3">
+            <div className={`grid gap-8 ${showSummerPhotography ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
               <SiteLink
                 to="/Gallery"
                 className="group relative overflow-hidden aspect-[4/3] bg-[#1d4ed8] text-white"
@@ -753,7 +755,7 @@ function WinterPhotographyLayout({ content }) {
                     {c("winter_094")}</h3>
                 </div>
               </SiteLink>
-              <SiteLink
+              {showSummerPhotography && <SiteLink
                 to="/photography/summer"
                 className="group relative overflow-hidden aspect-[4/3] bg-[#1d4ed8] text-white"
               >
@@ -767,7 +769,7 @@ function WinterPhotographyLayout({ content }) {
                   <h3 className="text-lg md:text-xl font-semibold tracking-wide drop-shadow">
                     {c("winter_097")}</h3>
                 </div>
-              </SiteLink>
+              </SiteLink>}
             </div>
           </div>
         </section>

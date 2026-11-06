@@ -8,6 +8,7 @@ function setup(season,language,custom={}){
  Object.assign(values,custom);const file=`src/pages/site/${season==='summer'?'Summer':'Winter'}PhotographyPage.jsx`,source=fs.readFileSync(path.join(root,file),'utf8').replaceAll('import.meta.env.BASE_URL','"/"')+`;exports.Layout=${season==='summer'?'Summer':'Winter'}PhotographyLayout;`;
  const scope={exports:{},require(name){
   if(name==='react')return hooks;
+  if(name.endsWith('useSiteContent'))return{useSummerPhotographyAvailable:()=>false};
   if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(hooks,language);
   if(name==='framer-motion')return{motion:new Proxy({},{get:(_,tag)=>tag}),useReducedMotion:()=>true,useScroll:()=>({scrollYProgress:0}),useTransform:()=>0};
   if(name==='react-router-dom')return{Link:p=>React.createElement('a',{href:p.to},p.children)};
@@ -27,6 +28,7 @@ for(const season of ['summer','winter'])for(const language of ['en','ja']){
  assert.ok(html.includes(season==='summer'?(language==='en'?'Book summer photography':'夏のロケーション撮影を予約'):(language==='en'?'Book winter photography':'雪上撮影を予約')));
  assert.ok(renderToStaticMarkup(setup(season,language,{[season==='summer'?'summer_021':'winter_010']:'原自訂按鈕'}).render()).includes('原自訂按鈕'));
  assert.ok(html.includes('/snowland/booking?service=photo'),'Keep canonical booking route');
+ if(season==='winter')assert.ok(!html.includes('/snowland/photography/summer'));
  for(const button of all(tree,n=>n.type==='button'))assert.equal(all(button,n=>n!==button&&n.type==='button').length,0,'Never nest buttons');
  if(season==='summer')for(const key of ['切換旅拍照片','切換旅拍輕婚紗照片','切換旅拍婚紗照片']){
   const label=locale.translateSiteText(language,key),getGroup=()=>all(app.render(),n=>n.type==='div'&&n.props.className==='relative'&&React.Children.toArray(n.props.children).some(c=>c.props?.['aria-label']===label))[0];

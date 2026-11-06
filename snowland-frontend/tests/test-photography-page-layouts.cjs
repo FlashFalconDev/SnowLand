@@ -14,6 +14,7 @@ function render(source,content,faqIndex=0){
   const motion=tag=>({initial,animate,variants,transition,whileInView,viewport,...props})=>React.createElement(tag,props)
   const ctx=vm.createContext({exports:{},require:name=>{
     if(name==='react')return hooks
+    if(name.endsWith('useSiteContent'))return{useSummerPhotographyAvailable:()=>true}
     if(name.includes('contexts/SiteLocale'))return require('./helpers/site-locale-harness.cjs')(React)
     if(name==='framer-motion')return{motion:{div:motion('div'),img:motion('img')},useReducedMotion:()=>true,useScroll:()=>({}),useTransform(){}}
     if(name==='react-router-dom')return{Link:link}
