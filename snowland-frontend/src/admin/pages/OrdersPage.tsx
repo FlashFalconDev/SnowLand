@@ -220,7 +220,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   // 搜尋 / 過濾條件變動 → 強制回到第一頁(避免在第 5 頁但條件過濾後只剩 2 頁的空畫面)
   useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter])
 
-  const { data: pageData, isLoading, error, isFetching } = useQuery({
+  const { data: pageData, isLoading, error, isFetching, isPlaceholderData } = useQuery({
     queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, workflow }],
     queryFn: () => fetchOrdersPaged({
       page,
@@ -244,8 +244,9 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   const orderLoadError = error ? getOrderLoadError(error) : null
 
   useEffect(() => {
-    if (pageData?.page && pageData.page !== page) setPage(pageData.page)
-  }, [page, pageData?.page])
+    // 換頁期間的暫留資料屬於上一頁，只採用實際回應校正頁碼。
+    if (!isPlaceholderData && pageData?.page && pageData.page !== page) setPage(pageData.page)
+  }, [isPlaceholderData, page, pageData?.page])
 
   const { data: viewing, isFetching: isViewingLoading, error: viewingError, refetch: refetchViewing } = useQuery({
     queryKey: ['admin', 'orders', 'detail', viewingId, workflow],
