@@ -3,6 +3,7 @@ import AdminLayout from './layout/AdminLayout'
 import RoleGuard from './components/RoleGuard'
 import DashboardPage from './pages/DashboardPage'
 import ContactInboxPage from './pages/ContactInboxPage'
+import RecruitmentPage from './pages/cms/RecruitmentPage'
 import SocialSyncPage from './pages/SocialSyncPage'
 import CoachesPage from './pages/CoachesPage'
 import ResortsPage from './pages/ResortsPage'
@@ -76,6 +77,7 @@ const pages: Record<ConsolePath, ReactElement> = {
   'cms/photography': <SiteContentPage initialGroup="photography" section="site_photography" />,
   'cms/guides': <SiteContentPage initialGroup="guides" section="site_guides" />,
   'cms/news': <SiteContentPage initialGroup="news" section="site_news" />,
+  'cms/recruitment': <RecruitmentPage />,
   'cms/about': <SiteContentPage initialGroup="about" section="site_about" />,
   'cms/coaches': <CoachEditorPage />,
   'reviews/manual': <SiteContentPage contentTypes={REVIEW_TYPES} />,

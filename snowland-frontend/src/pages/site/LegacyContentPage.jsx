@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSiteLocale } from '../../contexts/SiteLocale';
 import { Link as RouterLink } from 'react-router-dom';
 import SiteLink from '../../components/site/SiteLink';
+import { schoolBookingApiPath } from '../../utils/tenant';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
@@ -173,6 +174,19 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
   const cmsLocationKey = CMS_LOCATION_BY_PAGE_KEY[pageKey] ?? `legacy.${pageKey}`;
   const { items: cmsPageItems, isLoading: pageLoading, error: pageError } = useSiteContent(cmsLocationKey, { limit: 20 });
   const { items: articleItems } = useSiteContent('guides.articles');
+  const [recruitmentEnabled, setRecruitmentEnabled] = useState(null);
+  useEffect(() => {
+    if (pageKey !== 'join-us') return;
+    const controller = new AbortController();
+    fetch(schoolBookingApiPath('/recruitment/'), {signal: controller.signal, cache: 'no-store'})
+      .then(response => {
+        if (!response.ok) throw new Error();
+        return response.json();
+      })
+      .then(config => { if (!controller.signal.aborted) setRecruitmentEnabled(config?.enabled !== false); })
+      .catch(() => { if (!controller.signal.aborted) setRecruitmentEnabled(true); });
+    return () => controller.abort();
+  }, [pageKey]);
   const page = siteContentToPage(cmsPageItems[0]);
   const aboutValues = page?.layout?.values;
   const aboutUnavailable = ['about','join-us'].includes(pageKey) && !(page?.layout?.version === 1 && page.layout.page_key === pageKey && aboutValues && typeof aboutValues === 'object' && !Array.isArray(aboutValues) && Object.keys(aboutValues).length && Object.values(aboutValues).every(value => typeof value === 'string'));
@@ -184,10 +198,10 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
       </p>
     </main><SiteFooter />
   </div>;
-  return <LegacyContentLayout key={pageKey} pageKey={pageKey} page={page} guidesArticles={articleItems.map(siteContentToArticle)} forceDarkHeader={forceDarkHeader} forceLogoColor={forceLogoColor} />;
+  return <LegacyContentLayout key={pageKey} pageKey={pageKey} page={page} guidesArticles={articleItems.map(siteContentToArticle)} recruitmentEnabled={recruitmentEnabled} forceDarkHeader={forceDarkHeader} forceLogoColor={forceLogoColor} />;
 }
 
-function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = false, forceLogoColor = false }) {
+function LegacyContentLayout({ pageKey, page, guidesArticles, recruitmentEnabled = false, forceDarkHeader = false, forceLogoColor = false }) {
   const { t } = useSiteLocale();
   const isAboutPage = pageKey === "about";
   const j = (key) => page.layout?.values?.[key] ?? "";
@@ -774,15 +788,15 @@ function LegacyContentLayout({ pageKey, page, guidesArticles, forceDarkHeader = 
                 <h2 className="mt-3 text-2xl md:text-3xl font-semibold tracking-wide font-display text-white">
                   {j("join_089")}</h2>
                 <div className="mt-6 flex justify-center">
-                  <SiteLink
-                    to={j("join_apply_url")}
-                    target="_blank" rel="noopener noreferrer"
+                  {recruitmentEnabled === null ? <p role="status" className="text-sm text-white">{t("表單載入中…")}</p> : <SiteLink
+                    to={recruitmentEnabled ? "/join-us/apply" : j("join_apply_url")}
+                    target={recruitmentEnabled ? undefined : "_blank"} rel="noopener noreferrer"
                     data-recruit-apply="true"
                     className="inline-flex items-center justify-center rounded-full bg-[#8ec8f0] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#7bbbe7]"
                   >
-                    {j("join_090")}</SiteLink>
+                    {j("join_090")}</SiteLink>}
                 </div>
-                {/^https?:\/\//i.test(j("join_apply_url")) && <p data-recruit-notice="true" className="mt-3 text-xs leading-6 text-white">{t("目前開啟外部應徵表單；站內招募表單建置中。")}</p>}
+                {/^https?:\/\//i.test(j("join_apply_url")) && recruitmentEnabled === false && <p data-recruit-notice="true" className="mt-3 text-xs leading-6 text-white">{t("目前使用外部應徵表單。")}</p>}
               </JoinUsFade>
             </div>
           </section>

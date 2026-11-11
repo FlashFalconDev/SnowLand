@@ -34,6 +34,7 @@ ADMIN_PERMISSION_DEFINITIONS = [
     {'key': 'site_guides', 'label': '滑雪攻略與 FAQ', 'group': '官網內容', 'description': '管理攻略、問答及文章'},
     {'key': 'site_news', 'label': '最新消息', 'group': '官網內容', 'description': '管理公告文章'},
     {'key': 'site_about', 'label': '品牌介紹與聯絡頁', 'group': '官網內容', 'description': '管理品牌、招募及聯絡資訊'},
+    {'key': 'recruitment', 'label': '教練招募', 'group': '官網內容', 'description': '設定應徵表單及查看應徵資料，須有全校資料範圍'},
     {'key': 'site_coaches', 'label': '官網教練資料', 'group': '官網內容', 'description': '管理公開教練介紹'},
     {'key': 'site_reviews', 'label': '網站評論', 'group': '官網內容', 'description': '管理 Google 評論與學員心得'},
     {'key': 'site_media', 'label': '圖庫', 'group': '官網內容', 'description': '管理官網圖庫'},

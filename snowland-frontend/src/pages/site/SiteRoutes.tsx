@@ -27,6 +27,7 @@ const GuideArticlePage = lazy(() => import('./GuideArticlePage'))
 const BestHokkaidoTreeRunsPage = lazy(() => import('./BestHokkaidoTreeRunsPage'))
 const PackingChecklistPage = lazy(() => import('./PackingChecklistPage'))
 const LegacyContentPage = lazy(() => import('./LegacyContentPage'))
+const RecruitmentApplyPage = lazy(() => import('./RecruitmentApplyPage'))
 const OverseasPhotographyWorksPage = lazy(() => import('./OverseasPhotographyWorksPage'))
 const WinterPhotographyPage = lazy(() => import('./WinterPhotographyPage'))
 const SummerPhotographyPage = lazy(() => import('./SummerPhotographyPage'))
@@ -136,6 +137,7 @@ export default function SiteRoutes() {
           {/* About & Info */}
           <Route path="/about" element={<LegacyContentPage key="about" pageKey="about" />} />
           <Route path="/join-us" element={<LegacyContentPage key="join-us" pageKey="join-us" />} />
+          <Route path="/join-us/apply" element={<RecruitmentApplyPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/membership" element={<MembershipPage />} />
           <Route path="/membership/*" element={<MembershipPage />} />

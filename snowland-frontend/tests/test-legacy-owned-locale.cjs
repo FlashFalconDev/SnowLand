@@ -7,6 +7,7 @@ function setup(language,flags={}){
  const locale=require('./helpers/site-locale-harness.cjs')(hooks,language);
  const scope={exports:{},require(name){
   if(name==='react')return hooks;
+  if(name.endsWith('utils/tenant'))return{schoolBookingApiPath:path=>'/booking/snowland/api'+path};
   if(name.includes('contexts/SiteLocale'))return locale;
   if(name==='react-router-dom')return{Link:p=>React.createElement('a',{href:p.to},p.children)};
   if(name==='framer-motion')return{motion:new Proxy({},{get:(_,tag)=>({initial,animate,variants,transition,whileInView,viewport,...props})=>React.createElement(tag,props)}),useReducedMotion:()=>true,useScroll:()=>({scrollY:0}),useTransform:()=>0};
