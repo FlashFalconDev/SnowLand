@@ -2,7 +2,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
 const source=fs.readFileSync(path.join(root,'src/pages/site/MembershipPage.jsx'),'utf8')
 const between=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)))
-const code=between('function ParticipantRoster(','function ParticipantInvitation(')+between('function MemberSection(','function MemberContent(')+between('function SatisfactionForm(','function Overview(')+between('function ParticipantCourses(','function MemberNotifications(')
+const code=between('function ParticipantRoster(','function ParticipantInvitation(')+between('function Forms(','function SatisfactionForm(')+between('function MemberSection(','function MemberContent(')+between('function SatisfactionForm(','function Overview(')+between('function ParticipantCourses(','function MemberNotifications(')
 const progressContext={exports:{}}
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/utils/learningProgress.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,progressContext)
 assert.equal(progressContext.exports.formatLearningProgressEntry('before','level2'),'課前程度：等級 2','Existing admin formatting is unchanged')
@@ -15,15 +15,16 @@ for(const language of ['en','ja']){
   ]) assert.notEqual(locale.translateSiteText(language,message),message,`${language}: ${message}`)
   let cursor=0
   const states=[null,{7:{url:'https://example.test/qa-invite',expires:'2026-10-20T00:00:00Z'}},'', '']
-  const context={React,window:{location:{origin:'https://example.test'}},navigator:{},SiteBasePathContext:{},useContext:()=>'/snowland',useState:()=>{const index=cursor++;return[states[index],()=>{}]},useSiteLocale:require('./helpers/site-locale-harness.cjs')(React,language).useSiteLocale,Gift:()=>null,Star:()=>null,formatDate:value=>value,formatLearningProgressEntry:progressContext.exports.formatLearningProgressEntry,ClassGroupQRImage:()=>null,SiteLink:({to,children,...props})=>React.createElement('a',{href:to,...props},children)}
+  const context={React,URLSearchParams,useLocation:()=>({search:''}),window:{location:{origin:'https://example.test'}},navigator:{},SiteBasePathContext:{},useContext:()=>'/snowland',useState:()=>{const index=cursor++;return[states[index],()=>{}]},useSiteLocale:require('./helpers/site-locale-harness.cjs')(React,language).useSiteLocale,Gift:()=>null,Star:()=>null,formatDate:value=>value,formatLearningProgressEntry:progressContext.exports.formatLearningProgressEntry,ClassGroupQRImage:()=>null,SiteLink:({to,children,...props})=>React.createElement('a',{href:to,...props},children)}
   vm.runInNewContext(ts.transpileModule(code,{fileName:'member.jsx',compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText,context)
   const offers=renderToStaticMarkup(context.MemberSection({section:'offers',data:{level:'silver',alumni_verified:true,points:123,previous_points:45,referral_code:'QA-<private>-123'}}))
   for(const text of ['銀級','目前點數','歷史補登'])assert.ok(!offers.includes(text),language+' untranslated '+text)
   assert.ok(offers.includes('123')&&offers.includes('45'))
   assert.ok(offers.includes('QA-&lt;private&gt;-123'),'Referral code preserved and escaped')
   assert.ok(offers.includes(language==='en'?'Silver':'シルバー'))
-  const roster=renderToStaticMarkup(context.ParticipantRoster({order:{order_number:'QA-123',payment_status:'paid'},reservation:{resort:'QA雪場名稱',participants:[{id:7,student_number:2,binding_status:'pending',can_invite:true}]},onSaved(){}}))
-  assert.ok(roster.includes('QA雪場名稱'),'CMS name remains unchanged')
+  const reservation={id:1,resort:'QA雪場名稱',course_template:'QA課程名稱',participants:[{id:7,student_number:2,binding_status:'pending',can_invite:true}]}
+  const roster=renderToStaticMarkup(React.createElement(context.Forms,{forms:[],orders:[{id:1,order_number:'QA-123',payment_status:'paid',reservations:[reservation]}],onSaved(){}}))
+  assert.ok(roster.includes('QA雪場名稱')&&roster.includes('QA課程名稱')&&roster.includes('QA-123'),'Course heading preserves the CMS names and order number')
   for(const text of ['的邀請網址','有效至','請勿公開分享'])assert.ok(!roster.includes(text))
   assert.ok(roster.includes('https://example.test/qa-invite')&&roster.includes(new Date(states[1][7].expires).toLocaleDateString(language)))
   console.log('PASS actual member offers and invitation roster locale',language)

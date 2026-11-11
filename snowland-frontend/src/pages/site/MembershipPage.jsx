@@ -312,7 +312,12 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
-  return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">{form.insurance_data?.full_name || t('學員 {number}（待填寫姓名）',{number:form.student_number || ''})}</h3><p className="mt-1 break-all text-xs text-[#94a3b8]">{form.order_number}｜{form.resort}</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${form.insurance_completed && form.waiver_completed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{form.insurance_completed && form.waiver_completed ? t("資料完成") : t("尚有資料未完成")}</span></div>
+  const studentNumber = form.student_number;
+  const studentName = form.insurance_data?.full_name;
+  return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div>
+    <h5 className="break-words font-semibold">{studentName || t('學員 {number}（待填寫姓名）', { number: studentNumber || '' })}</h5>
+    {studentName && studentNumber > 0 && <p className="mt-1 text-xs text-[#64748b]">{t('學員 {number}', { number: studentNumber })}</p>}
+  </div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${form.insurance_completed && form.waiver_completed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{form.insurance_completed && form.waiver_completed ? t("資料完成") : t("尚有資料未完成")}</span></div>
     {form.waiver_resign_required && <p role="status" className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t("課程日期或模板已修改，請重新閱讀並簽署聲明書。原簽署已留底；如已投保，將由行政重新核對。")}</p>}
     {!editing ? <>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><p>{t('年齡：{age}',{age:ageLabel(form.age_range,t)})}</p><p>{t('保險資料：{status}',{status:t(form.insurance_completed?'已填寫':'待補齊')})}</p><p>{t('聲明書：{status}',{status:t(form.waiver_completed?'完成':'需補齊或重新簽署')})}</p></div>
@@ -350,7 +355,7 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
   </article>;
 }
 
-function MissingStudents({ order, reservation, onSaved }) {
+function MissingStudents({ reservation, onSaved }) {
   const { t } = useSiteLocale();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -362,7 +367,7 @@ function MissingStudents({ order, reservation, onSaved }) {
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   };
-  return <article className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5"><p className="break-all text-xs text-[#64748b]">{order.order_number}</p><h3 className="mt-2 font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}</h3><p className="mt-3 text-sm leading-7 text-[#475569]">{t('這門課訂了 {people} 人，目前還有 {missing} 位尚未建立學員欄位。按下方按鈕後，逐位填寫姓名與課前資料即可，不會增加訂課人數或費用。',{people:reservation.people,missing:reservation.missing_students})}</p><button type="button" disabled={busy} onClick={prepare} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? t("建立中…") : t("建立學員資料")}</button>{error && <p role="alert" className="mt-3 text-sm text-red-700">{t(error)}</p>}</article>;
+  return <article className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5"><h5 className="font-semibold">{t("建立學員資料")}</h5><p className="mt-3 text-sm leading-7 text-[#475569]">{t('這門課訂了 {people} 人，目前還有 {missing} 位尚未建立學員欄位。按下方按鈕後，逐位填寫姓名與課前資料即可，不會增加訂課人數或費用。',{people:reservation.people,missing:reservation.missing_students})}</p><button type="button" disabled={busy} onClick={prepare} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? t("建立中…") : t("建立學員資料")}</button>{error && <p role="alert" className="mt-3 text-sm text-red-700">{t(error)}</p>}</article>;
 }
 
 function ParticipantRoster({ order, reservation, onSaved }) {
@@ -395,8 +400,7 @@ function ParticipantRoster({ order, reservation, onSaved }) {
     catch { setMessage('瀏覽器無法自動複製，請選取下方完整網址後複製。'); }
   };
   return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5 md:p-6">
-    <h3 className="font-semibold">{t("同行學員綁定")}</h3>
-    <p className="mt-2 text-sm text-[#64748b]">{order.order_number}｜{reservation.resort}</p>
+    <h5 className="font-semibold">{t("同行學員綁定")}</h5>
     <p className="mt-3 text-sm leading-7 text-[#64748b]">{t("未綁定的學員可由您代填，也可邀請本人或家長登入後綁定。綁定後，個人課前資料與學習紀錄只由該帳號管理，您不再看到他的個資。")}</p>
     {order.payment_status !== 'paid' && <p className="mt-3 text-sm text-[#64748b]">{t("付款完成後開放邀請；目前仍可先代填課前資料。")}</p>}
     <ul className="mt-4 divide-y divide-[#e2e8f0]">{(reservation.participants || []).map(participant => <li key={participant.id} className="py-4">
@@ -453,13 +457,64 @@ function ParticipantInvitation({ token, onAccepted }) {
   </section>;
 }
 
-function Forms({ forms, orders, waiverDocument, skillOptions, onSaved }) {
+function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions, onSaved }) {
   const { t } = useSiteLocale();
   const reservationId = Number(new URLSearchParams(useLocation().search).get('reservation'));
-  const visibleForms = reservationId ? forms.filter(form => form.reservation_id === reservationId) : forms;
-  const missing = orders.flatMap(order => order.reservations.filter(reservation => reservation.missing_students > 0 && !['cancelled', 'deleted'].includes(reservation.status) && (!reservationId || reservation.id === reservationId)).map(reservation => ({ order, reservation })));
-  const rosterCourses = orders.flatMap(order => order.reservations.filter(reservation => reservation.participants?.length > 0 && !['cancelled', 'deleted'].includes(reservation.status) && (!reservationId || reservation.id === reservationId)).map(reservation => ({ order, reservation })));
-  return <div><h2 className="text-2xl font-semibold">{t("學員與課前資料")}</h2><p className="mt-2 text-sm leading-7 text-[#64748b]">{t("依訂課人數逐位填寫年齡、保險與聲明書。您可以代填尚未綁定的同行學員；已綁定者請由本人或家長登入填寫。")}</p>{reservationId > 0 && <SiteLink to="/membership/pre-course-forms" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[#2b5f8f]">{t("查看全部課程的學員")}</SiteLink>}<div className="mt-7 space-y-4">{rosterCourses.map(({order, reservation}) => <ParticipantRoster key={`roster-${reservation.id}`} order={order} reservation={reservation} onSaved={onSaved} />)}{missing.map(({order, reservation}) => <MissingStudents key={reservation.id} order={order} reservation={reservation} onSaved={onSaved} />)}{visibleForms.map(form => <PreCourseForm key={form.id} form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} />)}{!missing.length && !visibleForms.length && !rosterCourses.length && <EmptyState title={t("目前沒有待填寫的課前資料")} description={t("完成訂課或確認同行學員邀請後，學員資料會出現在這裡。")} action={<SiteLink to="/membership/orders" className="mt-5 inline-flex min-h-11 items-center font-semibold text-[#2b5f8f]">{t("查看我的訂單")}</SiteLink>} />}</div></div>;
+  const formsByReservation = new Map();
+  for (const form of forms) {
+    if (reservationId && form.reservation_id !== reservationId) continue;
+    if (!formsByReservation.has(form.reservation_id)) formsByReservation.set(form.reservation_id, []);
+    formsByReservation.get(form.reservation_id).push(form);
+  }
+
+  const groups = new Map();
+  const addCourse = (orderId, orderNumber, details) => {
+    if (!groups.has(orderId)) groups.set(orderId, { orderNumber, courses: [] });
+    groups.get(orderId).courses.push(details);
+  };
+  for (const order of orders) {
+    for (const reservation of order.reservations) {
+      if (reservationId && reservation.id !== reservationId) continue;
+      const courseForms = formsByReservation.get(reservation.id) || [];
+      formsByReservation.delete(reservation.id);
+      const canManage = !['cancelled', 'deleted'].includes(reservation.status);
+      if (!courseForms.length && !(canManage && (reservation.missing_students > 0 || reservation.participants?.length))) continue;
+      addCourse(order.id, order.order_number, { id: reservation.id, course: reservation, courseForms, rosterOrder: canManage ? order : null });
+    }
+  }
+  const participantByCourse = new Map((participantCourses || []).map(course => [course.id, course]));
+  for (const [id, courseForms] of formsByReservation) {
+    const { order_id, order_number } = courseForms[0];
+    addCourse(order_id, order_number, { id, course: participantByCourse.get(id), courseForms });
+  }
+  return <div>
+    <h2 className="text-2xl font-semibold">{t("學員與課前資料")}</h2>
+    <p className="mt-2 text-sm leading-7 text-[#64748b]">{t("依訂課人數逐位填寫年齡、保險與聲明書。您可以代填尚未綁定的同行學員；已綁定者請由本人或家長登入填寫。")}</p>
+    {reservationId > 0 && <SiteLink to="/membership/pre-course-forms" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[#2b5f8f]">{t("查看全部課程的學員")}</SiteLink>}
+    <div className="mt-7 space-y-6">
+      {[...groups].map(([orderId, { orderNumber, courses }]) => <section key={orderId} aria-labelledby={`pre-course-order-${orderId}`} className="rounded-sm border border-[#b6d6ec]">
+        <h3 id={`pre-course-order-${orderId}`} className="break-words bg-[#eef4fa] px-4 py-3 font-semibold text-[#1e4e73]">{t('訂單')} {orderNumber}</h3>
+        <div className="space-y-5 p-3 sm:p-4">
+          {courses.map(({ id, course, courseForms, rosterOrder }) => {
+            const resort = course?.resort || courseForms[0]?.resort;
+            const title = course?.course_template || course?.course_type || course?.course_name || course?.bookings?.[0]?.course_name;
+            const dates = [...new Set((course?.bookings || []).map(booking => booking.date).filter(Boolean))];
+            const headingId = `pre-course-reservation-${id}`;
+            return <section key={id} aria-labelledby={headingId} className="space-y-3 rounded-sm border border-[#dbe3ec] bg-[#f8fafc] p-3 sm:p-4">
+              <div>
+                <h4 id={headingId} className="break-words font-semibold">{[resort, title].filter(Boolean).join('｜') || t('課程')}</h4>
+                <p className="mt-1 text-sm text-[#64748b]">{dates.length ? dates.map(formatDate).join('、') : t('日期安排中')}</p>
+              </div>
+              {rosterOrder && course.participants?.length > 0 && <ParticipantRoster order={rosterOrder} reservation={course} onSaved={onSaved} />}
+              {rosterOrder && course.missing_students > 0 && <MissingStudents reservation={course} onSaved={onSaved} />}
+              {courseForms.map(form => <PreCourseForm key={form.id} form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} />)}
+            </section>;
+          })}
+        </div>
+      </section>)}
+      {!groups.size && <EmptyState title={t("目前沒有待填寫的課前資料")} description={t("完成訂課或確認同行學員邀請後，學員資料會出現在這裡。")} action={<SiteLink to="/membership/orders" className="mt-5 inline-flex min-h-11 items-center font-semibold text-[#2b5f8f]">{t("查看我的訂單")}</SiteLink>} />}
+    </div>
+  </div>;
 }
 
 function SatisfactionForm({ record, onSaved }) {
@@ -627,7 +682,7 @@ function MemberSection({ section, data, onQuickRebook, onRefresh }) {
   const { t } = useSiteLocale();
   if (section === 'notifications') return <MemberNotifications />;
   if (section === 'orders') return <>{(data.orders.length > 0 || !data.participant_courses?.length) && <Orders data={data} onQuickRebook={onQuickRebook} onRefresh={onRefresh} />}{data.participant_courses?.length > 0 && <div className={data.orders.length ? 'mt-8' : ''}><ParticipantCourses courses={data.participant_courses} /></div>}</>;
-  if (section === 'forms') return <Forms forms={data.pre_course_forms} orders={data.orders} waiverDocument={data.waiver_document} skillOptions={data.skill_options} onSaved={onRefresh} />;
+  if (section === 'forms') return <Forms forms={data.pre_course_forms} orders={data.orders} participantCourses={data.participant_courses} waiverDocument={data.waiver_document} skillOptions={data.skill_options} onSaved={onRefresh} />;
   if (section === 'journey') return <Journey records={data.learning_records} onSaved={onRefresh} />;
   if (section === 'offers') return <div><h2 className="text-2xl font-semibold">{t("專屬優惠")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("會員等級、點數與推薦碼集中在這裡。")}</p><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-sm bg-gradient-to-br from-[#1c3b5f] to-[#2b5f8f] p-6 text-white"><Gift /><p className="mt-8 text-sm text-white/70">{t("會員等級")}</p><p className="mt-1 text-2xl font-semibold">{data.level_label || t({ new: '新會員', alumni: '舊生', silver: '銀級', gold: '金級' }[data.level] || data.level)}</p><p className="mt-3 text-sm">{data.alumni_verified ? t("舊生身分已確認") : t("舊生身分尚未確認；如曾上課，請聯絡 SnowLand 核對。")}</p><p className="mt-5 text-sm">{t('目前點數：{count}',{count:data.points})}</p>{data.loyalty_enabled && <p className="mt-1 text-sm">{t('紅利餘額：{count} 點',{count:data.reward_balance || 0})}</p>}<p className="mt-1 text-sm text-white/80">{t('其中歷史補登：{count} 點',{count:data.previous_points || 0})}</p></div><div className="rounded-sm border border-[#dbe3ec] bg-white p-6"><p className="text-sm font-semibold text-[#64748b]">{t("我的推薦碼")}</p><p className="mt-4 break-all text-2xl font-semibold tracking-wider text-[#2b5f8f]">{data.referral_code}</p><p className="mt-4 text-sm leading-7 text-[#64748b]">{t("實際折扣與回饋以 SnowLand 已公布、啟用的活動為準；顯示推薦碼不代表已套用優惠。")}</p></div></div></div>;
   return <Overview data={data} />;
