@@ -2345,6 +2345,7 @@ class CoachPayRuleAdminSerializer(serializers.ModelSerializer):
 
 
 class StaffIncentiveRuleAdminSerializer(serializers.ModelSerializer):
+    monthly_salary = serializers.IntegerField(min_value=0, max_value=2147483647, required=False)
     completed_order_percent = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=0, max_value=100)
     user_name = serializers.SerializerMethodField()
     campus_name = serializers.CharField(source='campus.name', read_only=True)
@@ -2354,7 +2355,8 @@ class StaffIncentiveRuleAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StaffIncentiveRule
-        fields = ['id', 'user', 'user_name', 'campus', 'campus_name', 'completed_order_percent', 'is_active']
+        fields = ['id', 'user', 'user_name', 'campus', 'campus_name', 'completed_order_percent', 'is_active',
+                  'monthly_salary', 'employment_start', 'employment_end']
         read_only_fields = ['id', 'user_name', 'campus_name']
         validators = []
 
@@ -2379,6 +2381,17 @@ class StaffIncentiveRuleAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'user': '請選擇本公司且可管理此校區的員工'})
         if StaffIncentiveRule.objects.filter(user=user, campus=campus).exclude(pk=getattr(self.instance, 'pk', None)).exists():
             raise serializers.ValidationError({'non_field_errors': '此員工在這個校區已有獎金比例，請編輯原設定'})
+        salary = attrs.get('monthly_salary', getattr(self.instance, 'monthly_salary', 0))
+        start = attrs.get('employment_start', getattr(self.instance, 'employment_start', None))
+        end = attrs.get('employment_end', getattr(self.instance, 'employment_end', None))
+        if (salary or end) and not start:
+            raise serializers.ValidationError({'employment_start': '請填寫到職日'})
+        if end and start and end < start:
+            raise serializers.ValidationError({'employment_end': '離職日不能早於到職日'})
+        if salary and StaffIncentiveRule.objects.filter(
+            user=user, campus__client=request.tenant, monthly_salary__gt=0,
+        ).exclude(pk=getattr(self.instance, 'pk', None)).exists():
+            raise serializers.ValidationError({'monthly_salary': '同一員工的固定月薪只能設定在一個校區'})
         return attrs
 
 

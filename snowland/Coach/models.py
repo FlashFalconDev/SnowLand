@@ -349,6 +349,9 @@ class StaffIncentiveRule(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='snowland_incentive_rules')
     campus = models.ForeignKey('Resorts.Campus', on_delete=models.CASCADE, related_name='staff_incentive_rules')
     completed_order_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    monthly_salary = models.PositiveIntegerField(default=0)
+    employment_start = models.DateField(null=True, blank=True)
+    employment_end = models.DateField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -365,6 +368,8 @@ class StaffIncentiveStatement(models.Model):
     percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     revenue = models.PositiveBigIntegerField(default=0)
     earned_amount = models.PositiveBigIntegerField(default=0)
+    monthly_salary_amount = models.PositiveIntegerField(default=0)
+    monthly_salary_snapshot = models.JSONField(default=dict, blank=True)
     refund_deduction = models.PositiveBigIntegerField(default=0)
     adjustment = models.IntegerField(default=0)
     adjustment_note = models.CharField(max_length=300, blank=True, default='')

@@ -1,5 +1,5 @@
-"""Monthly administrative bonuses. Records accounting only; never transfers money."""
-from datetime import date
+"""Monthly administrative salary and bonuses. Records accounting only; never transfers money."""
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.models import User
@@ -30,9 +30,29 @@ def _lock_statement(statement, actor=None):
 
 
 def _totals(statement):
-    statement.total_amount = statement.earned_amount - statement.refund_deduction + statement.adjustment
+    statement.total_amount = statement.monthly_salary_amount + statement.earned_amount - statement.refund_deduction + statement.adjustment
     statement.save()
     return statement
+
+
+def _monthly_salary(rule, month, next_month):
+    if not rule or not rule.monthly_salary:
+        return 0, {}
+    if not rule.employment_start or (rule.employment_end and rule.employment_end < rule.employment_start):
+        raise ValueError('請先修正固定月薪的到職及離職日期')
+    month_end = next_month - timedelta(days=1)
+    start = max(month, rule.employment_start)
+    end = min(month_end, rule.employment_end or month_end)
+    month_days = (next_month - month).days
+    employed_days = max((end - start).days + 1, 0)
+    amount = _money(Decimal(rule.monthly_salary) * employed_days / month_days)
+    return amount, {
+        'monthly_salary': rule.monthly_salary,
+        'employed_days': employed_days,
+        'month_days': month_days,
+        'start': start.isoformat() if employed_days else None,
+        'end': end.isoformat() if employed_days else None,
+    }
 
 
 @transaction.atomic
@@ -58,7 +78,15 @@ def calculate_staff_incentive(*, user, campus, month):
     statement = StaffIncentiveStatement.objects.select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('已確認或已記錄發放的員工獎金不能重新計算')
+    next_month = _next_month(month)
+    salary_amount, salary_snapshot = _monthly_salary(rule, month, next_month)
+    if salary_amount and StaffIncentiveStatement.objects.filter(
+        user=user, campus__client_id=campus.client_id, month=month, monthly_salary_amount__gt=0,
+    ).exclude(pk=statement.pk).exists():
+        raise ValueError('此員工的固定月薪已列入同月份的其他校區月結，請先核對該筆月結')
     statement.lines.all().delete()
+    statement.monthly_salary_amount = salary_amount
+    statement.monthly_salary_snapshot = salary_snapshot
     statement.percent = percent
     statement.user_name = user.get_full_name() or user.username
     statement.campus_name = campus.name
@@ -66,7 +94,7 @@ def calculate_staff_incentive(*, user, campus, month):
     if rule and rule.is_active and user.is_active and campus.is_active:
         groups = ReservationGroup.objects.filter(client_id=campus.client_id, campus=campus).annotate(
             completion_date=Max('reservations__bookings__date', filter=~Q(reservations__status='deleted')),
-        ).filter(completion_date__gte=month, completion_date__lt=_next_month(month)).prefetch_related('reservations__bookings', 'payments').order_by('pk')
+        ).filter(completion_date__gte=month, completion_date__lt=next_month).prefetch_related('reservations__bookings', 'payments').order_by('pk')
         for group in groups:
             reservations = [item for item in group.reservations.all() if item.status != 'deleted']
             payment = max(group.payments.all(), key=lambda item: (item.created_at, item.pk), default=None)
@@ -132,8 +160,8 @@ def confirm_staff_incentive(statement, *, actor, expected_updated_at=None):
         raise ValueError('這張月結已被更新，請重新載入並核對最新金額後再確認')
     if _next_month(statement.month) > timezone.localdate():
         raise ValueError('請等結算月份結束後再確認')
-    if not statement.lines.exists() and not statement.adjustment:
-        raise ValueError('沒有獎金或扣回明細，不能確認空白結算')
+    if not (statement.monthly_salary_amount or statement.adjustment or statement.lines.exists()):
+        raise ValueError('沒有固定月薪、獎金或扣回明細，不能確認空白結算')
     statement.status = 'confirmed'
     statement.confirmed_at = timezone.now()
     statement.confirmed_by = actor
