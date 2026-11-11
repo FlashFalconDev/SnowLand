@@ -1339,7 +1339,12 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'minimum_group_size': '單筆預約最低人數不能大於最大人數'})
         shared_enabled = attrs.get('shared_class_enabled', getattr(self.instance, 'shared_class_enabled', False))
         if shared_enabled and not settings.SHARED_CLASS_FEATURE_ENABLED:
-            raise serializers.ValidationError({'shared_class_enabled': '團體湊班尚未開放，請使用一般課程設定'})
+            shared_fields = ('shared_class_enabled', 'shared_class_minimum_students', 'shared_class_fixed_dates')
+            if self.instance is None or any(
+                field in attrs and attrs[field] != getattr(self.instance, field)
+                for field in shared_fields
+            ):
+                raise serializers.ValidationError({'shared_class_enabled': '團體湊班尚未開放，請使用一般課程設定'})
         billing_mode = attrs.get('billing_mode', getattr(self.instance, 'billing_mode', 'private'))
         shared_minimum = attrs.get('shared_class_minimum_students', getattr(self.instance, 'shared_class_minimum_students', 3))
         if shared_enabled and billing_mode != 'per_person':

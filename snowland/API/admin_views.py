@@ -1399,6 +1399,7 @@ class CourseTemplateAdminViewSet(ModelViewSet):
         ]
         return Response({'code': 200, 'msg': 'OK', 'data': {
             'resorts': resort_options, 'coaches': coach_options,
+            'shared_class_available': settings.SHARED_CLASS_FEATURE_ENABLED,
         }})
 
     def get_queryset(self):

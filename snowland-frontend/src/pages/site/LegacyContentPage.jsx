@@ -190,8 +190,9 @@ function LegacyContentPage({ pageKey, forceDarkHeader = false, forceLogoColor = 
   const page = siteContentToPage(cmsPageItems[0]);
   const aboutValues = page?.layout?.values;
   const aboutUnavailable = ['about','join-us'].includes(pageKey) && !(page?.layout?.version === 1 && page.layout.page_key === pageKey && aboutValues && typeof aboutValues === 'object' && !Array.isArray(aboutValues) && Object.keys(aboutValues).length && Object.values(aboutValues).every(value => typeof value === 'string'));
+  const isDealsPage = pageKey.startsWith('deals');
   if (!page || aboutUnavailable) return <div className="min-h-screen bg-[#f7f8fa] text-[#1f2937] flex flex-col">
-    <SiteHeader forceTransparent />
+    <SiteHeader forceTransparent forceDarkText={isDealsPage} forceLogoColor={isDealsPage} />
     <main className="flex-1 flex items-center justify-center px-6 pt-32 pb-24">
       <p role={pageError ? 'alert' : 'status'} className={`text-sm ${pageError ? 'text-red-600' : 'text-[#64748b]'}`}>
         {pageError ? t('內容暫時無法載入，請稍後再試。') : pageLoading ? t('內容載入中。') : aboutUnavailable ? t('{section}內容更新中，請稍後再查看。', { section: t(pageKey === 'about' ? '學校介紹' : '教練招募') }) : t('目前沒有已發布的內容。')}

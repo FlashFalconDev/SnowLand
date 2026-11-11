@@ -19,7 +19,6 @@ import { useNotification } from '../context'
 import PromptModal, { type PromptField } from '../components/PromptModal'
 
 const PRIMARY = '#8b5cf6'
-const SHARED_CLASS_FEATURE_ENABLED = import.meta.env.VITE_SHARED_CLASS_FEATURE_ENABLED === '1'
 const serviceTypeOptions = [
   { value: 'ski', label: '滑雪課程' },
   { value: 'photo', label: '攝影服務' },
@@ -62,6 +61,7 @@ export default function CourseTypesPage() {
   })
   const selectedCampus = localStorage.getItem(campusScopeKey(currentClientCode())) || 'all'
   const companyWideScope = canManageCompanyStructure && selectedCampus === 'all'
+  const sharedClassAvailable = editorOptions?.shared_class_available === true
   const selectableResorts = editorOptions?.resorts.filter((resort) => resort.can_select) || []
   const selectableCoaches = editorOptions?.coaches.filter((coach) => coach.can_select) || []
 
@@ -209,8 +209,8 @@ export default function CourseTypesPage() {
     max_capacity: number
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
-    shared_class_enabled: boolean
-    shared_class_minimum_students: number
+    shared_class_enabled?: boolean
+    shared_class_minimum_students?: number
     shared_class_fixed_dates?: boolean
     minimum_student_level: string
     resorts: number[]
@@ -248,8 +248,8 @@ export default function CourseTypesPage() {
     max_capacity: number
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
-    shared_class_enabled: boolean
-    shared_class_minimum_students: number
+    shared_class_enabled?: boolean
+    shared_class_minimum_students?: number
     shared_class_fixed_dates?: boolean
     minimum_student_level: string
     resorts: number[]
@@ -641,7 +641,7 @@ export default function CourseTypesPage() {
                         <div className={`mt-1 text-xs ${selectedTemplateId === tmpl.id ? 'text-white/80' : 'text-gray-500 dark:text-gray-400'}`}>
                           {tmpl.duration_hours} 小時 · 最多 {tmpl.max_capacity} 人
                         </div>
-                        {SHARED_CLASS_FEATURE_ENABLED && tmpl.shared_class_enabled && (
+                        {sharedClassAvailable && tmpl.shared_class_enabled && (
                           <div className={`mt-2 text-[11px] font-medium ${selectedTemplateId === tmpl.id ? 'text-white' : 'text-sky-700 dark:text-sky-300'}`}>
                             可跨訂單湊班 · 滿 {tmpl.shared_class_minimum_students} 人請款
                           </div>
@@ -702,7 +702,7 @@ export default function CourseTypesPage() {
                           <div className="text-xl font-bold text-gray-900 dark:text-white">{selectedTemplate.max_capacity} 人</div>
                         </div>
                       </div>
-                      {SHARED_CLASS_FEATURE_ENABLED && selectedTemplate.shared_class_enabled && (
+                      {sharedClassAvailable && selectedTemplate.shared_class_enabled && (
                         <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
                           這是跨訂單團體班：每位客人可單獨報名；同校區、雪場、日期、時段及程度累計滿 {selectedTemplate.shared_class_minimum_students} 人後才開放付款。
                         </p>
@@ -847,6 +847,7 @@ export default function CourseTypesPage() {
           allResorts={selectableResorts}
           allCoaches={selectableCoaches}
           companyWideScope={companyWideScope}
+          sharedClassAvailable={sharedClassAvailable}
           canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll_rules')}
           onClose={() => setEditingTemplate(null)}
           onSave={handleSaveTemplate}
@@ -859,6 +860,7 @@ export default function CourseTypesPage() {
           allResorts={selectableResorts}
           allCoaches={selectableCoaches}
           companyWideScope={companyWideScope}
+          sharedClassAvailable={sharedClassAvailable}
           canManagePayrollHours={hasAdminPermission(adminMe?.user, 'payroll_rules')}
           onClose={() => setCreatingTemplateForType(null)}
           onSave={handleCreateTemplate}
@@ -869,11 +871,12 @@ export default function CourseTypesPage() {
 }
 
 // ===== 課程模板編輯 Drawer（含多選雪場 + 日期）=====
-function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope, canManagePayrollHours, onClose, onSave }: {
+function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope, sharedClassAvailable, canManagePayrollHours, onClose, onSave }: {
   template: CourseTemplate | null
   allResorts: CourseTemplateEditorOptions['resorts']
   allCoaches: CourseTemplateEditorOptions['coaches']
   companyWideScope: boolean
+  sharedClassAvailable: boolean
   canManagePayrollHours: boolean
   onClose: () => void
   onSave: (data: {
@@ -884,8 +887,8 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
     max_capacity: number
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
-    shared_class_enabled: boolean
-    shared_class_minimum_students: number
+    shared_class_enabled?: boolean
+    shared_class_minimum_students?: number
     shared_class_fixed_dates?: boolean
     minimum_student_level: string
     resorts: number[]
@@ -906,7 +909,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
   const [capacity, setCapacity] = useState(String(template?.max_capacity ?? 6))
   const [billingMode, setBillingMode] = useState<'private' | 'per_person'>(template?.billing_mode || 'private')
   const [minimumGroupSize, setMinimumGroupSize] = useState(String(template?.minimum_group_size ?? 1))
-  const [sharedClassEnabled, setSharedClassEnabled] = useState(SHARED_CLASS_FEATURE_ENABLED && Boolean(template?.shared_class_enabled))
+  const [sharedClassEnabled, setSharedClassEnabled] = useState(Boolean(template?.shared_class_enabled))
   const [sharedClassFixedDates, setSharedClassFixedDates] = useState(Boolean(template?.shared_class_fixed_dates))
   const [sharedClassMinimumStudents, setSharedClassMinimumStudents] = useState(String(template?.shared_class_minimum_students ?? 3))
   const [minimumStudentLevel, setMinimumStudentLevel] = useState(template?.minimum_student_level || '')
@@ -941,9 +944,11 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
         max_capacity: parseInt(capacity, 10),
         billing_mode: billingMode,
         minimum_group_size: sharedClassEnabled ? 1 : (parseInt(minimumGroupSize, 10) || 1),
-        shared_class_enabled: SHARED_CLASS_FEATURE_ENABLED && sharedClassEnabled,
-        shared_class_minimum_students: parseInt(sharedClassMinimumStudents, 10) || 3,
-        shared_class_fixed_dates: sharedClassEnabled && sharedClassFixedDates,
+        ...(sharedClassAvailable ? {
+          shared_class_enabled: sharedClassEnabled,
+          shared_class_minimum_students: parseInt(sharedClassMinimumStudents, 10) || 3,
+          shared_class_fixed_dates: sharedClassEnabled && sharedClassFixedDates,
+        } : {}),
         minimum_student_level: minimumStudentLevel,
         resorts: resortIds,
         course_start_date: courseStart || null,
@@ -1010,7 +1015,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
                 <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">單筆預約最低人數</label><input type="number" min="1" max={capacity} value={sharedClassEnabled ? '1' : minimumGroupSize} disabled={sharedClassEnabled} onChange={e => setMinimumGroupSize(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white disabled:opacity-60" /></div>
                 <div><label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">學員最低等級</label><select value={minimumStudentLevel} onChange={e => setMinimumStudentLevel(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"><option value="">不限制</option><option value="level1">等級 1</option><option value="level2">等級 2</option><option value="level3">等級 3</option><option value="level4">等級 4</option><option value="level5">等級 5</option></select></div>
               </div>
-              {SHARED_CLASS_FEATURE_ENABLED && <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-600 dark:bg-gray-700/40">
+              {sharedClassAvailable && <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-600 dark:bg-gray-700/40">
                 <label className="flex items-start gap-3 text-gray-900 dark:text-white">
                   <input type="checkbox" checked={sharedClassEnabled} disabled={billingMode !== 'per_person'} onChange={e => setSharedClassEnabled(e.target.checked)} className="mt-1 h-4 w-4" />
                   <span><span className="font-medium">允許不同客人湊成同一班</span><span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">客人可單人報名；同校區、雪場、日期、時段與程度才會合班。成班後再請款。</span></span>
