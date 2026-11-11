@@ -1207,6 +1207,7 @@ class CourseSessionAdminSerializer(serializers.ModelSerializer):
 
 
 class CourseTemplateAdminSerializer(serializers.ModelSerializer):
+    confirm_disable_shared_class = serializers.BooleanField(required=False, write_only=True)
     payroll_hours = serializers.DecimalField(max_digits=4, decimal_places=2, min_value=0, max_value=24, allow_null=True, required=False)
     can_manage_payroll_hours = serializers.SerializerMethodField()
     sessions = CourseSessionAdminSerializer(many=True, read_only=True)  # related_name='sessions'
@@ -1228,7 +1229,8 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
             'id', 'can_manage', 'course_type', 'course_type_name', 'name',
             'display_order', 'duration_hours', 'payroll_hours', 'can_manage_payroll_hours', 'max_capacity', 'is_active',
             'billing_mode', 'minimum_group_size', 'shared_class_enabled',
-            'shared_class_minimum_students', 'shared_class_fixed_dates', 'minimum_student_level',
+            'shared_class_minimum_students', 'shared_class_fixed_dates', 'confirm_disable_shared_class',
+            'minimum_student_level',
             'resorts', 'resort_names',
             'booking_open_date', 'booking_close_date',
             'course_start_date', 'course_end_date',
@@ -1337,9 +1339,20 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
         capacity = attrs.get('max_capacity', getattr(self.instance, 'max_capacity', 1))
         if minimum > capacity:
             raise serializers.ValidationError({'minimum_group_size': '單筆預約最低人數不能大於最大人數'})
-        shared_enabled = attrs.get('shared_class_enabled', getattr(self.instance, 'shared_class_enabled', False))
+        shared_fields = ('shared_class_enabled', 'shared_class_minimum_students', 'shared_class_fixed_dates')
+        was_shared = getattr(self.instance, 'shared_class_enabled', False)
+        confirm_disable = attrs.pop('confirm_disable_shared_class', False)
+        # The previous Console sent false for hidden fields on every template edit.
+        if was_shared and attrs.get('shared_class_enabled') is False and not confirm_disable:
+            for field in shared_fields:
+                attrs.pop(field, None)
+        shared_enabled = attrs.get('shared_class_enabled', was_shared)
         if shared_enabled and not settings.SHARED_CLASS_FEATURE_ENABLED:
-            raise serializers.ValidationError({'shared_class_enabled': '團體湊班尚未開放，請使用一般課程設定'})
+            if self.instance is None or any(
+                field in attrs and attrs[field] != getattr(self.instance, field)
+                for field in shared_fields
+            ):
+                raise serializers.ValidationError({'shared_class_enabled': '團體湊班尚未開放，請使用一般課程設定'})
         billing_mode = attrs.get('billing_mode', getattr(self.instance, 'billing_mode', 'private'))
         shared_minimum = attrs.get('shared_class_minimum_students', getattr(self.instance, 'shared_class_minimum_students', 3))
         if shared_enabled and billing_mode != 'per_person':

@@ -63,6 +63,7 @@ export interface CourseCategory {
 }
 
 export interface CourseTemplateEditorOptions {
+  shared_class_available?: boolean
   resorts: { id: number; name: string; display_name: string; can_select: boolean }[]
   coaches: { id: number; name: string; can_select: boolean }[]
 }

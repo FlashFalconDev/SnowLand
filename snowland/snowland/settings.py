@@ -66,7 +66,7 @@ EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', '0') == '1'
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', '0') == '1'
 EMAIL_TIMEOUT = 15
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'webmaster@localhost')
-SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '0') == '1'
+SHARED_CLASS_FEATURE_ENABLED = os.getenv('SNOWLAND_SHARED_CLASS_FEATURE_ENABLED', '1') == '1'
 SNOWLAND_CONTACT_RATE = os.getenv('SNOWLAND_CONTACT_RATE', '5/min')
 # Dedicated key is required: do not derive stored OAuth-token encryption from
 # the legacy Django SECRET_KEY or expose these settings to frontend builds.
