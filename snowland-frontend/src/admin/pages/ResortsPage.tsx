@@ -373,7 +373,12 @@ export default function ResortsPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: ResortWriteData }) => updateResort(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: QUERY_KEY }); notify.success('雪場已更新'); setSaveError(null); setEditingId(null) },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: QUERY_KEY })
+      notify.success('雪場已更新')
+      setSaveError(null)
+      setEditingId(null)
+    },
     onError: (e: unknown) => setSaveError(getApiErrorMessage(e, '更新失敗')),
   })
 
@@ -386,7 +391,7 @@ export default function ResortsPage() {
   const filtered = resorts.filter((r) => !search || r.display_name.includes(search) || r.name.includes(search))
 
   const editing = creating
-    ? ({ id: 0, name: '', display_name: '', auto_scheduling_enabled: true, fees: [], equipment_tiers: [], equipment_rental_items: [], equipment_time_slots: [] } as Resort)
+    ? ({ id: 0, name: '', display_name: '', auto_scheduling_enabled: true, frontend_booking_enabled: true, fees: [], equipment_tiers: [], equipment_rental_items: [], equipment_time_slots: [] } as Resort)
     : editingId ? resorts.find((r) => r.id === editingId) || null : null
 
   const handleSave = (data: Resort) => {
@@ -417,6 +422,7 @@ export default function ResortsPage() {
       display_name: data.display_name,
       display_order: data.display_order ?? 0,
       auto_scheduling_enabled: data.auto_scheduling_enabled,
+      frontend_booking_enabled: data.frontend_booking_enabled,
       trail_names: data.trail_names || [],
       fees_input: data.fees,
       equipment_tiers_input: tierResult.tiers,
@@ -841,6 +847,19 @@ function ResortEditDrawer({ resort, isCreating, courseTemplates, isSaving, saveE
               <input type="checkbox" checked={form.auto_scheduling_enabled} onChange={(e) => setForm({ ...form, auto_scheduling_enabled: e.target.checked })}
                 className="w-4 h-4 rounded border-gray-300" style={{ accentColor: PRIMARY }} />
               <span className="text-sm text-gray-700 dark:text-gray-300">啟用自動排課</span>
+            </label>
+            <label className="flex items-start gap-3 mt-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.frontend_booking_enabled ?? true}
+                onChange={(event) => setForm({ ...form, frontend_booking_enabled: event.target.checked })}
+                className="mt-0.5 w-4 h-4 rounded border-gray-300"
+                style={{ accentColor: PRIMARY }}
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block">開放前台訂課</span>
+                <span className="block text-gray-500 dark:text-gray-400">關閉後，顧客無法選擇這個雪場或送出新預約。</span>
+              </span>
             </label>
           </section>
 

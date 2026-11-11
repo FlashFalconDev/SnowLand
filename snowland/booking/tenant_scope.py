@@ -24,6 +24,20 @@ def resort_for_course(name, *, client=None, template_id=None, course_type_id=Non
     return rows[0]
 
 
+class ResortBookingClosed(ValueError):
+    pass
+
+
+def require_open_booking_resorts(resort_names, *, client=None):
+    # Both checkout routes lock the same resort rows in the same order.
+    resorts = Resorts.objects.select_for_update().filter(name__in=resort_names).order_by('pk')
+    if client is not None:
+        resorts = resorts.filter(client=client)
+    for resort in resorts.only('frontend_booking_enabled'):
+        if not resort.frontend_booking_enabled:
+            raise ResortBookingClosed('這個雪場目前未開放訂課，請重新選擇雪場')
+
+
 def selected_coach_for_school(coach_id, client_id):
     """A requested coach must belong to the same school; never fall back silently."""
     if coach_id in (None, '', 'any'):

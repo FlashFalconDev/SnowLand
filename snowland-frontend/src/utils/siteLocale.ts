@@ -336,7 +336,7 @@ const messages: Record<string, { en: string; ja: string }> = {
   '能力等級分配超過總人數 {count} 人，請調整。': { en: 'The level counts exceed the student total by {count}. Please adjust them.', ja: 'レベル別人数が予約人数を{count}名超えています。調整してください。' },
   '需設定 LINE Login Channel': { en: 'A LINE Login Channel must be configured.', ja: 'LINE Loginチャネルの設定が必要です。' },
   'SnowLand已核對原訂單收款：{amount}。修改後補退差額請看上方個別紀錄，實際入帳以銀行紀錄為準。': { en: 'SnowLand verified the original payment: {amount}. See the individual records above for adjustment payments or refunds. Bank records determine actual receipt.', ja: 'SnowLandが元の入金を確認しました：{amount}。変更後の追加支払い・返金は上記の各記録をご確認ください。実際の入金は銀行記録に基づきます。' },
-  '此課程大類尚未設定可用雪場，請先到後台課程大類設定。': { en: 'No resorts are configured for this category. Staff can configure them in the admin lesson categories.', ja: 'このカテゴリーにはスキー場が設定されていません。管理画面のレッスンカテゴリーで設定してください。' },
+  '目前沒有開放訂課的雪場。': { en: 'No resorts are currently open for booking.', ja: '現在予約できるスキー場はありません。' },
   '目前依{sport}標準顯示說明': { en: 'Descriptions follow the {sport} ability levels.', ja: '{sport}のレベル基準で説明を表示しています。' },
   '{level}學員人數': { en: 'Number of students at {level}', ja: '{level}の受講人数' },
   '從未滑過雪。': { en: 'Never skied or snowboarded before.', ja: '雪上での滑走経験がない。' },

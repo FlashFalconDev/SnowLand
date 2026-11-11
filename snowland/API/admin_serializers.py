@@ -861,7 +861,8 @@ class ResortAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resorts
         fields = [
-            'id', 'name', 'display_name', 'display_order', 'auto_scheduling_enabled', 'trail_names', 'can_manage', 'campus_assignments',
+            'id', 'name', 'display_name', 'display_order', 'auto_scheduling_enabled', 'frontend_booking_enabled',
+            'trail_names', 'can_manage', 'campus_assignments',
             'fees', 'equipment_tiers', 'equipment_rental_items', 'equipment_time_slots',
             'fees_input', 'equipment_tiers_input', 'equipment_rental_items_input', 'equipment_time_slots_input',
         ]
@@ -961,7 +962,8 @@ class ResortAdminSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
-            instance.save()
+            if validated_data:
+                instance.save(update_fields=validated_data)
             if fees_input is not None:
                 self._sync_fees(instance, fees_input)
             if equipment_tiers_input is not None:
