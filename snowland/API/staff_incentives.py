@@ -34,7 +34,8 @@ class StaffIncentiveStatementSerializer(serializers.ModelSerializer):
     class Meta:
         model = StaffIncentiveStatement
         fields = ['id', 'user', 'user_name', 'campus', 'campus_name', 'month', 'percent', 'currency',
-                  'revenue', 'earned_amount', 'refund_deduction', 'adjustment', 'adjustment_note',
+                  'revenue', 'earned_amount', 'monthly_salary_amount', 'monthly_salary_snapshot',
+                  'refund_deduction', 'adjustment', 'adjustment_note',
                   'total_amount', 'status', 'confirmed_at', 'confirmed_by', 'paid_at', 'paid_by',
                   'created_at', 'updated_at', 'lines']
         read_only_fields = fields

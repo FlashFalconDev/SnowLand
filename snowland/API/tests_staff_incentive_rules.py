@@ -51,6 +51,31 @@ class StaffIncentiveRuleTests(TestCase):
         self.assertFalse(stored.data['is_active'])
         self.assertEqual(StaffIncentiveRule.objects.count(), 1)
 
+    def test_monthly_salary_dates_and_unique_settlement_campus(self):
+        self.employee.userprofile.campuses.add(self.b)
+        for fields in ({'monthly_salary': -1},
+                       {'monthly_salary': 31000},
+                       {'monthly_salary': 31000, 'employment_start': '2026-01-20', 'employment_end': '2026-01-19'}):
+            with self.subTest(fields=fields):
+                response = self.api.post(self.url, self.data(**fields), format='json')
+                self.assertEqual(response.status_code, 400, response.data)
+        salary = {'monthly_salary': 31000, 'employment_start': '2026-01-15'}
+        first = self.api.post(self.url, self.data(**salary), format='json')
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(first.data['monthly_salary'], 31000)
+        self.assertEqual(first.data['employment_start'], '2026-01-15')
+        second = self.api.post(self.url, self.data(campus=self.b.pk, **salary), format='json')
+        self.assertEqual(second.status_code, 400, second.data)
+        self.assertIn('monthly_salary', second.data)
+        bonus_only = self.api.post(self.url, self.data(campus=self.b.pk), format='json')
+        self.assertEqual(bonus_only.status_code, 201, bonus_only.data)
+        detail = f"{self.url}{first.data['id']}/"
+        self.employee.is_active = False
+        self.employee.save(update_fields=['is_active'])
+        ended = self.api.patch(detail, {'employment_end': '2026-02-12', 'is_active': False}, format='json')
+        self.assertEqual(ended.status_code, 200, ended.data)
+        self.assertEqual(ended.data['employment_end'], '2026-02-12')
+
     def test_invalid_percentages_do_not_create_data(self):
         for value in ['-0.01', '100.01', 'NaN', 'Infinity', True, '1.001']:
             response = self.api.post(self.url, self.data(completed_order_percent=value), format='json')

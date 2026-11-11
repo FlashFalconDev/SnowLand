@@ -124,6 +124,7 @@ export const fetchPayRules = () => list<PayRule>('/coach-pay-rules/')
 export interface StaffIncentiveRule {
   id: number; user: number; user_name: string; campus: number; campus_name: string
   completed_order_percent: string; is_active: boolean
+  monthly_salary: number; employment_start: string | null; employment_end: string | null
 }
 export interface StaffIncentiveOptions {
   employees: { id: number; name: string; campus_ids: number[] }[]
@@ -138,6 +139,8 @@ export const fetchPayrollCoaches = () => list<PayrollCoach>('/coach-pay-rules/co
 export interface StaffIncentiveStatement {
   id: number; user: number; user_name: string; campus: number; campus_name: string; month: string
   percent: string; currency: string; revenue: number; earned_amount: number; refund_deduction: number
+  monthly_salary_amount: number
+  monthly_salary_snapshot: Partial<{ monthly_salary: number; employed_days: number; month_days: number; start: string | null; end: string | null }>
   adjustment: number; adjustment_note: string; total_amount: number; status: 'draft' | 'confirmed' | 'paid'
   confirmed_at: string | null; paid_at: string | null; updated_at: string
   lines: { id: number; line_type: 'earning' | 'refund'; order_number: string; event_date: string; base_amount: number; percent: string; amount: number }[]
