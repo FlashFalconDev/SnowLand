@@ -1,10 +1,14 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { clientCodeFromPath } from '@/utils/tenant'
 
 export default function ClientSelectionPage() {
   const navigate=useNavigate()
+  const location = useLocation()
   const [code,setCode]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(false)
+  if (['snowland.tw', 'www.snowland.tw'].includes(window.location.hostname.toLowerCase())) {
+    return <Navigate to={{ pathname: '/snowland/', search: location.search, hash: location.hash }} replace />
+  }
   const submit=async (event:React.FormEvent)=>{
     event.preventDefault();setError('')
     const value=code.trim()
