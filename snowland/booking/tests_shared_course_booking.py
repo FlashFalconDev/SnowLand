@@ -374,6 +374,36 @@ class SharedCourseBookingTests(TestCase):
             attempted = admin.patch(template_url, {'shared_class_fixed_dates': False}, format='json')
             self.assertEqual(attempted.status_code, 400, attempted.data)
 
+    def test_legacy_console_save_preserves_shared_class_until_explicitly_disabled(self):
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('hq', 'hq@example.test', 'test-password'))
+        url = f'/api/admin/snowland/course-templates/{self.template.pk}/'
+        self.template.shared_class_fixed_dates = True
+        self.template.shared_class_minimum_students = 4
+        self.template.save(update_fields=['shared_class_fixed_dates', 'shared_class_minimum_students'])
+        legacy_payload = {
+            'name': 'Edited from the older Console',
+            'shared_class_enabled': False,
+            'shared_class_minimum_students': 3,
+            'shared_class_fixed_dates': False,
+        }
+
+        saved = admin.patch(url, legacy_payload, format='json')
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.template.refresh_from_db()
+        self.assertEqual(self.template.name, legacy_payload['name'])
+        self.assertTrue(self.template.shared_class_enabled)
+        self.assertTrue(self.template.shared_class_fixed_dates)
+        self.assertEqual(self.template.shared_class_minimum_students, 4)
+
+        disabled = admin.patch(url, {
+            'shared_class_enabled': False, 'confirm_disable_shared_class': True,
+        }, format='json')
+        self.assertEqual(disabled.status_code, 200, disabled.data)
+        self.template.refresh_from_db()
+        self.assertFalse(self.template.shared_class_enabled)
+        self.assertFalse(self.template.shared_class_fixed_dates)
+
     @override_settings(SHARED_CLASS_FEATURE_ENABLED=False)
     def test_release_gate_hides_and_rejects_unfinished_shared_class(self):
         visible = self.api.get('/booking/snowland/api/course-templates/', {

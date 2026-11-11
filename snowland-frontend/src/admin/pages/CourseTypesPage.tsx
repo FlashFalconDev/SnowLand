@@ -210,6 +210,7 @@ export default function CourseTypesPage() {
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
     shared_class_enabled?: boolean
+    confirm_disable_shared_class?: boolean
     shared_class_minimum_students?: number
     shared_class_fixed_dates?: boolean
     minimum_student_level: string
@@ -249,6 +250,7 @@ export default function CourseTypesPage() {
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
     shared_class_enabled?: boolean
+    confirm_disable_shared_class?: boolean
     shared_class_minimum_students?: number
     shared_class_fixed_dates?: boolean
     minimum_student_level: string
@@ -643,7 +645,7 @@ export default function CourseTypesPage() {
                         </div>
                         {sharedClassAvailable && tmpl.shared_class_enabled && (
                           <div className={`mt-2 text-[11px] font-medium ${selectedTemplateId === tmpl.id ? 'text-white' : 'text-sky-700 dark:text-sky-300'}`}>
-                            可跨訂單湊班 · 滿 {tmpl.shared_class_minimum_students} 人請款
+                            {tmpl.shared_class_fixed_dates ? '團體班 · 只開放指定日期' : `可跨訂單湊班 · 滿 ${tmpl.shared_class_minimum_students} 人請款`}
                           </div>
                         )}
                         {getTemplateCoachRuleText(tmpl) && (
@@ -704,7 +706,9 @@ export default function CourseTypesPage() {
                       </div>
                       {sharedClassAvailable && selectedTemplate.shared_class_enabled && (
                         <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
-                          這是跨訂單團體班：每位客人可單獨報名；同校區、雪場、日期、時段及程度累計滿 {selectedTemplate.shared_class_minimum_students} 人後才開放付款。
+                          {selectedTemplate.shared_class_fixed_dates
+                            ? '只開放學校指定的日期。各班的付款時點在排課開班時設定。'
+                            : `每位客人可單獨報名。同校區、雪場、日期、時段及程度累計滿 ${selectedTemplate.shared_class_minimum_students} 人後才開放付款。`}
                         </p>
                       )}
                       <div>
@@ -888,6 +892,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
     billing_mode: 'private' | 'per_person'
     minimum_group_size: number
     shared_class_enabled?: boolean
+    confirm_disable_shared_class?: boolean
     shared_class_minimum_students?: number
     shared_class_fixed_dates?: boolean
     minimum_student_level: string
@@ -946,6 +951,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
         minimum_group_size: sharedClassEnabled ? 1 : (parseInt(minimumGroupSize, 10) || 1),
         ...(sharedClassAvailable ? {
           shared_class_enabled: sharedClassEnabled,
+          ...(template?.shared_class_enabled && !sharedClassEnabled ? { confirm_disable_shared_class: true } : {}),
           shared_class_minimum_students: parseInt(sharedClassMinimumStudents, 10) || 3,
           shared_class_fixed_dates: sharedClassEnabled && sharedClassFixedDates,
         } : {}),

@@ -496,7 +496,7 @@ export default function SchedulingPage() {
           </div>
         </div>
         {showOpeningForm && openingOptions?.enabled && <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-900/20">
-          <p className="text-sm text-gray-700 dark:text-gray-200">先選校區和雪場，再選課程、日期、時段與程度。開班不會產生訂單或收款；客人報名滿最低人數才開放付款。</p>
+          <p className="text-sm text-gray-700 dark:text-gray-200">先選校區和雪場，再選課程、日期、時段與程度。請為此班選擇付款時點。開班當下不會產生訂單或收款。</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <label className="text-sm font-medium text-gray-900 dark:text-white">校區
               <select value={openingCampus} onChange={(event) => { setOpeningCampus(event.target.value); setOpeningResort(''); setOpeningTemplate(''); setOpeningSession('') }} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"><option value="">請選校區</option>{openingOptions.campuses?.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select>
