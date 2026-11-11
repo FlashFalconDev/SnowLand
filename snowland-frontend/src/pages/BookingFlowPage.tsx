@@ -1257,7 +1257,7 @@ export default function BookingFlowPage() {
       })
       .filter((resort: any) => {
         const key = String(resort.name || resort.display_name)
-        if (!key || seen.has(key)) return false
+        if (!resort.campuses?.length || !key || seen.has(key)) return false
         seen.add(key)
         return true
       })
@@ -2916,12 +2916,12 @@ function Step2SkiConfiguration({
               }`}
             >
               <p className="font-semibold text-[#1f2937] font-display">{r.display_name}</p>
-              <p className="text-sm text-[#6b7280] mt-1">{t('由 {campus} 服務', { campus: campus.name })}</p>
+              <p className="text-sm text-[#6b7280] mt-1">{campus.name}</p>
             </button> : null
           })}
           {resorts.length === 0 && (
             <p className="col-span-2 text-center text-sm text-[#6b7280] py-8">
-              {t('此課程大類尚未設定可用雪場，請先到後台課程大類設定。')}
+              {t('目前沒有開放訂課的雪場。')}
             </p>
           )}
         </div>

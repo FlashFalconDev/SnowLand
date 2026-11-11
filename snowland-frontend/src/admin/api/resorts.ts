@@ -68,6 +68,7 @@ export interface Resort {
   display_order?: number
   campus_assignments?: { id: number; name: string; is_active: boolean }[]
   auto_scheduling_enabled: boolean
+  frontend_booking_enabled: boolean
   trail_names?: string[]
   can_manage?: boolean
   fees: ResortFee[]
@@ -81,6 +82,7 @@ export interface ResortWriteData {
   display_name: string
   display_order?: number
   auto_scheduling_enabled: boolean
+  frontend_booking_enabled: boolean
   trail_names?: string[]
   fees_input?: ResortFee[]
   equipment_tiers_input?: EquipmentPricingTier[]

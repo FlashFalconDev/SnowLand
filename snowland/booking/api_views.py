@@ -1,4 +1,4 @@
-from .tenant_scope import resort_for_course, selected_coach_for_school
+from .tenant_scope import require_open_booking_resorts, resort_for_course, selected_coach_for_school
 from Client.tenant_settings import gateway_settings, google_client_id, module_enabled
 from Control.tenant_memberships import staff_profile
 from Client.memberships import member_profile as school_member_profile
@@ -1691,7 +1691,9 @@ class ResortListAPI(APIView):
             tenant = resolve_tenant_client(client_code)
         except TenantResolutionError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
-        resorts = Resorts.objects.filter(client=tenant, campuses__is_active=True).prefetch_related(
+        resorts = Resorts.objects.filter(
+            client=tenant, frontend_booking_enabled=True, campuses__is_active=True,
+        ).prefetch_related(
             'campuses',
             'equipment_rental_items',
             'equipment_assistance_time_slots',
@@ -2340,6 +2342,7 @@ class CreateReservationAPI(APIView):
             if not module_enabled(tenant_client, 'booking'):
                 return Response({'error':'此學校目前未開放新增預約'},status=503)
             tenant_client = type(tenant_client).objects.select_for_update().get(pk=tenant_client.pk)
+            require_open_booking_resorts((item.get('resort') for item in cart_data), client=tenant_client)
             if getattr(request, 'checkout_consent_channel', None) == 'legacy_chat':
                 contact_info['policy_consent_channel'] = 'legacy_chat'
             else:
@@ -3945,6 +3948,7 @@ class SuperScheduleAPI(APIView):
             if not module_enabled(tenant_client, 'booking'):
                 return Response({'error':'此學校目前未開放新增預約'},status=503)
             tenant_client = type(tenant_client).objects.select_for_update().get(pk=tenant_client.pk)
+            require_open_booking_resorts((item.get('resort') for item in cart_data), client=tenant_client)
             try:
                 contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
             except ValueError as exc:

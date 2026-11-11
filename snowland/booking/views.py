@@ -1,4 +1,4 @@
-from .tenant_scope import resort_for_course
+from .tenant_scope import ResortBookingClosed, require_open_booking_resorts, resort_for_course
 from django.shortcuts import render, get_object_or_404
 from django.http import Http404, HttpResponse, JsonResponse
 from django.views.decorators.http import require_GET
@@ -67,7 +67,7 @@ def home(request, client_code):
     coachs_list = list(coach_query.values('pk', 'name'))
 
     # 🔥 雪場選項（過濾租戶）
-    resort_query = Resorts.objects
+    resort_query = Resorts.objects.filter(frontend_booking_enabled=True)
     if tenant:
         resort_query = resort_query.filter(client=tenant)
     resorts = resort_query.all()
@@ -392,6 +392,7 @@ def API(request, tunnel, Client_Info=None):
             # --- 統一的預約創建流程 ---
             try:
                 with transaction.atomic():
+                    require_open_booking_resorts(course.get('resort') for course in courses_to_process)
                     group = ReservationGroup.objects.create(user=user)
                     payment = Payment.objects.create(
                         reservation_group=group,
@@ -586,6 +587,8 @@ def API(request, tunnel, Client_Info=None):
                     
                     return JsonResponse(response_data, status=200)
                     
+            except ResortBookingClosed as exc:
+                return JsonResponse({"message": str(exc)}, status=400)
             except Exception as e:
                 # 統一的錯誤處理
                 if "排課失敗" in str(e):

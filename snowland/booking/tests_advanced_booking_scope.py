@@ -1,9 +1,13 @@
 from booking.tests_policy_support import checkout_policy_acknowledgement
 from copy import deepcopy
+import json
 from datetime import timedelta
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
+from django.http import HttpResponse
+from booking.views import home
 from booking import tests_pricing_modes as fixtures
 from booking.models import ReservationGroup,Payment,MemberDetail
 from Client.models import Client
@@ -19,6 +23,53 @@ class AdvancedBookingScopeTests(TestCase):
         self.resort.auto_scheduling_enabled=False;self.resort.save()
         self.url='/booking/snowland/api/super-schedule/'
         self.payload={**checkout_policy_acknowledgement(),'contact':{'name':'QA會員','email':'qa@example.test','phone':'0900000000','messengerType':'line','messengerId':'qa','referralSource':'其他'},'cart':[{'coach':'any','peopleCount':2,'abilityLevel':'no_exp','abilityLevelCounts':{'no_exp':2},'equipment':False,'equipmentOption':'own_equipment','language':'zh','resort':self.resort.name,'resortName':self.resort.display_name,'campusId':self.campus.pk,'courseCategory':'滑雪課程','courses':[{'date':str(timezone.localdate()+timedelta(days=20+i)),'courseTypeId':self.private_template.course_type_id,'courseTypeName':'QA課程','courseTemplateId':self.private_template.pk,'courseTemplateName':self.private_template.name,'durationHours':4,'timeSlotStart':'09:00','timeSlotEnd':'13:00'} for i in range(2)]}]}
+
+
+    def test_closed_resort_is_hidden_and_rejects_both_checkout_modes(self):
+        original_group = ReservationGroup.objects.create(client=self.client_record, campus=self.campus)
+        self.resort.frontend_booking_enabled = False
+        self.resort.save(update_fields=['frontend_booking_enabled'])
+
+        available = self.api.get('/booking/snowland/api/resorts/')
+        self.assertEqual(available.status_code, 200)
+        self.assertNotIn(self.resort.name, {resort['name'] for resort in available.data})
+        self.assertNotIn(self.resort.name, self._legacy_resort_choices())
+        for url in ('/booking/snowland/api/create-reservation/', self.url):
+            with self.subTest(url=url):
+                result = self.api.post(url, self.payload, format='json')
+                self.assertEqual(result.status_code, 400, result.data)
+                self.assertIn('未開放訂課', result.data['msg'])
+                self.assertEqual(list(ReservationGroup.objects.values_list('pk', flat=True)), [original_group.pk])
+                self.assertFalse(Payment.objects.exists())
+
+        legacy = self.api.post('/booking/api/create_reservation/', {
+            'tunnel': 'super_schedule',
+            'courses': [{'resort': self.resort.name, 'booking': [{}]}],
+        }, format='json')
+        self.assertEqual(legacy.status_code, 400, legacy.content)
+        self.assertIn('未開放訂課', legacy.json()['message'])
+        self.assertEqual(list(ReservationGroup.objects.values_list('pk', flat=True)), [original_group.pk])
+        self.assertFalse(Payment.objects.exists())
+
+        self.resort.frontend_booking_enabled = True
+        self.resort.save(update_fields=['frontend_booking_enabled'])
+        available = self.api.get('/booking/snowland/api/resorts/')
+        self.assertEqual(available.status_code, 200)
+        resort = next(resort for resort in available.data if resort['name'] == self.resort.name)
+        self.assertFalse(resort['auto_scheduling_enabled'])
+        self.assertIn(self.resort.name, self._legacy_resort_choices())
+
+        for url in ('/booking/snowland/api/create-reservation/', self.url):
+            with self.subTest(url=url):
+                result = self.api.post(url, self.payload, format='json')
+                self.assertEqual(result.status_code, 200, result.data)
+
+    def _legacy_resort_choices(self):
+        request = RequestFactory().get('/booking/snowland/')
+        request.tenant = self.client_record
+        with patch('booking.views.render', return_value=HttpResponse()) as render:
+            self.assertEqual(home(request, client_code='snowland').status_code, 200)
+        return json.loads(render.call_args.args[2]['resort_choices'])
 
     def test_anonymous_is_rejected_before_creating_any_order(self):
         self.api.force_authenticate(None)
