@@ -23,7 +23,9 @@ from django.contrib.auth import authenticate, login
 from django.contrib.auth.models import User
 from django.contrib.auth.tokens import default_token_generator
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
+from django.core.validators import validate_email
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from datetime import datetime, timedelta
@@ -44,6 +46,7 @@ from .models import (
 from Control.views import login_required_control
 from .funcNewebpay import neweb_pay_request
 from .legal_documents import get_current_waiver, course_waiver_revision
+from .pre_course_questions import required_answers_complete, saved_section_answers, section_questions, validate_answers
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
 from .media_files import course_media_url, private_file_response
@@ -1883,6 +1886,7 @@ class CourseTemplateListAPI(APIView):
                 'billing_mode': template.billing_mode,
                 'minimum_group_size': template.minimum_group_size,
                 'shared_class_enabled': template.shared_class_enabled,
+                'shared_class_fixed_dates': template.shared_class_fixed_dates,
                 'shared_class_minimum_students': template.shared_class_minimum_students,
                 'minimum_student_level': template.minimum_student_level,
                 'display_order': template.display_order,
@@ -1980,9 +1984,14 @@ class CourseSessionListAPI(APIView):
                     date=check_date, start_time=session.start_time, end_time=session.end_time,
                     ability_level=ability_level, language=language,
                 ).first()
+                if tmpl.shared_class_fixed_dates and (not shared_class or shared_class.opening_mode != 'school'):
+                    continue
                 if shared_class:
                     shared_count = shared_class.registered_students
                     shared_capacity = shared_class.max_capacity
+
+            if check_date and tmpl.shared_class_enabled and tmpl.shared_class_fixed_dates and not shared_class:
+                continue
 
             # 檢查課程期間（雪季）
             if check_date:
@@ -2126,6 +2135,8 @@ class CourseAvailableDatesAPI(APIView):
                     date__year=year, date__month=month, ability_level=ability_level,
                     language=language,
                 ).exclude(status='cancelled')
+                if tmpl.shared_class_fixed_dates:
+                    classes = classes.filter(opening_mode='school')
                 for shared_class in classes:
                     date_key = shared_class.date.isoformat()
                     shared_class_dates.setdefault(date_key, []).append({
@@ -2136,6 +2147,9 @@ class CourseAvailableDatesAPI(APIView):
                         'minimum_students': shared_class.minimum_students,
                         'remaining_capacity': max(shared_class.max_capacity - shared_class.registered_students, 0),
                     })
+
+        if tmpl.shared_class_enabled and tmpl.shared_class_fixed_dates:
+            available_dates = [day for day in available_dates if any(slot['remaining_capacity'] > 0 for slot in shared_class_dates.get(day, []))]
 
         return Response({
             'template_id': tmpl.id,
@@ -2678,21 +2692,22 @@ class CreateReservationAPI(APIView):
         if template.shared_class_minimum_students > template.max_capacity:
             raise ValueError('此團體班成班人數大於人數上限，請管理員修正設定')
         booking = reservation.bookings.get()
-        shared_class, _ = SharedCourseClass.objects.select_for_update().get_or_create(
-            client=reservation.group.client,
-            campus=reservation.group.campus,
-            resort=reservation.resort,
-            template=template,
-            date=booking.date,
-            start_time=booking.start_time,
-            end_time=booking.end_time,
-            ability_level=next(iter(counts)),
-            language=reservation.language,
-            defaults={
+        slot = {
+            'client': reservation.group.client, 'campus': reservation.group.campus,
+            'resort': reservation.resort, 'template': template, 'date': booking.date,
+            'start_time': booking.start_time, 'end_time': booking.end_time,
+            'ability_level': next(iter(counts)), 'language': reservation.language,
+        }
+        classes = SharedCourseClass.objects.select_for_update()
+        if template.shared_class_fixed_dates:
+            shared_class = classes.filter(**slot, opening_mode='school').first()
+            if not shared_class:
+                raise ValueError('此團體班僅開放學校已公布的日期與時段，請重新選課')
+        else:
+            shared_class, _ = classes.get_or_create(**slot, defaults={
                 'minimum_students': template.shared_class_minimum_students,
                 'max_capacity': template.max_capacity,
-            },
-        )
+            })
         if shared_class.status == 'cancelled':
             raise ValueError('此團體班已取消，請選其他時段')
         if shared_class.registered_students + reservation.number_of_people > shared_class.max_capacity:
@@ -3062,6 +3077,8 @@ class MemberCenterAPI(APIView):
         ).order_by('reservation_id', 'id').values_list('id', 'reservation_id'):
             student_counts[reservation_id] = student_counts.get(reservation_id, 0) + 1
             student_numbers[member_id] = student_counts[reservation_id]
+        from .waiver_signatures import current_signature_strokes
+        signature_strokes = current_signature_strokes(member_details)
         pre_course_forms = [{
             'id': member.id,
             'reservation_id': member.reservation_id,
@@ -3076,11 +3093,20 @@ class MemberCenterAPI(APIView):
             'insurance_data': member.insurance_data or {},
             'insurance_processing_status': member.insurance_processing_status,
             'waiver_signature': member.waiver_signature,
+            'waiver_signature_strokes': signature_strokes.get(member.pk, []),
             'waiver_document_version': member.waiver_document_version,
+            **({'experience_assessment': member.pre_course_answers.get('experience', {})}
+               if tenant.internal_code == 'snowland' else {}),
+            'question_answers': {
+                **saved_section_answers(member, waiver_document, 'insurance'),
+                **saved_section_answers(member, waiver_document, 'waiver'),
+            },
             'media_consent': member.media_consent,
             'insurance_completed': bool(
                 member.insurance_completed_at
                 and insurance_details_complete(member.insurance_data or {})
+                and required_answers_complete(section_questions(waiver_document, 'insurance'),
+                                              saved_section_answers(member, waiver_document, 'insurance'))
             ),
             'waiver_completed': bool(
                 member.waiver_completed_at
@@ -3182,7 +3208,7 @@ class MemberCenterAPI(APIView):
             'level': loyalty.level,
             'alumni_verified': loyalty.alumni_verified,
             'line_linked': bool(profile.line_user_id),
-            'waiver_document': waiver_document,
+            'waiver_document': {key: value for key, value in waiver_document.items() if key != 'source_url'},
             'orders': orders,
             'participant_courses': list(participant_courses.values()),
             'pre_course_forms': pre_course_forms,
@@ -3243,6 +3269,7 @@ class MemberCenterAPI(APIView):
             return Response({'message': '學員欄位已建立，請逐位填寫資料', 'student_count': len(members)})
 
         if action == 'update_pre_course_form':
+            Client.objects.select_for_update().get(pk=tenant.pk)
             member = MemberDetail.objects.select_for_update().filter(
                 Q(user=request.user) | Q(guardian=request.user),
                 id=request.data.get('member_id'),
@@ -3275,6 +3302,7 @@ class MemberCenterAPI(APIView):
             signer_role = str(insurance_data.get('waiver_signer_role') or 'self')
             guardian_name = str(insurance_data.get('guardian_name') or '').strip()[:120]
             guardian_relationship = str(insurance_data.get('guardian_relationship') or '').strip()[:120]
+            guardian_id_number = str(insurance_data.get('guardian_id_number') or '').strip()[:120]
             if signer_role not in {'self', 'guardian'}:
                 return Response({'error': '請選擇本人或法定代理人簽署'}, status=400)
             has_signer_details = 'waiver_signer_role' in insurance_data
@@ -3292,18 +3320,29 @@ class MemberCenterAPI(APIView):
                 'full_name', 'birth_date', 'id_number', 'phone',
                 'emergency_contact', 'emergency_phone',
             )
+            optional_fields = {
+                key: str(insurance_data[key] or '').strip()[:limit]
+                for key, limit in {'nickname': 80, 'address': 250, 'email': 254}.items()
+                if key in insurance_data
+            }
+            if optional_fields.get('email'):
+                try:
+                    validate_email(optional_fields['email'])
+                except DjangoValidationError:
+                    return Response({'error': '請填寫有效的學員 Email'}, status=400)
             insurance_data = {
                 key: str(insurance_data.get(key) or '').strip()[:120]
                 for key in allowed_insurance_fields
             }
+            insurance_data.update(optional_fields)
             if has_signer_details:
                 insurance_data.update({
                     'waiver_signer_role': signer_role,
                     'guardian_name': guardian_name if signer_role == 'guardian' else '',
                     'guardian_relationship': guardian_relationship if signer_role == 'guardian' else '',
                 })
-            insurance_complete = insurance_details_complete(insurance_data)
-
+                if guardian_id_number and signer_role == 'guardian':
+                    insurance_data['guardian_id_number'] = guardian_id_number
             waiver_agreed = request.data.get('waiver_agreed') is True
             if waiver_agreed:
                 revision = course_waiver_revision(member)
@@ -3313,32 +3352,123 @@ class MemberCenterAPI(APIView):
             waiver_signature = str(request.data.get('waiver_signature') or '').strip()[:120]
             waiver_document = get_current_waiver(tenant)
             submitted_version = str(request.data.get('waiver_document_version') or '')
+            if waiver_agreed and not waiver_document['version']:
+                return Response({'error': '此學校尚未公開聲明書'}, status=400)
+            if (waiver_agreed or 'question_answers' in request.data) and submitted_version != waiver_document['version']:
+                return Response({'error': '聲明書已有更新，請重新閱讀最新版後再簽署'}, status=409)
+            questions = waiver_document['questions']
+            try:
+                existing_answers = {
+                    **saved_section_answers(member, waiver_document, 'insurance'),
+                    **saved_section_answers(member, waiver_document, 'waiver'),
+                }
+                answers = validate_answers(questions, request.data.get('question_answers', existing_answers))
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=400)
+            answers_snapshot = {}
+            for section in ('insurance', 'waiver'):
+                fields = section_questions(waiver_document, section)
+                answers_snapshot[section] = {
+                    'questions': fields,
+                    'answers': {field['key']: answers[field['key']] for field in fields if field['key'] in answers},
+                }
+            existing_experience = member.pre_course_answers.get('experience')
+            if existing_experience is not None:
+                answers_snapshot['experience'] = existing_experience
+            if tenant.internal_code == 'snowland' and 'experience_assessment' in request.data:
+                from .pre_course_questions import validate_experience_assessment
+                try:
+                    experience = validate_experience_assessment(request.data['experience_assessment'])
+                    selected_skills = {'snowboard': snowboard_skills, 'ski': ski_skills}
+                    if experience['finished'] and any(not selected_skills[board] for board in experience['boards']):
+                        raise ValueError('請完成所選板種的程度自評')
+                    answers_snapshot['experience'] = experience
+                except ValueError as exc:
+                    return Response({'error': str(exc)}, status=400)
+            uses_handwritten_form = bool(questions) or any(key in request.data for key in (
+                'waiver_signature_ink', 'experience_assessment',
+            ))
+            if waiver_agreed and not uses_handwritten_form and member.waiver_completed_at:
+                uses_handwritten_form = member.online_waiver_signatures.filter(signed_at=member.waiver_completed_at).exists()
+            guardian_id_missing = (uses_handwritten_form and tenant.internal_code == 'snowland'
+                                   and requires_guardian and not guardian_id_number)
+            insurance_complete = insurance_details_complete(insurance_data) and required_answers_complete(
+                answers_snapshot['insurance']['questions'], answers,
+            )
+            if waiver_agreed and not required_answers_complete(questions, answers):
+                return Response({'error': '請先填寫課前表單中的必填題目'}, status=400)
             media_consent = str(request.data.get('media_consent') or '')
             if waiver_agreed and signer_role == 'guardian' and (not guardian_name or not guardian_relationship):
                 return Response({'error': '請填寫法定代理人姓名及與學員的關係'}, status=400)
             if waiver_agreed and not waiver_signature:
                 return Response({'error': '請輸入聲明書簽署姓名'}, status=400)
-            if waiver_agreed and submitted_version != waiver_document['version']:
-                return Response({'error': '聲明書已有更新，請重新閱讀最新版後再簽署'}, status=409)
             if waiver_agreed and age is None:
                 return Response({'error': '請先填寫出生日期，以確認聲明書簽署身分'}, status=400)
             if waiver_agreed and media_consent not in {'agree', 'decline'}:
                 return Response({'error': '請選擇是否同意宣傳影像授權'}, status=400)
 
+            signed_at = timezone.now() if waiver_agreed else None
+            kept_existing_signature = False
+            if waiver_agreed and uses_handwritten_form:
+                from .models import MemberWaiverSignature
+                from .waiver_signatures import validate_signature_strokes
+                ink = request.data.get('waiver_signature_ink')
+                identity_fields = (
+                    'full_name', 'birth_date', 'waiver_signer_role', 'guardian_name', 'guardian_relationship', 'guardian_id_number',
+                )
+                previous_insurance = member.insurance_data or {}
+                can_keep_signature = (
+                    member.waiver_completed_at and not member.waiver_resign_required
+                    and member.waiver_signature == waiver_signature
+                    and member.waiver_document_version == submitted_version
+                    and member.media_consent == media_consent
+                    and (not questions or all(answers_snapshot[key] == member.pre_course_answers.get(key) for key in ('insurance', 'waiver')))
+                    and all((previous_insurance.get(key) or '') == (insurance_data.get(key) or '') for key in identity_fields)
+                )
+                if ink is None and can_keep_signature:
+                    signed_at = member.waiver_completed_at
+                    kept_existing_signature = True
+                else:
+                    if tenant.internal_code == 'snowland' and not answers_snapshot.get('experience', {}).get('finished'):
+                        return Response({'error': '請先完成程度自評再簽署聲明書，沒有經驗也可以選「沒有」。'}, status=400)
+                    if guardian_id_missing:
+                        return Response({'error': '請填寫法定代理人身分證字號後再簽署'}, status=400)
+                    expected_signer = guardian_name if signer_role == 'guardian' else insurance_data['full_name']
+                    if not expected_signer or waiver_signature != expected_signer:
+                        return Response({'error': '簽署人須與學員或法定代理人姓名相符'}, status=400)
+                    try:
+                        strokes = validate_signature_strokes(ink)
+                    except ValueError as exc:
+                        return Response({'error': str(exc)}, status=400)
+                    previous = member.online_waiver_signatures.filter(signed_at=member.waiver_completed_at).first() if can_keep_signature else None
+                    if previous and previous.strokes == strokes:
+                        signed_at = previous.signed_at
+                    else:
+                        MemberWaiverSignature.objects.create(
+                            member=member, signer=request.user, signer_name=waiver_signature,
+                            signer_role=signer_role, signed_at=signed_at, document_version=submitted_version,
+                            document_snapshot=waiver_document['body'], course_revision=revision,
+                            media_consent=media_consent, strokes=strokes,
+                            form_snapshot={'title': waiver_document['title'], 'insurance': answers_snapshot['insurance'], 'waiver': answers_snapshot['waiver']},
+                        )
+
+            if guardian_id_missing and not (kept_existing_signature and member.insurance_completed_at):
+                insurance_complete = False
             member.age_range = age_range
             member.snowboard_skills = snowboard_skills
             member.ski_skills = ski_skills
             member.insurance_data = insurance_data
+            member.pre_course_answers = answers_snapshot
             member.waiver_signature = waiver_signature if waiver_agreed else ''
             member.waiver_document_version = waiver_document['version'] if waiver_agreed else ''
             member.waiver_document_snapshot = waiver_document['body'] if waiver_agreed else ''
             member.media_consent = media_consent if waiver_agreed else ''
             member.insurance_completed_at = timezone.now() if insurance_complete else None
-            member.waiver_completed_at = timezone.now() if waiver_agreed else None
+            member.waiver_completed_at = signed_at
             if waiver_agreed:
                 member.waiver_resign_required = False
             member.save(update_fields=[
-                'age_range', 'snowboard_skills', 'ski_skills', 'insurance_data',
+                'age_range', 'snowboard_skills', 'ski_skills', 'insurance_data', 'pre_course_answers',
                 'waiver_signature', 'insurance_completed_at', 'waiver_completed_at',
                 'waiver_document_version', 'waiver_document_snapshot', 'media_consent', 'waiver_resign_required',
             ])
@@ -4140,6 +4270,14 @@ class CurrencyOptionsAPI(APIView):
         from Resorts.models import PaymentAccount
         config = currency_settings_payload(tenant)
         currencies = [{'code':'TWD','rate':'1.00000000'}]
+        if config.get('foreign_reference_only'):
+            reference_rates = {'JPY': config['jpy_per_twd'], **config.get('foreign_rates', {})}
+            reference_currencies = [{'code': code, 'rate': rate} for code, rate in reference_rates.items()
+                                    if rate and Decimal(rate) > 0]
+            response = Response({'base_currency': 'TWD', 'currencies': currencies,
+                                 'reference_currencies': reference_currencies})
+            response['Cache-Control'] = 'no-store'
+            return response
         complete_accounts = PaymentAccount.objects.filter(client=tenant,is_active=True)
         for field in ('bank_name','bank_branch','account_number','account_holder'):
             complete_accounts = complete_accounts.exclude(**{field:''})

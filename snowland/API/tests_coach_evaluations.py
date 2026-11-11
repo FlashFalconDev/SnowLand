@@ -41,9 +41,16 @@ class CoachEvaluationTests(TestCase):
 
     def test_coach_lists_and_edits_only_own_completed_course_and_member_sees_notes(self):
         pending = self.evaluation(self.coach, 'auto_assigned')
+        self.own.member.insurance_data.update(nickname='  QA Nick  ', address='Private address')
+        self.own.member.save(update_fields=['insurance_data'])
         response = self.api.get(self.url)
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual([row['id'] for row in response.data['data']['list']], [self.own.id])
+        rows = response.data['data']['list']
+        self.assertEqual([row['id'] for row in rows], [self.own.id])
+        self.assertEqual(rows[0]['booking'], self.own.booking_id)
+        self.assertEqual(rows[0]['member_name'], 'QA Student')
+        self.assertEqual(rows[0]['member_nickname'], 'QA Nick')
+        self.assertNotIn('insurance_data', rows[0])
         updated = self.api.patch(f'{self.url}{self.own.id}/', {'coach_notes': '已能安全煞車', 'learning_progress': {'turn': '進步'}, 'completed_at': timezone.now().isoformat()}, format='json')
         self.assertEqual(updated.status_code, 200, updated.data)
         self.assertEqual(self.api.patch(f'{self.url}{self.foreign.id}/', {'coach_notes': '不可修改'}, format='json').status_code, 404)

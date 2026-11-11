@@ -183,6 +183,7 @@ export default function SchedulingPage() {
   const [openingDate, setOpeningDate] = useState('')
   const [openingLevel, setOpeningLevel] = useState('')
   const [openingLanguage, setOpeningLanguage] = useState('zh')
+  const [openingPaymentTiming, setOpeningPaymentTiming] = useState<'confirmed_opening' | 'after_minimum'>('after_minimum')
   const [openingError, setOpeningError] = useState('')
 
   const todayStr = formatDateKey(today)
@@ -225,7 +226,7 @@ export default function SchedulingPage() {
     mutationFn: () => openSharedClass({
       campus_id: Number(openingCampus), resort_id: Number(openingResort),
       template_id: Number(openingTemplate), session_id: Number(openingSession),
-      date: openingDate, ability_level: openingLevel, language: openingLanguage,
+      date: openingDate, ability_level: openingLevel, language: openingLanguage, payment_timing: openingPaymentTiming,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'group-candidates'] })
@@ -519,6 +520,13 @@ export default function SchedulingPage() {
               <select value={openingLanguage} onChange={(event) => setOpeningLanguage(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white">{openingOptions.languages?.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             </label>
           </div>
+          <label className="mt-3 block text-sm font-medium text-gray-900 dark:text-white">付款時點
+            <select value={openingPaymentTiming} onChange={event => setOpeningPaymentTiming(event.target.value as typeof openingPaymentTiming)} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+              <option value="after_minimum">達到最低人數後開放付款</option>
+              <option value="confirmed_opening">已確定開班，首位報名即成班</option>
+            </select>
+            <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-gray-400">已確定開班的班級不等最低人數，付款仍需通過教練與排課確認。</span>
+          </label>
           {openingTemplates.length === 0 && openingResort && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">這個雪場尚未設定可開放的團體班課程，請先到「課程架構」設定。</p>}
           {openingError && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{openingError}</p>}
           <button type="button" disabled={!openingCampus || !openingResort || !openingTemplate || !openingDate || !openingSession || !openingLevel || openingMutation.isPending} onClick={() => openingMutation.mutate()} className="mt-3 min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">{openingMutation.isPending ? '開班中…' : '確認開班'}</button>

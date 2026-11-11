@@ -12,7 +12,7 @@ const SpecialOffers = () => {
             subtitle: item.subtitle || item.summary || item.body || '',
             image_url: item.image_url,
             link_url: item.link_url || '/specialoffers',
-            badge: item.metadata?.badge || (item.status === 'ended' ? '已結束' : '進行中'),
+            badge: item.status === 'ended' ? '已結束' : item.metadata?.badge || '進行中',
             badgeClassName: item.status === 'ended' ? 'bg-white/90 text-[#1f2937]' : 'bg-brand-orange text-white',
             delay: index * 0.12,
         }));

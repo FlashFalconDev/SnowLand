@@ -1,6 +1,6 @@
 import { LayoutDashboard, ShoppingCart, MessageCircle, Users, ClipboardCheck, BookOpen, Wallet, Megaphone, Globe, Settings, Shield } from 'lucide-react'
 import type { AdminUser } from './api/auth'
-import { canUseFrontendSupport, hasAdminPermission } from './permissions'
+import { canPrepareStaffBooking, canUseFrontendSupport, hasAdminPermission } from './permissions'
 
 export const consoleNavigation = [
   { id: 'overview', label: '營運總覽', icon: LayoutDashboard, pages: [
@@ -84,6 +84,7 @@ export type ConsolePage = (typeof consoleNavigation)[number]['pages'][number]
 export type ConsolePath = ConsolePage['path']
 
 export function canOpenConsolePage(page: ConsolePage, user: AdminUser | null | undefined, basePath: string) {
+  if (page.access === 'booking_links') return canPrepareStaffBooking(user)
   if (page.access === '@coach') return user?.is_coach === true
   if (page.access === '@platform') return canUseFrontendSupport(basePath, user)
   return hasAdminPermission(user, page.access)

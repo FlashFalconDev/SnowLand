@@ -56,7 +56,7 @@ import { useBookingStore } from '@/store/bookingStore'
 import { useAuth } from '@/hooks/useAuth'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 import { fetchAdminMe } from '@/admin/api/auth'
-import { hasAdminPermission } from '@/admin/permissions'
+import { canPrepareStaffBooking } from '@/admin/permissions'
 import type { CartItem, Course } from '@/types/booking'
 import {
   fetchCourseTypes,
@@ -755,7 +755,7 @@ export default function BookingFlowPage() {
     if (!staffPreparing) return
     let cancelled = false
     fetchAdminMe().then(result => {
-      if (!cancelled) setStaffOperator(hasAdminPermission(result.user, 'booking_links'))
+      if (!cancelled) setStaffOperator(canPrepareStaffBooking(result.user))
     }).finally(() => { if (!cancelled) setStaffOperatorLoading(false) })
     return () => { cancelled = true }
   }, [staffPreparing])
@@ -3336,7 +3336,7 @@ function Step2SkiConfiguration({
                     </span>
                     {template.shared_class_enabled ? (
                       <span className="rounded-sm bg-sky-50 px-2 py-1 text-sky-800">
-                        {t('可單人報名，滿 {count} 人成班後付款，教練由學校安排', { count: template.shared_class_minimum_students || 3 })}
+                        {t('可單人報名，成班與付款條件依場次，教練由學校安排')}
                       </span>
                     ) : Number(template.minimum_group_size || 1) > 1 && (
                       <span className={`rounded-sm px-2 py-1 ${
@@ -3461,7 +3461,9 @@ function Step2SkiConfiguration({
                 )
               })}
             </div>
-            {selectedTemplateInfo?.shared_class_enabled && <p className="mt-3 text-xs text-[#64748b]">{t('標示人數的日期已有同程度團體班；沒有標示的日期也可選，報名後開始湊班。選好日期後可查看各時段剩餘名額。')}</p>}
+            {selectedTemplateInfo?.shared_class_enabled && <p className="mt-3 text-xs text-[#64748b]">{t(selectedTemplateInfo.shared_class_fixed_dates
+              ? '僅可選擇學校已公布的日期，選好日期後可查看各時段剩餘名額。'
+              : '標示人數的日期已有同程度團體班；沒有標示的日期也可選，報名後開始湊班。選好日期後可查看各時段剩餘名額。')}</p>}
           </div>
 
           {state.selectedCourseDates?.length > 0 && (
@@ -4049,7 +4051,7 @@ function Step3Confirmation({
           )}
         </div>
 
-        {!isPaid && <CurrencySelection clientCode={clientCode} value={currencyQuote} onChange={setCurrencyQuote} onReadyChange={onCurrencyReady} reloadKey={currencyReloadKey} />}
+        {!isPaid && <CurrencySelection clientCode={clientCode} value={currencyQuote} onChange={setCurrencyQuote} onReadyChange={onCurrencyReady} reloadKey={currencyReloadKey} baseTotal={pricePending ? undefined : total} />}
         <div className="border-t border-[#d4dbe4] pt-4 mb-6">
           <div className="flex justify-between items-baseline">
             <span className="text-sm font-semibold text-[#1f2937]">{t(currencyIsJpy ? (isPaid?'外幣應付合計':'預估外幣合計') : isSharedClassCart && !isPaid ? '成班後應付' : '總金額')}</span>

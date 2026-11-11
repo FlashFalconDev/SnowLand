@@ -105,7 +105,7 @@ export default function CoachEditorPage() {
       </div>}
     <PromptModal open={!!editing} title={'編輯官網介紹：' + (editing?.name || '')} description="儲存後，官網列表重新載入即使用這份設定。下架不會刪除教練或影響既有課程。"
       fields={[
-        { name: 'img', label: '照片網址', defaultValue: editing?.img || '', placeholder: 'https://… 或站內圖片路徑' },
+        { name: 'img', label: '照片網址', defaultValue: editing?.img || '', placeholder: 'https://… 或站內圖片路徑', helper: '貼上可公開開啟的照片網址或既有站內圖片路徑，將「官網顯示」設為上架後儲存。' },
         { name: 'website_slug', label: '官網代號', defaultValue: editing?.website_slug || '', helper: '修改代號會改變對外網址，請同步更新已分享的連結。' },
         { name: 'website_card_bio', label: '卡片簡介（最多160字）', type: 'textarea', defaultValue: editing?.website_card_bio || '' },
         { name: 'website_sort_order', label: '顯示排序（數字小的在前）', type: 'number', required: true, defaultValue: String(editing?.website_sort_order ?? 0) },

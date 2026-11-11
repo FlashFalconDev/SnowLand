@@ -144,7 +144,7 @@ export async function fetchSharedClassOpeningOptions(): Promise<SharedClassOpeni
 
 export async function openSharedClass(input: {
   campus_id: number; resort_id: number; template_id: number; session_id: number
-  date: string; ability_level: string; language: string
+  date: string; ability_level: string; language: string; payment_timing?: 'confirmed_opening' | 'after_minimum'
 }): Promise<void> {
   await adminApi.post('/bookings/shared-classes/open/', input)
 }

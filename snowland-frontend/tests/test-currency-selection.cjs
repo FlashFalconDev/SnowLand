@@ -3,10 +3,10 @@ const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,
 const source=fs.readFileSync(path.join(root,'src/components/booking/CurrencySelection.tsx'),'utf8')
 const loadSiteLocale=require('./helpers/site-locale-harness.cjs')
 function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))return node;for(const child of React.Children.toArray(node.props?.children)){const result=find(child,p);if(result)return result}return null}
-function setup({fail=false,language='zh-Hant',choices=[{code:'TWD',rate:'1.00000000'},{code:'JPY',rate:'4.50000000'}]}={}){
+function setup({fail=false,language='zh-Hant',referenceChoices,choices=[{code:'TWD',rate:'1.00000000'},{code:'JPY',rate:'4.50000000'}]}={}){
  const states=[],effects=[],pending=[],calls=[],changes=[],ready=[];let stateIndex=0,effectIndex=0
- const props={clientCode:'snowland',value:{currency:'TWD',rate:'1.00000000'},onChange(value){changes.push(value);props.value=value},onReadyChange:value=>ready.push(value)}
- const context=vm.createContext({React,exports:{},AbortController,setTimeout:()=>0,clearTimeout(){},fetch:async(url,options)=>{calls.push({url,options});if(fail)throw Error('QA offline');return{ok:true,json:async()=>({base_currency:'TWD',currencies:choices})}},require(name){
+ const props={clientCode:'snowland',baseTotal:1000,value:{currency:'TWD',rate:'1.00000000'},onChange(value){changes.push(value);props.value=value},onReadyChange:value=>ready.push(value)}
+ const context=vm.createContext({React,exports:{},AbortController,setTimeout:()=>0,clearTimeout(){},fetch:async(url,options)=>{calls.push({url,options});if(fail)throw Error('QA offline');return{ok:true,json:async()=>({base_currency:'TWD',currencies:choices,reference_currencies:referenceChoices})}},require(name){
   if(name.includes('settlementPreview'))return require('./helpers/settlement-harness.cjs')
   if(name.includes('contexts/SiteLocale'))return loadSiteLocale(React,language)
   if(name==='react')return{...React,useId:()=> 'currency-qa',useState(initial){const slot=stateIndex++;if(!(slot in states))states[slot]=typeof initial==='function'?initial():initial;return[states[slot],value=>states[slot]=typeof value==='function'?value(states[slot]):value]},useEffect(callback,deps){const slot=effectIndex++;if(!effects[slot]||deps.some((value,index)=>value!==effects[slot].deps[index])){effects[slot]?.cleanup?.();effects[slot]={deps};pending.push(()=>effects[slot].cleanup=callback())}}}
@@ -34,6 +34,13 @@ function setup({fail=false,language='zh-Hant',choices=[{code:'TWD',rate:'1.00000
  assert.equal(find(tree,n=>n.type==='select').props.value,'JPY')
  assert.ok(find(tree,n=>n.type==='option'&&n.props.value==='JPY'&&n.props.disabled))
  assert.equal(unavailable.ready.at(-1),false)
+ const reference=setup({choices:[{code:'TWD',rate:'1.00000000'}],referenceChoices:[{code:'JPY',rate:'4.50000000'}]});
+ reference.render();tree=await reference.settle()
+ find(tree,n=>n.type==='select').props.onChange({target:{value:'JPY'}})
+ tree=reference.render()
+ assert.ok(JSON.stringify(tree).includes('4,500'))
+ assert.equal(reference.props.value.currency,'TWD')
+ assert.equal(reference.changes.length,0)
  const offline=setup({fail:true});offline.props.value={currency:'JPY',rate:'4.50000000'};offline.render();tree=await offline.settle()
  assert.ok(find(tree,n=>n.props.role==='alert'))
  assert.equal(offline.changes.length,0);assert.equal(offline.ready.at(-1),false)

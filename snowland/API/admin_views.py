@@ -2786,12 +2786,19 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
             qs = qs.filter(reservation__group__campus_id__in=_campus_ids(self.request))
         status_filter = self.request.query_params.get('status')
         from booking.legal_documents import get_current_waiver
-        current_version = get_current_waiver(self.request.tenant)['version']
+        from booking.pre_course_questions import section_questions
+        document = get_current_waiver(self.request.tenant)
+        current_version = document['version']
         stale_signature = Q(waiver_resign_required=True) | (Q(waiver_signature__isnull=False) & ~Q(waiver_signature='') & ~Q(waiver_document_version=current_version))
+        insurance_questions = section_questions(document, 'insurance')
+        stale_insurance = Q(pk__in=[])
+        if any(question['required'] for question in insurance_questions):
+            same_schema = Q(pre_course_answers__insurance__questions=insurance_questions)
+            stale_insurance = ~Q(pre_course_answers__insurance__has_key='questions') | ~same_schema
         if status_filter == 'missing':
-            qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True) | stale_signature)
+            qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True) | stale_signature | stale_insurance)
         elif status_filter == 'completed':
-            qs = qs.filter(insurance_completed_at__isnull=False, waiver_completed_at__isnull=False).exclude(stale_signature)
+            qs = qs.filter(insurance_completed_at__isnull=False, waiver_completed_at__isnull=False).exclude(stale_signature | stale_insurance)
         # Ordering by a related booking date makes SQL include that date in the
         # DISTINCT result, so one member appears once per course day.  The
         # serializer already returns all course dates; keep one row per member.
@@ -2856,19 +2863,24 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
     @action(detail=True, methods=['post'], url_path='complete')
     @transaction.atomic
     def complete(self, request, *args, **kwargs):
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
         member = self.get_object()
         ReservationGroup.objects.select_for_update().get(pk=member.reservation.group_id)
         member = get_object_or_404(self.get_queryset().select_for_update(), pk=member.pk)
         field = request.data.get('field')
         if field not in ('insurance', 'waiver'):
             return Response({'code': 400, 'msg': '完成項目不正確'}, status=400)
-        if field == 'waiver':
-            from booking.legal_documents import get_current_waiver, waiver_requires_resign
-            if waiver_requires_resign(member, get_current_waiver(request.tenant)):
-                return Response({'code': 409, 'msg': '課程或文件已更新，須由會員重新簽署，不能人工標記略過'}, status=409)
+        from booking.legal_documents import get_current_waiver, waiver_requires_resign
+        from booking.pre_course_questions import insurance_questions_need_update
+        document = get_current_waiver(request.tenant)
+        if field == 'waiver' and (waiver_requires_resign(member, document) or document['questions'] and not member.waiver_signature):
+            return Response({'code': 409, 'msg': '課程或文件已更新，須由會員重新簽署，不能人工標記略過'}, status=409)
+        if field == 'insurance' and insurance_questions_need_update(member, document):
+            return Response({'code': 409, 'msg': '請先由學員補齊保險必填題目'}, status=409)
         target = 'insurance_completed_at' if field == 'insurance' else 'waiver_completed_at'
-        setattr(member, target, timezone.now())
-        member.save(update_fields=[target])
+        if not getattr(member, target):
+            setattr(member, target, timezone.now())
+            member.save(update_fields=[target])
         return Response({'code': 200, 'msg': '完成狀態已更新', 'data': self.get_serializer(member).data})
 
 
@@ -3182,13 +3194,31 @@ class CoachPayrollViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         return Response({'code': 200, 'msg': '薪資單已確認；未進行發款', 'data': self.get_serializer(statement).data})
 
 
+class CanManageStaffBookingLinks(IsTenantManager):
+    def has_permission(self, request, view):
+        if super().has_permission(request, view):
+            return True
+        if request.method not in ('GET', 'HEAD', 'OPTIONS', 'POST') or not IsTenantCoach().has_permission(request, view):
+            return False
+        tenant = request.tenant
+        if not _resolve_campus_scope(request, tenant):
+            return False
+        coach_campus_ids = Coach.objects.filter(user=request.user, client=tenant).values_list('campuses__id', flat=True)
+        request.campus_ids = sorted(set(request.campus_ids).intersection(coach_campus_ids))
+        request.can_view_all_campuses = False
+        request.own_staff_booking_links_only = True
+        return bool(request.campus_ids)
+
+
 class StaffBookingLinkAdminViewSet(ModelViewSet):
     serializer_class = StaffBookingLinkAdminSerializer
-    permission_classes = [IsTenantManager]
+    permission_classes = [CanManageStaffBookingLinks]
     permission_key = 'booking_links'
 
     def get_queryset(self):
         qs = StaffBookingLink.objects.filter(client=self.request.tenant).select_related('campus', 'created_by')
+        if getattr(self.request, 'own_staff_booking_links_only', False):
+            qs = qs.filter(created_by=self.request.user)
         if _campus_ids(self.request) and (
             not self.request.can_view_all_campuses or self.request.selected_campus_id
         ):
@@ -3598,6 +3628,9 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
         ).first() if template else None
         level = request.data.get('ability_level')
         language = request.data.get('language') or 'zh'
+        payment_timing = request.data.get('payment_timing', 'after_minimum')
+        if payment_timing not in ('confirmed_opening', 'after_minimum'):
+            return Response({'code': 400, 'msg': '請選擇有效的付款時點'}, status=400)
         valid_levels = {choice[0] for choice in SharedCourseClass._meta.get_field('ability_level').choices}
         valid_languages = {choice[0] for choice in SharedCourseClass._meta.get_field('language').choices}
         if not campus or not resort or not template or not session or not lesson_date or lesson_date < timezone.localdate() or (
@@ -3621,7 +3654,7 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                 ability_level=level, language=language,
                 defaults={
                     'opening_mode': 'school',
-                    'minimum_students': template.shared_class_minimum_students,
+                    'minimum_students': 1 if payment_timing == 'confirmed_opening' else template.shared_class_minimum_students,
                     'max_capacity': template.max_capacity,
                 },
             )

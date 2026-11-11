@@ -78,6 +78,7 @@ class PaymentCurrencySettings(models.Model):
     jpy_enabled = models.BooleanField(default=False, verbose_name='開放日幣匯款')
     jpy_per_twd = models.DecimalField(max_digits=17, decimal_places=8, null=True, blank=True, verbose_name='1台幣可換日幣')
     foreign_rates = models.JSONField(default=dict, blank=True, verbose_name='其他匯款幣別與匯率')
+    foreign_reference_only = models.BooleanField(default=False, verbose_name='外幣僅供參考，訂單只收台幣')
     updated_at = models.DateTimeField(auto_now=True)
 
 

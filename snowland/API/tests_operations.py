@@ -1225,6 +1225,23 @@ class OperationsTests(TestCase):
         }, format='json')
         self.assertEqual(response.status_code, 400)
 
+    def test_ski_and_snowboard_rules_can_coexist(self):
+        from types import SimpleNamespace
+        from API.admin_serializers import CoachPayRuleAdminSerializer
+        from Coach.models import CoachPayRule
+
+        coach = Coach.objects.first()
+        context = {'request': SimpleNamespace(tenant=coach.client)}
+        for discipline in ('snowboard', 'ski'):
+            serializer = CoachPayRuleAdminSerializer(data={
+                'coach': coach.id, 'course_type': None, 'discipline': discipline,
+                'effective_from': '2026-12-01', 'hourly_rate': 1000,
+            }, context=context)
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+            serializer.save()
+        rules = CoachPayRule.objects.filter(coach=coach, effective_from='2026-12-01')
+        self.assertEqual(set(rules.values_list('discipline', flat=True)), {'ski', 'snowboard'})
+
     def test_general_pay_rule_can_be_saved_without_course_type(self):
         admin = User.objects.create_superuser('payroll-admin', 'payroll@example.com', 'pw')
         api = APIClient(); api.force_authenticate(admin)

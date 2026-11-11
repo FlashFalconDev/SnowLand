@@ -1,20 +1,23 @@
 import { useEffect, useId, useState } from 'react'
 import { useSiteLocale } from '../../contexts/SiteLocale'
-import { paymentCurrencyNames, type PaymentCurrency } from '../../utils/settlementPreview'
+import { paymentCurrencyNames, quoteJpyPreview, type PaymentCurrency } from '../../utils/settlementPreview'
 
 export interface PaymentCurrencyQuote { currency: PaymentCurrency; rate: string }
 interface Choice { code: PaymentCurrency; rate: string }
 const twd: Choice = {code:'TWD',rate:'1.00000000'}
 
-export default function CurrencySelection({clientCode,value,onChange,onReadyChange,reloadKey=0}: {
+export default function CurrencySelection({clientCode,value,onChange,onReadyChange,reloadKey=0,baseTotal}: {
   clientCode: string
   value: PaymentCurrencyQuote
   onChange: (value: PaymentCurrencyQuote) => void
   onReadyChange: (ready: boolean) => void
   reloadKey?: number
+  baseTotal?: number
 }) {
   const {t}=useSiteLocale()
   const [choices,setChoices]=useState<Choice[]>([twd])
+  const [referenceChoices,setReferenceChoices] = useState<Choice[] | null>(null)
+  const [referenceCode,setReferenceCode] = useState<PaymentCurrency>('TWD')
   const [loading,setLoading]=useState(true)
   const [error,setError]=useState('')
   const [retry,setRetry]=useState(0)
@@ -23,7 +26,7 @@ export default function CurrencySelection({clientCode,value,onChange,onReadyChan
     let active=true
     const controller=new AbortController()
     const timer=setTimeout(()=>controller.abort(),10000)
-    setLoading(true);setError('');setChoices([twd])
+    setLoading(true);setError('');setChoices([twd]);setReferenceChoices(null);setReferenceCode('TWD')
     fetch(`/booking/${encodeURIComponent(clientCode)}/api/currency-options/`,{credentials:'include',signal:controller.signal})
       .then(async response=>{
         if(!response.ok)throw Error('currency unavailable')
@@ -33,7 +36,12 @@ export default function CurrencySelection({clientCode,value,onChange,onReadyChan
           && typeof row.rate==='string' && /^[0-9]{1,9}(?:\.[0-9]{1,8})?$/.test(row.rate) && Number(row.rate)>0)
         if(!rows.some((row:Choice)=>row.code==='TWD'&&Number(row.rate)===1)
           || new Set(rows.map((row:Choice)=>row.code)).size!==rows.length)throw Error('invalid currency choices')
-        if(active)setChoices(rows)
+        if(active){
+          setChoices(rows)
+          if(Array.isArray(payload.reference_currencies)) setReferenceChoices(payload.reference_currencies.filter((row:any)=>
+            row && row.code !== 'TWD' && Object.prototype.hasOwnProperty.call(paymentCurrencyNames,row.code)
+              && typeof row.rate === 'string' && /^[0-9]{1,9}(?:\.[0-9]{1,8})?$/.test(row.rate) && Number(row.rate) > 0))
+        }
       })
       .catch(()=>{if(active)setError('日幣選項暫時無法載入，目前可改用台幣。')})
       .finally(()=>{clearTimeout(timer);if(active)setLoading(false)})
@@ -42,6 +50,21 @@ export default function CurrencySelection({clientCode,value,onChange,onReadyChan
   const selected=choices.find(row=>row.code===value.currency)
   const ready=value.currency==='TWD'||(!loading&&!error&&selected?.rate===value.rate)
   useEffect(()=>{onReadyChange(ready)},[ready,onReadyChange])
+  useEffect(()=>{if(referenceChoices && value.currency !== 'TWD') onChange({currency:'TWD',rate:twd.rate})},[referenceChoices,value.currency,onChange])
+  if(referenceChoices){
+    const selectedReference = referenceChoices.find(row => row.code === referenceCode)
+    const estimate = selectedReference && baseTotal !== undefined
+      ? quoteJpyPreview([baseTotal],[0],selectedReference.rate,true,selectedReference.code) : null
+    return <section aria-label={t('付款幣別設定')} className="mb-4 space-y-3 rounded-sm border border-[#dbe3ec] bg-white p-4">
+      <p className="text-sm font-semibold text-[#1f2937]">{t('課程以台幣計價及收費')}</p>
+      {referenceChoices.length > 0 && <label className="block text-sm">{t('參考價格幣別')}
+        <select value={referenceCode} onChange={event=>setReferenceCode(event.target.value as PaymentCurrency)} className="mt-2 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2">
+          {[twd,...referenceChoices].map(row=><option key={row.code} value={row.code}>{t(paymentCurrencyNames[row.code])}</option>)}
+        </select>
+      </label>}
+      {estimate && <p role="status" className="text-sm text-[#475569]">{t('換算參考價')} {referenceCode} {estimate.totalLabel}</p>}
+    </section>
+  }
   return <section aria-label={t('付款幣別設定')} className="mb-4 space-y-3 rounded-sm border border-[#dbe3ec] bg-white p-4">
     <label className="block text-sm font-semibold text-[#1f2937]">{t('付款幣別')}
       <select value={value.currency} disabled={loading} aria-describedby={helpId} onChange={event=>{

@@ -144,6 +144,10 @@ export default function PaymentSettingsPage({ section = 'accounts' }: { section?
           </label>
           <section aria-label="日幣匯款設定" className="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">日幣匯款與匯率</h2>
+            <label className="flex min-h-11 items-center gap-3 text-sm text-gray-900 dark:text-white">
+              <input type="checkbox" checked={!!form.currency_settings?.foreign_reference_only} onChange={event => setForm({...form, currency_settings: {...(form.currency_settings ?? {jpy_enabled:false,jpy_per_twd:''}), foreign_reference_only:event.target.checked}})} />
+              新訂單只收台幣，外幣僅顯示參考價格
+            </label>
             <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">課程仍以台幣定價，日幣金額＝台幣金額 × 下方匯率，四捨五入至整日圓。訂單成立後保留當時匯率，不受後續設定影響。日幣付款還須有適用校區的日幣收款帳戶。</p>
             <label className="flex min-h-11 items-center gap-3 text-sm text-gray-900 dark:text-white"><input type="checkbox" checked={form.currency_settings?.jpy_enabled || false} onChange={e => setForm({...form, currency_settings: {...form.currency_settings,jpy_enabled:e.target.checked,jpy_per_twd:form.currency_settings?.jpy_per_twd || ''}})} />開放日幣匯款</label>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">1台幣可換多少日幣

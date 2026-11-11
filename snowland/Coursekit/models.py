@@ -96,6 +96,7 @@ class CourseTemplate(models.Model):
     )
     minimum_group_size = models.PositiveSmallIntegerField(default=1, verbose_name='單筆預約最低人數')
     shared_class_enabled = models.BooleanField(default=False, verbose_name='開放跨訂單湊班')
+    shared_class_fixed_dates = models.BooleanField(default=False, verbose_name='只開放學校指定的團體班日期')
     shared_class_minimum_students = models.PositiveSmallIntegerField(default=3, verbose_name='湊班成班人數')
     minimum_student_level = models.CharField(max_length=20, blank=True, default='', verbose_name='學員最低等級')
     

@@ -23,11 +23,17 @@ def waiver_version(item):
 
 
 def versioned_waiver_metadata(attrs, instance=None):
-    metadata = dict(attrs.get('metadata', getattr(instance, 'metadata', {})) or {})
-    changed = instance is None or instance.location_key != WAIVER_LOCATION_KEY or any(attrs.get(field, getattr(instance, field)) != getattr(instance, field) for field in ('title','body'))
+    previous = instance.metadata if instance and isinstance(instance.metadata, dict) else {}
+    metadata = dict(attrs.get('metadata', previous) or {})
+    if 'questions' in previous:
+        metadata.setdefault('questions', previous['questions'])
+    changed = (
+        instance is None or instance.location_key != WAIVER_LOCATION_KEY
+        or any(attrs.get(field, getattr(instance, field)) != getattr(instance, field) for field in ('title', 'body'))
+        or metadata.get('questions', []) != previous.get('questions', [])
+    )
     metadata['version'] = 'V'+timezone.now().strftime('%Y%m%d%H%M%S')+'-'+uuid4().hex[:10] if changed else waiver_version(instance)
     publishing = instance is not None and instance.status != 'active' and attrs.get('status') == 'active'
-    previous = instance.metadata if instance and isinstance(instance.metadata, dict) else {}
     metadata['_waiver_updated_at'] = timezone.now().isoformat() if changed or publishing else previous.get('_waiver_updated_at') or instance.updated_at.isoformat()
     return metadata
 
@@ -73,20 +79,23 @@ def get_current_waiver(client):
     if item:
         metadata = item.metadata if isinstance(item.metadata, dict) else {}
         return {
-            'title': item.title or 'SnowLand 滑雪運動安全聲明書',
+            'title': item.title or '滑雪運動安全聲明書',
             'version': waiver_version(item),
             'body': item.body,
-            'source_url': item.link_url or WAIVER_SOURCE_URL,
+            'source_url': item.link_url or (WAIVER_SOURCE_URL if client.internal_code == 'snowland' else ''),
+            'questions': metadata.get('questions', []),
             'is_draft': bool(metadata.get('is_draft', False)),
             'guardian_age_limit': GUARDIAN_AGE_LIMIT,
             'reference_date': timezone.localdate().isoformat(),
         }
+    legacy = client.internal_code == 'snowland'
     return {
-        'title': 'SnowLand 滑雪運動安全聲明書',
-        'version': WAIVER_DEFAULT_VERSION,
-        'body': _default_waiver_body(),
-        'source_url': WAIVER_SOURCE_URL,
-        'is_draft': True,
+        'title': 'SnowLand 滑雪運動安全聲明書' if legacy else '滑雪運動安全聲明書',
+        'version': WAIVER_DEFAULT_VERSION if legacy else '',
+        'body': _default_waiver_body() if legacy else '',
+        'source_url': WAIVER_SOURCE_URL if legacy else '',
+        'questions': [],
+        'is_draft': legacy,
         'guardian_age_limit': GUARDIAN_AGE_LIMIT,
         'reference_date': timezone.localdate().isoformat(),
     }

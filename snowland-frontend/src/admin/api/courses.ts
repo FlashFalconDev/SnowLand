@@ -26,6 +26,7 @@ export interface CourseTemplate {
   minimum_group_size: number
   shared_class_enabled: boolean
   shared_class_minimum_students: number
+  shared_class_fixed_dates?: boolean
   minimum_student_level: string
   is_active: boolean
   resorts: number[]
