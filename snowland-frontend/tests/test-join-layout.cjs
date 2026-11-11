@@ -1,11 +1,11 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),vm=require('node:vm'),crypto=require('node:crypto')
 const root=path.resolve(__dirname,'../..'),front=path.join(root,'snowland-frontend'),req=Module.createRequire(path.join(front,'package.json')),React=req('react'),ts=req('typescript')
 const original=JSON.parse(fs.readFileSync(path.join(root,'snowland/Client/fixtures/site_content_defaults.json'),'utf8')).find(r=>r.location_key==='about.join-us').metadata.page
-function render(source,page){
+function render(source,page,recruitmentEnabled=false){
  const motion=tag=>({initial,animate,variants,transition,whileInView,viewport,...props})=>React.createElement(tag,props)
  const ctx=vm.createContext({exports:{},require:name=>name==='react'?React:name.includes('contexts/SiteLocale')?require('./helpers/site-locale-harness.cjs')(React,'zh-Hant'):name==='framer-motion'?{motion:new Proxy({},{get:(_t,tag)=>motion(tag)}),useReducedMotion:()=>true,useScroll:()=>({}),useTransform(){}}:name.includes('useSiteContent')?{}:name.endsWith('SiteLink')?{__esModule:true,default:({to,...props})=>React.createElement('a',{...props,href:to})}:{__esModule:true,default:()=>null}})
  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText+'\nexports.Layout=LegacyContentLayout;',ctx)
- return req('react-dom/server').renderToStaticMarkup(React.createElement(ctx.exports.Layout,{pageKey:'join-us',page,guidesArticles:[]}))
+ return req('react-dom/server').renderToStaticMarkup(React.createElement(ctx.exports.Layout,{pageKey:'join-us',page,guidesArticles:[],recruitmentEnabled}))
 }
 const source=fs.readFileSync(path.join(front,'src/pages/site/LegacyContentPage.jsx'),'utf8'),file=path.join(root,'snowland/Client/fixtures/join_page_defaults.json')
 const schema=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):{sections:[{fields:[{key:'join_001',kind:'text',value:'原稿'}]}]}
@@ -26,6 +26,9 @@ if(fs.existsSync(before)){
  assert.equal(normalize(html),normalize(old),'除申請入口外，原版型、照片與原文案必須完整保留')
 }
 assert.ok(html.includes('href="https://www.surveycake.com/s/mYz4K"'))
-assert.ok(html.includes('站內招募表單建置中'),'外部問卷不得假裝站內收件完成')
+assert.ok(html.includes('目前使用外部應徵表單。'))
+const published=render(source,page,true)
+assert.ok(published.includes('href="/join-us/apply"'),'已開放時應前往站內表單')
+assert.ok(!published.includes('目前使用外部應徵表單。'))
 assert.ok(!html.includes('hidden lg:grid gap-12'),'不能再將招募條件與薪資福利全部藏在桌面專用容器中')
 console.log(`PASS original recruitment layout parity and ${Object.keys(values).length} actual CMS bindings; normalized baseline ${crypto.createHash('sha256').update(normalize(html)).digest('hex')}`)

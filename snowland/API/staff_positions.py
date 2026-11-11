@@ -28,6 +28,8 @@ def usable_permissions(permissions, role, all_campuses):
         blocked.update(CAMPUS_ORDER_RESTRICTIONS)
     if not all_campuses or role in {'campus_manager', 'campus_principal', 'coach', 'photographer'}:
         blocked.add('contact_inbox')
+    if not all_campuses:
+        blocked.add('recruitment')
     return [key for key in normalize_admin_permissions(permissions) if key not in blocked]
 
 

@@ -4,6 +4,7 @@ from . import views
 from .payment_email import PaymentEmailAPI
 from .class_group_qr import ClassGroupQRAPI
 from API.contact_inbox import PublicContactAPI
+from API.recruitment import PublicRecruitmentAPI
 from .api_views import (
     CheckoutPoliciesAPI,
     SiteContentListAPI,
@@ -44,6 +45,7 @@ urlpatterns = [
     path('<str:client_code>/api/client-info/', client_info, name='api_client_info'),
     path('<str:client_code>/api/currency-options/', CurrencyOptionsAPI.as_view(), name='api_currency_options_client'),
     path('<str:client_code>/api/contact/', PublicContactAPI.as_view(), name='api_contact_client'),
+    path('<str:client_code>/api/recruitment/', PublicRecruitmentAPI.as_view(), name='api_recruitment_client'),
     # ========== 指定 client_code 的路由 ==========
     path('<str:client_code>/', views.home, name='home'),
     path('<str:client_code>/payment/', views.payment, name='payment'),

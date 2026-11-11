@@ -53,6 +53,7 @@ from .staff_incentives import StaffIncentiveStatementAdminViewSet
 from .member_loyalty import customer_loyalty, loyalty_policy
 from .website_coach_editor import WebsiteCoachEditorViewSet
 from .contact_inbox import ContactInboxViewSet
+from .recruitment import RecruitmentViewSet
 from .instagram_sync import InstagramSyncViewSet
 from .frontend_releases import FrontendReleaseViewSet
 from .staff_positions import staff_positions, staff_position_detail
@@ -63,6 +64,7 @@ admin_router = DefaultRouter()
 admin_router.register(r'frontend-releases', FrontendReleaseViewSet, basename='admin-frontend-releases')
 admin_router.register(r'instagram-sync', InstagramSyncViewSet, basename='admin-instagram-sync')
 admin_router.register(r'contact-inbox', ContactInboxViewSet, basename='admin-contact-inbox')
+admin_router.register(r'recruitment', RecruitmentViewSet, basename='admin-recruitment')
 admin_router.register(r'site-content', SiteContentAdminViewSet, basename='admin-site-content')
 admin_router.register(r'coaches', CoachAdminViewSet, basename='admin-coaches')
 admin_router.register(r'website-coach-editor', WebsiteCoachEditorViewSet, basename='admin-website-coach-editor')

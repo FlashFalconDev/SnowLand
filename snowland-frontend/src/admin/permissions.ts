@@ -19,6 +19,7 @@ export function hasAdminPermission(user: AdminUser | null | undefined, permissio
     (user.role !== 'hq_admin' || !user.can_view_all_campuses)) return false
   if (['order_edit', 'order_payments', 'order_refunds'].includes(permission) &&
     ['campus_manager', 'campus_principal'].includes(user.role || '')) return false
+  if (permission === 'recruitment' && !user.can_view_all_campuses) return false
   if (permission === 'contact_inbox' && (user.can_view_all_campuses === false || ['campus_manager', 'campus_principal', 'coach', 'photographer'].includes(user.role || ''))) return false
   return (user.permissions || []).includes(permission)
 }
