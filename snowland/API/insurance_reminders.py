@@ -8,6 +8,7 @@ from rest_framework import serializers
 from .manual_notifications import NotificationConflict
 from .order_email_notifications import mail_mode
 from booking.legal_documents import get_current_waiver, waiver_requires_resign
+from booking.pre_course_questions import insurance_questions_need_update
 
 
 def course_forms_url(member):
@@ -39,8 +40,10 @@ def reminder_preview(member, field):
     if member.reservation.status in {'cancelled','deleted'}:
         raise NotificationConflict('課程已取消或刪除，不發送課前資料提醒')
     group = member.reservation.group
-    requires_resign = field == 'waiver' and waiver_requires_resign(member, get_current_waiver(group.client))
-    if getattr(member, f'{field}_completed_at') and not requires_resign:
+    document = get_current_waiver(group.client)
+    requires_resign = field == 'waiver' and waiver_requires_resign(member, document)
+    requires_update = field == 'insurance' and insurance_questions_need_update(member, document)
+    if getattr(member, f'{field}_completed_at') and not (requires_resign or requires_update):
         raise NotificationConflict('這份資料已完成，不需要再提醒')
     data = member.insurance_data if isinstance(member.insurance_data, dict) else {}
     contact = group.booking_contact if isinstance(group.booking_contact, dict) else {}

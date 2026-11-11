@@ -22,6 +22,7 @@ function harness({rulesError=false}={}){
     }
     if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
     if(name==='../../context')return{useNotification:()=>({success(){},error(){}})}
+    if(name==='@/utils/tenant')return{currentClientCode:()=> 'snowland'}
     if(name==='../../api/siteContent')return api
     if(name==='../../../api/booking')return{fetchCheckoutPolicies(){}}
     if(name==='../../components/ReviewPlacementFields')return{default:function ReviewPlacementFields(){return null}}

@@ -2,7 +2,7 @@ import adminApi from './axios'
 
 export interface PaymentSettings {
   order_management_email?: string
-  currency_settings?: { jpy_enabled: boolean; jpy_per_twd: string; foreign_rates?: Partial<Record<'USD'|'HKD'|'CNY', string>> }
+  currency_settings?: { jpy_enabled: boolean; jpy_per_twd: string; foreign_reference_only?: boolean; foreign_rates?: Partial<Record<'USD'|'HKD'|'CNY', string>> }
   bank_name: string
   bank_branch: string
   bank_account_number: string

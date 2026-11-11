@@ -23,7 +23,7 @@ function render(states, editable=true, processing) {
     Field:({label,children})=>React.createElement('label',null,label,children),
   })
   vm.runInContext(compile(source.slice(source.indexOf('const insuranceStatuses ='),source.indexOf('function InsurancePanel'))),context)
-  vm.runInContext(compile(source.slice(source.indexOf('function InsuranceDetail('),source.indexOf('function Empty('))),context)
+  vm.runInContext(compile(source.slice(source.indexOf('function PreCourseAnswerSummary('),source.indexOf('function Empty('))),context)
   const tree=states ? context.InsuranceProcessingForm({row}) : React.createElement(context.InsuranceDetail,{id:95})
   const html=renderToStaticMarkup(tree)
   return {html,calls,save:()=>mutation.mutationFn()}

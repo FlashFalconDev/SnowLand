@@ -280,6 +280,44 @@ class SharedCourseBookingTests(TestCase):
         self.assertEqual((shared_class.opening_mode, shared_class.registered_students), ('school', 1))
         self.assertEqual(Reservation.objects.get().shared_course_class_id, shared_class.id)
 
+    def test_fixed_date_classes_require_school_opening_and_support_both_payment_timings(self):
+        self.template.shared_class_fixed_dates = True
+        self.template.save(update_fields=['shared_class_fixed_dates'])
+        public_templates = self.api.get('/booking/snowland/api/course-templates/', {
+            'campus_id': self.campus.id, 'resort': self.resort.name, 'course_type_id': self.template.course_type_id,
+        })
+        self.assertEqual(public_templates.status_code, 200, public_templates.data)
+        template = next(row for row in public_templates.data if row['id'] == self.template.pk)
+        self.assertTrue(template['shared_class_fixed_dates'])
+        month = self.date[:7]
+        calendar = f'/booking/snowland/api/course-templates/{self.template.id}/available-dates/'
+        filters = {'month': month, 'campus_id': self.campus.id, 'resort': self.resort.name,
+                   'ability_level': 'level1', 'language': 'zh'}
+        self.assertEqual(self.api.get(calendar, filters).data['available_dates'], [])
+        self.assertEqual(self.book().status_code, 400)
+        self.assertFalse(SharedCourseClass.objects.exists())
+
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('hq', 'hq@example.test', 'test-password'))
+        url = '/api/admin/snowland/bookings/shared-classes/open/'
+        opening = {'campus_id': self.campus.id, 'resort_id': self.resort.id,
+                   'template_id': self.template.id, 'session_id': self.template.sessions.get().id,
+                   'date': self.date, 'ability_level': 'level1', 'language': 'zh'}
+        self.assertEqual(admin.post(url, {**opening, 'payment_timing': 'invalid'}, format='json').status_code, 400)
+        response = admin.post(url, {**opening, 'payment_timing': 'confirmed_opening'}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self.api.get(calendar, filters).data['available_dates'], [self.date])
+        self.assertEqual(self.book().status_code, 200)
+        self.assertEqual(SharedCourseClass.objects.values_list('status', 'minimum_students').get(), ('ready', 1))
+
+        self.date = (timezone.localdate() + timedelta(days=11)).isoformat()
+        response = admin.post(url, {**opening, 'date': self.date, 'payment_timing': 'after_minimum'}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        waiting = self.book()
+        self.assertEqual(waiting.status_code, 200, waiting.data)
+        self.assertFalse(waiting.data['requires_payment'])
+        self.assertEqual(SharedCourseClass.objects.values_list('status', 'minimum_students').get(date=self.date), ('collecting', 3))
+
     def test_school_opening_rejects_wrong_campus_template_and_non_headquarters(self):
         admin = APIClient()
         admin.force_authenticate(User.objects.create_superuser('hq', 'hq@example.test', 'test-password'))

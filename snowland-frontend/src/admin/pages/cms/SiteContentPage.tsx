@@ -1420,11 +1420,14 @@ function ContentDrawer({
     const page=currentPolicies.data?.pages[policyPageKey]
     if(isCheckoutPolicy&&!item&&page) setForm(previous=>previous.body?previous:{...previous,title:page.title,body:page.body})
   },[isCheckoutPolicy,item,currentPolicies.data,policyPageKey])
-  const currentWaiver = useQuery({queryKey:['admin','current-waiver'],queryFn:fetchCurrentWaiver,enabled:isWaiver&&!item})
+  const currentWaiver = useQuery({queryKey:['admin','current-waiver',currentClientCode()],queryFn:fetchCurrentWaiver,enabled:isWaiver&&!item})
   useEffect(()=>{
     if (!isWaiver || item || !currentWaiver.data) return
     const document = currentWaiver.data
-    setForm(previous=>previous.body ? previous : {...previous,title:previous.title||document.title,body:document.body,link_url:document.source_url})
+    setForm(previous=>previous.body ? previous : {
+      ...previous, title:previous.title||document.title, body:document.body, link_url:document.source_url,
+      metadata:{...previous.metadata, questions:document.questions || [], is_draft:document.is_draft},
+    })
   },[isWaiver,item,currentWaiver.data])
   const isStructuredPage = isPhotographyPage || isArticlePage || isAboutPage || isHomepagePresentation || isSiteFooter || isTracking || isWaiver || isCheckoutPolicy || form.location_key === 'course.areas'
   const isGuideListing = form.location_key === 'guides.articles'

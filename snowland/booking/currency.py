@@ -26,13 +26,18 @@ def currency_settings_payload(tenant):
         'jpy_enabled': config.jpy_enabled if config else False,
         'jpy_per_twd': format(config.jpy_per_twd, '.8f') if config and config.jpy_per_twd is not None else '',
         **({'foreign_rates': config.foreign_rates} if config and config.foreign_rates else {}),
+        **({'foreign_reference_only': True} if config and config.foreign_reference_only else {}),
     }
 
 
 def validate_currency_settings(value):
-    if not isinstance(value, dict) or set(value) - {'jpy_enabled', 'jpy_per_twd', 'foreign_rates'}:
+    if not isinstance(value, dict) or set(value) - {'jpy_enabled', 'jpy_per_twd', 'foreign_rates', 'foreign_reference_only'}:
         raise ValueError('匯款幣別設定格式錯誤')
     extras = {}
+    if 'foreign_reference_only' in value:
+        if not isinstance(value['foreign_reference_only'], bool):
+            raise ValueError('外幣僅供參考必須是勾選值')
+        extras['foreign_reference_only'] = value['foreign_reference_only']
     if 'foreign_rates' in value:
         rates = value['foreign_rates']
         if not isinstance(rates, dict) or set(rates) - set(TWO_DECIMAL_CURRENCIES):
@@ -80,6 +85,8 @@ def initialize_order_currency(group, currency='TWD', *, expected_rate=None):
     rate, bank = Decimal('1'), {}
     if foreign_currency(currency):
         config = PaymentCurrencySettings.objects.select_for_update().filter(client=group.client).first()
+        if config and config.foreign_reference_only:
+            raise ValueError('此學校的新訂單僅接受台幣付款，外幣金額僅供參考')
         configured = (config.jpy_per_twd if config.jpy_enabled else None) if config and currency == 'JPY' else (config.foreign_rates.get(currency) if config else None)
         if not configured or Decimal(configured) <= 0:
             raise ValueError(f'目前未開放 {currency} 付款，請改選台幣')

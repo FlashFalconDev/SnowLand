@@ -278,6 +278,8 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'location_key': '請到學習評量管理技術設定'})
         if previous_location in POLICY_PAGES.values() and location != previous_location:
             raise serializers.ValidationError({'location_key': '條款文件不能移至其他位置'})
+        if previous_location == 'membership.waiver' and location != previous_location:
+            raise serializers.ValidationError({'location_key': '聲明書不能移至其他位置'})
         if location in POLICY_PAGES.values():
             if content_type != 'page':
                 raise serializers.ValidationError({'content_type': '條款請使用頁面內容類型'})
@@ -289,8 +291,17 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'content_type':'聲明書請使用頁面內容類型'})
             if not attrs.get('body', getattr(self.instance, 'body', '')).strip():
                 raise serializers.ValidationError({'body':'請填寫聲明書正文，不能以空白內容取代'})
+            if not isinstance(metadata, dict):
+                raise serializers.ValidationError({'metadata': '聲明書設定格式不正確'})
             if 'is_draft' in metadata and not isinstance(metadata['is_draft'], bool):
                 raise serializers.ValidationError({'metadata':'法務確認中必須是勾選或取消勾選'})
+            if 'metadata' in attrs:
+                from booking.pre_course_questions import validate_questions
+                try:
+                    if 'questions' in metadata:
+                        attrs['metadata'] = {**metadata, 'questions': validate_questions(metadata['questions'])}
+                except ValueError as exc:
+                    raise serializers.ValidationError({'metadata': str(exc)})
         if location == 'site.tracking' or getattr(self.instance, 'location_key', None) == 'site.tracking':
             from Client.site_tracking import validate_site_tracking
             try:
@@ -388,8 +399,13 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         client = getattr(request, 'tenant', None) if request else None
         if validated_data.get('location_key') == 'membership.waiver':
+            from django.db import transaction
+            from Client.models import Client
             from booking.legal_documents import versioned_waiver_metadata
             validated_data['metadata'] = versioned_waiver_metadata(validated_data)
+            with transaction.atomic():
+                Client.objects.select_for_update().get(pk=client.pk)
+                return SiteContent.objects.create(client=client, **validated_data)
         return SiteContent.objects.create(client=client, **validated_data)
 
     def update(self, instance, validated_data):
@@ -1210,7 +1226,7 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
             'id', 'can_manage', 'course_type', 'course_type_name', 'name',
             'display_order', 'duration_hours', 'payroll_hours', 'can_manage_payroll_hours', 'max_capacity', 'is_active',
             'billing_mode', 'minimum_group_size', 'shared_class_enabled',
-            'shared_class_minimum_students', 'minimum_student_level',
+            'shared_class_minimum_students', 'shared_class_fixed_dates', 'minimum_student_level',
             'resorts', 'resort_names',
             'booking_open_date', 'booking_close_date',
             'course_start_date', 'course_end_date',
@@ -1330,6 +1346,8 @@ class CourseTemplateAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'shared_class_minimum_students': '成班人數須介於 2 人與最大人數之間'})
         if shared_enabled:
             attrs['minimum_group_size'] = 1
+        elif attrs.get('shared_class_enabled') is False or attrs.get('shared_class_fixed_dates'):
+            attrs['shared_class_fixed_dates'] = False
         return attrs
 
 
@@ -2043,6 +2061,7 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
 
 class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
     waiver_requires_resign = serializers.SerializerMethodField()
+    insurance_requires_update = serializers.SerializerMethodField()
     can_remind = serializers.SerializerMethodField()
     can_mark_complete = serializers.SerializerMethodField()
     can_process_insurance = serializers.SerializerMethodField()
@@ -2054,7 +2073,7 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MemberDetail
-        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'waiver_completed_at', 'waiver_requires_resign', 'course_dates', 'can_mark_complete', 'can_remind', 'can_process_insurance',
+        fields = ['id', 'member_name', 'order_number', 'sn', 'campus_name', 'age_range', 'guardian', 'insurance_completed_at', 'insurance_requires_update', 'waiver_completed_at', 'waiver_requires_resign', 'course_dates', 'can_mark_complete', 'can_remind', 'can_process_insurance',
                   'insurance_processing_status', 'insurance_premium_amount', 'insurance_premium_currency', 'insurance_processing_updated_at']
         read_only_fields = [name for name in fields if name != 'age_range']
 
@@ -2070,14 +2089,22 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
         group = obj.reservation.group
         return f'{group.created_at:%Y%m%d}-{group.id:04d}' if group.created_at else f'00000000-{group.id:04d}'
 
-    def get_waiver_requires_resign(self, obj):
-        from booking.legal_documents import get_current_waiver, waiver_requires_resign
+    def _document(self, obj):
+        from booking.legal_documents import get_current_waiver
         documents = getattr(self, '_waiver_documents', {})
         tenant = obj.reservation.group.client
         if tenant.pk not in documents:
             documents[tenant.pk] = get_current_waiver(tenant)
         self._waiver_documents = documents
-        return waiver_requires_resign(obj, documents[tenant.pk])
+        return documents[tenant.pk]
+
+    def get_waiver_requires_resign(self, obj):
+        from booking.legal_documents import waiver_requires_resign
+        return waiver_requires_resign(obj, self._document(obj))
+
+    def get_insurance_requires_update(self, obj):
+        from booking.pre_course_questions import insurance_questions_need_update
+        return bool(obj.insurance_completed_at and insurance_questions_need_update(obj, self._document(obj)))
 
     def get_member_name(self, obj):
         return obj.display_name
@@ -2107,6 +2134,13 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
 class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     member_email = serializers.SerializerMethodField()
     document_history = serializers.SerializerMethodField()
+    online_signatures = serializers.SerializerMethodField()
+
+    def get_online_signatures(self, obj):
+        return list(obj.online_waiver_signatures.order_by('-pk').values(
+            'id', 'signer_name', 'signer_role', 'signed_at', 'document_version', 'document_snapshot',
+            'course_revision', 'media_consent', 'strokes', 'form_snapshot',
+        ))
 
     def get_document_history(self, obj):
         return [{'id':row.pk,'created_at':row.created_at,'reason':row.revision.reason,
@@ -2122,7 +2156,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     class Meta(InsuranceRecordAdminSerializer.Meta):
         fields = InsuranceRecordAdminSerializer.Meta.fields + [
             'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
-            'waiver_document_snapshot', 'media_consent', 'document_history',
+            'waiver_document_snapshot', 'media_consent', 'document_history', 'online_signatures', 'pre_course_answers',
         ]
         read_only_fields = fields
 
@@ -2291,8 +2325,16 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 
 
 class CoachCourseEvaluationSerializer(CourseEvaluationAdminSerializer):
+    member_nickname = serializers.SerializerMethodField()
+
     class Meta(CourseEvaluationAdminSerializer.Meta):
+        fields = CourseEvaluationAdminSerializer.Meta.fields + ['member_nickname']
         read_only_fields = CourseEvaluationAdminSerializer.Meta.read_only_fields + ['booking', 'member', 'coach', 'self_assessment']
+
+    def get_member_nickname(self, obj):
+        data = obj.member.insurance_data
+        nickname = data.get('nickname') if isinstance(data, dict) else None
+        return nickname.strip() if isinstance(nickname, str) else ''
 
     def validate(self, attrs):
         protected = {'booking', 'member', 'coach', 'self_assessment'} & set(self.initial_data)

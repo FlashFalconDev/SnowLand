@@ -4,10 +4,12 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from Client.models import Client, SiteContent
+from Coach.models import Coach
 from Control.models import TenantStaffMembership
 from Coursekit.models import CourseCategory, CourseTemplate, CourseType
 from Resorts.models import Campus, Resorts
-from booking.models import ReservationGroup
+from booking.models import ReservationGroup, StaffBookingLink
+from django.utils import timezone
 
 
 class ConsolePagePermissionTests(TestCase):
@@ -61,6 +63,28 @@ class ConsolePagePermissionTests(TestCase):
         api = self.actor(['booking_links'])
         self.assertEqual(api.get(self.url + 'staff-booking-links/').status_code, 200)
         self.assertEqual(api.get(url).status_code, 403)
+
+    def test_coach_booking_links_are_personal_and_campus_scoped(self):
+        self.profile.is_manager = False
+        self.profile.is_coach = True
+        self.profile.save(update_fields=['is_manager', 'is_coach'])
+        coach = Coach.objects.create(client=self.school, user=self.staff, name='QA 教練')
+        coach.campuses.add(self.first)
+        allowed = StaffBookingLink.objects.create(
+            client=self.school, campus=self.first, created_by=self.staff, title='自己的連結', expires_at=timezone.now(),
+        )
+        other = StaffBookingLink.objects.create(
+            client=self.school, campus=self.first, created_by=self.hq, title='別人的連結', expires_at=timezone.now(),
+        )
+        api = APIClient()
+        api.force_authenticate(self.staff)
+        url = self.url + 'staff-booking-links/'
+        self.assertEqual([row['id'] for row in api.get(url).data['data']['list']], [allowed.pk])
+        self.assertEqual(api.get(f'{url}{other.pk}/').status_code, 404)
+        self.assertEqual(api.get(url, HTTP_X_CAMPUS_ID=str(self.second.pk)).status_code, 403)
+        self.assertEqual(api.delete(f'{url}{allowed.pk}/').status_code, 403)
+        self.assertEqual(api.get(self.url + 'orders/').status_code, 403)
+        self.assertEqual(api.get('/api/admin/console-b/staff-booking-links/').status_code, 403)
 
     def test_coach_directory_and_leave_review_can_be_granted_separately(self):
         api = self.actor(['coach_leaves'])

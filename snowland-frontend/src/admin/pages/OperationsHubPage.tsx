@@ -2,6 +2,7 @@ import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Bell, Calculator, ClipboardCheck, Link2, Loader2, Plus, Save } from 'lucide-react'
 import { fetchCampuses } from '../api/campuses'
 import { fetchAdminMe } from '../api/auth'
@@ -9,7 +10,7 @@ import { hasAdminPermission } from '../permissions'
 import {
   calculatePayroll, createStaffBookingLink, fetchEvaluations, fetchNotificationDeliveries,
   fetchNotificationTemplates, fetchNotificationCourseOptions, fetchPayrollStatements, fetchPayrollCoaches, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, addPayrollAdjustment, editPayrollAdjustment, removePayrollAdjustment, deletePayrollDraft,
-  fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceRecordDetail,
+  fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceRecordDetail, type PreCourseFormSnapshot,
   fetchCourseUploadLimits, uploadCourseFile,
   updateEvaluation, type Evaluation,
 } from '../api/operations'
@@ -17,6 +18,7 @@ import { useNotification } from '../context'
 import { learningProgressFromText, learningProgressToText } from '@/utils/learningProgress'
 import { payrollMonthRange } from '@/utils/payrollDates'
 import { useBookingStore } from '@/store/bookingStore'
+import { useSiteLink } from '@/hooks/useSiteBasePath'
 import ManualNotificationComposer from '../components/ManualNotificationComposer'
 import InsuranceCalendar, { insuranceDayRecords } from '../components/InsuranceCalendar'
 import InsuranceReminderDialog from '../components/InsuranceReminderDialog'
@@ -27,6 +29,7 @@ import PayrollReviewActions from '../components/PayrollReviewActions'
 import PayrollDocumentSettingsPanel from '../components/PayrollDocumentSettingsPanel'
 import PayrollDocumentPanel from '../components/PayrollDocumentPanel'
 import PayrollSettlementPanel from '../components/PayrollSettlementPanel'
+import { WaiverSignaturePreview } from '@/components/site/WaiverSignaturePad'
 import { fetchAssessmentRubric, type RubricConfig, type SkillEntries } from '../api/assessment'
 import AssessmentSettings from '../components/AssessmentSettings'
 import { SkillReviewFields, SkillSnapshotSummary } from '../components/SkillReviewFields'
@@ -249,14 +252,33 @@ function PayrollPanel() {
 
 function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
   const qc = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const myEvaluationsUrl = useSiteLink('/console/my/evaluations')
+  const booking = coachView ? searchParams.get('booking') : null
+  const [evaluationDate, setEvaluationDate] = useState('')
   const client = currentClientCode()
   const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations', client], queryFn: coachView ? fetchCoachEvaluations : fetchEvaluations })
   const rubricKey = ['assessment-rubric', client, coachView]
   const rubric = useQuery({ queryKey: rubricKey, queryFn: () => fetchAssessmentRubric(coachView) })
-  return <section className={cardClass}><h2 className="font-semibold text-gray-900 dark:text-white">學員進度與課程紀錄</h2><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>
+  const visibleRows = rows.filter(row => (!booking || String(row.booking) === booking)
+    && (!coachView || booking || !evaluationDate || row.course_date?.slice(0, 10) === evaluationDate))
+  const emptyText = booking ? '這堂課目前沒有可查看的學員評量。' : coachView
+    ? evaluationDate ? '選擇的上課日期沒有學員評量。' : '目前沒有自己的已完課學員評量。'
+    : '尚無課程評量。課程建立學員資料後即可開始填寫。'
+  return <section className={cardClass}>
+    <h2 className="font-semibold text-gray-900 dark:text-white">{booking ? '這堂課的學員評量' : '學員進度與課程紀錄'}</h2>
+    <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>
+    {booking && <Link to={myEvaluationsUrl} className="mb-3 inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">查看全部評量</Link>}
+    {coachView && !booking && <div className="mb-4 flex flex-wrap items-end gap-2">
+      <label className="text-sm font-medium text-gray-900 dark:text-white">依上課日期找評量
+        <input aria-label="依上課日期找評量" type="date" value={evaluationDate} onChange={event => setEvaluationDate(event.target.value)} className="mt-1 block min-h-11 rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-800" />
+      </label>
+      {evaluationDate && <button type="button" onClick={() => setEvaluationDate('')} className="min-h-11 px-3 text-sm text-violet-700 dark:text-violet-300">顯示全部日期</button>}
+    </div>}
     {rubric.data?.can_edit && <AssessmentSettings config={rubric.data} onSaved={value => qc.setQueryData(rubricKey, value)} reload={rubric.refetch} />}
     {rubric.isError && <p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">技術評量設定載入失敗。<button type="button" onClick={() => void rubric.refetch()} className="ml-2 min-h-11 underline">重試</button></p>}
-    {isLoading ? <Loader2 className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <div className="grid gap-3 xl:grid-cols-2">{rows.map(r => <EvaluationCard key={r.id} row={r} coachView={coachView} rubric={rubric.data} />)}{!rows.length && <Empty text={coachView ? '目前沒有自己的已完課學員評量。' : '尚無課程評量。課程建立學員資料後即可開始填寫。'} />}</div>}</section>
+    {isLoading ? <Loader2 className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <div className="grid gap-3 xl:grid-cols-2">{visibleRows.map(r => <EvaluationCard key={r.id} row={r} coachView={coachView} rubric={rubric.data} />)}{!visibleRows.length && <Empty text={emptyText} />}</div>}
+  </section>
 }
 
 function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; coachView?: boolean; rubric?: RubricConfig }) {
@@ -293,7 +315,7 @@ function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; c
     const skills = skillChanged && skillConfig ? { skill_review: { revision: skillConfig.revision, entries: skillEntries } } : {}
     await updateEvaluation(row.id, canEditAssessment ? { coach_notes: notes, learning_progress, trail_names: trails, completed_at: new Date().toISOString(), ...skills, ...media } : media, coachView)
   }, onSuccess: () => { qc.invalidateQueries({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations'] }); setEditing(false); setMediaUrl(''); setSelectedTrails(trails); setExtraTrails(''); notify.success(canEditAssessment ? '評量已儲存' : '課程附件已加入，評量內容未變更') }, onError: (e: any) => notify.error(e?.response?.data?.new_media?.url?.[0] || e?.response?.data?.skill_review?.[0] || e?.response?.data?.completed_at?.[0] || e?.response?.data?.detail || e?.response?.data?.msg || '資料未儲存，請稍後再試') })
-  return <article className="rounded-xl border border-gray-100 p-4 dark:border-gray-700"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b>{row.member_name}</b><p className="mt-1 break-all text-xs text-violet-700 dark:text-violet-300">{row.order_number}</p><p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{row.course_date} · {row.course_name || '未設定課程'}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.campus_name || '未指定校區'} · {row.resort_name || '未指定雪場'} · 教練：{row.coach_name || '尚未指定'}</p></div><button disabled={uploading || save.isPending} onClick={() => setEditing(!editing)} className="min-h-11 shrink-0 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300">{editing ? '收起' : canEditAssessment ? '填寫評量' : '管理課程附件'}</button></div>
+  return <article className="rounded-xl border border-gray-100 p-4 dark:border-gray-700"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="break-words">{row.member_name}{row.member_nickname && `（${row.member_nickname}）`}</b><p className="mt-1 break-all text-xs text-violet-700 dark:text-violet-300">{row.order_number}</p><p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{row.course_date} · {row.course_name || '未設定課程'}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.campus_name || '未指定校區'} · {row.resort_name || '未指定雪場'} · 教練：{row.coach_name || '尚未指定'}</p></div><button disabled={uploading || save.isPending} onClick={() => setEditing(!editing)} className="min-h-11 shrink-0 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300">{editing ? '收起' : canEditAssessment ? '填寫評量' : '管理課程附件'}</button></div>
     {(!editing || !canEditAssessment) && <><p className="mt-3 whitespace-pre-wrap break-words text-sm text-gray-600 dark:text-gray-300">{row.coach_notes || '尚無評語'}</p>{learningProgressToText(row.learning_progress || {}) && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">學習進度：{learningProgressToText(row.learning_progress || {})}</p>}{row.trail_names?.length > 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">完成雪道：{row.trail_names.join('、')}</p>}<p className="mt-2 text-xs text-gray-500 dark:text-gray-400">媒體 {row.media?.length || 0} 個 · {row.completed_at ? '已完成' : '待填寫'}{!canEditAssessment && ' · 評量僅供查看，可另外加入課程附件'}</p></>}
     {(!editing || !canEditAssessment) && row.skill_snapshot && <SkillSnapshotSummary snapshot={row.skill_snapshot} />}
     {editing && <div className="mt-4 space-y-3">
@@ -417,10 +439,10 @@ function InsurancePanel() {
       <InsuranceCalendar rows={filteredRows} selectedDate={selectedDate} onSelect={date=>{setSelectedDate(date);setPage(1);setExpandedId(null)}} />
       <div className="mt-4 space-y-3">{visibleRows.map(row => <div key={row.id} className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0"><b className="text-gray-900 dark:text-white">{row.member_name}</b><p className="break-words text-xs text-gray-500 dark:text-gray-400">{[row.sn || row.order_number, row.campus_name, row.course_dates.join('、')].filter(Boolean).join(' · ')}</p><p className="mt-2 text-xs text-gray-600 dark:text-gray-300">保險資料：{row.insurance_completed_at ? '已填寫／已確認' : '待補'}　聲明書：{row.waiver_requires_resign ? '需重新簽署（課程或文件已更新）' : row.waiver_completed_at ? '已完成／已確認' : '待補'}</p><p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><span className={`rounded px-2 py-1 ${insuranceStatusColors[row.insurance_processing_status]}`}>{insuranceStatuses[row.insurance_processing_status]}</span><span>投保金額：{row.insurance_premium_amount === null ? '尚未填寫' : `${row.insurance_premium_currency} ${row.insurance_premium_amount}`}</span></p></div>
+          <div className="min-w-0"><b className="text-gray-900 dark:text-white">{row.member_name}</b><p className="break-words text-xs text-gray-500 dark:text-gray-400">{[row.sn || row.order_number, row.campus_name, row.course_dates.join('、')].filter(Boolean).join(' · ')}</p><p className="mt-2 text-xs text-gray-600 dark:text-gray-300">保險資料：{row.insurance_requires_update ? '題目已更新，待補' : row.insurance_completed_at ? '已填寫／已確認' : '待補'}　聲明書：{row.waiver_requires_resign ? '需重新簽署（課程或文件已更新）' : row.waiver_completed_at ? '已完成／已確認' : '待補'}</p><p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><span className={`rounded px-2 py-1 ${insuranceStatusColors[row.insurance_processing_status]}`}>{insuranceStatuses[row.insurance_processing_status]}</span><span>投保金額：{row.insurance_premium_amount === null ? '尚未填寫' : `${row.insurance_premium_currency} ${row.insurance_premium_amount}`}</span></p></div>
           <div className="flex flex-wrap gap-2">
             <button aria-expanded={expandedId === row.id} aria-controls={`insurance-detail-${row.id}`} onClick={() => setExpandedId(expandedId === row.id ? null : row.id)} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200">{expandedId === row.id ? '收合資料' : '查看資料'}</button>
-            {row.can_remind && !row.insurance_completed_at && <button onClick={()=>setReminder({id:row.id,field:'insurance'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">提醒補保險資料</button>}
+            {row.can_remind && (!row.insurance_completed_at || row.insurance_requires_update) && <button onClick={()=>setReminder({id:row.id,field:'insurance'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">提醒補保險資料</button>}
             {row.can_remind && (!row.waiver_completed_at || row.waiver_requires_resign) && <button onClick={()=>setReminder({id:row.id,field:'waiver'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">{row.waiver_requires_resign ? '提醒重新簽署' : '提醒補聲明書'}</button>}
             {row.can_mark_complete && !row.insurance_completed_at && <button disabled={complete.isPending} onClick={() => complete.mutate({ id: row.id, field: 'insurance' })} className="min-h-11 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">標記保險資料已確認</button>}
             {row.can_mark_complete && !row.waiver_completed_at && !row.waiver_requires_resign && <button disabled={complete.isPending} onClick={() => complete.mutate({ id: row.id, field: 'waiver' })} className="min-h-11 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">標記聲明書完成</button>}
@@ -435,12 +457,27 @@ function InsurancePanel() {
   </section>
 }
 
+function PreCourseAnswerSummary({ snapshot }: {snapshot?: PreCourseFormSnapshot}) {
+  const sections = [snapshot?.insurance, snapshot?.waiver]
+  if (!sections.some(section => section?.questions.length)) return null
+  return <dl className="my-3 space-y-2 text-sm">
+    {sections.flatMap(section => section?.questions.map(question => {
+      const answer = section.answers[question.key]
+      return <div key={question.key}>
+        <dt className="font-medium">{question.title}</dt>
+        <dd className="whitespace-pre-wrap break-words">{Array.isArray(answer) ? answer.join('、') : answer || '未填寫'}</dd>
+      </div>
+    }) ?? [])}
+  </dl>
+}
+
 function InsuranceDetail({ id }: { id: number }) {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['admin', 'insurance-detail', id], queryFn: () => fetchInsuranceRecord(id), gcTime: 0 })
-  const fields = [['full_name', '學員姓名'], ['birth_date', '出生日期'], ['id_number', '身分證／護照號碼'], ['email', '學員 Email'], ['phone', '聯絡電話'], ['emergency_contact', '緊急聯絡人'], ['emergency_phone', '緊急聯絡電話'], ['guardian_name', '法定代理人姓名'], ['guardian_relationship', '與學員的關係']]
+  const fields = [['full_name', '學員姓名'], ['nickname', '學員暱稱'], ['birth_date', '出生日期'], ['id_number', '身分證／護照號碼'], ['email', '學員 Email'], ['address', '保險聯絡地址'], ['phone', '聯絡電話'], ['emergency_contact', '緊急聯絡人'], ['emergency_phone', '緊急聯絡電話'], ['guardian_name', '法定代理人姓名'], ['guardian_id_number', '法定代理人身分證字號'], ['guardian_relationship', '與學員的關係']]
   return <div id={`insurance-detail-${id}`} className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
     {isLoading ? <p role="status" className="text-sm text-gray-500 dark:text-gray-400">正在載入學員資料…</p> : isError || !data ? <p role="alert" className="text-sm text-red-600 dark:text-red-400">無法載入這位學員的資料。<button onClick={() => refetch()} className="ml-3 min-h-11 underline">重試</button></p> : <>
-      <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([key, label]) => <div key={key}><dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt><dd className="mt-1 break-all text-sm text-gray-900 dark:text-white">{(key === 'email' ? data.member_email : data.insurance_data?.[key]) || '尚未填寫'}</dd></div>)}</dl>
+      <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([key, label]) => <div key={key}><dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt><dd className="mt-1 break-all text-sm text-gray-900 dark:text-white">{data.insurance_data?.[key] || (key === 'email' ? data.member_email : '') || '尚未填寫'}</dd></div>)}</dl>
+      <PreCourseAnswerSummary snapshot={data.pre_course_answers} />
       <div className="mt-5 rounded-lg bg-gray-50 p-4 text-sm text-gray-700 dark:bg-gray-900 dark:text-gray-200">
         {data.waiver_requires_resign && <p role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">課程或聲明書已更新，請會員重新簽署。下方舊簽名不代表已同意新版課程；改期留底可在歷史紀錄查看。</p>}
         <p>簽署身分：{data.insurance_data?.waiver_signer_role === 'guardian' ? '法定代理人' : data.waiver_signature ? '學員本人' : '尚未線上簽署'}</p>
@@ -448,6 +485,18 @@ function InsuranceDetail({ id }: { id: number }) {
         <p className="mt-2 break-all">簽署文件版本：{data.waiver_document_version || '無線上版本紀錄'}</p>
         <p className="mt-2">聲明書完成時間：{data.waiver_completed_at ? new Date(data.waiver_completed_at).toLocaleString('zh-TW') : '尚未完成'}</p>
         <p className="mt-2">宣傳影像授權：{data.media_consent === 'agree' ? '同意公開宣傳' : data.media_consent === 'decline' ? '不同意公開宣傳' : '尚未選擇'}</p>
+        {Boolean(data.online_signatures?.length) && <details className="mt-3">
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold">查看電子簽名紀錄</summary>
+          {data.online_signatures?.map(signature => <section key={signature.id} className="mt-3 space-y-2 border-t border-gray-200 py-3 dark:border-gray-700">
+            <p>{signature.signer_name}（{signature.signer_role === 'guardian' ? '法定代理人' : '學員本人'}） · {new Date(signature.signed_at).toLocaleString('zh-TW')}</p>
+            <p>版本 {signature.document_version} · {signature.media_consent === 'agree' ? '同意公開宣傳' : '不同意公開宣傳'}</p>
+            <WaiverSignaturePreview strokes={signature.strokes} label="手寫簽名" />
+            <PreCourseAnswerSummary snapshot={signature.form_snapshot} />
+            <details><summary className="min-h-11 cursor-pointer py-3">查看簽署時的聲明書</summary>
+              <p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">{signature.document_snapshot}</p>
+            </details>
+          </section>)}
+        </details>}
         {data.waiver_document_snapshot && <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看當時簽署的聲明書內容</summary><div className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white p-4 leading-7 dark:border-gray-700 dark:bg-gray-800">{data.waiver_document_snapshot}</div></details>}
       </div>
       <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">以上為會員填寫及簽署的唯讀紀錄，不會因後台標記完成而修改簽名或文件內容。</p>

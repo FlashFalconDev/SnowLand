@@ -24,6 +24,10 @@ export function hasAdminPermission(user: AdminUser | null | undefined, permissio
   return (user.permissions || []).includes(permission)
 }
 
+export function canPrepareStaffBooking(user: AdminUser | null | undefined): boolean {
+  return user?.is_coach === true || hasAdminPermission(user, 'booking_links')
+}
+
 export function groupPermissions(definitions: AdminPermissionDefinition[]) {
   return definitions.reduce<Record<string, AdminPermissionDefinition[]>>((groups, permission) => {
     groups[permission.group] = groups[permission.group] || []

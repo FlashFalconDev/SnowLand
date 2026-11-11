@@ -88,6 +88,28 @@ class PaymentCurrencySettingsTests(TestCase):
         bank.is_active=False;bank.save()
         self.assertEqual(len(public.get(url).data['currencies']),1)
 
+    def test_reference_prices_do_not_offer_or_create_foreign_currency_orders(self):
+        from booking.currency import initialize_order_currency
+        from booking.models import ReservationGroup
+
+        saved = self.api.put(self.url, {'currency_settings': {
+            'jpy_enabled': True, 'jpy_per_twd': '4.5', 'foreign_reference_only': True,
+        }}, format='json')
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.assertTrue(self.api.get(self.url).data['data']['currency_settings']['foreign_reference_only'])
+
+        options = APIClient().get('/booking/snowland/api/currency-options/').data
+        self.assertEqual(options['currencies'], [{'code': 'TWD', 'rate': '1.00000000'}])
+        self.assertEqual(options['reference_currencies'], [{'code': 'JPY', 'rate': '4.50000000'}])
+
+        order = ReservationGroup.objects.create(client=self.tenant, user=self.user)
+        with self.assertRaisesMessage(ValueError, '僅接受台幣付款'):
+            initialize_order_currency(order, 'JPY', expected_rate='4.50000000')
+        order.refresh_from_db()
+        self.assertFalse(order.currency_snapshot)
+        initialize_order_currency(order)
+        self.assertEqual(order.currency_snapshot['currency'], 'TWD')
+
     def test_used_account_currency_cannot_be_relabelled(self):
         from Resorts.models import PaymentAccount
         from booking.models import Payment, ReservationGroup

@@ -211,6 +211,7 @@ export default function CourseTypesPage() {
     minimum_group_size: number
     shared_class_enabled: boolean
     shared_class_minimum_students: number
+    shared_class_fixed_dates?: boolean
     minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
@@ -249,6 +250,7 @@ export default function CourseTypesPage() {
     minimum_group_size: number
     shared_class_enabled: boolean
     shared_class_minimum_students: number
+    shared_class_fixed_dates?: boolean
     minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
@@ -884,6 +886,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
     minimum_group_size: number
     shared_class_enabled: boolean
     shared_class_minimum_students: number
+    shared_class_fixed_dates?: boolean
     minimum_student_level: string
     resorts: number[]
     course_start_date: string | null
@@ -904,6 +907,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
   const [billingMode, setBillingMode] = useState<'private' | 'per_person'>(template?.billing_mode || 'private')
   const [minimumGroupSize, setMinimumGroupSize] = useState(String(template?.minimum_group_size ?? 1))
   const [sharedClassEnabled, setSharedClassEnabled] = useState(SHARED_CLASS_FEATURE_ENABLED && Boolean(template?.shared_class_enabled))
+  const [sharedClassFixedDates, setSharedClassFixedDates] = useState(Boolean(template?.shared_class_fixed_dates))
   const [sharedClassMinimumStudents, setSharedClassMinimumStudents] = useState(String(template?.shared_class_minimum_students ?? 3))
   const [minimumStudentLevel, setMinimumStudentLevel] = useState(template?.minimum_student_level || '')
   const [resortIds, setResortIds] = useState<number[]>(template?.resorts || [])
@@ -939,6 +943,7 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
         minimum_group_size: sharedClassEnabled ? 1 : (parseInt(minimumGroupSize, 10) || 1),
         shared_class_enabled: SHARED_CLASS_FEATURE_ENABLED && sharedClassEnabled,
         shared_class_minimum_students: parseInt(sharedClassMinimumStudents, 10) || 3,
+        shared_class_fixed_dates: sharedClassEnabled && sharedClassFixedDates,
         minimum_student_level: minimumStudentLevel,
         resorts: resortIds,
         course_start_date: courseStart || null,
@@ -1010,6 +1015,9 @@ function TemplateEditDrawer({ template, allResorts, allCoaches, companyWideScope
                   <input type="checkbox" checked={sharedClassEnabled} disabled={billingMode !== 'per_person'} onChange={e => setSharedClassEnabled(e.target.checked)} className="mt-1 h-4 w-4" />
                   <span><span className="font-medium">允許不同客人湊成同一班</span><span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">客人可單人報名；同校區、雪場、日期、時段與程度才會合班。成班後再請款。</span></span>
                 </label>
+                {sharedClassEnabled && billingMode === 'per_person' && <label className="mt-3 flex items-center gap-2 text-gray-900 dark:text-white">
+                  <input type="checkbox" checked={sharedClassFixedDates} onChange={event => setSharedClassFixedDates(event.target.checked)} />只開放學校指定的團體班日期
+                </label>}
                 {sharedClassEnabled && billingMode === 'per_person' && (
                   <div className="mt-3 sm:max-w-56"><label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">幾人成班</label><input type="number" min="2" max={capacity} value={sharedClassMinimumStudents} onChange={e => setSharedClassMinimumStudents(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white" /></div>
                 )}

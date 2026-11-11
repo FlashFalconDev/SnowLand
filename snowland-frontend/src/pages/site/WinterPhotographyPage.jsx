@@ -509,7 +509,7 @@ function WinterPhotographyLayout({ content }) {
               </div>
               <div className="mt-10">
                 <div className="grid overflow-hidden md:grid-cols-3">
-                  <SiteLink to="/booking?service=photo"
+                  <a href="#booking-flow"
                     className="flex items-center justify-center gap-3 px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc]"
                   >
                     <svg
@@ -527,7 +527,7 @@ function WinterPhotographyLayout({ content }) {
                       <line x1="16" y1="2.5" x2="16" y2="6" />
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
-                    {t(c("winter_063"))}</SiteLink>
+                    {t(c("winter_063"))}</a>
                   <a
                     href="#faq"
                     className="flex items-center justify-center gap-3 border-t border-[#d7dde3] px-6 py-4 text-sm font-semibold text-[#1f2937] transition-colors hover:bg-[#f8fafc] md:border-t-0 md:border-l"
@@ -632,7 +632,7 @@ function WinterPhotographyLayout({ content }) {
                 to="/booking?service=photo"
                 className="inline-flex items-center justify-center rounded-full border border-[#1f2937] px-8 py-3 text-sm font-semibold text-[#1f2937] transition-colors hover:border-[#2b5f8f] hover:bg-[#2b5f8f] hover:text-white"
               >
-                {t(c("winter_075"))}</SiteLink>
+                {t(c("winter_075") === "查看預約流程細節" ? "預約雪地攝影" : c("winter_075"))}</SiteLink>
             </div>
           </div>
         </section>

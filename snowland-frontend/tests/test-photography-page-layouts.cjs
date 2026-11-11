@@ -5,7 +5,7 @@ const definitions=JSON.parse(fs.readFileSync(path.join(root,'snowland/Client/fix
 const crypto=require('node:crypto')
 // Reviewed layout snapshots include localized controls,44px targets, independent
 // carousel dots and the opaque compact header. CMS prose and prices stay original.
-const layoutHashes={winter:'ac7deb1ccc77522aa83fea5604353cec43407faea4e8e2bf1e1b5154f63ceeb3',summer:'4f8f2a4f1d5edba09aefc1d4a8649aefe053a995faf8c43dd443030151f2d558'}
+const layoutHashes={winter:'08c3b48df09e0cf603f740f7aaded948c92387fece7c40c7d52a69183cce00f5',summer:'4f8f2a4f1d5edba09aefc1d4a8649aefe053a995faf8c43dd443030151f2d558'}
 const canonical=html=>html.replace(/<([a-z0-9]+)((?:\s+[^\s=>]+(?:="[^"]*")?)*)>/gi,(_tag,name,attrs)=>'<'+name+(attrs?' '+(attrs.match(/[^\s=]+="[^"]*"|[^\s=]+/g)||[]).sort().join(' '):'')+'>')
 function render(source,content,faqIndex=0){
   let stateIndex=0

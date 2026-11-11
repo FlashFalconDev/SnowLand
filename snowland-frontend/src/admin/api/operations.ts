@@ -48,7 +48,7 @@ export interface PayrollStatement {
 export interface Evaluation {
   can_edit_assessment: boolean
   skill_snapshot?: SkillSnapshot | null
-  id: number; member_name: string; coach_name: string; course_date: string
+  id: number; booking: number; member_name: string; member_nickname?: string; coach_name: string; course_date: string
   order_number: string; course_name: string; campus_name: string; resort_name: string
   coach_notes: string; self_assessment: Record<string, unknown>; coach_assessment: Record<string, unknown>
   learning_progress: Record<string, unknown>; trail_names: string[]; available_trails?: string[]; completed_at: string | null
@@ -75,7 +75,7 @@ export interface InsuranceRecord {
   can_mark_complete: boolean
   can_process_insurance?: boolean
   id: number; member_name: string; order_number: string; sn: string; campus_name: string; age_range: string
-  insurance_completed_at: string | null; waiver_completed_at: string | null; waiver_requires_resign: boolean; course_dates: string[]
+  insurance_completed_at: string | null; insurance_requires_update?: boolean; waiver_completed_at: string | null; waiver_requires_resign: boolean; course_dates: string[]
   insurance_processing_status: 'pending' | 'checking' | 'processing' | 'insured'
   insurance_premium_amount: string | null; insurance_premium_currency: string
   insurance_processing_updated_at: string | null
@@ -86,11 +86,23 @@ export interface InsuranceRecordDetail extends InsuranceRecord {
   insurance_data: Record<string, string>
   waiver_signature: string; waiver_document_version: string; waiver_document_snapshot: string
   media_consent: string
+  pre_course_answers?: PreCourseFormSnapshot
+  online_signatures?: {
+    id: number; signer_name: string; signer_role: 'self' | 'guardian'; signed_at: string;
+    document_version: string; document_snapshot: string; media_consent: string; strokes: [number, number][][];
+    form_snapshot?: PreCourseFormSnapshot
+  }[]
   document_history: { id:number; created_at:string; reason:string; version:number; snapshot: {
     waiver_signature:string; waiver_document_version:string; waiver_document_snapshot:string; waiver_completed_at:string|null;
     insurance_processing_status:string; insurance_premium_amount:string|null; insurance_premium_currency:string;
     previous_courses:{date:string}[]
   } }[]
+}
+
+export interface PreCourseFormSnapshot {
+  title?: string
+  insurance?: {questions:{key:string;title:string}[];answers:Record<string,string|string[]>}
+  waiver?: {questions:{key:string;title:string}[];answers:Record<string,string|string[]>}
 }
 
 export interface InsuranceReminderPreview { field:'insurance'|'waiver'; recipient_email:string; subject:string; message:string; action_url:string; local_test:boolean }

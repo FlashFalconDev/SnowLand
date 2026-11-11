@@ -9,10 +9,12 @@ import SettlementSummary, { settlementAmount } from '../../components/booking/Se
 import OrderAmendmentBalance from '../../components/OrderAmendmentBalance';
 import SiteFooter from '../../components/site/SiteFooter';
 import SiteHeader from '../../components/site/SiteHeader';
+import WaiverSignaturePad, { WaiverSignaturePreview } from '../../components/site/WaiverSignaturePad';
 import SiteLink, { SiteBasePathContext } from '../../components/site/SiteLink';
 import { useBookingStore } from '../../store/bookingStore';
 import { formatLearningProgressEntry } from '../../utils/learningProgress';
 import { birthDateStatus } from '../../utils/participantAge';
+import PreCourseExperience from '../../components/site/PreCourseExperience';
 import { useSiteLocale } from '../../contexts/SiteLocale';
 import { formatPaymentValue } from '../../utils/settlementPreview';
 
@@ -286,19 +288,54 @@ function Orders({ data, onQuickRebook, onRefresh }) {
   return <div><h2 className="text-2xl font-semibold">{t("我的訂單")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("查看付款狀態、課程明細及快速再次預約。")}</p><div className="mt-7 space-y-4">{data.orders.length ? data.orders.map((order) => <OrderCard key={order.id} order={order} onQuickRebook={onQuickRebook} />) : <EmptyState title={t("目前沒有訂單")} action={<SiteLink to="/booking" className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">{t("開始預約")}</SiteLink>} />}</div></div>;
 }
 
-function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
+function PreCourseForm({ form, waiverDocument, skillOptions, onSaved, previousForms = [] }) {
   const { t } = useSiteLocale();
   const [editing, setEditing] = useState(false);
-  const savedDraft = () => ({ age_range: form.age_range, insurance_data: form.insurance_data || {}, snowboard_skills: form.snowboard_skills || [], ski_skills: form.ski_skills || [], waiver_signature: form.waiver_resign_required ? '' : form.waiver_signature || '', waiver_agreed: form.waiver_completed, media_consent: form.media_consent || '' });
+  const savedDraft = () => ({
+    age_range: form.age_range, insurance_data: form.insurance_data || {},
+    question_answers: form.question_answers || {},
+    experience_assessment: form.experience_assessment,
+    snowboard_skills: form.snowboard_skills || [], ski_skills: form.ski_skills || [],
+    waiver_signature: form.waiver_completed ? form.waiver_signature || '' : '',
+    waiver_signature_ink: null, waiver_agreed: form.waiver_completed, media_consent: form.media_consent || '',
+  });
   const [draft, setDraft] = useState(savedDraft);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const updateInsurance = (key, value) => setDraft(current => ({ ...current, insurance_data: { ...current.insurance_data, [key]: value }, ...(['birth_date', 'waiver_signer_role'].includes(key) ? { waiver_agreed: false, waiver_signature: '' } : {}) }));
+  const resetSignature = { waiver_agreed: false, waiver_signature: '', waiver_signature_ink: null };
+  const updateInsurance = (key, value) => setDraft(current => ({
+    ...current, insurance_data: { ...current.insurance_data, [key]: value },
+    ...(['full_name', 'birth_date', 'waiver_signer_role', 'guardian_name', 'guardian_relationship', 'guardian_id_number'].includes(key) ? resetSignature : {}),
+  }));
+  const canPrefill = !form.insurance_data?.full_name && !draft.insurance_data.full_name;
+  const useExistingStudent = (id) => {
+    const previous = previousForms.find(item => String(item.id) === id);
+    if (!previous) return;
+    const { full_name, nickname, birth_date } = previous.insurance_data;
+    setDraft(current => ({
+      ...current, ...resetSignature, media_consent: '', age_range: previous.age_range || current.age_range,
+      insurance_data: { ...current.insurance_data, full_name, nickname: nickname || '', birth_date: birth_date || '' },
+    }));
+  };
   const birthStatus = birthDateStatus(draft.insurance_data.birth_date || '', waiverDocument.reference_date || '');
   const guardianAgeLimit = waiverDocument.guardian_age_limit || 18;
   const requiresGuardian = birthStatus.age !== null && birthStatus.age < guardianAgeLimit;
   const guardianSigning = requiresGuardian || draft.insurance_data.waiver_signer_role === 'guardian';
   const missingGuardianDetails = guardianSigning && (!draft.insurance_data.guardian_name?.trim() || !draft.insurance_data.guardian_relationship?.trim());
+  const signerName = (guardianSigning ? draft.insurance_data.guardian_name : draft.insurance_data.full_name)?.trim();
+  const signaturePreview = draft.waiver_signature_ink || (draft.waiver_signature ? form.waiver_signature_strokes : []);
+  const questions = waiverDocument.questions || [];
+  const missingRequired = questions.some(question => {
+    const answer = draft.question_answers[question.key];
+    return question.required && !(typeof answer === 'string' ? answer.trim() : answer?.length);
+  });
+  const experienceIncomplete = Boolean(draft.experience_assessment && !draft.experience_assessment.finished);
+  const needsNewSignature = !form.waiver_completed || !draft.waiver_signature || !!draft.waiver_signature_ink;
+  const guardianIdMissing = Boolean(draft.experience_assessment && requiresGuardian && !draft.insurance_data.guardian_id_number?.trim());
+  const signingDetailsIncomplete = needsNewSignature && (experienceIncomplete || guardianIdMissing);
+  const updateAnswer = (key, value) => setDraft(current => ({
+    ...current, ...resetSignature, question_answers: { ...current.question_answers, [key]: value },
+  }));
   const toggleSkill = (field, value) => setDraft(current => {
     const skills = current[field];
     const selected = skills.includes(value);
@@ -307,8 +344,8 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
   const save = async () => {
     setBusy(true); setMessage('');
     try {
-      const result = await requestJson('/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_pre_course_form', member_id: form.id, age_range: draft.age_range, snowboard_skills: draft.snowboard_skills, ski_skills: draft.ski_skills, insurance_data: { ...draft.insurance_data, waiver_signer_role: guardianSigning ? 'guardian' : 'self' }, waiver_agreed: draft.waiver_agreed, waiver_signature: draft.waiver_signature, waiver_document_version: waiverDocument.version, waiver_course_revision: form.waiver_course_revision, media_consent: draft.media_consent }) });
-      setMessage(result.message); setEditing(false); await onSaved();
+      const result = await requestJson('/member-center/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_pre_course_form', member_id: form.id, age_range: draft.age_range, snowboard_skills: draft.snowboard_skills, ski_skills: draft.ski_skills, insurance_data: { ...draft.insurance_data, waiver_signer_role: guardianSigning ? 'guardian' : 'self' }, question_answers: draft.question_answers, experience_assessment: draft.experience_assessment, waiver_agreed: draft.waiver_agreed, waiver_signature: draft.waiver_signature, waiver_signature_ink: draft.waiver_signature_ink, waiver_document_version: waiverDocument.version, waiver_course_revision: form.waiver_course_revision, media_consent: draft.media_consent }) });
+      await onSaved(); setMessage(result.message); setEditing(false);
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
@@ -326,33 +363,85 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved }) {
       <button type="button" onClick={() => { setDraft(savedDraft()); setMessage(''); setEditing(true); }} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("填寫／修改資料")}</button>
     </> : <div className="mt-5 space-y-5">
       <p className="text-sm text-[#64748b]">{t("先填這位學員的姓名與年齡即可儲存；保險資料與聲明書可稍後補齊。")}</p>
+      {canPrefill && previousForms.length > 0 && <label className="block text-sm font-semibold">{t('帶入既有學員基本資料')}
+        <select value="" onChange={event => useExistingStudent(event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2">
+          <option value="">{t('請選擇同一位學員')}</option>
+          {previousForms.map(item => <option key={item.id} value={item.id}>{[item.insurance_data.full_name, item.insurance_data.nickname, item.order_number].filter(Boolean).join('｜')}</option>)}
+        </select>
+      </label>}
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-sm font-semibold">{t("年齡區間")}<select value={draft.age_range} onChange={(event) => setDraft({ ...draft, age_range: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2"><option value="">{t("請選擇年齡區間")}</option>{ageOptions.map((option) => <option key={option} value={option}>{ageLabel(option,t)}</option>)}</select></label>
         {[['full_name', '學員姓名（保險用）'], ['birth_date', '出生日期'], ['id_number', '身分證／護照號碼'], ['phone', '聯絡電話'], ['emergency_contact', '緊急聯絡人'], ['emergency_phone', '緊急聯絡電話']].map(([key, label]) => <label key={key} className="text-sm font-semibold">{t(label)}<input type={key === 'birth_date' ? 'date' : 'text'} max={key === 'birth_date' ? waiverDocument.reference_date : undefined} value={draft.insurance_data[key] || ''} onChange={(event) => updateInsurance(key, event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label>)}
+        {[['nickname', '學員暱稱（上課使用）', 80], ['address', '保險聯絡地址', 250], ['email', '學員 Email', 254], ...(requiresGuardian ? [['guardian_id_number', '法定代理人身分證字號', 120]] : [])].map(([key, label, limit]) => <label key={key} className="text-sm font-semibold">{t(label)}
+          <input type={key === 'email' ? 'email' : 'text'} maxLength={limit} value={draft.insurance_data[key] || ''} onChange={event => updateInsurance(key, event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" />
+        </label>)}
       </div>
       {birthStatus.error && <p role="alert" className="text-sm text-red-700">{t(birthStatus.error)}</p>}
       {requiresGuardian && <p role="status" className="rounded-sm bg-[#eef4fa] p-3 text-sm text-[#2b5f8f]">{t('依出生日期，這位學員目前未滿 {age} 歲，請由法定代理人簽署並填寫下方資料；也可以先儲存草稿。',{age:guardianAgeLimit})}</p>}
-      <details className="rounded-sm border border-[#dbe3ec] p-4">
+      {draft.experience_assessment ? <PreCourseExperience
+        assessment={draft.experience_assessment} setAssessment={value => setDraft(current => ({ ...current, experience_assessment: value }))}
+        skills={draft} skillOptions={skillOptions} toggleSkill={toggleSkill} /> : <details className="rounded-sm border border-[#dbe3ec] p-4">
         <summary className="min-h-11 cursor-pointer text-sm font-semibold">{t("過往滑雪經驗（選填）")}</summary>
         <div className="mt-3 grid gap-4 md:grid-cols-2">{[['snowboard_skills', '單板經驗'], ['ski_skills', '雙板經驗']].map(([field, label]) => <fieldset key={field}><legend className="text-sm font-semibold">{t(label)}</legend><div className="mt-2 max-h-64 overflow-y-auto">{(skillOptions?.[field] || []).map(([value, text]) => <label key={value} className="flex min-h-11 items-center gap-2 py-2 text-sm"><input type="checkbox" checked={draft[field].includes(value)} onChange={() => toggleSkill(field, value)} />{t(text)}</label>)}</div></fieldset>)}</div>
-      </details>
-      <div className="rounded-sm border border-[#dbe3ec] bg-[#f8fafc] p-4">
+      </details>}
+      {experienceIncomplete && <p className="text-sm text-amber-800">{t('請先完成程度自評再簽署聲明書，沒有經驗也可以選「沒有」。')}</p>}
+      {draft.experience_assessment && <p className="text-sm text-[#64748b]">{t('SnowLand 未滿 14 歲學員不提供保險，仍須完成課前資料及聲明書。')}</p>}
+      <PreCourseQuestions questions={questions.filter(question => question.section === 'insurance')} answers={draft.question_answers} onChange={updateAnswer} />
+      {waiverDocument.version ? <div className="rounded-sm border border-[#dbe3ec] bg-[#f8fafc] p-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{waiverDocument.title}</p><span className="rounded-full bg-white px-3 py-1 text-xs text-[#64748b]">{t('版本 {version}',{version:waiverDocument.version})}{waiverDocument.is_draft ? t("｜法務確認中") : ''}</span></div>
         <div className="mt-3 max-h-72 overflow-y-auto break-words rounded-sm border border-[#dbe3ec] bg-white p-4 text-sm leading-7 text-[#475569] whitespace-pre-wrap">{waiverDocument.body.replace(/\*\*/g, '').replace(/^\s*[#>]+\s*/gm, '')}</div>
-        <a href={waiverDocument.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-[#2b5f8f] hover:underline">{t("開啟客戶提供的原始文件")}</a>
+        <PreCourseQuestions questions={questions.filter(question => question.section === 'waiver')} answers={draft.question_answers} onChange={updateAnswer} />
         <fieldset className="mt-4"><legend className="text-sm font-semibold">{t("由誰簽署聲明書？")}</legend><div className="mt-2 flex flex-wrap gap-4 text-sm"><label className={`flex min-h-11 items-center gap-2 ${requiresGuardian ? 'text-[#94a3b8]' : ''}`}><input type="radio" name={`signer-role-${form.id}`} disabled={requiresGuardian} checked={!guardianSigning} onChange={() => updateInsurance('waiver_signer_role', 'self')} />{t("學員本人簽署")}</label><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`signer-role-${form.id}`} checked={guardianSigning} onChange={() => updateInsurance('waiver_signer_role', 'guardian')} />{t("法定代理人代簽")}</label></div><p className="mt-2 text-xs text-[#64748b]">{t("簽署前需填寫出生日期。更改出生日期或簽署身分後，需重新確認並簽名。")}</p></fieldset>
         {guardianSigning && <div className="mt-3 grid gap-4 rounded-sm border border-[#dbe3ec] bg-white p-4 sm:grid-cols-2"><p className="text-sm leading-6 text-[#64748b] sm:col-span-2">{t("請填實際代簽人的資料；代簽人不需要另外建立會員帳號。")}</p><label className="text-sm font-semibold">{t("法定代理人姓名")}<input value={draft.insurance_data.guardian_name || ''} onChange={event => updateInsurance('guardian_name', event.target.value)} maxLength={120} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label><label className="text-sm font-semibold">{t("與學員的關係")}<input value={draft.insurance_data.guardian_relationship || ''} onChange={event => updateInsurance('guardian_relationship', event.target.value)} maxLength={120} placeholder={t("例如：父親、母親、監護人")} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label></div>}
-        <fieldset className="mt-4"><legend className="text-sm font-semibold">{t("宣傳影像授權（不影響上課權益）")}</legend><div className="mt-2 flex flex-wrap gap-4 text-sm"><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'agree'} onChange={() => setDraft({ ...draft, media_consent: 'agree' })} />{t("同意公開宣傳")}</label><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'decline'} onChange={() => setDraft({ ...draft, media_consent: 'decline' })} />{t("不同意公開宣傳")}</label></div></fieldset>
+        <fieldset className="mt-4"><legend className="text-sm font-semibold">{t("宣傳影像授權（不影響上課權益）")}</legend><div className="mt-2 flex flex-wrap gap-4 text-sm"><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'agree'} onChange={() => setDraft({ ...draft, ...resetSignature, media_consent: 'agree' })} />{t("同意公開宣傳")}</label><label className="flex min-h-11 items-center gap-2"><input type="radio" name={`media-consent-${form.id}`} checked={draft.media_consent === 'decline'} onChange={() => setDraft({ ...draft, ...resetSignature, media_consent: 'decline' })} />{t("不同意公開宣傳")}</label></div></fieldset>
         <label className="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" checked={draft.waiver_agreed} onChange={(event) => setDraft({ ...draft, waiver_agreed: event.target.checked })} className="mt-1" />{t("本人已完整閱讀並同意此版本聲明書")}</label>
-        <label className="mt-3 block text-sm font-semibold">{t("立書人（本人或法定代理人）簽名")}<input value={draft.waiver_signature} onChange={(event) => setDraft({ ...draft, waiver_signature: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2" /></label>
+        <div className="mt-3">
+          <p className="text-sm font-semibold">{t('立書人（本人或法定代理人）簽名')}</p>
+          {draft.waiver_signature && <p className="mt-1 text-sm">{draft.waiver_signature}</p>}
+          {signaturePreview?.length > 0 && <WaiverSignaturePreview strokes={signaturePreview} label={t('手寫簽名預覽')} />}
+          <WaiverSignaturePad value={draft.waiver_signature_ink}
+            disabled={busy || !draft.waiver_agreed || birthStatus.age === null || missingGuardianDetails || missingRequired || experienceIncomplete || guardianIdMissing || !signerName || !draft.media_consent}
+            onConfirm={strokes => setDraft(current => ({ ...current, waiver_signature: signerName, waiver_signature_ink: strokes }))} />
+          {!draft.waiver_signature && <p className="mt-2 text-xs text-[#64748b]">{t('確認簽署人、閱讀聲明書並選擇影像授權後，即可開啟簽名板。')}</p>}
+        </div>
         {draft.waiver_agreed && missingGuardianDetails && <p role="alert" className="mt-2 text-sm text-amber-800">{t("請補齊法定代理人姓名及與學員的關係後再儲存簽署。")}</p>}
-      </div>
+        {draft.waiver_agreed && guardianIdMissing && <p role="status" className="mt-2 text-sm text-amber-800">{t('請填寫法定代理人身分證字號後再簽署')}</p>}
+        {draft.waiver_agreed && missingRequired && <p role="status" className="mt-2 text-sm text-amber-800">{t('請先填寫課前表單中的必填題目')}</p>}
+      </div> : <p role="status" className="text-sm text-[#64748b]">{t('此學校尚未公開聲明書')}</p>}
       {(!draft.age_range || !draft.insurance_data.full_name?.trim()) && <p className="text-sm text-amber-800">{t("請先填寫學員姓名與年齡區間。")}</p>}
-      <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => setEditing(false)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold disabled:opacity-50">{t("取消")}</button><button type="button" disabled={busy || Boolean(birthStatus.error) || !draft.age_range || !draft.insurance_data.full_name?.trim() || (draft.waiver_agreed && (birthStatus.age === null || !draft.waiver_signature.trim() || !draft.media_consent || missingGuardianDetails))} onClick={save} className="min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? t("儲存中…") : t("儲存課前資料")}</button></div>
+      <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => setEditing(false)} className="min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold disabled:opacity-50">{t("取消")}</button><button type="button" disabled={busy || Boolean(birthStatus.error) || !draft.age_range || !draft.insurance_data.full_name?.trim() || (draft.waiver_agreed && (birthStatus.age === null || !draft.waiver_signature.trim() || !draft.media_consent || missingGuardianDetails || missingRequired || signingDetailsIncomplete))} onClick={save} className="min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? t("儲存中…") : t("儲存課前資料")}</button></div>
     </div>}
     {message && <p role="status" className="mt-3 text-sm text-[#2b5f8f]">{t(message)}</p>}
-    {message.includes('課程已變更') && <button type="button" disabled={busy} onClick={() => { setEditing(false); onSaved(); }} className="mt-3 min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold">{t("重新載入（放棄未儲存內容）")}</button>}
+    {/課程已變更|聲明書已有更新|課前題目已更新/.test(message) && <button type="button" disabled={busy} onClick={() => { setEditing(false); onSaved(); }} className="mt-3 min-h-11 rounded-full border border-[#cbd5e1] px-5 py-2.5 text-sm font-semibold">{t("重新載入（放棄未儲存內容）")}</button>}
   </article>;
+}
+
+function PreCourseQuestions({ questions, answers, onChange }) {
+  const { t } = useSiteLocale();
+  if (!questions.length) return null;
+  const input = 'mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2';
+  return <div className="mt-4 space-y-4">
+    {questions.map(({ key, title, kind, required, options }) => {
+      const value = answers[key];
+      const label = <>{title}{required && <span className="ml-1 text-red-700">({t('必填')})</span>}</>;
+      if (kind === 'multiple') {
+        const selected = Array.isArray(value) ? value : [];
+        return <fieldset key={key} className="text-sm">
+          <legend className="font-semibold">{label}</legend>
+          {options.map(option => <label key={option} className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={selected.includes(option)} onChange={event =>
+              onChange(key, event.target.checked ? [...selected, option] : selected.filter(item => item !== option))} />{option}
+          </label>)}
+        </fieldset>;
+      }
+      return <label key={key} className="block text-sm font-semibold">{label}
+        {kind === 'single' ? <select className={input} value={value || ''} onChange={event => onChange(key, event.target.value)}>
+          <option value="">{t('請選擇')}</option>{options.map(option => <option key={option}>{option}</option>)}
+        </select> : <textarea className={input} rows={2} maxLength={1000} value={value || ''}
+          onChange={event => onChange(key, event.target.value)} />}
+      </label>;
+    })}
+  </div>;
 }
 
 function MissingStudents({ reservation, onSaved }) {
@@ -460,6 +549,7 @@ function ParticipantInvitation({ token, onAccepted }) {
 function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions, onSaved }) {
   const { t } = useSiteLocale();
   const reservationId = Number(new URLSearchParams(useLocation().search).get('reservation'));
+  const previousForms = forms.filter(form => form.insurance_data?.full_name);
   const formsByReservation = new Map();
   for (const form of forms) {
     if (reservationId && form.reservation_id !== reservationId) continue;
@@ -507,7 +597,7 @@ function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions
               </div>
               {rosterOrder && course.participants?.length > 0 && <ParticipantRoster order={rosterOrder} reservation={course} onSaved={onSaved} />}
               {rosterOrder && course.missing_students > 0 && <MissingStudents reservation={course} onSaved={onSaved} />}
-              {courseForms.map(form => <PreCourseForm key={form.id} form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} />)}
+              {courseForms.map(form => <PreCourseForm key={form.id} form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} previousForms={previousForms.filter(item => item.order_id !== form.order_id)} />)}
             </section>;
           })}
         </div>

@@ -9,7 +9,7 @@ const fields = [
   ['supervisor_allowance', '每期主管加給', '1'],
 ] as const
 const names: Record<string, string> = { snowboard: '單板', ski: '雙板', photo: '攝影' }
-const blank = () => ({ coach: '', discipline: 'snowboard', certification_level: '', effective_from: '', hourly_rate: '', specified_fee: '0', referral_percent: '10', assistance_hour_factor: '0.5', supervisor_allowance: '0', is_active: true })
+const blank = () => ({ coach: '', discipline: '', certification_level: '', effective_from: '', hourly_rate: '', specified_fee: '0', referral_percent: '10', assistance_hour_factor: '0.5', supervisor_allowance: '0', is_active: true })
 const inputClass = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white'
 
 export default function PayRuleEditor({ rules, coaches, loading, failed }: { rules: PayRule[]; coaches: PayrollCoach[]; loading: boolean; failed: boolean }) {
@@ -26,6 +26,7 @@ export default function PayRuleEditor({ rules, coaches, loading, failed }: { rul
   const save = useMutation({
     mutationFn: async () => {
       if (!canManage || loading || failed) throw new Error('請先確認教練與薪資規則已載入')
+      if (!form.discipline) throw new Error('請選擇單板、雙板或攝影')
       return savePayRule({ id: editingId ?? undefined, coach: Number(form.coach), course_type: editingId === null ? null : rules.find(r => r.id === editingId)?.course_type,
         discipline: form.discipline, certification_level: form.certification_level.trim(), effective_from: form.effective_from || null, hourly_rate: form.hourly_rate,
         specified_fee: Number(form.specified_fee), referral_percent: form.referral_percent,
@@ -54,12 +55,12 @@ export default function PayRuleEditor({ rules, coaches, loading, failed }: { rul
       <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{editingId === null ? '新增規則' : `編輯規則 #${editingId}`}</h3>
       <fieldset disabled={save.isPending || loading || failed} className="grid items-end gap-3 md:grid-cols-4">
         <label className="text-sm">教練<select aria-label="薪資規則教練" className={inputClass} required disabled={editingId !== null} value={form.coach} onChange={e => setForm({ ...blank(), coach: e.target.value })}><option value="">請選教練</option>{editableCoaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-        <label className="text-sm">工作類型<select className={inputClass} disabled={editingId !== null} value={form.discipline} onChange={e => setForm({ ...form, discipline: e.target.value })}>{Object.entries(names).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
+        <label className="text-sm">工作類型<select className={inputClass} required disabled={editingId !== null} value={form.discipline} onChange={e => setForm({ ...form, discipline: e.target.value })}><option value="">請選單板、雙板或攝影</option>{Object.entries(names).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
         <label className="text-sm">證照級別（可留空）<input className={inputClass} maxLength={30} disabled={editingId !== null} value={form.certification_level} onChange={e => setForm({ ...form, certification_level: e.target.value })} /></label>
         <label className="text-sm">新薪率生效日<input className={inputClass} type="date" disabled={editingId !== null} value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} /></label>
         {fields.map(([key, label, step]) => <label key={key} className="text-sm">{label}<input aria-label={label} className={inputClass} required type="number" min="0" max={key === 'referral_percent' ? 100 : undefined} step={step} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} /></label>)}
         <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} />啟用此規則</label>
-        <button disabled={!canManage} className="min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{save.isPending ? '儲存中…' : editingId === null ? '新增規則' : '儲存修改'}</button>
+        <button disabled={!canManage || !form.discipline} className="min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{save.isPending ? '儲存中…' : editingId === null ? '新增規則' : '儲存修改'}</button>
         {editingId !== null && <button type="button" className="min-h-11 text-sm text-gray-600 dark:text-gray-300" onClick={reset}>取消編輯</button>}
       </fieldset>
       {editingId !== null && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">教練、工作類型、證照與適用課程保留原值。如需另一組設定，請取消編輯後新增。</p>}

@@ -15,6 +15,7 @@ async function main(){
   const states=[],calls=[];let cursor=0
   const form={id:42,age_range:'25-35y',insurance_data:{full_name:'QA original name'},snowboard_skills:['雪場S turn'],ski_skills:[],waiver_completed:false,waiver_signature:'',media_consent:''}
   const context=vm.createContext({React,exports:{},useSiteLocale:locale.useSiteLocale,ageOptions:['25-35y'],ageLabel:value=>value,birthDateStatus:()=>({age:null,error:''}),
+   WaiverSignaturePad:()=>null,WaiverSignaturePreview:()=>null,
    useState:initial=>{const index=cursor++;if(!(index in states))states[index]=typeof initial==='function'?initial():initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value]},
    requestJson:async(url,options)=>{calls.push(JSON.parse(options.body));return{message:'課前資料已儲存'}}})
   vm.runInContext(ts.transpileModule(component,{fileName:'skills.jsx',compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2020}}).outputText,context)

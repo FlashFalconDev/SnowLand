@@ -3,7 +3,7 @@
  */
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2 } from 'lucide-react'
 import { fetchMyCalendar, type MyCalendarBooking } from '../../api/extras'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
@@ -41,6 +41,7 @@ const getCoachRequestLabel = (booking: MyCalendarBooking) =>
 export default function MyCalendarPage() {
   const navigate = useNavigate()
   const myCoursesUrl = useSiteLink('/console/my/courses')
+  const myEvaluationsUrl = useSiteLink('/console/my/evaluations')
   const dayDetailRef = useRef<HTMLDivElement>(null)
   const today = new Date()
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1))
@@ -190,8 +191,8 @@ export default function MyCalendarPage() {
                 const equipmentLabel = getEquipmentLabel(b)
                 const coachRequestLabel = getCoachRequestLabel(b)
                 return (
+                  <div key={b.id} className="rounded-lg bg-gray-50 dark:bg-gray-700">
                   <button
-                    key={b.id}
                     type="button"
                     onClick={() => openMyCourse(b)}
                     className="w-full p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/40"
@@ -224,6 +225,15 @@ export default function MyCalendarPage() {
                       {isEquipment && b.linked_course_date && <div>對應課程：{b.linked_course_date}</div>}
                     </div>
                   </button>
+                  {!isEquipment && b.status === 'completed' && (
+                    <Link
+                      to={`${myEvaluationsUrl}?booking=${b.id}`}
+                      className="mx-3 mb-2 inline-flex min-h-11 items-center rounded-md px-2 text-sm font-semibold text-violet-700 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-900/40"
+                    >
+                      查看這堂課的評量
+                    </Link>
+                  )}
+                  </div>
                 )
               })}
             </div>
