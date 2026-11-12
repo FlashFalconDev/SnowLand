@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from django.conf import settings
 from django.db import transaction
 from django.http import Http404
@@ -11,7 +13,7 @@ from booking.learning_portal import (
     ended_sessions, place_owner_id, profile_id, profile_options,
 )
 from booking.media_files import save_album_upload
-from booking.models import Booking, CourseAlbumAsset, MemberDetail, Reservation
+from booking.models import Booking, MemberDetail, Reservation
 from .admin_views import (
     CourseEvaluationAdminViewSet, IsTenantCoach, PayrollCsrfMixin,
     _coach_can_view_full_schedule, _coach_visible_window, _with_current_schedule_payment,
@@ -25,6 +27,12 @@ def coach_bookings(request):
         reservation__preferred_coach__user=request.user,
         reservation__preferred_coach__client=request.tenant,
     ).select_related('reservation__preferred_coach', 'reservation__group')
+
+
+def coach_album_bookings(request):
+    return _with_current_schedule_payment(
+        coach_bookings(request).filter(ended_sessions()), 'reservation__group_id',
+    )
 
 
 class CoachLearnerHistoryAPI(APIView):
@@ -53,7 +61,7 @@ class CoachCourseAlbumAPI(PayrollCsrfMixin, APIView):
     parser_classes = [JSONParser, MultiPartParser]
 
     def get(self, request, client_code, booking_id):
-        booking = get_object_or_404(coach_bookings(request).filter(ended_sessions()), pk=booking_id)
+        booking = get_object_or_404(coach_album_bookings(request), pk=booking_id)
         places = list(booking.reservation.members.select_related('learner', 'user').order_by('pk'))
         ids = {row.pk for row in places}
         return Response({'code': 200, 'data': {
@@ -66,7 +74,7 @@ class CoachCourseAlbumAPI(PayrollCsrfMixin, APIView):
 
     @transaction.atomic
     def post(self, request, client_code, booking_id):
-        booking = get_object_or_404(coach_bookings(request).filter(ended_sessions()).select_for_update(), pk=booking_id)
+        booking = get_object_or_404(coach_album_bookings(request).select_for_update(), pk=booking_id)
         try:
             asset = save_album_upload(booking, request.user, request.FILES.get('file'))
         except ValueError as exc:
@@ -77,7 +85,9 @@ class CoachCourseAlbumAPI(PayrollCsrfMixin, APIView):
 
     @transaction.atomic
     def patch(self, request, client_code, booking_id):
-        booking = get_object_or_404(coach_bookings(request).filter(ended_sessions()).select_for_update(), pk=booking_id)
+        booking = get_object_or_404(coach_album_bookings(request).select_for_update(), pk=booking_id)
+        if not isinstance(request.data, Mapping):
+            return Response({'msg': '相簿標籤資料格式錯誤'}, status=400)
         try:
             asset_id = profile_id(request.data.get('asset_id'))
             member_id = profile_id(request.data.get('member_id'))
@@ -101,15 +111,15 @@ class EvaluationLearnerLinkViewSet(CourseEvaluationAdminViewSet):
     def profile_choices(self, request, *args, **kwargs):
         evaluation = self.get_object()
         place = evaluation.member
-        if request.method == 'GET':
+        if request.method in {'GET', 'HEAD'}:
             return Response({'code': 200, 'data': {
                 'profiles': profile_options(request.tenant, place_owner_id(place)),
                 'current_id': place.learner_id,
             }})
-        if request.data.get('verified') is not True:
+        if not isinstance(request.data, Mapping) or request.data.get('verified') is not True:
             return Response({'msg': '請先核對這兩筆資料屬於同一位學員'}, status=400)
         with transaction.atomic():
-            Reservation.objects.select_for_update().get(pk=place.reservation_id)
+            get_object_or_404(Reservation.objects.select_for_update(), pk=place.reservation_id)
             place = get_object_or_404(MemberDetail.objects.select_for_update(), pk=place.pk)
             try:
                 bind_profile(place, request.data.get('profile_id'), client=request.tenant)

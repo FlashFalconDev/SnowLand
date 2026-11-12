@@ -160,6 +160,9 @@ class LearnerHistoryTests(TestCase):
         choices = self.api.get(path)
         self.assertEqual(choices.status_code, 200, choices.data)
         self.assertEqual({row['id'] for row in choices.data['data']['profiles']}, {self.child_a, self.child_b})
+        self.assertEqual(self.api.head(path).status_code, 200)
+        self.assertIsNone(MemberDetail.objects.get(pk=evaluation.member_id).learner_id)
+        self.assertEqual(self.api.patch(path, [], format='json').status_code, 400)
         self.assertEqual(self.api.patch(path, {'profile_id': self.child_a}, format='json').status_code, 400)
         self.assertEqual(self.api.patch(path, {'profile_id': self.child_a, 'verified': True}, format='json').status_code, 200)
         self.assertEqual(MemberDetail.objects.get(pk=evaluation.member_id).learner_id, self.child_a)
@@ -183,8 +186,12 @@ class CourseAlbumTests(TestCase):
         api = APIClient()
         api.force_authenticate(coach_user)
         path = f'{COACH}course-albums/{booking.pk}/'
+        self.assertEqual(api.get(path).status_code, 404)
+        self.assertEqual(api.post(path, {}, format='multipart').status_code, 404)
+        Payment.objects.create(reservation_group=group, status='pending', payment_method='TT')
         self.assertEqual(api.get(f'{COACH}course-albums/{tomorrow.pk}/').status_code, 404)
         self.assertEqual(api.get(path).data['data']['assets'], [])
+        self.assertEqual(api.patch(path, [], format='json').status_code, 400)
         png = BytesIO()
         Image.new('RGB', (16, 16), '#123456').save(png, format='PNG')
         with TemporaryDirectory(dir=Path(__file__).resolve().parents[2]) as folder, override_settings(PRIVATE_COURSE_MEDIA_ROOT=folder):

@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from booking import tests_participants as fixtures
-from booking.models import MemberDetail, Reservation, ReservationGroup
+from booking.models import LearnerProfile, MemberDetail, Reservation, ReservationGroup
 
 
 class RebookLearnerTests(TestCase):
@@ -104,6 +104,34 @@ class RebookLearnerTests(TestCase):
                 result=self.create(body,advanced=advanced)
                 self.assertEqual(result.status_code,400,result.data)
                 self.assertEqual(ReservationGroup.objects.count(),before)
+
+    def test_explicit_siblings_reuse_their_own_details_when_reordered(self):
+        profiles = [LearnerProfile.objects.create(client=self.source.group.client, owner=self.owner, name=name)
+                    for name in ['孩子甲', '孩子乙']]
+        for place, profile, age in zip([self.first, self.second], profiles, ['7-12y', '13-18y']):
+            place.user = None
+            place.guardian = self.owner
+            place.learner = profile
+            place.age_range = age
+            place.insurance_data = {'full_name': profile.name, 'id_number': 'QA-private'}
+            place.save()
+        for advanced in [False, True]:
+            for offset, (selections, expected) in enumerate([
+                ([profiles[1].pk, profiles[0].pk], [(profiles[1].pk, '孩子乙', '13-18y'), (profiles[0].pk, '孩子甲', '7-12y')]),
+                ([profiles[1].pk, None], [(profiles[1].pk, '孩子乙', '13-18y'), (None, None, '')]),
+            ]):
+                with self.subTest(advanced=advanced, selections=selections):
+                    body = self.payload()
+                    days_from_today = 30 + offset + (2 if advanced else 0)
+                    body['cart'][0]['courses'][0]['date'] = str(timezone.localdate() + timedelta(days=days_from_today))
+                    body['learner_selections'] = [selections]
+                    response = self.create(body, advanced=advanced)
+                    self.assertEqual(response.status_code, 200, response.data)
+                    row = Reservation.objects.get(group_id=response.data['reservation_group_ids'][0])
+                    places = list(row.members.order_by('pk'))
+                    self.assertEqual([(place.learner_id, place.insurance_data.get('full_name'), place.age_range)
+                                      for place in places], expected)
+                    self.assertTrue(all('id_number' not in place.insurance_data for place in places))
 
     def test_archived_learner_never_reappears_in_rebook_preferences(self):
         MemberDetail.all_objects.create(reservation=self.source,user=self.owner,is_active=False,age_range='7-12y',insurance_data={'full_name':'QA退出學員'})

@@ -3769,7 +3769,7 @@ function Step3Confirmation({
                   )}
                 </div>
 
-                {canEditCart && group.rebookSource && !isPhotoCartGroup(group) && <p className="mx-4 mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm leading-6 text-[#1e4e73]">{t('將沿用上次可管理的 {count} 位學員姓名、年齡區間與滑雪程度；其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。',{count:group.rebookSource.learnerCount})}</p>}
+                {canEditCart && group.rebookSource && !isPhotoCartGroup(group) && <p className="mx-4 mt-4 rounded-sm bg-[#eef4fa] p-3 text-sm leading-6 text-[#1e4e73]">{t('續訂會沿用可確認的學員姓名、年齡區間與滑雪程度。其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。')}</p>}
                 {canEditCart && group.rebookLearnersReset && <p role="status" className="mx-4 mt-4 rounded-sm bg-amber-50 p-3 text-sm leading-6 text-amber-900">{t("人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。")}</p>}
                 <div className={`grid grid-cols-2 gap-2 px-4 py-4 ${isPhotoCartGroup(group) ? '' : 'sm:grid-cols-3'}`}>
                   <div className="rounded-sm bg-[#f8fafc] px-3 py-2">

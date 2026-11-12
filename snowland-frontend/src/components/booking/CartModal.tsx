@@ -151,7 +151,7 @@ export default function CartModal({ isOpen, onClose, onConfirm, onEditGroup }: C
                   className="rounded-sm border border-[#e5e9f2] bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
                 >
                   {onEditGroup && <button type="button" onClick={() => onEditGroup(group.id)} className="mb-4 min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t('修改這組課程')}</button>}
-                  {group.rebookSource && !isPhotoCartGroup(group) && <p className="mb-4 rounded-sm bg-[#eef4fa] p-3 text-xs leading-6 text-[#1e4e73]">{t('將沿用上次可管理的 {count} 位學員姓名、年齡區間與滑雪程度；其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。', { count: group.rebookSource.learnerCount })}</p>}
+                  {group.rebookSource && !isPhotoCartGroup(group) && <p className="mb-4 rounded-sm bg-[#eef4fa] p-3 text-xs leading-6 text-[#1e4e73]">{t('續訂會沿用可確認的學員姓名、年齡區間與滑雪程度。其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。')}</p>}
                   {group.rebookLearnersReset && <p role="status" className="mb-4 rounded-sm bg-amber-50 p-3 text-xs leading-6 text-amber-900">{t('人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。')}</p>}
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>

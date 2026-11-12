@@ -2374,7 +2374,7 @@ class CreateReservationAPI(APIView):
                 request, tenant_client, request_user, discount_summary,
             )
 
-            from .learning_portal import booking_profile_choices, set_checkout_learners
+            from .learning_portal import booking_profile_choices
             learner_choices = booking_profile_choices(request, cart_data)
             # 為每個購物車項目創建預約組
             for index, item in enumerate(cart_data):
@@ -2391,9 +2391,9 @@ class CreateReservationAPI(APIView):
                     contact_info,
                     discount_amount=item_discount_amount,
                     applied_discounts=item_applied_discounts,
+                    learner_choices=learner_choices[index],
                 )
                 created_group_ids.append(group_id)
-                set_checkout_learners(reservation, learner_choices[index], request_user)
                 created_reservations.append(reservation)
                 reservation_groups.append(group)
                 if reward.get('discount') and (reservation.discount_amount < item_discount_amount or reservation.payment_amount <= 0):
@@ -2658,6 +2658,7 @@ class CreateReservationAPI(APIView):
         contact_info=None,
         discount_amount=0,
         applied_discounts=None,
+        learner_choices=None,
     ):
         """創建單個預約組及其相關記錄"""
         group=self._create_order_group(user,item,tenant_client,contact_info)
@@ -2674,9 +2675,11 @@ class CreateReservationAPI(APIView):
         if reservation.course_template and reservation.course_template.shared_class_enabled:
             self._join_shared_class(reservation, item)
 
+        from .learning_portal import set_checkout_learners
         from .participants import ensure_reservation_members
-        ensure_reservation_members(reservation)
         from .rebooking import copy_rebook_learners
+        ensure_reservation_members(reservation)
+        set_checkout_learners(reservation, learner_choices, user)
         copy_rebook_learners(reservation, item.get('rebookSource'), user)
 
         from .operations import record_order_revision
@@ -4003,7 +4006,7 @@ class SuperScheduleAPI(APIView):
             applied_discount_details = discount_summary.get('applied_discount_details') or []
 
             # 拆分邏輯：將每個購物車項目的每一天課程都創建為獨立的Reservation
-            from .learning_portal import booking_profile_choices, set_checkout_learners
+            from .learning_portal import booking_profile_choices
             learner_choices = booking_profile_choices(request, cart_data)
             for item_index, item in enumerate(cart_data):
                 courses = item.get('courses') or []
@@ -4037,12 +4040,10 @@ class SuperScheduleAPI(APIView):
                         discount_amount=course_discount_amount,
                         applied_discounts=item_applied_discounts,
                         charge_equipment_fee=(course_index == 0),
+                        learner_choices=learner_choices[item_index],
                     )
                     created_reservations.append(reservation)
                     item_reservations.append(reservation)
-                    from .participants import ensure_reservation_members
-                    ensure_reservation_members(reservation)
-                    set_checkout_learners(reservation, learner_choices[item_index], request_user)
                 if reward.get('discount') and (
                     sum(row.discount_amount for row in item_reservations) < item_discount_amount
                     or sum(row.payment_amount for row in item_reservations) <= 0
@@ -4140,6 +4141,7 @@ class SuperScheduleAPI(APIView):
         discount_amount=0,
         applied_discounts=None,
         charge_equipment_fee=True,
+        learner_choices=None,
     ):
         """為單天課程創建Reservation"""
         from .models import Reservation, Booking
@@ -4283,7 +4285,11 @@ class SuperScheduleAPI(APIView):
             is_scheduled=False
         )
 
+        from .learning_portal import set_checkout_learners
+        from .participants import ensure_reservation_members
         from .rebooking import copy_rebook_learners
+        ensure_reservation_members(reservation)
+        set_checkout_learners(reservation, learner_choices, group.user)
         copy_rebook_learners(reservation, item.get('rebookSource'), group.user)
         return reservation
 

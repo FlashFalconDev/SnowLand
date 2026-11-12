@@ -131,10 +131,10 @@ class CourseAlbumFileAPI(PrivateLearningAPI):
         booking = asset.booking
         allowed = member_album_bookings(tenant, request.user).filter(pk=booking.pk).exists()
         if not allowed:
-            allowed = IsTenantCoach().has_permission(request, self) and Booking.objects.filter(
-                ended_sessions(), pk=booking.pk, reservation__group__client=tenant,
-                reservation__preferred_coach__user=request.user, reservation__preferred_coach__client=tenant,
-                reservation__status__in=CONFIRMED_COURSE_STATES,
+            from API.learning_views import coach_album_bookings
+
+            allowed = IsTenantCoach().has_permission(request, self) and coach_album_bookings(request).filter(
+                pk=booking.pk,
             ).exists()
         if not allowed:
             raise Http404
