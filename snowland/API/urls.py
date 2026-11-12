@@ -57,6 +57,7 @@ from .recruitment import RecruitmentViewSet
 from .instagram_sync import InstagramSyncViewSet
 from .frontend_releases import FrontendReleaseViewSet
 from .staff_positions import staff_positions, staff_position_detail
+from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet
 
 
 # 後台 ViewSet router
@@ -120,6 +121,10 @@ urlpatterns = [
     path('admin/<str:client_code>/coach/pending/', coach_pending_confirmations, name='admin-coach-pending'),
     path('admin/<str:client_code>/coach/confirm/<int:reservation_id>/', coach_confirm_course, name='admin-coach-confirm'),
     path('admin/<str:client_code>/coach/my-courses/', coach_my_courses, name='admin-coach-my-courses'),
+    path('admin/<str:client_code>/coach/learner-history/<int:reservation_id>/', CoachLearnerHistoryAPI.as_view(), name='coach-learner-history'),
+    path('admin/<str:client_code>/coach/course-albums/<int:booking_id>/', CoachCourseAlbumAPI.as_view(), name='coach-course-album'),
+    path('admin/<str:client_code>/evaluations/<int:pk>/learner-profile/',
+         EvaluationLearnerLinkViewSet.as_view({'get': 'profile_choices', 'patch': 'profile_choices'}), name='evaluation-learner-link'),
     path('admin/<str:client_code>/coach/my-calendar/', coach_my_calendar, name='admin-coach-my-calendar'),
     path('admin/<str:client_code>/coach/my-leaves/', coach_my_leaves, name='admin-coach-my-leaves'),
     path('admin/<str:client_code>/coach/apply-leave/', coach_apply_leave, name='admin-coach-apply-leave'),

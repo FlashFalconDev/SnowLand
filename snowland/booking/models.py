@@ -339,6 +339,14 @@ class Booking(models.Model):
         verbose_name = '預約課程'
         verbose_name_plural = '2-2.預約課程'
 
+class LearnerProfile(models.Model):
+    """A household-managed learner identity within one school."""
+
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='learner_profiles')
+    name = models.CharField(max_length=120)
+
+
 class ActiveMemberDetailManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().filter(is_active=True)
@@ -355,6 +363,7 @@ class MemberDetail(models.Model):
     """
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True)
+    learner = models.ForeignKey(LearnerProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='course_places')
     # 與哪個 Reservation 關聯？（若整筆預約有多個學員，就一對多）
     reservation = models.ForeignKey(
         "Reservation",  # 你的 Reservation 模型所在app的命名空間
@@ -487,6 +496,8 @@ class MemberDetail(models.Model):
         name = str(insurance.get('full_name') or '').strip()
         if name:
             return name
+        if self.learner_id and self.learner.owner_id == (self.guardian_id or self.user_id):
+            return self.learner.name
         if self.user:
             return self.user.get_full_name() or self.user.username
         return f'學員 #{self.pk}'
@@ -833,6 +844,15 @@ class CourseMedia(models.Model):
     file = models.FileField(storage=PrivateCourseMediaStorage(), upload_to='course-records/', max_length=240, blank=True, default='')
     caption = models.CharField(max_length=200, blank=True, default='')
     is_public = models.BooleanField(default=False, verbose_name='可於官網顯示')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class CourseAlbumAsset(models.Model):
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='album_assets')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    media_type = models.CharField(max_length=10, choices=[('photo', '照片'), ('video', '影片')])
+    file = models.FileField(storage=PrivateCourseMediaStorage(), upload_to='course-albums/', max_length=240)
+    tagged_members = models.ManyToManyField(MemberDetail, blank=True, related_name='tagged_course_assets')
     created_at = models.DateTimeField(auto_now_add=True)
 
 

@@ -146,7 +146,10 @@ def learning_reports(evaluations):
         for discipline, entry in snapshot['entries'].items():
             config = rubric['disciplines'][discipline]
             items = {item['id']: item['title'] for section in config['sections'] for item in section['skills']}
-            scores = best.setdefault((evaluation.member_id, discipline), {})
+            learner = evaluation.member
+            profile = learner.learner
+            identity = ('profile', profile.pk) if profile and profile.owner_id == (learner.guardian_id or learner.user_id) else ('place', learner.pk)
+            scores = best.setdefault((identity, discipline), {})
             for skill, score in entry['scores'].items():
                 scores[skill] = max(scores.get(skill, 0), score)
             results.setdefault(evaluation.pk, []).append({

@@ -4,11 +4,13 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Calendar, MapPin, User, Loader2, AlertCircle, BookOpen } from 'lucide-react'
 import { fetchMyCourses } from '../../api/extras'
 import { formatAbilityLevel } from '@/utils/learningProgress'
 import { calculateCoachCourseStats } from '@/utils/coachCourseStats'
+import { useSiteLink } from '@/hooks/useSiteBasePath'
+import { CoachLearnerHistory } from '../../components/LearnerCourseTools'
 
 const PRIMARY = '#8b5cf6'
 
@@ -41,6 +43,7 @@ function formatHours(value: number) {
 }
 
 export default function MyCoursesPage() {
+  const evaluationsUrl = useSiteLink('/console/my/evaluations')
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedReservationId = Number(searchParams.get('reservation_id') || 0)
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '')
@@ -209,14 +212,16 @@ export default function MyCoursesPage() {
                   </div>
                   <div className="space-y-1">
                     {item.bookings.map((b) => (
-                      <div key={b.id} className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-3">
+                      <div key={b.id} className="text-sm text-gray-700 dark:text-gray-300 flex flex-wrap items-center gap-3">
                         <span className="font-medium">{b.date}</span>
                         <span className="text-gray-500">{b.start_time?.substring(0, 5)} - {b.end_time?.substring(0, 5)}</span>
                         {b.is_scheduled && <span className="text-xs text-green-600 dark:text-green-400">✓ 已排定</span>}
+                        {b.album_available && <Link className="inline-flex min-h-11 items-center font-semibold text-violet-700 dark:text-violet-200" to={`${evaluationsUrl}?booking=${b.id}`}>開啟課程相簿</Link>}
                       </div>
                     ))}
                   </div>
                 </div>
+                {['auto_assigned', 'manually_assigned', 'form_filled', 'completed'].includes(item.status) && <CoachLearnerHistory reservationId={item.id} />}
               </div>
             )
           })}

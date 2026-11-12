@@ -23,12 +23,14 @@ for(const language of ['en','ja']){
   assert.ok(offers.includes('QA-&lt;private&gt;-123'),'Referral code preserved and escaped')
   assert.ok(offers.includes(language==='en'?'Silver':'シルバー'))
   const reservation={id:1,resort:'QA雪場名稱',course_template:'QA課程名稱',participants:[{id:7,student_number:2,binding_status:'pending',can_invite:true}]}
+  context.ManageLearnerProfiles=()=>null
   const roster=renderToStaticMarkup(React.createElement(context.Forms,{forms:[],orders:[{id:1,order_number:'QA-123',payment_status:'paid',reservations:[reservation]}],onSaved(){}}))
   assert.ok(roster.includes('QA雪場名稱')&&roster.includes('QA課程名稱')&&roster.includes('QA-123'),'Course heading preserves the CMS names and order number')
   for(const text of ['的邀請網址','有效至','請勿公開分享'])assert.ok(!roster.includes(text))
   assert.ok(roster.includes('https://example.test/qa-invite')&&roster.includes(new Date(states[1][7].expires).toLocaleDateString(language)))
   console.log('PASS actual member offers and invitation roster locale',language)
   context.useState=React.useState
+  context.MemberLearnerFilter=()=>null
   const record={id:1,date:'2026-10-20',order_number:'QA-123',resort:'QA雪場名稱',course_name:'QA課程名稱',member_name:'私人姓名QA',coach:'私人教練QA',coach_notes:'教練私人評語，不翻譯',trail_names:['原始雪道QA'],media:[],learning_progress:{before:'level2',custom_key:'原始自訂進度'},self_assessment:{satisfaction_rating:4}}
   const journey=renderToStaticMarkup(React.createElement(context.Journey,{records:[record]}))
   for(const value of ['私人姓名QA','私人教練QA','教練私人評語，不翻譯','原始雪道QA','原始自訂進度'])assert.ok(journey.includes(value),'Personal/CMS content must remain unchanged')

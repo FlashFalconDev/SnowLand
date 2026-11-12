@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 from .payment_email import PaymentEmailAPI
 from .class_group_qr import ClassGroupQRAPI
+from .learning_views import CourseAlbumFileAPI, LearnerProfileAPI, MemberCourseAlbumsAPI
 from API.contact_inbox import PublicContactAPI
 from API.recruitment import PublicRecruitmentAPI
 from .api_views import (
@@ -80,6 +81,9 @@ urlpatterns = [
     path('<str:client_code>/api/member-cancellations/<int:group_id>/', MemberCancellationAPI.as_view(), name='api_member_cancellation_client'),
     path('<str:client_code>/api/member-amendments/<int:group_id>/', MemberAmendmentsAPI.as_view(), name='api_member_amendments_client'),
     path('<str:client_code>/api/member-center/', MemberCenterAPI.as_view(), name='api_member_center_client'),
+    path('<str:client_code>/api/learner-profiles/', LearnerProfileAPI.as_view(), name='api_learner_profiles_client'),
+    path('<str:client_code>/api/course-albums/', MemberCourseAlbumsAPI.as_view(), name='api_course_albums_client'),
+    path('<str:client_code>/api/course-album-files/<int:asset_id>/', CourseAlbumFileAPI.as_view(), name='api_course_album_file_client'),
     path('<str:client_code>/api/class-group-qr/<int:group_id>/', ClassGroupQRAPI.as_view(), name='api_class_group_qr_client'),
     path('<str:client_code>/api/participant-invitations/<uuid:token>/', ParticipantInvitationAPI.as_view(), name='api_participant_invitation_client'),
     path('<str:client_code>/api/member-notifications/', MemberNotificationsAPI.as_view(), name='api_member_notifications_client'),

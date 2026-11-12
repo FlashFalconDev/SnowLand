@@ -14,6 +14,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSiteLocale } from '../contexts/SiteLocale'
 import CheckoutPolicyConsent from '../components/booking/CheckoutPolicyConsent'
+import { CheckoutLearners, type LearnerChoices } from '../components/booking/LearnerSelection'
 import CurrencySelection, { type PaymentCurrencyQuote } from '../components/booking/CurrencySelection'
 import SettlementSummary, { settlementAmount, type OrderSettlement } from '../components/booking/SettlementSummary'
 import { quoteJpyPreview, sumJpyAmounts } from '../utils/settlementPreview'
@@ -737,6 +738,7 @@ const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []
 }
 
 export default function BookingFlowPage() {
+  const [learnerChoices, setLearnerChoices] = useState<LearnerChoices>({})
   const { t } = useSiteLocale()
   const navigate = useNavigate()
   const {clientCode='snowland'}=useParams<{clientCode:string}>()
@@ -1974,6 +1976,7 @@ export default function BookingFlowPage() {
     )
     try {
       const response = await createReservation({
+        learner_selections: cart.map(group => !isPhotoCartGroup(group) && learnerChoices[group.id]?.length === group.peopleCount ? learnerChoices[group.id] : null),
         currency:currencyQuote.currency,
         currency_rate:currencyQuote.rate,
         cart,
@@ -2514,6 +2517,14 @@ export default function BookingFlowPage() {
                   <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t("增加新組別課程")}</button><a href={staffConsoleUrl} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t('回後台建立連結')}</a></div>
                 </section>
               ) : currentStep === 3 && (
+                <>
+                {!submittedReservation && cart.some(group => !isPhotoCartGroup(group)) && <CheckoutLearners
+                  cart={cart.filter(group => !isPhotoCartGroup(group))}
+                  client={clientCode || ''}
+                  account={user?.email}
+                  choices={learnerChoices}
+                  onChange={setLearnerChoices}
+                />}
                 <Step3Confirmation
                   cart={submittedReservation ? submittedCart : cart}
                   clientCode={clientCode}
@@ -2555,6 +2566,7 @@ export default function BookingFlowPage() {
                   onAddGroup={handleAddCartGroup}
                   onAddCourseToGroup={handleAddCourseToGroup}
                 />
+                </>
               )}
 
               {currentStep === 4 && <Step4Complete notice={completionNotice} flow={completionFlow} />}
@@ -2705,6 +2717,7 @@ export default function BookingFlowPage() {
             setSchedulingFailed({ isOpen: false, message: '', conflictDetails: null, reservationGroupIds: [] })
             failedCartSignatureRef.current = ''
             const response = await superSchedule({
+              learner_selections: cart.map(group => !isPhotoCartGroup(group) && learnerChoices[group.id]?.length === group.peopleCount ? learnerChoices[group.id] : null),
               currency:currencyQuote.currency,
               currency_rate:currencyQuote.rate,
               cart,

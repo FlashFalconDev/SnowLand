@@ -165,6 +165,7 @@ export const calculatePrice = async (params: CalculatePriceParams): Promise<Calc
 
 // 創建預約
 export interface CreateReservationParams {
+  learner_selections?: Array<Array<number | null> | null>
   currency?: import('../utils/settlementPreview').PaymentCurrency
   currency_rate?: string
   staff_link?: string
