@@ -119,6 +119,31 @@ class AdvancedBookingScopeTests(TestCase):
         self.assertEqual(set(ReservationGroup.objects.values_list('campus_id',flat=True)),{self.campus.pk,other_campus.pk})
         self.assertEqual(len(result.data['payment_urls']),2);self.assertEqual(Payment.objects.count(),2)
 
+    def test_public_checkout_preserves_selected_campus_for_a_shared_resort(self):
+        second_campus = Campus.objects.create(client=self.client_record, name='另一校區', code='qa2')
+        second_campus.resorts.add(self.resort)
+        unavailable_campus = Campus.objects.create(client=self.client_record, name='未開放校區', code='qa3')
+        checkout_url = '/booking/snowland/api/create-reservation/'
+
+        for campus in (self.campus, second_campus):
+            with self.subTest(campus=campus.name):
+                body = deepcopy(self.payload)
+                body['cart'][0]['campusId'] = campus.pk
+                response = self.api.post(checkout_url, body, format='json')
+                self.assertEqual(response.status_code, 200, response.data)
+                group_id, = response.data['reservation_group_ids']
+                group = ReservationGroup.objects.get(pk=group_id)
+                self.assertEqual(group.campus_id, campus.pk)
+                self.assertEqual(set(group.reservations.values_list('resort_id', flat=True)), {self.resort.pk})
+
+        for invalid_campus_id in (None, unavailable_campus.pk):
+            with self.subTest(campus_id=invalid_campus_id):
+                body = deepcopy(self.payload)
+                body['cart'][0]['campusId'] = invalid_campus_id
+                response = self.api.post(checkout_url, body, format='json')
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertEqual(ReservationGroup.objects.count(), 2)
+
     def test_scheduling_failure_rolls_back_every_cart_group(self):
         from unittest.mock import patch
         self.resort.auto_scheduling_enabled=True;self.resort.save()

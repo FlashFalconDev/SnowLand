@@ -58,7 +58,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 import { fetchAdminMe } from '@/admin/api/auth'
 import { canPrepareStaffBooking } from '@/admin/permissions'
-import type { CartItem, Course } from '@/types/booking'
+import type { CartItem, Course, Resort } from '@/types/booking'
 import {
   fetchCourseTypes,
   fetchResorts,
@@ -2917,21 +2917,23 @@ function Step2SkiConfiguration({
 
       {field === 'resort' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl mx-auto">
-          {resorts.map((r: any) => {
-            const campus = (r.campuses || []).find((item: any) => item.code !== 'main') || r.campuses?.[0]
-            return campus ? <button
-              key={r.name}
-              onClick={() => actions.setSelectedResort(r.name, r.display_name, campus.id, campus.name)}
-              className={`p-4 rounded-sm border-2 text-left transition-colors ${
-                state.selectedResort === r.name && state.selectedCampusId === campus.id
-                  ? 'border-[#2b5f8f] bg-[#e9eef3]'
-                  : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
-              }`}
-            >
-              <p className="font-semibold text-[#1f2937] font-display">{r.display_name}</p>
-              <p className="text-sm text-[#6b7280] mt-1">{campus.name}</p>
-            </button> : null
-          })}
+          {resorts.flatMap((resort: Resort) => (resort.campuses ?? []).map((campus) => {
+            const selected = state.selectedResort === resort.name && state.selectedCampusId === campus.id
+            return (
+              <button
+                key={`${resort.name}:${campus.id}`}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => actions.setSelectedResort(resort.name, resort.display_name, campus.id, campus.name)}
+                className={`p-4 rounded-sm border-2 text-left transition-colors ${
+                  selected ? 'border-[#2b5f8f] bg-[#e9eef3]' : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
+                }`}
+              >
+                <p className="font-semibold text-[#1f2937] font-display">{resort.display_name}</p>
+                <p className="text-sm text-[#6b7280] mt-1">{campus.name}</p>
+              </button>
+            )
+          }))}
           {resorts.length === 0 && (
             <p className="col-span-2 text-center text-sm text-[#6b7280] py-8">
               {t('目前沒有開放訂課的雪場。')}
@@ -3729,6 +3731,7 @@ function Step3Confirmation({
                       <span className="inline-flex items-center gap-1">
                         <MapPin size={13} />
                         {group.resortName || group.resort || t('未指定雪場')}
+                        {group.campusName && ` · ${group.campusName}`}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <Calendar size={13} />
