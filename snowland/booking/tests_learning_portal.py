@@ -211,7 +211,6 @@ class CourseAlbumTests(TestCase):
                 response = api.get(asset['url'])
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(b''.join(response.streaming_content), png.getvalue())
-                response.close()
             api.force_authenticate(parent)
             tag = {'asset_id': asset['id'], 'member_id': places[0].pk, 'tagged': True}
             self.assertEqual(api.patch(ALBUMS, tag, format='json').status_code, 200)
