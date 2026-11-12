@@ -1105,7 +1105,7 @@ const messages: Record<string, { en: string; ja: string }> = {
   "已保留上次的預約設定。請點「修改這組課程」選擇新課程、日期與時段，重新確認價格；不會沿用舊價或直接建立訂單。": { en: "Your previous choices are saved. Select Edit this group to choose lessons, dates and times and recalculate the price. The old price is not reused and no order is created yet.", ja: "前回の設定を保存しています。「この組を変更」からレッスン・日付・時間帯を選び、料金を再確認してください。旧料金は引き継がず、注文もまだ作成しません。" },
   "每張卡是一組設定，同一天多堂課會逐堂列出。可修改這組課程，完成新設定後才替換，原購物車會先保留。": { en: "Each card is a booking group, with lessons listed individually. Editing keeps your original cart until you finish the new settings.", ja: "各カードは1組の予約で、レッスンごとに表示します。変更が完了するまで、元のカート内容は保持されます。" },
   "修改這組課程": { en: "Edit this group", ja: "この組を変更" },
-  "將沿用上次可管理的 {count} 位學員姓名、年齡區間與滑雪程度；其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。": { en: "Names, age ranges and ability levels are reused for {count} students you can manage. Invite other adults again. Insurance details and declaration signatures must be reconfirmed.", ja: "管理可能な受講者{count}名の氏名・年齢区分・レベルを引き継ぎます。他の成人は再度招待してください。保険情報と署名は再確認が必要です。" },
+  "續訂會沿用可確認的學員姓名、年齡區間與滑雪程度。其他成人請重新邀請綁定。保險資料與聲明簽名須重新確認。": { en: "Names, age ranges and ability levels are reused for students we can match to the previous booking. Invite other adults again. Insurance details and declaration signatures must be reconfirmed.", ja: "前回の予約と照合できた受講者の氏名・年齢区分・レベルを引き継ぎます。他の成人は再度招待してください。保険情報と署名は再確認が必要です。" },
   "人數已變更，本次不自動沿用學員；訂單成立後請重新填寫或邀請綁定。": { en: "Student count changed, so previous students are not reused. Enter their details or invite them after the order is created.", ja: "人数が変わったため、前回の受講者は引き継ぎません。注文後に情報を入力するか、招待してください。" },
   "預約組 {number}": { en: "Booking group {number}", ja: "予約グループ{number}" },
   "{count} 堂": { en: "{count} lessons", ja: "レッスン{count}件" },

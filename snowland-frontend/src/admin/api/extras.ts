@@ -134,7 +134,7 @@ export interface MyCourse {
   age_ranges: string[]
   status: string
   is_preferred_coach?: boolean
-  bookings: { id: number; date: string; start_time: string; end_time: string; is_scheduled: boolean }[]
+  bookings: { id: number; date: string; start_time: string; end_time: string; is_scheduled: boolean; album_available?: boolean }[]
   mdt_add: string
 }
 

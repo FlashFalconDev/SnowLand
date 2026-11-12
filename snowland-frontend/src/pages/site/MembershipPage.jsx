@@ -15,6 +15,7 @@ import { useBookingStore } from '../../store/bookingStore';
 import { formatLearningProgressEntry } from '../../utils/learningProgress';
 import { birthDateStatus } from '../../utils/participantAge';
 import PreCourseExperience from '../../components/site/PreCourseExperience';
+import { LinkCourseLearner, ManageLearnerProfiles, MemberCourseAlbums, MemberLearnerFilter } from '../../components/site/MemberLearningTools';
 import { useSiteLocale } from '../../contexts/SiteLocale';
 import { formatPaymentValue } from '../../utils/settlementPreview';
 
@@ -552,7 +553,7 @@ function ParticipantInvitation({ token, onAccepted }) {
   </section>;
 }
 
-function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions, onSaved }) {
+function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions, onSaved, account }) {
   const { t } = useSiteLocale();
   const reservationId = Number(new URLSearchParams(useLocation().search).get('reservation'));
   const previousForms = forms.filter(form => form.insurance_data?.full_name);
@@ -585,6 +586,7 @@ function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions
   }
   return <div>
     <h2 className="text-2xl font-semibold">{t("學員與課前資料")}</h2>
+    <ManageLearnerProfiles account={account} />
     <p className="mt-2 text-sm leading-7 text-[#64748b]">{t("依訂課人數逐位填寫年齡、保險與聲明書。您可以代填尚未綁定的同行學員；已綁定者請由本人或家長登入填寫。")}</p>
     {reservationId > 0 && <SiteLink to="/membership/pre-course-forms" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[#2b5f8f]">{t("查看全部課程的學員")}</SiteLink>}
     <div className="mt-7 space-y-6">
@@ -603,7 +605,10 @@ function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions
               </div>
               {rosterOrder && course.participants?.length > 0 && <ParticipantRoster order={rosterOrder} reservation={course} onSaved={onSaved} />}
               {rosterOrder && course.missing_students > 0 && <MissingStudents reservation={course} onSaved={onSaved} />}
-              {courseForms.map(form => <PreCourseForm key={form.id} form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} previousForms={previousForms.filter(item => item.order_id !== form.order_id)} />)}
+              {courseForms.map(form => <div key={form.id}>
+                <LinkCourseLearner form={form} account={account} onSaved={onSaved} />
+                <PreCourseForm form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} previousForms={previousForms.filter(item => item.order_id !== form.order_id)} />
+              </div>)}
             </section>;
           })}
         </div>
@@ -646,9 +651,11 @@ function TechnicalAssessment({ results = [] }) {
   </section>
 }
 
-function Journey({ records, onSaved }) {
+function Journey({ records: allRecords, onSaved, account }) {
   const { t } = useSiteLocale();
-  return <div><h2 className="text-2xl font-semibold">{t("課程評量與學習紀錄")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("查看程度變化、教練建議、課程照片／影片，並填寫課後評價。")}</p><div className="mt-7 space-y-5">{records.length ? records.map((record) => <article key={record.id} className="overflow-hidden rounded-sm border border-[#dbe3ec] bg-white">{record.media.length > 0 && <div className={`grid overflow-hidden bg-[#e2e8f0] ${record.media.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>{record.media.map((media) => media.type === 'video' ? <video key={media.id} controls preload="metadata" className="aspect-video w-full object-contain" src={media.url} /> : <a key={media.id} href={media.url} target="_blank" rel="noreferrer" aria-label={t("開啟課程照片原圖")}><img loading="lazy" src={media.url} alt={media.caption || t('{resort} 課程照片',{resort:record.resort})} className="aspect-video w-full object-contain" /></a>)}</div>}<div className="p-5 md:p-6"><p className="text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{formatDate(record.date)}｜{record.order_number}</p><h3 className="mt-2 text-lg font-semibold">{record.resort}｜{record.course_name}</h3><p className="mt-3 text-sm text-[#64748b]">{t('學員：{name}',{name:record.member_name})}　{t('教練：{name}',{name:record.coach})}</p>{record.trail_names?.length > 0 && <p className="mt-3 text-sm text-[#64748b]">{t('本次雪道：{trails}',{trails:record.trail_names.join('、')})}</p>}<div className="mt-5 rounded-sm bg-[#f8fafc] p-4"><p className="text-xs font-semibold text-[#2b5f8f]">{t("教練建議")}</p><p className="mt-2 whitespace-pre-line text-sm leading-7 text-[#475569]">{record.coach_notes || t('教練尚未填寫建議')}</p></div>{Object.keys(record.learning_progress || {}).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{Object.entries(record.learning_progress).map(([key, value]) => <span key={key} className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs text-[#2b5f8f]">{formatLearningProgressEntry(key, value,t)}</span>)}</div>}<TechnicalAssessment results={record.technical_assessment} /><SatisfactionForm record={record} onSaved={onSaved} /></div></article>) : <EmptyState title={t("尚無課程評量")} description={t("教練完成課後評量後，紀錄與您有權查看的課程附件會出現在這裡。")} />}</div></div>;
+  const [learner, setLearner] = useState('');
+  const records = allRecords.filter(record => !learner || (learner === 'unlinked' ? !record.learner_id : String(record.learner_id) === learner));
+  return <div><h2 className="text-2xl font-semibold">{t("課程評量與學習紀錄")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("查看程度變化、教練建議、課程照片／影片，並填寫課後評價。")}</p><MemberLearnerFilter account={account} value={learner} onChange={setLearner} /><div className="mt-7 space-y-5">{records.length ? records.map((record) => <article key={record.id} className="overflow-hidden rounded-sm border border-[#dbe3ec] bg-white">{record.media.length > 0 && <div className={`grid overflow-hidden bg-[#e2e8f0] ${record.media.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>{record.media.map((media) => media.type === 'video' ? <video key={media.id} controls preload="metadata" className="aspect-video w-full object-contain" src={media.url} /> : <a key={media.id} href={media.url} target="_blank" rel="noreferrer" aria-label={t("開啟課程照片原圖")}><img loading="lazy" src={media.url} alt={media.caption || t('{resort} 課程照片',{resort:record.resort})} className="aspect-video w-full object-contain" /></a>)}</div>}<div className="p-5 md:p-6"><p className="text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{formatDate(record.date)}｜{record.order_number}</p><h3 className="mt-2 text-lg font-semibold">{record.resort}｜{record.course_name}</h3><p className="mt-3 text-sm text-[#64748b]">{t('學員：{name}',{name:record.member_name})}　{t('教練：{name}',{name:record.coach})}</p>{record.trail_names?.length > 0 && <p className="mt-3 text-sm text-[#64748b]">{t('本次雪道：{trails}',{trails:record.trail_names.join('、')})}</p>}<div className="mt-5 rounded-sm bg-[#f8fafc] p-4"><p className="text-xs font-semibold text-[#2b5f8f]">{t("教練建議")}</p><p className="mt-2 whitespace-pre-line text-sm leading-7 text-[#475569]">{record.coach_notes || t('教練尚未填寫建議')}</p></div>{Object.keys(record.learning_progress || {}).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{Object.entries(record.learning_progress).map(([key, value]) => <span key={key} className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs text-[#2b5f8f]">{formatLearningProgressEntry(key, value,t)}</span>)}</div>}<TechnicalAssessment results={record.technical_assessment} /><SatisfactionForm record={record} onSaved={onSaved} /></div></article>) : <EmptyState title={t("尚無課程評量")} description={t("教練完成課後評量後，紀錄與您有權查看的課程附件會出現在這裡。")} />}</div></div>;
 }
 
 function Overview({ data }) {
@@ -778,8 +785,8 @@ function MemberSection({ section, data, onQuickRebook, onRefresh }) {
   const { t } = useSiteLocale();
   if (section === 'notifications') return <MemberNotifications />;
   if (section === 'orders') return <>{(data.orders.length > 0 || !data.participant_courses?.length) && <Orders data={data} onQuickRebook={onQuickRebook} onRefresh={onRefresh} />}{data.participant_courses?.length > 0 && <div className={data.orders.length ? 'mt-8' : ''}><ParticipantCourses courses={data.participant_courses} /></div>}</>;
-  if (section === 'forms') return <Forms forms={data.pre_course_forms} orders={data.orders} participantCourses={data.participant_courses} waiverDocument={data.waiver_document} skillOptions={data.skill_options} onSaved={onRefresh} />;
-  if (section === 'journey') return <Journey records={data.learning_records} onSaved={onRefresh} />;
+  if (section === 'forms') return <Forms forms={data.pre_course_forms} orders={data.orders} participantCourses={data.participant_courses} waiverDocument={data.waiver_document} skillOptions={data.skill_options} onSaved={onRefresh} account={data.member.email} />;
+  if (section === 'journey') return <><Journey records={data.learning_records} onSaved={onRefresh} account={data.member.email} /><MemberCourseAlbums account={data.member.email} /></>;
   if (section === 'offers') return <div><h2 className="text-2xl font-semibold">{t("專屬優惠")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("會員等級、點數與推薦碼集中在這裡。")}</p><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-sm bg-gradient-to-br from-[#1c3b5f] to-[#2b5f8f] p-6 text-white"><Gift /><p className="mt-8 text-sm text-white/70">{t("會員等級")}</p><p className="mt-1 text-2xl font-semibold">{data.level_label || t({ new: '新會員', alumni: '舊生', silver: '銀級', gold: '金級' }[data.level] || data.level)}</p><p className="mt-3 text-sm">{data.alumni_verified ? t("舊生身分已確認") : t("舊生身分尚未確認；如曾上課，請聯絡 SnowLand 核對。")}</p><p className="mt-5 text-sm">{t('目前點數：{count}',{count:data.points})}</p>{data.loyalty_enabled && <p className="mt-1 text-sm">{t('紅利餘額：{count} 點',{count:data.reward_balance || 0})}</p>}<p className="mt-1 text-sm text-white/80">{t('其中歷史補登：{count} 點',{count:data.previous_points || 0})}</p></div><div className="rounded-sm border border-[#dbe3ec] bg-white p-6"><p className="text-sm font-semibold text-[#64748b]">{t("我的推薦碼")}</p><p className="mt-4 break-all text-2xl font-semibold tracking-wider text-[#2b5f8f]">{data.referral_code}</p><p className="mt-4 text-sm leading-7 text-[#64748b]">{t("實際折扣與回饋以 SnowLand 已公布、啟用的活動為準；顯示推薦碼不代表已套用優惠。")}</p></div></div></div>;
   return <Overview data={data} />;
 }

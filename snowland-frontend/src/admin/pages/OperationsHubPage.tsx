@@ -33,6 +33,7 @@ import { WaiverSignaturePreview } from '@/components/site/WaiverSignaturePad'
 import { fetchAssessmentRubric, type RubricConfig, type SkillEntries } from '../api/assessment'
 import AssessmentSettings from '../components/AssessmentSettings'
 import { SkillReviewFields, SkillSnapshotSummary } from '../components/SkillReviewFields'
+import { CoachCourseAlbum, EvaluationLearnerLink } from '../components/LearnerCourseTools'
 
 const PRIMARY = '#8b5cf6'
 type Tab = 'notifications' | 'payroll' | 'payroll-rules' | 'staff-incentives' | 'payroll-documents' | 'evaluations' | 'insurance' | 'links'
@@ -269,6 +270,12 @@ function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
     <h2 className="font-semibold text-gray-900 dark:text-white">{booking ? '這堂課的學員評量' : '學員進度與課程紀錄'}</h2>
     <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>
     {booking && <Link to={myEvaluationsUrl} className="mb-3 inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">查看全部評量</Link>}
+    {booking && /^\d+$/.test(booking) && <CoachCourseAlbum key={booking} bookingId={Number(booking)} />}
+    {coachView && !booking && visibleRows.length > 0 && <div className="mb-3 flex flex-wrap gap-2">
+      {[...new Map(visibleRows.map(row => [row.booking, row])).values()].map(row =>
+        <Link key={row.booking} className="inline-flex min-h-11 items-center rounded-lg border border-violet-200 px-3 text-sm font-semibold text-violet-700 dark:text-violet-200"
+          to={`${myEvaluationsUrl}?booking=${row.booking}`}>課程相簿：{row.course_date} · {row.order_number}</Link>)}
+    </div>}
     {coachView && !booking && <div className="mb-4 flex flex-wrap items-end gap-2">
       <label className="text-sm font-medium text-gray-900 dark:text-white">依上課日期找評量
         <input aria-label="依上課日期找評量" type="date" value={evaluationDate} onChange={event => setEvaluationDate(event.target.value)} className="mt-1 block min-h-11 rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-800" />
@@ -326,13 +333,14 @@ function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; c
       <fieldset className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><legend className="px-1 text-sm font-medium text-gray-900 dark:text-white">完成雪道（可複選）</legend><p className="mb-2 text-xs text-gray-500 dark:text-gray-400">勾選這堂課實際完成的雪道；名單由「基本設定 → 雪場管理」維護。</p>{trailOptions.length ? <div className="grid gap-2 sm:grid-cols-2">{trailOptions.map(name => <label key={name} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:text-white"><input type="checkbox" checked={selectedTrails.includes(name)} onChange={event => setSelectedTrails(previous => event.target.checked ? [...previous, name] : previous.filter(value => value !== name))} className="h-4 w-4 shrink-0 accent-violet-600" /><span className="break-words">{name}{!(row.available_trails || []).includes(name) && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">（原有記錄）</span>}</span></label>)}</div> : <p className="text-sm text-gray-500 dark:text-gray-400">這個雪場尚未設定雪道名單，可先在下方補填。</p>}<div className="mt-3"><Field label="其他完成雪道（選填）"><input className={`${inputClass} min-h-11`} value={extraTrails} onChange={event => setExtraTrails(event.target.value)} placeholder="清單沒有的雪道可在此補填，多條用頓號或逗號分隔" /></Field></div></fieldset>
       {trailError && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{trailError}</p>}
       </>}
-      <CourseFileUploader evaluationId={row.id} coachView={coachView} onBusyChange={setUploading} />
+      {!coachView && <CourseFileUploader evaluationId={row.id} coachView={coachView} onBusyChange={setUploading} />}
       <Field label="照片或影片網址（選填）"><div className="grid gap-2 sm:grid-cols-[120px_1fr]"><select className={`${inputClass} min-h-11`} value={mediaType} onChange={e => setMediaType(e.target.value as 'photo' | 'video')}><option value="photo">照片</option><option value="video">影片</option></select><input className={`${inputClass} min-h-11`} type="url" value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} placeholder="https://..." /></div></Field>
       {mediaUrlError && <p role="alert" className="text-xs text-red-600 dark:text-red-300">請輸入以 http:// 或 https:// 開頭的完整照片／影片網址。</p>}
       <p className="text-xs text-gray-500 dark:text-gray-400">加入後，這筆課程的學員與後台可查看；不會自動公開在官網。</p>
       {!canComplete && !trailError && <p className="text-xs text-amber-700 dark:text-amber-300">{canEditAssessment ? '請先填寫技術評量、教練評語、學習進度或完成雪道其中一項。' : '可選檔上傳，或填入照片／影片網址；加入附件不會更改評量內容或完成狀態。'}</p>}
       <button disabled={uploading || save.isPending || !canComplete || Boolean(mediaUrlError)} onClick={() => save.mutate()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}>{save.isPending ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}{canEditAssessment ? '儲存並標示完成' : '加入附件網址'}</button>
     </div>}
+    {!coachView && canEditAssessment && <EvaluationLearnerLink evaluationId={row.id} />}
     {row.media?.length > 0 && <div aria-label="已加入的課程附件" className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">{row.media.map(media => <div key={media.id} className="min-w-0 rounded-lg border border-gray-200 p-2 dark:border-gray-700">{media.media_type === 'video' ? <video controls preload="metadata" className="aspect-video w-full rounded bg-black object-contain" src={media.url} /> : <a href={media.url} target="_blank" rel="noreferrer" aria-label="開啟課程照片原圖"><img loading="lazy" className="aspect-video w-full rounded bg-gray-100 object-contain dark:bg-gray-900" src={media.url} alt={media.caption || '課程照片'} /></a>}<p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{media.caption || (media.media_type === 'video' ? '課程影片' : '課程照片')} · {media.is_public ? '已公開' : '私密附件'}</p></div>)}</div>}
     {coachView && <section aria-label="學員課後回饋" className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-900/40"><h3 className="text-sm font-semibold text-gray-900 dark:text-white">學員課後回饋<span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">唯讀</span></h3>{hasRating ? <><p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-300" aria-label={`學員評分 ${rating} / 5 分`}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)}　{rating} / 5 分</p><p className="mt-2 break-words whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">{feedback || '學員未留下文字意見。'}</p></> : <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">學員尚未提交課後評價。</p>}</section>}
   </article>

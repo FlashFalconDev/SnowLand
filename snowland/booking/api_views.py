@@ -2374,6 +2374,8 @@ class CreateReservationAPI(APIView):
                 request, tenant_client, request_user, discount_summary,
             )
 
+            from .learning_portal import booking_profile_choices
+            learner_choices = booking_profile_choices(request, cart_data)
             # 為每個購物車項目創建預約組
             for index, item in enumerate(cart_data):
                 item_discount_amount = item_discounts[index] if index < len(item_discounts) else 0
@@ -2389,6 +2391,7 @@ class CreateReservationAPI(APIView):
                     contact_info,
                     discount_amount=item_discount_amount,
                     applied_discounts=item_applied_discounts,
+                    learner_choices=learner_choices[index],
                 )
                 created_group_ids.append(group_id)
                 created_reservations.append(reservation)
@@ -2655,6 +2658,7 @@ class CreateReservationAPI(APIView):
         contact_info=None,
         discount_amount=0,
         applied_discounts=None,
+        learner_choices=None,
     ):
         """創建單個預約組及其相關記錄"""
         group=self._create_order_group(user,item,tenant_client,contact_info)
@@ -2671,9 +2675,11 @@ class CreateReservationAPI(APIView):
         if reservation.course_template and reservation.course_template.shared_class_enabled:
             self._join_shared_class(reservation, item)
 
+        from .learning_portal import set_checkout_learners
         from .participants import ensure_reservation_members
-        ensure_reservation_members(reservation)
         from .rebooking import copy_rebook_learners
+        ensure_reservation_members(reservation)
+        set_checkout_learners(reservation, learner_choices, user)
         copy_rebook_learners(reservation, item.get('rebookSource'), user)
 
         from .operations import record_order_revision
@@ -3103,6 +3109,8 @@ class MemberCenterAPI(APIView):
         pre_course_forms = [{
             'id': member.id,
             'reservation_id': member.reservation_id,
+            'learner_id': member.learner_id,
+            'can_link_learner': member.reservation.status not in {'completed', 'cancelled', 'deleted'},
             'student_number': student_numbers[member.id],
             'order_id': member.reservation.group_id,
             'order_number': member.reservation.group.order_number,
@@ -3178,7 +3186,7 @@ class MemberCenterAPI(APIView):
             Q(booking__date__lt=local_now.date()) |
             Q(booking__date=local_now.date(), booking__end_time__lte=local_now.time()),
         ).select_related(
-            'booking__reservation__group', 'booking__reservation__resort', 'member__user', 'coach',
+            'booking__reservation__group', 'booking__reservation__resort', 'member__user', 'member__learner', 'coach',
         ).prefetch_related('media').order_by('-booking__date', '-created_at')
         skill_reports = learning_reports(evaluations)
         learning_records = [{
@@ -3192,6 +3200,7 @@ class MemberCenterAPI(APIView):
                 if evaluation.booking.reservation.resort else '未指定'
             ),
             'member_name': evaluation.member.display_name,
+            'learner_id': evaluation.member.learner_id,
             'coach': evaluation.coach.name if evaluation.coach else '教練',
             'self_assessment': evaluation.self_assessment,
             'coach_assessment': {key: value for key, value in evaluation.coach_assessment.items() if key != TECHNICAL_KEY}
@@ -3997,6 +4006,8 @@ class SuperScheduleAPI(APIView):
             applied_discount_details = discount_summary.get('applied_discount_details') or []
 
             # 拆分邏輯：將每個購物車項目的每一天課程都創建為獨立的Reservation
+            from .learning_portal import booking_profile_choices
+            learner_choices = booking_profile_choices(request, cart_data)
             for item_index, item in enumerate(cart_data):
                 courses = item.get('courses') or []
                 if not isinstance(courses,list) or not courses or any(not isinstance(course,dict) for course in courses):
@@ -4029,6 +4040,7 @@ class SuperScheduleAPI(APIView):
                         discount_amount=course_discount_amount,
                         applied_discounts=item_applied_discounts,
                         charge_equipment_fee=(course_index == 0),
+                        learner_choices=learner_choices[item_index],
                     )
                     created_reservations.append(reservation)
                     item_reservations.append(reservation)
@@ -4072,9 +4084,7 @@ class SuperScheduleAPI(APIView):
                         'requires_payment': False
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-            from .participants import ensure_reservation_members
             from .operations import record_order_revision,resolve_payment_account,payment_expiration_for,schedule_group_notifications
-            for reservation in created_reservations:ensure_reservation_members(reservation)
             for created_group in created_groups:record_order_revision(created_group,user=request_user,change_type='create',reason='客戶進階拆課訂單')
             group_ids=[created_group.pk for created_group in created_groups]
             # 創建付款記錄
@@ -4131,6 +4141,7 @@ class SuperScheduleAPI(APIView):
         discount_amount=0,
         applied_discounts=None,
         charge_equipment_fee=True,
+        learner_choices=None,
     ):
         """為單天課程創建Reservation"""
         from .models import Reservation, Booking
@@ -4274,7 +4285,11 @@ class SuperScheduleAPI(APIView):
             is_scheduled=False
         )
 
+        from .learning_portal import set_checkout_learners
+        from .participants import ensure_reservation_members
         from .rebooking import copy_rebook_learners
+        ensure_reservation_members(reservation)
+        set_checkout_learners(reservation, learner_choices, group.user)
         copy_rebook_learners(reservation, item.get('rebookSource'), group.user)
         return reservation
 

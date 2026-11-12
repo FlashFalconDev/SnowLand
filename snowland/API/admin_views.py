@@ -4676,6 +4676,8 @@ def coach_my_courses(request, client_code):
     elif booking_date_filter:
         qs = qs.filter(**booking_date_filter).distinct()
 
+    from booking.learning_portal import CONFIRMED_COURSE_STATES
+    local_now = timezone.localtime()
     items = []
     for r in qs:
         items.append({
@@ -4703,6 +4705,9 @@ def coach_my_courses(request, client_code):
                     'start_time': str(b.start_time),
                     'end_time': str(b.end_time),
                     'is_scheduled': b.is_scheduled,
+                    'album_available': r.status in CONFIRMED_COURSE_STATES and (
+                        b.date < local_now.date() or (b.date == local_now.date() and b.end_time <= local_now.time())
+                    ),
                 }
                 for b in r.bookings.all()
                 if _booking_in_date_range(b, display_start, display_end)

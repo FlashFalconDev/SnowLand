@@ -94,9 +94,14 @@ def accept_invitation(tenant, user, token, role):
         age = None  # Legacy invalid dates remain editable in the authenticated course form.
     if role == 'self' and age is not None and age < GUARDIAN_AGE_LIMIT:
         raise InvitationError(f'未滿 {GUARDIAN_AGE_LIMIT} 歲請由家長／監護人綁定')
+    previous_owner_id = member.guardian_id or member.user_id
     member.user = user if role == 'self' else None
     member.guardian = user if role == 'guardian' else None
-    member.save(update_fields=['user', 'guardian'])
+    if member.learner_id and member.learner.owner_id != user.pk:
+        member.learner = None
+    if previous_owner_id != user.pk:
+        member.tagged_course_assets.clear()
+    member.save(update_fields=['user', 'guardian', 'learner'])
     invitation.accepted_by = user
     invitation.accepted_at = timezone.now()
     invitation.binding_role = role

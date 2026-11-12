@@ -32,9 +32,18 @@ def copy_rebook_learners(reservation, reference, user):
 
     sources = list(source.members.select_for_update().order_by('pk'))
     targets = ensure_reservation_members(reservation)
+    selected_profiles = {place.learner_id for place in targets if place.learner_id}
+    previous_by_profile = {place.learner_id: place for place in sources
+                           if place.learner_id in selected_profiles}
     copied = 0
-    for previous, current in zip(sources, targets):
-        if user.pk not in {previous.user_id, previous.guardian_id}:
+    for index, current in enumerate(targets):
+        if current.learner_id:
+            previous = previous_by_profile.get(current.learner_id)
+        else:
+            previous = sources[index] if index < len(sources) else None
+            if previous and previous.learner_id in selected_profiles:
+                continue
+        if not previous or user.pk != (previous.guardian_id or previous.user_id):
             continue
         basic = previous.insurance_data if isinstance(previous.insurance_data, dict) else {}
         name = str(basic.get('full_name') or '').strip()

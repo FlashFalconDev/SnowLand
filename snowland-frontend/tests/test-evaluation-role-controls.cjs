@@ -29,6 +29,7 @@ function render(canEdit, editing, mediaUrl = '', selectedTrails) {
     updateEvaluation: async (...args) => calls.push(args), Save: () => null, Loader2: () => null,
     Field: ({ label, children }) => React.createElement('label', null, label, children),
     CourseFileUploader: () => React.createElement('div', null, '可選檔上傳'),
+    EvaluationLearnerLink: () => null,
   })
   vm.runInContext(compile(card, 'evaluation.tsx'), context)
   const html = renderToStaticMarkup(React.createElement(context.EvaluationCard, { row: { ...row, can_edit_assessment: canEdit } }))

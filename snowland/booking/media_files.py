@@ -91,6 +91,21 @@ def save_course_upload(evaluation, user, upload):
     return media
 
 
+def save_album_upload(booking, user, upload):
+    from .models import CourseAlbumAsset
+
+    media_type, extension = validate_course_upload(upload)
+    asset = CourseAlbumAsset(booking=booking, uploaded_by=user, media_type=media_type)
+    try:
+        asset.file.save(f'{booking.pk}/{uuid.uuid4().hex}{extension}', upload, save=False)
+        asset.save()
+    except Exception:
+        if asset.file.name:
+            asset.file.storage.delete(asset.file.name)
+        raise
+    return asset
+
+
 def private_file_response(media, range_header=None):
     content_types = {'.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm'}
     extension = os.path.splitext(media.file.name)[1].lower()
