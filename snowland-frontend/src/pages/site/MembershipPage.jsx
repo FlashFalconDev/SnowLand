@@ -176,8 +176,6 @@ function OrderCard({ order, onQuickRebook, showActions = true, showOrderNumber =
   const reservation = courses[0];
   const dates = [...new Set(courses.flatMap(item => (item.bookings || []).map(booking => booking.date).filter(Boolean)))].sort();
   const dateLabel = dates.length > 1 ? `${formatDate(dates[0])}–${formatDate(dates[dates.length - 1])}` : formatDate(dates[0]);
-  const coachChoice = reservation?.service_type === 'photo' ? (reservation.coach && reservation.coach !== '安排中' ? reservation.coach : '由學校安排') : reservation?.is_shared_class ? '由學校安排'
-    : reservation?.is_preferred_coach ? (reservation.coach && reservation.coach !== '安排中' ? reservation.coach : '指定教練待安排') : '不指定';
   const canPay = order.payment_status === 'unpaid' && !order.payment_hold_status;
   const cancellationStage = ['paid', 'refunded'].includes(order.payment_status) ? order.cancellation?.status : null;
   const settledCancellation = ['approved', 'refunded'].includes(order.cancellation?.status);
@@ -186,12 +184,20 @@ function OrderCard({ order, onQuickRebook, showActions = true, showOrderNumber =
     : fullyCancelled ? (order.historical_amount ?? order.total_amount) : order.total_amount;
   return <article className="rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-[0_8px_25px_rgba(15,23,42,0.04)] md:p-6">
     <div className="flex flex-wrap items-start justify-between gap-3"><div>{showOrderNumber && <p className="break-all text-xs font-semibold tracking-[0.18em] text-[#94a3b8]">{order.order_number}</p>}<h3 className="mt-2 text-lg font-semibold">{dateLabel === '日期安排中' ? t(dateLabel) : dateLabel}｜{reservation?.resort || t('雪場安排中')}</h3>{courses.length > 1 && <p className="mt-2 text-xs text-[#64748b]">{t('另有 {count} 項課程，',{count:courses.length-1})}{t(showOrderNumber ? '以下列出全部課程。' : '請查看詳情。')}</p>}</div><span className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs font-semibold text-[#2b5f8f]">{t(cancellationLabels[cancellationStage] || paymentLabels[order.payment_hold_status || order.payment_status] || order.payment_status)}</span></div>
-    <div className="mt-5 grid gap-3 text-sm text-[#475569] sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '攝影方案' : '課程')}</span>{reservation?.course_template || reservation?.course_type || t('安排中')}</p><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '攝影師' : '教練')}</span>{['由學校安排','指定教練待安排','不指定'].includes(coachChoice) ? t(coachChoice) : coachChoice}</p><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '預約數量' : '人數')}</span>{t(reservation?.service_type === 'photo' ? '{count} 組' : '{count} 人',{count:reservation?.people || 0})}</p><p><span className="block text-xs text-[#94a3b8]">{t('天數')}</span>{dates.length ? t('{count} 天',{count:dates.length}) : t('待安排')}</p></div>
+    <div className="mt-5 grid gap-3 text-sm text-[#475569] sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '攝影方案' : '課程')}</span>{reservation?.course_template || reservation?.course_type || t('安排中')}</p><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '攝影師' : '教練')}</span>{memberCoachLabel(reservation, t)}</p><p><span className="block text-xs text-[#94a3b8]">{t(reservation?.service_type === 'photo' ? '預約數量' : '人數')}</span>{t(reservation?.service_type === 'photo' ? '{count} 組' : '{count} 人',{count:reservation?.people || 0})}</p><p><span className="block text-xs text-[#94a3b8]">{t('天數')}</span>{dates.length ? t('{count} 天',{count:dates.length}) : t('待安排')}</p></div>
     <p className="mt-4 text-sm font-semibold text-[#1f2937]">{t(settledCancellation ? '原訂單金額' : fullyCancelled ? '取消前訂單金額' : '訂單金額')} NT$ {Number(displayAmount || 0).toLocaleString()}</p>
     {!fullyCancelled && (!order.cancellation||order.cancellation.status==='rejected') && <SettlementSummary settlement={order.settlement} />}
     {order.cancellation?.settlement && order.cancellation.status!=='rejected'&&<p className="mt-3 text-sm leading-7 text-[#1e4e73]">{t('取消前金額：{amount}；{stage}：{refund}。',{amount:refundMoney(null,{...order.cancellation.settlement,refund_amount:order.cancellation.settlement.original_amount},t),stage:t(order.cancellation.status==='refunded'?'已記錄退款':order.cancellation.status==='approved'?'核准退款':'預估退款'),refund:refundMoney(null,order.cancellation.settlement,t)})}</p>}
     {showActions && <div className="mt-5 flex flex-wrap justify-end gap-3 border-t border-[#eef2f7] pt-4"><button type="button" onClick={() => onQuickRebook(order.id)} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f] hover:bg-[#eef4fa]">{t('再次預約')}</button><SiteLink to={`/membership/orders/${order.id}`} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t('查看詳情')}<ChevronRight size={16} /></SiteLink>{canPay && <SiteLink to={`/payment?reservation_group=${order.id}`} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t('前往付款')}</SiteLink>}</div>}
   </article>;
+}
+
+function memberCoachLabel(reservation, t) {
+  if (reservation?.coach && reservation.coach !== '安排中') return reservation.coach;
+  if (reservation?.is_preferred_coach && !reservation.is_shared_class && reservation.service_type !== 'photo') {
+    return t('指定教練待安排');
+  }
+  return t('由學校安排');
 }
 
 function CancellationForm({ order, onDone }) {
@@ -278,7 +284,7 @@ function Orders({ data, onQuickRebook, onRefresh }) {
     {selected.cancellation?.status === 'refunded' && <p role="status" className="rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] p-5 text-sm font-semibold text-[#1e4e73]">{t('訂單已退款 {amount}。',{amount:refundMoney(selected.cancellation.refund_amount,selected.cancellation.settlement,t)})}</p>}
     {selected.reservations.map((reservation) => <div key={reservation.id} className="rounded-sm border border-[#dbe3ec] bg-white p-5">
       <h3 className="font-semibold">{reservation.resort}｜{reservation.course_template || reservation.course_type}{reservation.status === 'cancelled' && t('（已取消）')}</h3>
-      <p className="mt-2 text-sm text-[#64748b]">{reservation.service_type === 'photo' ? t("攝影師") : t("授課教練")}：{reservation.coach === '安排中' ? t("由學校安排") : reservation.coach}　{reservation.service_type === 'photo' ? t("預約數量") : t("學員")}：{t(reservation.service_type==='photo'?'{count} 組':'{count} 人',{count:reservation.people})}</p>
+      <p className="mt-2 text-sm text-[#64748b]">{reservation.service_type === 'photo' ? t("攝影師") : t("授課教練")}：{memberCoachLabel(reservation, t)}　{reservation.service_type === 'photo' ? t("預約數量") : t("學員")}：{t(reservation.service_type==='photo'?'{count} 組':'{count} 人',{count:reservation.people})}</p>
       <SharedClassSummary summary={reservation.shared_class_summary} />
       <div className="mt-4 space-y-2">{reservation.bookings.map((booking) => <p key={booking.id} className="rounded-sm bg-[#f8fafc] px-4 py-3 text-sm text-[#475569]">{formatDate(booking.date)}　{booking.start_time}–{booking.end_time}　{booking.course_name}</p>)}</div>
       {!['cancelled', 'deleted'].includes(reservation.status) && <SiteLink to={`/membership/pre-course-forms?reservation=${reservation.id}`} className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("填寫學員與課前資料")}</SiteLink>}
@@ -708,7 +714,7 @@ function ParticipantCourses({ courses }) {
     {courses.map(course => <article key={course.id} className="rounded-sm border border-[#dbe3ec] bg-white p-5 md:p-6">
       <p className="text-xs font-semibold text-[#64748b]">{course.status === 'cancelled' ? t("課程已取消") : course.payment_status === 'refunded' ? t("已退款") : t("已綁定課程")}</p>
       <h3 className="mt-2 text-lg font-semibold">{course.resort}｜{course.course_name}</h3>
-      <p className="mt-3 text-sm leading-7 text-[#64748b]">{t('學員：{name}',{name:course.student_names.join('、')})}<br />{t('教練：{name}',{name:course.coach})}</p>
+      <p className="mt-3 text-sm leading-7 text-[#64748b]">{t('學員：{name}',{name:course.student_names.join('、')})}<br />{t('教練：{name}',{name:memberCoachLabel(course, t)})}</p>
       <ul className="mt-3 space-y-2 text-sm text-[#475569]">{course.bookings.map(booking => <li key={booking.id}>{formatDate(booking.date)}｜{booking.start_time}–{booking.end_time}</li>)}</ul>
       <div className="mt-4 flex flex-wrap gap-3"><SiteLink to={`/membership/pre-course-forms?reservation=${course.id}`} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-5 py-2 text-sm font-semibold text-white">{t("查看課前資料")}</SiteLink>{course.line_group_url && <a href={course.line_group_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-full border border-[#2b5f8f] px-5 py-2 text-sm font-semibold text-[#2b5f8f]">{t("加入上課群組 ↗")}</a>}</div>
       <ClassGroupQRImage url={course.line_group_qr_url || ''} appearance="light" />

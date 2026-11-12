@@ -2,7 +2,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
 const source=fs.readFileSync(path.join(root,'src/pages/site/MembershipPage.jsx'),'utf8')
 const between=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)))
-const code=between('function ParticipantRoster(','function ParticipantInvitation(')+between('function Forms(','function SatisfactionForm(')+between('function MemberSection(','function MemberContent(')+between('function SatisfactionForm(','function Overview(')+between('function ParticipantCourses(','function MemberNotifications(')
+const code=between('function memberCoachLabel(','function CancellationForm(')+between('function ParticipantRoster(','function ParticipantInvitation(')+between('function Forms(','function SatisfactionForm(')+between('function MemberSection(','function MemberContent(')+between('function SatisfactionForm(','function Overview(')+between('function ParticipantCourses(','function MemberNotifications(')
 const progressContext={exports:{}}
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/utils/learningProgress.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,progressContext)
 assert.equal(progressContext.exports.formatLearningProgressEntry('before','level2'),'課前程度：等級 2','Existing admin formatting is unchanged')
