@@ -2923,6 +2923,21 @@ def paid_class_group_url(group):
         return ''
 
 
+def member_visible_coach_name(reservation, bookings, today):
+    coach = reservation.preferred_coach
+    if coach is None:
+        return '安排中'
+    if reservation.is_preferred_coach and reservation.shared_course_class_id is None:
+        return coach.name
+    if reservation.course_type and reservation.course_type.category.service_type == 'photo':
+        return coach.name
+    if reservation.status in {'auto_assigned', 'manually_assigned', 'form_filled', 'completed'} and any(
+        booking.is_scheduled and booking.date <= today for booking in bookings
+    ):
+        return coach.name
+    return '安排中'
+
+
 class MemberCenterAPI(APIView):
     def get(self, request, client_code=None):
         if not request.user.is_authenticated:
@@ -2939,6 +2954,8 @@ class MemberCenterAPI(APIView):
         _, loyalty_rules = get_loyalty_policy(tenant)
         from .class_group_qr import paid_group_qr_url
         waiver_document = get_current_waiver(tenant)
+        local_now = timezone.localtime()
+        today = local_now.date()
         groups = ReservationGroup.objects.filter(
             client=tenant, user=request.user,
         ).select_related('campus').prefetch_related(
@@ -2973,6 +2990,7 @@ class MemberCenterAPI(APIView):
                         'other_students': max(registered_students - reservation.number_of_people, 0),
                         'ability_level_label': shared.get_ability_level_display(),
                     }
+                course_bookings = sorted(reservation.bookings.all(), key=lambda item: (item.date, item.start_time, item.pk))
                 bookings = [{
                     'id': booking.id,
                     'course_name': booking.course_name,
@@ -2980,14 +2998,14 @@ class MemberCenterAPI(APIView):
                     'start_time': str(booking.start_time)[:5],
                     'end_time': str(booking.end_time)[:5],
                     'is_scheduled': booking.is_scheduled,
-                } for booking in reservation.bookings.all().order_by('date', 'start_time')]
+                } for booking in course_bookings]
                 reservations.append({
                     'id': reservation.id,
                     'resort': reservation.resort.display_name if reservation.resort else '未指定',
                     'course_type': reservation.course_type.name if reservation.course_type else '',
                     'service_type': reservation.course_type.category.service_type if reservation.course_type else 'ski',
                     'course_template': reservation.course_template.name if reservation.course_template else '',
-                    'coach': reservation.preferred_coach.name if reservation.preferred_coach else '安排中',
+                    'coach': member_visible_coach_name(reservation, course_bookings, today),
                     'is_shared_class': reservation.shared_course_class_id is not None,
                     'is_preferred_coach': reservation.is_preferred_coach and reservation.shared_course_class_id is None,
                     'shared_class_summary': shared_summary,
@@ -3067,7 +3085,7 @@ class MemberCenterAPI(APIView):
             Q(user=request.user) | Q(guardian=request.user),
             reservation__group__client=tenant,
         ).select_related(
-            'reservation__group', 'reservation__resort', 'reservation__course_type',
+            'reservation__group', 'reservation__resort', 'reservation__course_type__category',
             'reservation__course_template', 'reservation__preferred_coach', 'user',
         ).prefetch_related('reservation__bookings').order_by(
             '-reservation__group__created_at', 'reservation_id', 'id',
@@ -3130,13 +3148,14 @@ class MemberCenterAPI(APIView):
                 continue
             if reservation.pk not in participant_courses:
                 payment = group.payments.order_by('-created_at', '-pk').first()
+                course_bookings = sorted(reservation.bookings.all(), key=lambda item: (item.date, item.start_time, item.pk))
                 participant_courses[reservation.pk] = {
                     'id': reservation.pk,
                     'resort': reservation.resort.display_name if reservation.resort else '雪場安排中',
                     'course_name': reservation.course_template.name if reservation.course_template else (
                         reservation.course_type.name if reservation.course_type else '滑雪課程'
                     ),
-                    'coach': reservation.preferred_coach.name if reservation.preferred_coach else '安排中',
+                    'coach': member_visible_coach_name(reservation, course_bookings, today),
                     'status': reservation.status,
                     'payment_status': payment.status if payment else 'unpaid',
                     'student_names': [], 'student_count': 0,
@@ -3145,12 +3164,11 @@ class MemberCenterAPI(APIView):
                     'bookings': [{
                         'id': booking.pk, 'date': str(booking.date),
                         'start_time': str(booking.start_time)[:5], 'end_time': str(booking.end_time)[:5],
-                    } for booking in sorted(reservation.bookings.all(), key=lambda item: (item.date, item.start_time, item.pk))],
+                    } for booking in course_bookings],
                 }
             participant_courses[reservation.pk]['student_names'].append(member.display_name)
             participant_courses[reservation.pk]['student_count'] += 1
 
-        local_now = timezone.localtime()
         evaluations = CourseEvaluation.objects.filter(
             Q(member__user=request.user) | Q(member__guardian=request.user),
             member__is_active=True,

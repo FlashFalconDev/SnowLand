@@ -55,13 +55,24 @@ for (const [name, check] of [
     const detail = renderToStaticMarkup(React.createElement(context.Orders, { data: { orders: [order] } }))
     assert.ok(detail.includes('QA-only'))
   }],
-  ['school-assigned coach is not presented as customer-designated', () => {
-    const ordinary = renderCard({...order,reservations:[{...active,is_preferred_coach:false}]})
-    assert.ok(ordinary.includes('不指定'));assert.ok(!ordinary.includes('QA教練'))
-    const designated = renderCard({...order,reservations:[{...active,is_preferred_coach:true}]})
-    assert.ok(designated.includes('QA教練'))
-    const shared = renderCard({...order,reservations:[{...active,is_shared_class:true,is_preferred_coach:true}]})
-    assert.ok(shared.includes('由學校安排'));assert.ok(!shared.includes('QA教練'))
+  ['summary and detail use the same member-visible coach label', () => {
+    const renderDetail = reservation => renderToStaticMarkup(React.createElement(context.Orders, {
+      data: { orders: [{ ...order, reservations: [reservation] }] },
+    }))
+    for (const reservation of [
+      { ...active, coach: '安排中', is_preferred_coach: false },
+      { ...active, coach: '安排中', is_shared_class: true, is_preferred_coach: true },
+    ]) {
+      const html = renderDetail(reservation)
+      assert.equal((html.match(/由學校安排/g) || []).length, 2)
+      assert.ok(!html.includes('不指定') && !html.includes('QA教練'))
+    }
+    for (const is_preferred_coach of [true, false]) {
+      const html = renderDetail({ ...active, is_preferred_coach })
+      assert.equal((html.match(/QA教練/g) || []).length, 2)
+    }
+    const pending = renderDetail({ ...active, coach: '安排中', is_preferred_coach: true })
+    assert.equal((pending.match(/指定教練待安排/g) || []).length, 2)
   }],
   ['card days count unique active dates, not sessions or cancelled history', () => {
     const html=renderCard({...order,reservations:[cancelled,{...active,bookings:[
