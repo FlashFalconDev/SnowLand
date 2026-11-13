@@ -123,7 +123,6 @@ class VehicleTests(TestCase):
         response = self.api.get(own['return_photo'])
         self.assertEqual(response.status_code, 200)
         self.assertEqual(b''.join(response.streaming_content), png_bytes())
-        response.close()
         charge = VehicleCharge.objects.get(coach=self.driver)
         for month, amount, deduction in ((charge.first_month, 50, 50), (charge.last_month, 80, 49)):
             statement = PayrollStatement.objects.create(coach=self.driver, campus=self.campus, period_start=month,
