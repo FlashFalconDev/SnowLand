@@ -3426,10 +3426,11 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='coach-workload')
     def coach_workload_report(self, request, *args, **kwargs):
-        requested_start, requested_end = _query_date_bounds(request)
-        if not requested_start or not requested_end or (requested_end - requested_start).days >= 366:
+        if not request.user.is_superuser:
+            raise PermissionDenied('只有最大管理員可以查看教練排課統計')
+        start, end = _query_date_bounds(request)
+        if not start or not end or (end - start).days >= 366:
             raise ValidationError('請選擇 366 天內的起訖日期')
-        start, end = self._visible_date_bounds()
         campus_ids = (None if request.can_view_all_campuses and request.selected_campus_id is None
                       else _campus_ids(request))
         resort = None
@@ -3442,7 +3443,7 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
         report = coach_workload(
             tenant=request.tenant, campus_ids=campus_ids, start=start, end=end, resort=resort,
             schedule_statuses=SCHEDULED_RESERVATION_STATUSES,
-            can_view_settings=user_has_admin_permission(request.user, 'coach_directory', request.tenant),
+            can_view_settings=True,
         )
         return Response({'code': 200, 'msg': 'OK', 'data': report})
 

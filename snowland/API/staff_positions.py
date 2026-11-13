@@ -22,6 +22,10 @@ CAMPUS_ORDER_RESTRICTIONS = {'order_edit', 'order_payments', 'order_refunds'}
 
 def usable_permissions(permissions, role, all_campuses):
     blocked = set()
+    if role not in {'hq_admin', 'campus_principal', 'campus_manager'}:
+        blocked.add('vehicle_review')
+    if role not in {'hq_admin', 'assistant'}:
+        blocked.add('vehicle_finance')
     if role != 'hq_admin' or not all_campuses:
         blocked.update(HEADQUARTERS_ONLY)
     if role in {'campus_manager', 'campus_principal'}:

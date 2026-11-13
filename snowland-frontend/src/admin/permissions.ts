@@ -15,6 +15,8 @@ export function hasAdminPermission(user: AdminUser | null | undefined, permissio
   if (!permission) return !!user?.is_manager || !!user?.is_superuser
   if (user?.is_superuser) return true
   if (!user?.is_manager) return false
+  if (permission === 'vehicle_review' && !['hq_admin', 'campus_principal', 'campus_manager'].includes(user.role || '')) return false
+  if (permission === 'vehicle_finance' && !['hq_admin', 'assistant'].includes(user.role || '')) return false
   if (['member_loyalty', 'social_sync', 'staff', 'order_export'].includes(permission) &&
     (user.role !== 'hq_admin' || !user.can_view_all_campuses)) return false
   if (['order_edit', 'order_payments', 'order_refunds'].includes(permission) &&

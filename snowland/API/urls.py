@@ -58,6 +58,7 @@ from .instagram_sync import InstagramSyncViewSet
 from .frontend_releases import FrontendReleaseViewSet
 from .staff_positions import staff_positions, staff_position_detail
 from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet
+from .vehicle_views import VehicleDesk, VehicleFile
 
 
 # 後台 ViewSet router
@@ -116,6 +117,10 @@ urlpatterns = [
     path('admin/<str:client_code>/staff-positions/', staff_positions, name='admin-staff-positions'),
     path('admin/<str:client_code>/staff-positions/<int:position_id>/', staff_position_detail, name='admin-staff-position-detail'),
     path('admin/<str:client_code>/dashboard/', dashboard_stats, name='admin-dashboard'),
+    path('admin/<str:client_code>/vehicles/', VehicleDesk.as_view(), name='admin-vehicles'),
+    path('admin/<str:client_code>/vehicles/<int:trip_id>/files/<str:file_key>/', VehicleFile.as_view(), name='admin-vehicle-file'),
+    path('admin/<str:client_code>/coach/vehicles/', VehicleDesk.as_view(), {'personal': True}, name='coach-vehicles'),
+    path('admin/<str:client_code>/coach/vehicles/<int:trip_id>/files/<str:file_key>/', VehicleFile.as_view(), {'personal': True}, name='coach-vehicle-file'),
     path('admin/<str:client_code>/orders/<int:order_id>/send-email/', send_order_email, name='admin-order-send-email'),
     path('admin/<str:client_code>/resorts/<int:resort_id>/bulk-fees/', bulk_update_resort_fees, name='admin-resort-bulk-fees'),
     path('admin/<str:client_code>/coach/pending/', coach_pending_confirmations, name='admin-coach-pending'),

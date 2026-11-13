@@ -30,6 +30,7 @@ export interface PayrollSettlement {
   version: number; base_currency: 'TWD'; base_amount: number; currency: 'TWD'|'JPY'; rate: string
   gross_amount: number; deductions: {name:string;basis:number;percent:string;amount:number}[]
   deduction_total: number; net_amount: number; base_net_amount: number; base_deduction_total: number
+  vehicle_deduction_twd?: number; vehicle_deduction_amount?: number; net_after_vehicle?: number; base_net_after_vehicle?: number
   note: string; reviewed_by: number; reviewed_at: string
 }
 export interface PayrollStatement {

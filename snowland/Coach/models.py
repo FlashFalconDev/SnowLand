@@ -398,3 +398,6 @@ class StaffIncentiveLine(models.Model):
     base_amount = models.PositiveBigIntegerField()
     percent = models.DecimalField(max_digits=5, decimal_places=2)
     amount = models.BigIntegerField()
+
+
+from .vehicle_models import Vehicle, VehicleCharge, VehicleDeduction, VehicleExpense, VehiclePolicy, VehicleTrip  # noqa: E402,F401

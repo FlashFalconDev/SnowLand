@@ -14,6 +14,8 @@ import DiscountsPage from './pages/DiscountsPage'
 import OrdersPage from './pages/OrdersPage'
 import CustomersPage from './pages/CustomersPage'
 import SchedulingPage from './pages/SchedulingPage'
+import VehiclePage from './pages/VehiclePage'
+import CoachWorkloadPanel from './components/CoachWorkloadPanel'
 import CoachLeavesPage from './pages/CoachLeavesPage'
 import StaffPermissionsPage from './pages/StaffPermissionsPage'
 import PaymentSettingsPage from './pages/PaymentSettingsPage'
@@ -51,6 +53,10 @@ const pages: Record<ConsolePath, ReactElement> = {
   'customers/loyalty': <CustomersPage key="loyalty" loyalty />,
   'cms/membership': <SiteContentPage initialGroup="membership" section="course_documents" />,
   'scheduling': <SchedulingPage />,
+  'vehicles/review': <VehiclePage key="vehicle-review" mode="review" />,
+  'vehicles/finance': <VehiclePage key="vehicle-finance" mode="finance" />,
+  'my/vehicles': <VehiclePage key="vehicle-coach" mode="coach" />,
+  'coach-workload': <CoachWorkloadPanel />,
   'coaches': <CoachesPage />,
   'coaches/leaves': <CoachLeavesPage />,
   'evaluations': <OperationsHubPage initialTab="evaluations" fixed />,

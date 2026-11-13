@@ -11,7 +11,6 @@ import { fetchAdminMe } from '../api/auth'
 import { fetchOrder, type Order } from '../api/orders'
 import { OrderDetailDrawer, OrderDetailStatusDrawer } from './OrdersPage'
 import CoachScheduleTable from './CoachScheduleTable'
-import CoachWorkloadPanel from '../components/CoachWorkloadPanel'
 
 const PRIMARY = '#8b5cf6'
 const EQUIPMENT_COLOR = '#d97706'
@@ -156,7 +155,6 @@ export default function SchedulingPage() {
   const isCampusManager = adminMe?.user?.role === 'campus_manager'
   const isCampusOrderViewer = isCampusManager || adminMe?.user?.role === 'campus_principal'
   const canManageSharedClass = Boolean(adminMe?.user?.is_superuser || adminMe?.user?.role === 'hq_admin')
-  const [showWorkload, setShowWorkload] = useState(false)
   const today = new Date()
   const [viewMode, setViewMode] = useState<ScheduleViewMode>('month')
   const [calendarLayout, setCalendarLayout] = useState<'calendar' | 'coaches'>('calendar')
@@ -434,13 +432,7 @@ export default function SchedulingPage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">排課管理</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">切換日、週、多週或月視圖；教練排班表可對照每位教練的課程與休假。</p>
         {isCampusManager && <p className="mt-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm text-purple-800 dark:border-purple-800 dark:bg-purple-900/20 dark:text-purple-200">校區主管只顯示所屬校區從今天起 10 天內的排課；其他日期不會顯示課程。</p>}
-        <button type="button" aria-expanded={showWorkload} onClick={() => setShowWorkload(!showWorkload)}
-          className="mt-3 min-h-11 rounded-lg border border-violet-300 px-4 text-sm font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-600 dark:text-violet-200 dark:hover:bg-violet-900/30">
-          {showWorkload ? '收起教練排課統計' : '查看教練排課統計'}
-        </button>
       </div>
-
-      {showWorkload && <CoachWorkloadPanel />}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
