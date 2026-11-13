@@ -115,11 +115,15 @@ class VehicleTests(TestCase):
         self.api.force_authenticate(self.driver.user)
         self.assertEqual(self.api.get(result['return_photo']).status_code, 403)
         own = self.api.get(self.personal).data['data']['trips'][0]
+        self.api.force_authenticate(self.west_coach.user)
+        self.assertEqual(self.api.get(self.personal).status_code, 200)
+        denied = self.api.get(own['return_photo'])
+        self.assertEqual(denied.status_code, 404, denied.data)
+        self.api.force_authenticate(self.driver.user)
         response = self.api.get(own['return_photo'])
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(b''.join(response.streaming_content), png_bytes())
         response.close()
-        self.api.force_authenticate(self.west_coach.user)
-        self.assertEqual(self.api.get(own['return_photo']).status_code, 404)
         charge = VehicleCharge.objects.get(coach=self.driver)
         for month, amount, deduction in ((charge.first_month, 50, 50), (charge.last_month, 80, 49)):
             statement = PayrollStatement.objects.create(coach=self.driver, campus=self.campus, period_start=month,
