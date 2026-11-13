@@ -25,6 +25,7 @@ from types import SimpleNamespace
 
 from Client.models import Client, SiteContent
 from .payroll_security import PayrollCsrfMixin
+from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
 from Resorts.models import Resorts, Campus, PaymentAccount, OperatingPolicy
 from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseSession, CoursePricing, SeasonSetting, DiscountCode
@@ -3351,24 +3352,6 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
         tenant = getattr(self.request, 'tenant', None)
         if not tenant:
             return Booking.objects.none()
-        photo_booking_q = (
-            Q(reservation__course_type__category__service_type='photo') |
-            Q(reservation__course_type__category__name__icontains='攝影') |
-            Q(reservation__course_type__category__name__icontains='Photography') |
-            Q(reservation__course_type__category__name__icontains='Photo') |
-            Q(reservation__course_type__name__icontains='攝影') |
-            Q(reservation__course_type__name__icontains='Photography') |
-            Q(reservation__course_type__name__icontains='Photo') |
-            Q(reservation__course_template__name__icontains='攝影') |
-            Q(reservation__course_template__name__icontains='Photography') |
-            Q(reservation__course_template__name__icontains='Photo') |
-            Q(course_type__icontains='攝影') |
-            Q(course_type__icontains='Photography') |
-            Q(course_type__icontains='Photo') |
-            Q(course_name__icontains='攝影') |
-            Q(course_name__icontains='Photography') |
-            Q(course_name__icontains='Photo')
-        )
         scheduled_course_q = (
             Q(reservation__preferred_coach__isnull=False) &
             Q(reservation__status__in=SCHEDULED_RESERVATION_STATUSES)
@@ -3378,7 +3361,7 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
         ).exclude(
             reservation__status__in=['deleted', 'cancelled', 'auto_assignment_failed'],
         ).filter(
-            scheduled_course_q | photo_booking_q
+            scheduled_course_q | photography_booking_filter()
         ).select_related(
             'reservation',
             'reservation__resort',
@@ -3440,6 +3423,28 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
             'data': {'list': items, 'total': len(items), 'daily_summary': daily_summary,
                      'coaches': coaches, 'leaves': leaves},
         })
+
+    @action(detail=False, methods=['get'], url_path='coach-workload')
+    def coach_workload_report(self, request, *args, **kwargs):
+        requested_start, requested_end = _query_date_bounds(request)
+        if not requested_start or not requested_end or (requested_end - requested_start).days >= 366:
+            raise ValidationError('請選擇 366 天內的起訖日期')
+        start, end = self._visible_date_bounds()
+        campus_ids = (None if request.can_view_all_campuses and request.selected_campus_id is None
+                      else _campus_ids(request))
+        resort = None
+        resort_id = request.query_params.get('resort_id')
+        if resort_id:
+            if resort_id.isascii() and resort_id.isdecimal() and len(resort_id) <= 19:
+                resort = workload_resorts(request.tenant, campus_ids).filter(pk=int(resort_id)).first()
+            if resort is None:
+                raise ValidationError({'resort_id': '請選擇目前校區可查看的雪場'})
+        report = coach_workload(
+            tenant=request.tenant, campus_ids=campus_ids, start=start, end=end, resort=resort,
+            schedule_statuses=SCHEDULED_RESERVATION_STATUSES,
+            can_view_settings=user_has_admin_permission(request.user, 'coach_directory', request.tenant),
+        )
+        return Response({'code': 200, 'msg': 'OK', 'data': report})
 
     @action(detail=False, methods=['get'], url_path='group-candidates')
     def group_candidates(self, request, *args, **kwargs):

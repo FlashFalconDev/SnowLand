@@ -130,6 +130,43 @@ export async function fetchBookings(params?: { start?: string; end?: string }): 
   return data.bookings
 }
 
+export interface CoachWorkloadRow {
+  id: number
+  name: string | null
+  lesson_count: number
+  assigned_seconds: number
+  completed_seconds: number
+  pending_seconds: number
+  specified_seconds: number
+  leave_days: number | null
+  settings: {
+    availability: string
+    auto_assignment_enabled: boolean
+    customer_selectable: boolean
+    schedule_visibility: string
+    languages: string[]
+    assignment_score: number
+    campuses: string[]
+    resorts: { id: number; name: string; priority: number; weight: number; auto_assignment_enabled: boolean }[]
+    courses: { id: number; name: string; order: number; ability_levels: string[]; price_level: string }[]
+  } | null
+}
+
+export interface CoachWorkloadReport {
+  start: string
+  end: string
+  has_visible_dates: boolean
+  resorts: { id: number; display_name: string }[]
+  coaches: CoachWorkloadRow[]
+}
+
+export async function fetchCoachWorkload(params: { start: string; end: string; resort_id?: string }): Promise<CoachWorkloadReport> {
+  const response = (await adminApi.get('/bookings/coach-workload/', { params })) as unknown as {
+    data: CoachWorkloadReport
+  }
+  return response.data
+}
+
 export async function fetchGroupCandidates(params: { start: string; end: string }): Promise<GroupCandidate[]> {
   const res = (await adminApi.get('/bookings/group-candidates/', { params })) as unknown as {
     data: { list: GroupCandidate[] }
