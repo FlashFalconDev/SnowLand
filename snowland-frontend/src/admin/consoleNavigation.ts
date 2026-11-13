@@ -5,6 +5,9 @@ import { canPrepareStaffBooking, canUseFrontendSupport, hasAdminPermission } fro
 export const consoleNavigation = [
   { id: 'overview', label: '營運總覽', icon: LayoutDashboard, pages: [
     { path: '', label: '營運看板與報表', access: 'analytics' },
+    { path: 'coach-workload', label: '教練排課統計', access: '@superuser' },
+    { path: 'vehicles/review', label: '車輛排班與用車審核', access: 'vehicle_review' },
+    { path: 'vehicles/finance', label: '車輛費率與費用核准', access: 'vehicle_finance' },
   ] },
   { id: 'members', label: '會員與課前資料', icon: Users, pages: [
     { path: 'customers', label: '會員名單', access: 'member_directory' },
@@ -20,6 +23,7 @@ export const consoleNavigation = [
     { path: 'my/pending', label: '我的待確認課程', access: '@coach' },
     { path: 'my/courses', label: '我的課程', access: '@coach' },
     { path: 'my/calendar', label: '我的月曆', access: '@coach' },
+    { path: 'my/vehicles', label: '我的用車', access: '@coach' },
     { path: 'my/evaluations', label: '我的學員評量', access: '@coach' },
     { path: 'my/leaves', label: '我的請假紀錄', access: '@coach' },
     { path: 'my/leaves/apply', label: '申請請假', access: '@coach' },
@@ -86,6 +90,7 @@ export type ConsolePath = ConsolePage['path']
 export function canOpenConsolePage(page: ConsolePage, user: AdminUser | null | undefined, basePath: string) {
   if (page.access === 'booking_links') return canPrepareStaffBooking(user)
   if (page.access === '@coach') return user?.is_coach === true
+  if (page.access === '@superuser') return user?.is_superuser === true
   if (page.access === '@platform') return canUseFrontendSupport(basePath, user)
   return hasAdminPermission(user, page.access)
 }

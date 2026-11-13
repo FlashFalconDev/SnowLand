@@ -1,14 +1,18 @@
 """Publish/confirm payroll only; never pays funds or signs a document."""
 import uuid
+from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
 
+from Client.models import Client
 from .models import PayrollStatement
+from .vehicle_payroll import vehicle_deduction_plan
 
 
 @transaction.atomic
 def publish_statement(statement, deadline, expected_reviewed_at=None):
+    Client.objects.select_for_update().get(pk=statement.coach.client_id)
     statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('只能送出草稿薪資單，請重新載入目前狀態')
@@ -22,6 +26,13 @@ def publish_statement(statement, deadline, expected_reviewed_at=None):
         raise ValueError('薪資已變更，請重新核對稅金與發放幣別後再送出')
     if expected_reviewed_at is not None and expected_reviewed_at != statement.settlement_snapshot.get('reviewed_at'):
         raise ValueError('稅金核對版本已變更，請重新載入核對後再送出')
+    settlement = statement.settlement_snapshot
+    current, _ = vehicle_deduction_plan(
+        statement, settlement.get('base_net_amount', statement.total_amount),
+        settlement.get('net_amount', statement.total_amount), Decimal(settlement.get('rate', '1')),
+    )
+    if current.get('vehicle_deductions', []) != settlement.get('vehicle_deductions', []):
+        raise ValueError('車資扣款已變更，請重新儲存薪資核對結果再送出')
     statement.status = 'review'
     statement.published_at = timezone.now()
     statement.confirmation_deadline = deadline

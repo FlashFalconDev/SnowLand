@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from Client.models import Client
 from .models import PayrollStatement
 
 
@@ -27,6 +28,8 @@ def rounded(value):
 
 @transaction.atomic
 def save_settlement(statement, data, user):
+    # Vehicle approvals and payroll allocations share the tenant lock.
+    Client.objects.select_for_update().get(pk=statement.coach.client_id)
     statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('僅草稿可設定稅金與發放幣別')
@@ -79,5 +82,7 @@ def save_settlement(statement, data, user):
         'deduction_total': deduction_total, 'net_amount': net, 'base_net_amount': base_net,
         'base_deduction_total': int(expected) - base_net, 'note': note.strip(),
         'reviewed_by': user.pk, 'reviewed_at': reviewed_at.isoformat()}
+    from .vehicle_payroll import apply_vehicle_deductions
+    statement.settlement_snapshot.update(apply_vehicle_deductions(statement, base_net, net, rate))
     statement.save(update_fields=['settlement_snapshot', 'updated_at'])
     return statement

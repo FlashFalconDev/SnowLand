@@ -415,7 +415,7 @@ function AdminLayoutContent() {
       id: group.id,
       label: group.label,
       icon: group.icon,
-      hasSubmenu: group.pages.length > 1 || group.id === 'system',
+      hasSubmenu: (group.id === 'overview' ? children.length > 1 || children[0].id !== '' : group.pages.length > 1) || group.id === 'system',
       children,
     }] : []
   })

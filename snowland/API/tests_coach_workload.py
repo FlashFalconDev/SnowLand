@@ -139,22 +139,20 @@ class CoachWorkloadTests(TestCase):
         self.assertEqual([(row['id'], row['assigned_seconds']) for row in west_report['coaches']],
                          [(self.outside_coach.pk, 3600)])
 
-    def test_manager_date_limit_and_permissions(self):
-        manager = self.make_staff('campus_manager', ['scheduling'])
-        self.api.force_authenticate(manager)
-        self.add_lesson(day=self.today + timedelta(days=11))
-        report = self.get_report(start=self.today - timedelta(days=1), end=self.today + timedelta(days=20))
-        self.assertEqual(report['start'], self.today.isoformat())
-        self.assertEqual(report['end'], (self.today + timedelta(days=10)).isoformat())
-        self.assertEqual(report['coaches'][0]['assigned_seconds'], 7200)
-        self.assertTrue(all(row['settings'] is None for row in report['coaches']))
-        self.assertFalse(self.get_report(start=self.today - timedelta(days=3), end=self.today - timedelta(days=1))['has_visible_dates'])
-        self.assertEqual(self.api.get(self.url, {'start': self.day, 'end': self.day,
-                                                'resort_id': self.second_resort.pk}).status_code, 400)
-        self.assertEqual(self.api.get(self.url, {'start': self.day, 'end': self.day},
-                                      HTTP_X_CAMPUS_ID=str(self.second_campus.pk)).status_code, 403)
-        self.api.force_authenticate(self.coach_user)
-        self.assertEqual(self.api.get(self.url, {'start': self.day, 'end': self.day}).status_code, 403)
+    def test_workload_requires_superuser_even_with_scheduling_permission(self):
+        params = {'start': self.day, 'end': self.day}
+        for role in ('hq_admin', 'campus_principal', 'campus_manager', 'staff'):
+            with self.subTest(role=role):
+                user = self.make_staff(role, ['scheduling', 'coach_directory'])
+                self.api.force_authenticate(user)
+                self.assertEqual(self.api.get('/api/admin/snowland/bookings/', params).status_code, 200)
+                response = self.api.get(self.url, params)
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.data['detail'], '只有最大管理員可以查看教練排課統計')
+
+        for user in (self.coach_user, None):
+            self.api.force_authenticate(user)
+            self.assertEqual(self.api.get(self.url, params).status_code, 403)
 
     def test_leave_days_are_clipped_deduplicated_and_private(self):
         for offset in (-1, 0):
