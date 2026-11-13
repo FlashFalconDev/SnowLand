@@ -111,6 +111,13 @@ class CoachWorkloadTests(TestCase):
         self.assertEqual((row['lesson_count'], row['assigned_seconds'], row['completed_seconds'],
                           row['pending_seconds']), (2, 10800, 10800, 0))
 
+    def test_expired_payment_keeps_completed_teaching_history(self):
+        self.add_lesson(starts=15, ends=16, status='completed', payment='expired')
+        self.add_lesson(starts=16, ends=17, payment='expired')
+        row = self.get_report()['coaches'][0]
+        self.assertEqual((row['lesson_count'], row['assigned_seconds'], row['completed_seconds']),
+                         (2, 10800, 10800))
+
     def test_scope_filter_retains_history_and_uses_latest_payment(self):
         self.add_lesson(coach=self.outside_coach, campus=self.second_campus, resort=self.second_resort)
         self.add_lesson(coach=self.outside_coach)

@@ -40,6 +40,7 @@ export default function CoachWorkloadPanel() {
   const [month] = useState(payrollMonthRange)
   const [filters, setFilters] = useState({ start: month.first, end: month.last, resort_id: '' })
   const [applied, setApplied] = useState(filters)
+  const [lastResorts, setLastResorts] = useState<NonNullable<Awaited<ReturnType<typeof fetchCoachWorkload>>>['resorts']>([])
   const [formError, setFormError] = useState('')
   const [sort, setSort] = useState('most')
   const report = useQuery({
@@ -52,7 +53,7 @@ export default function CoachWorkloadPanel() {
   const total = coaches.reduce((sum, coach) => sum + coach.assigned_seconds, 0)
   const highest = coaches[0]?.assigned_seconds ?? 0
   const lowest = coaches[coaches.length - 1]?.assigned_seconds ?? 0
-  const resorts = data?.resorts ?? []
+  const resorts = data?.resorts ?? lastResorts
 
   return (
     <section aria-labelledby="coach-workload-title" className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white sm:p-5">
@@ -71,6 +72,7 @@ export default function CoachWorkloadPanel() {
           return
         }
         setFormError('')
+        if (data) setLastResorts(data.resorts)
         if (filters.start === applied.start && filters.end === applied.end && filters.resort_id === applied.resort_id) {
           void report.refetch()
         } else {
@@ -95,7 +97,7 @@ export default function CoachWorkloadPanel() {
       <details className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
         <summary className="min-h-8 cursor-pointer font-semibold">時數怎麼算？排課設定怎麼看？</summary>
         <ul className="space-y-2 pb-2 pl-4 text-gray-700 dark:text-gray-300">
-          <li>總排課時數包含已排、待教練確認和完課的滑雪課程。指定、待確認、已完課是其中的明細，同一團體班只計一次。統計按課表時段長度計算，供排課比較使用。平均值包含表中零時數的教練。</li>
+          <li>總排課時數包含已排、待教練確認和完課的滑雪課程。仍保留排課的未付款課程也會算入。指定、待確認、已完課是其中的明細，同一團體班只計一次。統計按課表時段長度計算，平均值包含表中零時數的教練。</li>
           <li>新單或 AI 排課會檢查自動排課開關、校區、雪場、語言、可接程度、課程限定名單或最低等級、休假及時段。符合條件後，再依可直接接課、課程接課順序和分派權重挑選。順序和權重數字越小越優先。</li>
           <li>教練拒接後，系統排除已拒接者，依接課狀態、雪場優先順序及分派權重重派。同順位才比較系統已排時數，計算範圍與此報表的自選日期各自獨立。</li>
           <li>客人可指定、教練端課表可見範圍各自控制名單與顯示。有教練名冊權限的使用者可展開個別教練，查看目前設定。</li>

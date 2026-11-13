@@ -49,7 +49,7 @@ def coach_workload(*, tenant, campus_ids, start, end, resort, schedule_statuses,
         reservation__preferred_coach__client=tenant,
         reservation__status__in=schedule_statuses,
     ).alias(payment_status=Coalesce(Subquery(latest_payment), Value('unpaid'))).exclude(
-        Q(payment_status__in=('expired', 'refunded'))
+        (Q(payment_status__in=('expired', 'refunded')) & ~Q(reservation__status='completed'))
         | Q(reservation__shared_course_class__status='cancelled')
         | photography_booking_filter()
         | Q(course_name__icontains='旅拍') | Q(course_type__icontains='旅拍')
