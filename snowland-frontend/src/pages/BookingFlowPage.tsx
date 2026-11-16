@@ -739,7 +739,7 @@ const getPurchasedEquipmentSlotLabel = (slot: any, courseDateKeys: string[] = []
 
 export default function BookingFlowPage() {
   const [learnerChoices, setLearnerChoices] = useState<LearnerChoices>({})
-  const { t } = useSiteLocale()
+  const { t, siteText } = useSiteLocale()
   const navigate = useNavigate()
   const {clientCode='snowland'}=useParams<{clientCode:string}>()
   const { user, loading: authLoading } = useAuth()
@@ -2513,7 +2513,7 @@ export default function BookingFlowPage() {
                 <section className="mx-auto max-w-2xl space-y-4 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm">
                   <h2 className="text-xl font-semibold text-[#1f2937]">{t('確認替客人選的課程')}</h2>
                   <p className="text-sm text-[#64748b]">{t('這裡只準備課程，不會替客人送單或扣款。確認後回後台建立連結，客人登入後再填資料及付款。')}</p>
-                  {cart.map(group => <div key={group.id} className="rounded-sm border border-[#e2e8f0] p-4 text-sm text-[#1f2937]"><b>{group.resortName} · {t('{count} 位學員',{count:group.peopleCount})}</b>{group.courses.map(course => <p key={`${course.courseTemplateId}-${course.date}-${course.timeSlotStart}`} className="mt-1 text-[#64748b]">{course.courseTemplateName} · {course.date} {course.timeSlotStart}–{course.timeSlotEnd}</p>)}<p className="mt-2 font-semibold">{t('小計')} {formatCurrency(group.totalPrice)}</p><button type="button" onClick={() => handleEditCartGroup(group.id)} className="mt-2 min-h-11 text-sm font-semibold text-[#2b5f8f]">{t('修改這組課程')}</button></div>)}
+                  {cart.map(group => <div key={group.id} className="rounded-sm border border-[#e2e8f0] p-4 text-sm text-[#1f2937]"><b>{group.resortName} · {t('{count} 位學員',{count:group.peopleCount})}</b>{group.courses.map(course => <p key={`${course.courseTemplateId}-${course.date}-${course.timeSlotStart}`} className="mt-1 text-[#64748b]">{siteText?.(`template:${course.courseTemplateId}`, 'name', course.courseTemplateName) ?? course.courseTemplateName} · {course.date} {course.timeSlotStart}–{course.timeSlotEnd}</p>)}<p className="mt-2 font-semibold">{t('小計')} {formatCurrency(group.totalPrice)}</p><button type="button" onClick={() => handleEditCartGroup(group.id)} className="mt-2 min-h-11 text-sm font-semibold text-[#2b5f8f]">{t('修改這組課程')}</button></div>)}
                   <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t("增加新組別課程")}</button><a href={staffConsoleUrl} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t('回後台建立連結')}</a></div>
                 </section>
               ) : currentStep === 3 && (
@@ -2856,7 +2856,7 @@ function Step2SkiConfiguration({
   coachLevelFilter, setCoachLevelFilter, coachLevelOptions,
   state, actions,
 }: any) {
-  const { t, locale } = useSiteLocale()
+  const { t, locale, siteText } = useSiteLocale()
   const selectedResortInfo = resorts.find((r: any) => r.name === state.selectedResort)
   const selectedCourseTypeInfo = courseTypes.find((courseType: any) => courseType.id === state.selectedCourseType)
   const selectedTemplateInfo = templates.find((t: any) => t.id === state.selectedCourseTemplate)
@@ -2954,7 +2954,7 @@ function Step2SkiConfiguration({
                   : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
               }`}
             >
-              <p className="font-semibold text-[#1f2937] font-display">{courseType.name}</p>
+              <p className="font-semibold text-[#1f2937] font-display">{siteText?.(`type:${courseType.id}`, 'name', courseType.name) ?? courseType.name}</p>
             </button>
           ))}
           {courseTypes.length === 0 && (
@@ -3341,9 +3341,9 @@ function Step2SkiConfiguration({
                       : 'border-[#e5e9f2] bg-white hover:border-[#2b5f8f]'
                   }`}
                 >
-                  <p className="font-semibold text-[#1f2937] font-display">{template.name}</p>
+                  <p className="font-semibold text-[#1f2937] font-display">{siteText?.(`template:${template.id}`, 'name', template.name) ?? template.name}</p>
                   <p className="mt-2 text-xs text-[#64748b]">
-                    {[template.course_type_name, t('{hours} 小時', { hours: template.duration_hours })].filter(Boolean).join(' · ')}
+                    {[siteText?.(`type:${template.course_type_id}`, 'name', template.course_type_name) ?? template.course_type_name, t('{hours} 小時', { hours: template.duration_hours })].filter(Boolean).join(' · ')}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium">
                     <span className="rounded-sm bg-[#e9eef3] px-2 py-1 text-[#2b5f8f]">
@@ -3656,7 +3656,7 @@ function Step3Confirmation({
   staffSelectedCart,
   onRemoveGroup, onRemoveCourse, onEditGroup, onAddGroup, onAddCourseToGroup,
 }: any) {
-  const { t, locale } = useSiteLocale()
+  const { t, locale, siteText } = useSiteLocale()
   const cartSubtotal = submittedReservation?.total_amount ?? discountPreview?.subtotal ?? cart.reduce((sum: number, g: any) => sum + (g.totalPrice || 0), 0)
   const pricePending = !submittedReservation && !discountPreview && cart.some((group: CartItem) => group.totalPrice == null)
   const totalCourses = cart.reduce((sum: number, g: any) => sum + (g.courses?.length || 0), 0)
@@ -3834,7 +3834,9 @@ function Step3Confirmation({
                             {t('第 {number} 項課程',{number:segmentIndex+1})}
                           </p>
                           <p className="text-sm font-semibold text-[#1f2937]">
-                            {firstCourse?.courseTemplateName || firstCourse?.courseTypeName}
+                            {firstCourse?.courseTemplateName
+                              ? (siteText?.(`template:${firstCourse.courseTemplateId}`, 'name', firstCourse.courseTemplateName) ?? firstCourse.courseTemplateName)
+                              : (siteText?.(`type:${firstCourse?.courseTypeId}`, 'name', firstCourse?.courseTypeName) ?? firstCourse?.courseTypeName)}
                           </p>
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#64748b]">
                             <span className="inline-flex items-center gap-1">

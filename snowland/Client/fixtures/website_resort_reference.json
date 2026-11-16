@@ -1,0 +1,407 @@
+[
+  {
+    "slug": "kamui",
+    "description": "擁有ＦＩＳ認定的3道滑雪路線、以及寬闊未壓雪區域都具備極大魅力，為北海道北部最大的滑雪場。",
+    "tags": [
+      "初學者友善",
+      "友善樹林",
+      "天然溫泉",
+      "戶外活動豐富",
+      "租借服務",
+      "美麗風景"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 40
+      },
+      {
+        "label": "中級",
+        "value": 30
+      },
+      {
+        "label": "高級",
+        "value": 30
+      }
+    ],
+    "heroImage": "/Course/kamui/course-kamui-hero.jpg"
+  },
+  {
+    "slug": "asahikawasantapresentpark",
+    "description": "位於旭川近郊、距離 JR 旭川站約 15 分鐘的人氣家庭雪場，從初學到進階皆適合，夜滑開放至晚間 9 點，可一邊滑雪一邊欣賞迷人夜景，輕鬆安排完整的一日滑雪體驗。",
+    "tags": [
+      "夜滑雪道",
+      "親子同樂",
+      "新手友善",
+      "城市近郊"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 50
+      },
+      {
+        "label": "中級",
+        "value": 35
+      },
+      {
+        "label": "高級",
+        "value": 15
+      }
+    ],
+    "heroImage": "/Course/asahikawasantapresentpark/hero.jpg"
+  },
+  {
+    "slug": "furano",
+    "description": "北海道中部的王子系滑雪度假村，分為富良野與北之峰兩大區域，雪道寬廣且適合從初學到進階的滑行安排。",
+    "tags": [
+      "Ski in-out",
+      "新手友善",
+      "夜滑雪道",
+      "天然溫泉",
+      "戶外活動豐富",
+      "親子樂園",
+      "觀光飯店"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 40
+      },
+      {
+        "label": "中級",
+        "value": 40
+      },
+      {
+        "label": "高級",
+        "value": 20
+      },
+      {
+        "label": "壓雪",
+        "value": 78
+      },
+      {
+        "label": "非壓雪",
+        "value": 22
+      }
+    ],
+    "heroImage": "https://commons.wikimedia.org/wiki/Special:FilePath/Furano%20Snow%20Resort%20view1.JPG"
+  },
+  {
+    "slug": "pippu",
+    "description": "擁有 11.7 公里雪道與 7 座纜車的比布滑雪場，雪道變化充足，也有夜滑雪，適合從初學到中階的課程安排。",
+    "tags": [
+      "夜滑雪道",
+      "長距離滑行",
+      "新手友善",
+      "親子同樂"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 45
+      },
+      {
+        "label": "中級",
+        "value": 34
+      },
+      {
+        "label": "高級",
+        "value": 21
+      }
+    ],
+    "heroImage": "/Course/pippu/hero.jpg"
+  },
+  {
+    "slug": "canmore",
+    "description": "位於東川町、距離旭川不遠的 Canmore Ski Village - Higashikawa，規模小巧但有夜滑雪，適合想要輕鬆體驗北海道雪場氛圍的旅客。",
+    "tags": [
+      "夜滑雪道",
+      "鄰近旭川",
+      "親子友善",
+      "小型雪場"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 60
+      },
+      {
+        "label": "中級",
+        "value": 25
+      },
+      {
+        "label": "高級",
+        "value": 15
+      }
+    ],
+    "heroImage": "/Course/canmore/hero.jpg"
+  },
+  {
+    "slug": "mt-racey",
+    "description": "夕張是鄰近城市的滑雪場，適合新手與親子旅客安排輕鬆的滑雪行程。",
+    "tags": [
+      "初學者友善",
+      "親子同樂",
+      "鄰近市區"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 40
+      },
+      {
+        "label": "中級",
+        "value": 40
+      },
+      {
+        "label": "高級",
+        "value": 20
+      },
+      {
+        "label": "壓雪",
+        "value": 80
+      },
+      {
+        "label": "非壓雪",
+        "value": 20
+      }
+    ],
+    "heroImage": "/Course/mt-racey/mt-racey-hero.jpg"
+  },
+  {
+    "slug": "sapporo-kokusai",
+    "description": "在札幌近郊的滑雪場中，其營業時間較長，常年從11月中旬至5月上旬開放。這裏有適於從初學者到達人的7條滑道，還有可以使用雪橇、滑雪輪胎玩樂的雪公園（snow park）。",
+    "tags": [
+      "初學者友善",
+      "戶外活動豐富",
+      "親子同樂"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 30
+      },
+      {
+        "label": "中級",
+        "value": 50
+      },
+      {
+        "label": "高級",
+        "value": 20
+      },
+      {
+        "label": "壓雪",
+        "value": 90
+      },
+      {
+        "label": "非壓雪",
+        "value": 10
+      }
+    ],
+    "heroImage": "/Course/tomamu/240315-17_chris_tomamu_SB_Vanessa-IMG_20240317_130744.jpg"
+  },
+  {
+    "slug": "sahoro",
+    "description": "人潮較少、穩定粉雪與寬敞雪道，是享受悠閒滑行的理想雪場。",
+    "tags": [
+      "長距離滑雪",
+      "親子同樂",
+      "夜滑雪道"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 40
+      },
+      {
+        "label": "中級",
+        "value": 30
+      },
+      {
+        "label": "高級",
+        "value": 30
+      },
+      {
+        "label": "壓雪",
+        "value": 60
+      },
+      {
+        "label": "非壓雪",
+        "value": 30
+      },
+      {
+        "label": "貓跳滑雪",
+        "value": 10
+      }
+    ],
+    "heroImage": "/Course/sahoro/sahoro-hero-section-background.jpg"
+  },
+  {
+    "slug": "rusutsu",
+    "description": "留壽都渡假村位於羊蹄山山麓，從林道體驗猶如瀑布般的壯麗粉雪、刺激滿載的專家級路線，到初學者也能開心體驗的滑雪路線應有盡有。",
+    "tags": [
+      "Ski in-out",
+      "初學者友善",
+      "天然溫泉",
+      "戶外活動豐富",
+      "托兒服務",
+      "親子樂園",
+      "觀光飯店",
+      "購物"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 30
+      },
+      {
+        "label": "中級",
+        "value": 40
+      },
+      {
+        "label": "高級",
+        "value": 30
+      },
+      {
+        "label": "壓雪",
+        "value": 70
+      },
+      {
+        "label": "非壓雪",
+        "value": 15
+      },
+      {
+        "label": "Mogul",
+        "value": 15
+      }
+    ],
+    "heroImage": "/Course/rusutsu/rusutsu-hero-section-background.jpg"
+  },
+  {
+    "slug": "teine",
+    "description": "位於距離札幌市中心約40分鐘車程，交通非常便利，是札幌近郊最大規模的滑雪場。擁有世界首屈一指的雪質和場地結構，亦被當作許多國際大賽的場地。",
+    "tags": [
+      "初學者友善",
+      "奧運",
+      "摩天輪"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 35
+      },
+      {
+        "label": "中級",
+        "value": 40
+      },
+      {
+        "label": "高級",
+        "value": 25
+      },
+      {
+        "label": "壓雪",
+        "value": 80
+      },
+      {
+        "label": "非壓雪",
+        "value": 10
+      },
+      {
+        "label": "Mogul",
+        "value": 10
+      }
+    ],
+    "heroImage": "https://land110602.com/wp-content/uploads/2019/07/pt08.jpg"
+  },
+  {
+    "slug": "onze",
+    "description": "小樽近郊的雪場，總雪道約 5 公里，營業時間可到夜間，適合安排半日或一日的滑雪行程。",
+    "tags": [
+      "夜滑雪道",
+      "鄰近小樽",
+      "新手友善",
+      "市區近郊"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 30
+      },
+      {
+        "label": "中級",
+        "value": 40
+      },
+      {
+        "label": "高級",
+        "value": 30
+      }
+    ],
+    "heroImage": "https://commons.wikimedia.org/wiki/Special:FilePath/Onze%20Snow%20resort%EF%BC%8F%EF%BC%AF%EF%BC%AE%EF%BC%BA%EF%BC%A5%20-%20panoramio.jpg"
+  },
+  {
+    "slug": "asari",
+    "description": "位於小樽朝里川溫泉一帶的中型雪場，總雪道 6.9 公里、7 座纜車，並提供夜滑雪。",
+    "tags": [
+      "夜滑雪道",
+      "鄰近小樽",
+      "親子同樂",
+      "溫泉"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 41
+      },
+      {
+        "label": "中級",
+        "value": 38
+      },
+      {
+        "label": "高級",
+        "value": 21
+      }
+    ],
+    "heroImage": "/Course/asari/course-asari-hero.webp"
+  },
+  {
+    "slug": "kiroro",
+    "description": "喜樂樂度假村的粉雪優質且獨具特色，能讓全家大小玩得不亦樂乎。可搭乘附擋風罩的四人纜車或箱型纜車，享受23條豐富雪道與下雪時的柔軟粉雪！",
+    "tags": [
+      "Ski in-out",
+      "初學者友善",
+      "夜滑雪道",
+      "戶外活動豐富",
+      "租借服務",
+      "親子樂園",
+      "觀光飯店"
+    ],
+    "slopes": [
+      {
+        "label": "初級",
+        "value": 33
+      },
+      {
+        "label": "中級",
+        "value": 29
+      },
+      {
+        "label": "高級",
+        "value": 38
+      },
+      {
+        "label": "壓雪",
+        "value": 70
+      },
+      {
+        "label": "非壓雪",
+        "value": 25
+      },
+      {
+        "label": "Mogul",
+        "value": 5
+      }
+    ],
+    "heroImage": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/%E3%82%AD%E3%83%AD%E3%83%AD%E3%83%AA%E3%82%BE%E3%83%BC%E3%83%88.jpg/3840px-%E3%82%AD%E3%83%AD%E3%83%AD%E3%83%AA%E3%82%BE%E3%83%BC%E3%83%88.jpg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail"
+  }
+]

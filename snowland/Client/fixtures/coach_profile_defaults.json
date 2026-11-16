@@ -3,7 +3,11 @@
     "slug": "cash",
     "name": "Cash 校長",
     "image": "/coach-images/Cash 校長.jpg",
-    "coachType": "單板 / 雙板",
+    "coachType": "單板 CASI Lv.2 / 雙板 CSIA Lv.2",
+    "coachTypeItems": [
+      "單板 CASI Lv.2",
+      "雙板 CSIA Lv.2"
+    ],
     "languages": "英文/粵語/中文/台語",
     "cardBio": "救護專業及多國雪場經歷，重視安全，陪伴學生探索無限可能性。",
     "sections": [
@@ -24,8 +28,7 @@
           "曾經作為婚紗攝影師的我，不僅僅在於滑雪技術的教授，更注重讓學員們在滑雪過程中體驗樂趣。無論是迎接新的坡道、突破技術瓶頸，還是在雪地中探險，我希望您每次的滑雪體驗都是一段美好的回憶，並且留下值得回憶的美好紀錄。",
           "【陪伴學習，持續進步】",
           "滑雪世界無盡的可能性，我堅信終身學習是滑雪之旅的精髓。每年我也會不斷進修持續精進，我將作為您的指導者同行者，陪伴您一同在滑雪的世界中不斷成長、學習，創造屬於您獨特的滑雪之路。"
-        ],
-        "lead": "安全第一，陪你穩健進步，讓每一步都更有信心。"
+        ]
       },
       {
         "title": "專業證照",
@@ -47,21 +50,6 @@
           "十多年前，澳洲雪場點燃了我對滑雪的熱情，遂踏上探索世界各地雪場之旅，體驗日本極柔細雪到紐西蘭陡峭雪坡的不同挑戰。",
           "多語教學是我的專長，讓不同背景的學員輕鬆學習滑雪。非滑雪季節，熱愛三鐵運動，常在週末與好友共享單車或長跑樂趣。追求多元生活，勇於探索無限可能性。",
           "無論您是初學者或是資深滑雪愛好者，我期待與您分享滑雪的樂趣和技藝。讓我們攜手在雪地中編織屬於我們的精彩滑雪故事吧！"
-        ],
-        "lead": "多語教學、設計與運動生活，讓每段雪地故事更立體。",
-        "media": [
-          {
-            "src": "https://land110602.com/wp-content/uploads/2023/10/A20210420-04-CR-0440w-495x400.jpg",
-            "alt": "SnowLand 滑雪教練 Cash室內設計"
-          },
-          {
-            "src": "https://land110602.com/wp-content/uploads/2023/10/048AAA75-636C-4D29-B6E0-9ED960F7FA56-495x400.jpg",
-            "alt": "SnowLand 滑雪教練 Cash鐵馬"
-          },
-          {
-            "src": "https://land110602.com/wp-content/uploads/2023/10/cash-%E9%A6%AC%E6%8B%89%E6%9D%BE-495x400.jpg",
-            "alt": "SnowLand 滑雪教練 Cash馬拉松"
-          }
         ]
       },
       {
@@ -70,17 +58,6 @@
           "數十年前，在澳洲展開我的滑雪征程，這段經驗深深地吸引了我。積累了數百天的滑雪經歷於日本、澳洲、中國大陸和紐西蘭等地，這段旅程是我專業成長的一部分。我不斷追求更高的專業水準，並不斷學習和提升技巧，為教學提供最優質的指導。每個雪季都是一段充滿挑戰和驚喜的旅程，讓我深刻體驗到滑雪所帶來的無限樂趣。",
           "回顧這段旅程，其中一次在半面山陡峭的雪場上花費了一個小時多的時間，成功幫助學員找回一部設定為「靜音模式」的iPhone。同樣地，在安比大浴場池中，我成功拯救了一位陷入水中的酒醉日本中年男士。這些經歷豐富了我的滑雪教學之旅，成為我不斷成長和塑造教學方法的重要一環。",
           "多年的滑雪教學經驗讓我渴望將這份熱情傳遞給更多人。我想讓每個人都能安全地體驗我對冬季滑雪的熱愛，無論是年幼的孩童或成年的滑雪愛好者。因此，我與其他志同道合的教練共同創辦了SnowLand Ski school"
-        ],
-        "lead": "多國雪場的實戰經驗，持續轉化成穩定、清楚的教學節奏。",
-        "media": [
-          {
-            "src": "https://land110602.com/wp-content/uploads/2023/10/%E7%9B%B8%E7%89%87-2024-2-29-10-27-09-495x400.jpg",
-            "alt": "SnowLand 滑雪教練 Cash小朋友纜車"
-          },
-          {
-            "src": "https://land110602.com/wp-content/uploads/2023/10/LINE_ALBUM_20240229-%E7%95%99%E5%A3%BD%E9%83%BD_240319_9-495x400.jpg",
-            "alt": "SnowLand 滑雪教練 Cash小朋友教學"
-          }
         ]
       }
     ],
@@ -503,78 +480,20 @@
           "感謝教練細心指導，讓我們在tomamu有美好的回憶"
         ]
       }
-    ],
-    "abilityTags": {
-      "snowboard": [
-        "零經驗",
-        "初階",
-        "中階",
-        "Powder 鬆雪",
-        "Tree Run 樹林",
-        "幼兒(4-6歲)",
-        "兒童(7-10歲)",
-        "親子",
-        "高齡"
-      ],
-      "ski": [
-        "零經驗",
-        "初階",
-        "中階",
-        "親子",
-        "幼兒(4-6歲)",
-        "兒童(7-10歲)",
-        "高齡"
-      ]
-    },
-    "videos": [
-      {
-        "title": "SnowLand滑雪學校 Cash校長",
-        "src": "https://www.youtube.com/embed/g5DxnJtpKtE"
-      },
-      {
-        "title": "【北海道星野度假村 ❄️ EP04】小朋友可以滑雪嗎？",
-        "src": "https://www.youtube.com/embed/cnMoLz2uxZI"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20240119 Cash 星野 SB KeithChen",
-        "src": "https://www.youtube.com/embed/MsCvncp8rbU"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231221 Cash 星野 SB WU",
-        "src": "https://www.youtube.com/embed/ZfuNOgIOfns"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231221 Cash 星野 SB半天 廣州 Mandy",
-        "src": "https://www.youtube.com/embed/jFJedgYH7IE"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231219-20 Cash 星野半天 SB Zheng 2P",
-        "src": "https://www.youtube.com/embed/G6Z8rkFGVFs"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231220 Cash 星野半天 SB Zheng Yunrong",
-        "src": "https://www.youtube.com/embed/WJ7eXDZzerE"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231220 Cash 星野 SB Becky 2p粵",
-        "src": "https://www.youtube.com/embed/OzOCHdr8EoA"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231219 Cash 星野 Ski 香港 Joe black",
-        "src": "https://www.youtube.com/embed/Imw4n6CK4DA"
-      }
-    ],
-    "hideTeachingLead": false
+    ]
   },
   {
     "slug": "lily",
     "name": "Lily 總監",
     "image": "/coach-images/Lily 總監.jpg",
     "detailImage": "/coach-images/lily-header.jpg",
-    "coachType": "單板 / 雙板",
+    "coachType": "單板 CASI Lv.2 / 雙板 CSIA Lv.1",
+    "coachTypeItems": [
+      "單板 CASI Lv.2",
+      "雙板 CSIA Lv.1"
+    ],
     "languages": "中文",
     "cardBio": "重視安全基礎與快樂學習，結合美感讓學生帶走美好回憶。",
-    "hideTeachingLead": true,
     "abilityTags": {
       "snowboard": [
         "零經驗",
@@ -670,24 +589,6 @@
         ]
       }
     ],
-    "videos": [
-      {
-        "title": "SnowLand滑雪學校 Lily總監",
-        "src": "https://youtube.com/shorts/9OBlvcuQavk"
-      },
-      {
-        "title": "今年的雪季即將到來！Snowland 帶你探索北海道星野滑雪場的神秘樹林！",
-        "src": "https://youtube.com/shorts/8kSz85cL4mM"
-      },
-      {
-        "title": "【北海道星野度假村】不會滑雪也能玩 Snow kart 雪地探險",
-        "src": "https://youtu.be/J7sD_XMzce4"
-      },
-      {
-        "title": "【360°全景VR】 探索日本北海道星野滑雪場",
-        "src": "https://youtu.be/Cip6MGSH7jw"
-      }
-    ],
     "reviews": [
       {
         "name": "怡孜",
@@ -731,16 +632,39 @@
           "Lily教練有耐心，注重安全。著重基礎教學。3小時課程讓小朋友從零到能夠自己滑。人美這優點更不多說。"
         ]
       }
-    ]
+    ],
+    "videos": [
+      {
+        "title": "SnowLand滑雪學校 Lily總監",
+        "src": "https://youtube.com/shorts/9OBlvcuQavk"
+      },
+      {
+        "title": "今年的雪季即將到來！Snowland 帶你探索北海道星野滑雪場的神秘樹林！",
+        "src": "https://youtube.com/shorts/8kSz85cL4mM"
+      },
+      {
+        "title": "【北海道星野度假村】不會滑雪也能玩 Snow kart 雪地探險",
+        "src": "https://youtu.be/J7sD_XMzce4"
+      },
+      {
+        "title": "【360°全景VR】 探索日本北海道星野滑雪場",
+        "src": "https://youtu.be/Cip6MGSH7jw"
+      }
+    ],
+    "hideTeachingLead": true
   },
   {
     "slug": "qizhen",
     "name": "七針",
     "image": "/coach-images/七針.jpg",
     "detailImage": "/coach-images/shenheng-header.jpg",
-    "coachType": "單板 / 雙板",
+    "coachType": "單板 CASI Lv.1 / 雙板 CSIA Lv.2",
+    "coachTypeItems": [
+      "單板 CASI Lv.1",
+      "雙板 CSIA Lv.2"
+    ],
     "languages": "中文",
-    "hideTeachingLead": true,
+    "cardBio": "以安全為核心的系統化教學，陪學員克服恐懼、找到節奏與自信。",
     "abilityTags": {
       "snowboard": [
         "零經驗",
@@ -764,7 +688,6 @@
         "高齡"
       ]
     },
-    "cardBio": "以安全為核心的系統化教學，陪學員克服恐懼、找到節奏與自信。",
     "sections": [
       {
         "title": "教學理念",
@@ -835,32 +758,6 @@
             "alt": "七針 滑雪經驗"
           }
         ]
-      }
-    ],
-    "videos": [
-      {
-        "title": "SnowLand滑雪學校 七針教練",
-        "src": "https://youtube.com/shorts/BP-AZ-vMoZQ?feature=share"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231221~22 七針 星野 Ski 大牙8人團 ｜ #雪域創遊 #滑雪學校",
-        "src": "https://youtu.be/_TnBm8_LPHc"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231220 七針 星野 Ski ChRiS 熊｜ #雪域創遊 #滑雪學校",
-        "src": "https://youtu.be/Tz9fRlqScZ8"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231219 七針 星野 Ski Ming｜ #雪域創遊 #滑雪學校",
-        "src": "https://youtu.be/82CEEpYe2_M"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231219 七針 星野半天 Ski Albert｜ #雪域創遊 #滑雪學校",
-        "src": "https://youtu.be/iHxquOYz-3k"
-      },
-      {
-        "title": "【SnowLand 學員ShowTime】20231218 七針 星野 Ski Cheng-chi ｜ #雪域創遊 #滑雪學校",
-        "src": "https://youtu.be/JgGDtQvgR7Q"
       }
     ],
     "reviews": [
@@ -1363,6 +1260,774 @@
           "七針非常有經驗，孩子教給他很放心，會給一點挑戰也很幽默，希望有機會再一起滑雪！"
         ],
         "photos": []
+      }
+    ],
+    "videos": [
+      {
+        "title": "SnowLand滑雪學校 七針教練",
+        "src": "https://youtube.com/shorts/BP-AZ-vMoZQ?feature=share"
+      },
+      {
+        "title": "【SnowLand 學員ShowTime】20231221~22 七針 星野 Ski 大牙8人團 ｜ #雪域創遊 #滑雪學校",
+        "src": "https://youtu.be/_TnBm8_LPHc"
+      },
+      {
+        "title": "【SnowLand 學員ShowTime】20231220 七針 星野 Ski ChRiS 熊｜ #雪域創遊 #滑雪學校",
+        "src": "https://youtu.be/Tz9fRlqScZ8"
+      },
+      {
+        "title": "【SnowLand 學員ShowTime】20231219 七針 星野 Ski Ming｜ #雪域創遊 #滑雪學校",
+        "src": "https://youtu.be/82CEEpYe2_M"
+      },
+      {
+        "title": "【SnowLand 學員ShowTime】20231219 七針 星野半天 Ski Albert｜ #雪域創遊 #滑雪學校",
+        "src": "https://youtu.be/iHxquOYz-3k"
+      },
+      {
+        "title": "【SnowLand 學員ShowTime】20231218 七針 星野 Ski Cheng-chi ｜ #雪域創遊 #滑雪學校",
+        "src": "https://youtu.be/JgGDtQvgR7Q"
+      }
+    ],
+    "hideTeachingLead": true
+  },
+  {
+    "slug": "savanna",
+    "name": "Savanna",
+    "image": "/coach-images/Savanna-1.png",
+    "detailImage": "/coach-images/Savanna-1.png",
+    "coachType": "單板 CASI Lv.2 / 雙板 KSIA Lv.1 / PSIC Lv.1",
+    "coachTypeItems": [
+      "單板 CASI Lv.2",
+      "雙板 KSIA Lv.1 / PSIC Lv.1"
+    ],
+    "languages": "中文/英文",
+    "cardBio": "擁有幼兒教育與多國雪季教學經驗，陪伴學員安全建立自信。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "中階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子"
+      ]
+    },
+    "sections": [
+      {
+        "title": "個人經歷",
+        "lines": [
+          "超過十年教育與幼兒教學經驗。",
+          "曾於新加坡、加拿大從事教育工作。",
+          "累積加拿大、澳洲、日本七季滑雪教學經驗，並曾任職於官方滑雪學校。",
+          "長期於國外生活與工作，擅長跨文化溝通與中英文雙語教學。"
+        ]
+      },
+      {
+        "title": "教學理念",
+        "lines": [
+          "在安全的前提下和學生一起玩、一起學習，讓每個人享受滑雪的樂趣。",
+          "不論是第一次接觸滑雪的大人或小朋友，都會一步一步建立安全感與自信，慢慢嘗試、穩定進步。",
+          "重視課程是否好玩，透過觀察、溝通與因材施教，找到最適合每位學員的學習步調。",
+          "一堂成功的課不只是學會技巧，也希望學生能克服害怕、挑戰自己，最後真正喜歡上滑雪。"
+        ]
+      },
+      {
+        "title": "專業證照",
+        "lines": [
+          "韓國KSIA LEVEL 1 Ski 雙板指導員",
+          "加拿大PSIC LEVEL 1 Ski 雙板指導員",
+          "加拿大CASI Level 2 Snowboard 單板指導員",
+          "Early Childhood Educator",
+          "Certified Family Child Care Providers",
+          "First-Aid & CPR",
+          "TQUK 華語師資證"
+        ]
+      },
+      {
+        "title": "自我介紹",
+        "lines": [
+          "我擁有超過十年的幼兒現場教學經驗，曾獨自前往新加坡與加拿大從事教育工作，也累積不同年齡與文化背景的教學經驗。",
+          "後來在加拿大投入滑雪教學，並辭去原本的老師工作，開始南北半球跑雪季，過著一整年都在教滑雪的生活。",
+          "我喜歡戶外，也享受在雪山工作的感覺。希望自己不只是教練，更是能讓學生安心並願意挑戰自己的陪伴者。"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/savanna-p1-scaled.jpg",
+            "alt": "Savanna 教練照片"
+          },
+          {
+            "src": "/coach-images/savanna-p2-scaled.jpg",
+            "alt": "Savanna 教練照片"
+          }
+        ]
+      },
+      {
+        "title": "滑雪經驗",
+        "lines": [
+          "滑雪教學經驗遍及加拿大、澳洲與日本多個雪季，從在 Whistler 考取教練證照開始，持續累積官方滑雪學校的教學經驗。",
+          "曾於 Cypress Mountain 與 Perisher Ski Resort 任教，帶領兒童、成人團體，以及從初學到中高階的不同課程。",
+          "因為自己曾受過滑雪傷，特別重視學生在雪地上的安全感與自信建立，希望每位學生都能安心享受這項運動。"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/savanna-p3-scaled.jpeg",
+            "alt": "Savanna 滑雪經驗照片"
+          },
+          {
+            "src": "/coach-images/savanna-p6.jpg",
+            "alt": "Savanna 滑雪經驗照片"
+          }
+        ]
+      }
+    ],
+    "videos": []
+  },
+  {
+    "slug": "lawrence",
+    "name": "Lawrence",
+    "image": "/coach-images/Lawrence-1.png",
+    "detailImage": "/coach-images/Lawrence-1.png",
+    "coachType": "單板 CASI Lv.2 / 雙板 CSIA Lv.1",
+    "coachTypeItems": [
+      "單板 CASI Lv.2",
+      "雙板 CSIA Lv.1"
+    ],
+    "languages": "中文/英文/粵語",
+    "cardBio": "追求溫柔的教學環境，擅長拆解動作，陪伴學員找到適合自己的滑行節奏。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "中階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子"
+      ]
+    },
+    "sections": [
+      {
+        "title": "個人經歷",
+        "lines": [
+          "農場主理人「二十八畝田」 × 前工程師 × 三鐵愛好者"
+        ]
+      },
+      {
+        "title": "教學理念",
+        "lines": [
+          "我習慣在每個動作前先問：「為什麼要這樣做？」再把技巧拆解成可感受的小步驟，幫助學生用理解取代模仿。就像農場栽培一樣，滑雪的成長也需要時間與耐心。",
+          "或許是過去執行專案管理的習慣，讓我對細節特別敏銳。學生的程度與狀況各不相同，我希望每個人都能在課程中找到自己的進步。",
+          "透過簡單的排程與節奏設計，讓學習有條理地向前，同時我也會依現場狀況與學生反應，不斷在腦中微調教學方案。",
+          "我的目標是讓學生滑得懂、學得穩、有自信——不只是學技巧，更能在雪上找到屬於自己的節奏與自由。"
+        ]
+      },
+      {
+        "title": "專業證照",
+        "lines": [
+          "加拿大CASI Level 1 Snowboard 單板指導員",
+          "加拿大CSIA Level 1 Ski 雙板指導員",
+          "食農教育專業人員／環境教育人員",
+          "專案管理師／進階開放水域潛水員",
+          "2023 青年農民大使"
+        ]
+      },
+      {
+        "title": "自我介紹",
+        "lines": [
+          "我是 Eric，一名滑雪教練，也是農場經營者。",
+          "我相信「農業與運動」能培養健康與幸福——",
+          "田間作物提供營養，運動鍛鍊體能，而滑雪則讓人感覺自由。",
+          "或許是因為過去工程與專案管理的背景，",
+          "我對細節特別敏銳，也習慣在結構中尋找彈性。",
+          "無論在教學、農場或訓練裡，我都享受那種「想做就去做」的行動感。",
+          "離開穩定的工作後，我選擇自營事業：",
+          "務農、休閒農業研究、教雪—",
+          "讓生活在不同季節裡自由流動，也讓自己不斷學習與成長。"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/lawrence-p1-scaled.jpg",
+            "alt": "Eric 教練照片"
+          },
+          {
+            "src": "/coach-images/lawrence-p2-scaled.jpeg",
+            "alt": "Eric 教練照片"
+          }
+        ]
+      },
+      {
+        "title": "滑雪經驗",
+        "lines": [
+          "我在 2014 年第一次接觸滑雪，地點是韓國。",
+          "那時候也說不上為什麼，只是心裡很想試試看。",
+          "結果一滑就上癮，從那之後每年都期待冬天的到來。",
+          "起初只是放假到日本滑雪，後來成為一年中最重要的時光。",
+          "我喜歡滑雪帶來的自由與專注，也因為這份喜歡，",
+          "決定取得 CASI 與 CSIA 教練資格，",
+          "並在日本持續教學與精進。"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/lawrence-p3-scaled.jpeg",
+            "alt": "Eric 教練照片"
+          },
+          {
+            "src": "/coach-images/lawrence-p4-scaled.jpeg",
+            "alt": "Eric 教練照片"
+          },
+          {
+            "src": "/coach-images/lawrence-p1-scaled.jpg",
+            "alt": "Eric 教練照片"
+          }
+        ]
+      }
+    ],
+    "videos": [
+      {
+        "title": "SnowLand滑雪學校 Eric 教練",
+        "src": "https://youtube.com/shorts/BzARl7kyK7g"
+      }
+    ]
+  },
+  {
+    "slug": "jacky",
+    "name": "Jacky",
+    "image": "/coach-images/jacky-1.png",
+    "detailImage": "/coach-images/jacky-1.png",
+    "coachType": "單板 AASI Lv.1 / 雙板 CSIA Lv.2",
+    "coachTypeItems": [
+      "單板 AASI Lv.1",
+      "雙板 CSIA Lv.2"
+    ],
+    "languages": "中文/英文/日文",
+    "cardBio": "特別重視技術分析與動作細節的建立，希望學員在扎實的基礎上，循序漸進地累積實力。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "親子",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "高齡"
+      ]
+    },
+    "sections": [
+      {
+        "title": "個人經歷",
+        "lines": [
+          "• 2024–2025 年於日本湯澤國際滑雪學校擔任滑雪教練，教授雙板與單板初學課程",
+          "• 教學對象涵蓋成人與兒童初學者，具備多語教學與跨文化溝通經驗",
+          "• 曾於澳洲 Perisher 雪場工作並生活兩個雪季，持續精進滑行技巧與教學觀察",
+          "• 旅居多國，包含中國、泰國、澳洲、日本，熟悉不同文化與學習風格",
+          "• 擁有服裝設計背景，亦經營部落格與影片頻道，擅長結合敘事與視覺紀錄"
+        ]
+      },
+      {
+        "title": "自我介紹",
+        "lines": [
+          "潛水、攀岩、徒步旅行、影像創作與敘事寫作",
+          "熱愛自然，擅長透過身體與環境的連結探索自我與世界"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/Jacky-p3.jpg",
+            "alt": "Vicky 教練照片",
+            "objectPosition": "center 18%"
+          },
+          {
+            "src": "/coach-images/Jacky-p8.jpg",
+            "alt": "Vicky 教練照片"
+          },
+          {
+            "src": "/coach-images/Jacky-p5.jpg",
+            "alt": "Vicky 教練照片"
+          },
+          {
+            "src": "/coach-images/Jacky-p7.png",
+            "alt": "Vicky 教練照片"
+          }
+        ]
+      },
+      {
+        "title": "教學理念",
+        "lines": [
+          "我相信滑雪教學的核心，不只是技巧的傳授，而是協助學員在「身體感受 × 情緒安全 × 自信建立」三者之間找到平衡。",
+          "對許多初學者而言，第一次踏上雪道是興奮與恐懼交錯的時刻。我的教學目標，是幫助他們在安心的氛圍中，一步步拆解困難、理解動作邏輯，進而克服對速度、跌倒、甚至未知的恐懼。",
+          "在教學中，我特別重視心理安全感的建立。我會觀察學員的身體語言與眼神反應，適時放慢節奏、鼓勵回饋，並根據個別狀態調整引導方式。這讓學員能夠穩定地跨越害怕的門檻，不被「做錯」或「不如他人」的焦慮干擾，而專注於自己的學習曲線。",
+          "我相信，當一個人能在恐懼中前進，在不完美中持續練習，那是一種最深層的勇敢。滑雪的魅力，正是來自這種從不確定中長出的自信。我希望透過耐心與引導，陪伴每位學員走過這段過程，讓雪地成為他們學會相信自己的起點。"
+        ]
+      },
+      {
+        "title": "專業證照",
+        "lines": [
+          "APSI Level 1 雙板滑雪教練",
+          "SIA 單板滑雪指導員一級",
+          "PADI AOW 進階開放水域潛水員",
+          "中華民國外語領隊人員- 英語，華語"
+        ]
+      }
+    ]
+  },
+  {
+    "slug": "martin",
+    "name": "Martin",
+    "image": "/coach-images/Martin.jpg",
+    "detailImage": "/coach-images/Martin.jpg",
+    "coachType": "單板 CASI Lv.1 / 雙板 CSIA Lv.1",
+    "coachTypeItems": [
+      "單板 CASI Lv.1",
+      "雙板 CSIA Lv.1"
+    ],
+    "languages": "中文/英文",
+    "cardBio": "擅長將複雜滑雪技術解構，轉譯為身體能理解的運動語言。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "中階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子"
+      ]
+    },
+    "sections": [
+      {
+        "title": "個人經歷",
+        "lines": [
+          "本業是影視工作者，近年來決定開拓斜槓人生",
+          "讓人生多一點side project，有更多的體驗和樂趣！",
+          "喜歡搜集很多不同的故事和人生體驗 🙂",
+          "喜歡旅遊，喜歡戶外、跑過越野跑2次、大山爬了玉山、嘉明湖、澳洲的Overland track 7天（沒洗澡）和富士山、玩過滑板衝浪等板類運動、學習自由潛水（目前只能3m米多）"
+        ]
+      },
+      {
+        "title": "自我介紹",
+        "lines": [
+          "大家好！我是小霖教練。",
+          "2019年踏上前往日本雪國打工度假的旅程，起初只是想體驗雪場生活，沒想到這一待，就度過了超過四個雪季，其中做過的工作有調酒師、廚師、救生員、飯店房務、雪場接駁車司機等等⋯",
+          "第一次接觸滑雪，我選擇了看起來帥氣又自由的 Snowboard。當時的室友們全都是熱衷於 Park 和大跳台的日本年輕人，結果我第一天就直接在跳台上摔到尾椎受傷（笑）。",
+          "也正因為這次跌倒，我更深刻體會到滑雪是一項刺激又充滿挑戰性的運動。",
+          "隨著在雪場的生活日漸深入，一邊滑行、一邊沉醉在雪白世界的純淨與壯麗中，我也逐漸確定——我真的愛上了這項運動。",
+          "取得教練證照後，人生迎來了另一段轉變。",
+          "把自己所學分享出去，看著學員從零開始、逐步掌握技巧、最後能夠自在享受滑雪的樂趣，這些成長與蛻變，都成為我教學路上最珍貴的回報。尤其當他們臉上浮現自信的笑容時，那份成就感與喜悅，更是我繼續走在這條路上的最大動力。",
+          "未來，我也會持續追尋滑雪帶來的美好與感動，迎接每一個嶄新的雪季、每一次與雪的邂逅。",
+          "願我們在雪場相遇，一起感受滑雪的魅力！"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/martin-p2.jpg",
+            "alt": "小霖 教練照片"
+          },
+          {
+            "src": "/coach-images/martin-p3.jpg",
+            "alt": "小霖 教練照片"
+          },
+          {
+            "src": "/coach-images/martin-p11.jpg",
+            "alt": "小霖 教練照片"
+          }
+        ]
+      },
+      {
+        "title": "滑雪經歷",
+        "lines": [
+          "目前經歷4個雪季以及2年室內滑雪機的教學。",
+          "且具備天然滑雪場、室內人造滑雪場、台灣滑雪機等多種不同教學環境、滑行的經驗",
+          "能了解學員在不同環境下、如何調整、適應不同雪況找到對應的動作且發掘屬於自己的樂趣。"
+        ]
+      },
+      {
+        "title": "教學理念",
+        "lines": [
+          "親和力/陪伴型",
+          "我相信學習滑雪不是一場競賽，而是一段與自我對話、突破的旅程。",
+          "在我的教學中，我重視學員的感受與步調，營造安全又輕鬆的學習氛圍。每個人都是從零開始，只要方法正確、節奏合適，任何人都能享受滑雪的樂趣。",
+          "我希望成為那個在你第一次摔倒後，鼓勵你再站起來的人。",
+          "不只是教授技巧，更陪你一起跨越害怕、擁抱自信，從滑雪中找到屬於自己的成就與快樂"
+        ]
+      },
+      {
+        "title": "專業證照",
+        "lines": [
+          "CSIA Level 1 雙板滑雪教練",
+          "AASI Level 1 單板滑雪教練",
+          "international life saving federation國際救生總會救生員",
+          "中華民國水上救生協會 救生員"
+        ]
+      }
+    ]
+  },
+  {
+    "slug": "elma",
+    "name": "Elma",
+    "image": "/coach-images/Elma.jpg",
+    "detailImage": "/coach-images/Elma.jpg",
+    "coachType": "單板 CASI Lv.1 / 雙板 CSIA Lv.1",
+    "coachTypeItems": [
+      "單板 CASI Lv.1",
+      "雙板 CSIA Lv.1"
+    ],
+    "languages": "中文/英文",
+    "cardBio": "重視因材施教，用安全、耐心與成就感建立每位學員的滑雪自信。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子"
+      ]
+    },
+    "sections": [
+      {
+        "title": "自我介紹",
+        "lines": [
+          "嗨，我是 Karen！我熱愛大自然，也享受各種戶外活動 —— 登山、露營、釣魚，都是我生活中的樂趣來源。我曾在澳洲旅居多年，透過旅程與不同文化背景的人交流互動，增進了跨文化溝通能力，也養成了樂於分享與耐心教導的特質。同時，我喜歡以照片與影片紀錄生活中的點滴，這些經歷不僅豐富了我的人生，也成為我在教學中能與學員建立良好連結的基礎。",
+          "從登山、露營到釣魚，大自然總能帶給我平靜與靈感，而這份對戶外的熱情，也成為我投身滑雪教學的原動力之一。我喜歡透過身體的律動感受四季的變化，享受在不同環境中挑戰自我、探索未知的過程。",
+          "曾在澳洲旅居多年的我，有幸與來自世界各地的人交流互動，這段經歷讓我培養出良好的跨文化溝通能力，也讓我學會更有耐心與同理心地面對每一位學員。在教學中，我樂於傾聽，並以清晰、友善的方式協助學員理解技術與動作。",
+          "除了滑雪，我也熱衷於用照片與影片紀錄生活中的點滴。這不僅是我與世界連結的方式，也成為我教學時與學員互動的橋樑。透過分享個人的旅程與經歷，我更能與不同年齡與背景的學員建立信任感，讓學習滑雪的過程更有溫度，也更有趣。"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/Elma2-scaled.jpg",
+            "alt": "Karen 教練照片"
+          },
+          {
+            "src": "/coach-images/Elma3-scaled.jpg",
+            "alt": "Karen 教練照片"
+          },
+          {
+            "src": "/coach-images/Elma5.jpg",
+            "alt": "Karen 教練照片"
+          }
+        ]
+      },
+      {
+        "title": "教學理念",
+        "lines": [
+          "【系統化教學，兼顧安全、技巧與樂趣】",
+          "我擁有在南半球最大雪場的4季雪上經驗，並具備國際專業證照背景，能提供系統化與專業化的課程內容。我的課程設計強調安全、技巧與樂趣的平衡，內容涵蓋小朋友的滑雪樂趣體驗，青少年的訓練和進階，以及成人系統化正確姿態與滑行技巧教學內容。作為教練，我希望將滑雪的樂趣分享給更多人，讓學員能在安全的環境中體驗雪地滑行的自由與快感。我也會依照學員的程度與特質調整教學方式，以耐心與專業陪伴他們逐步進步，找到屬於自己的滑雪節奏。",
+          "【樂趣體驗，幫助學員建立自信】",
+          "滑雪是一項具挑戰性的運動，我相信「樂趣」能讓學習過程更加豐富而有意義。而我期望透過安全且專業的指導，幫助學員在學習中培養自信、獲得成就感。這份成就與喜悅，正是支持我持續投入並熱愛教學的最大動力。"
+        ]
+      },
+      {
+        "title": "專業證照",
+        "lines": [
+          "APSI Level 1 雙板滑雪教練",
+          "APSI Level 1 單板滑雪教練",
+          "HEALTH CORP First Aid Certificate"
+        ]
+      }
+    ],
+    "hideTeachingLead": true
+  },
+  {
+    "slug": "limi",
+    "name": "Limi",
+    "image": "/coach-images/Limi-2.jpg",
+    "detailImage": "/coach-images/Limi-2.jpg",
+    "coachType": "單板 KSIA Lv.1 / 雙板 KSIA Lv.1",
+    "coachTypeItems": [
+      "單板 KSIA Lv.1",
+      "雙板 KSIA Lv.1"
+    ],
+    "languages": "中文",
+    "cardBio": "滑雪不只是技巧學習，也是與自然互動、建立自信的過程。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "中階",
+        "Powder 鬆雪",
+        "Tree Run 樹林",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "中階",
+        "高階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ]
+    },
+    "sections": [
+      {
+        "title": "自我介紹",
+        "lines": [
+          "【雪場五心級：耐心、愛心、細心、用心、真心】",
+          "熱愛滑雪運動，滿腔教學熱情，遇見五心級教練不容易，享受滑雪其實很容易！",
+          "教練有心，保證讓您開心！",
+          "【讓您的雪技，一季比一季優雅！】",
+          "熱情百分百，笑話比雪還冷（哈～學員所述！）",
+          "傳播藝術系第一名畢業，以導演的運鏡美學，紀錄您的滑雪時光，或是歡笑一籮筐！",
+          "健身房高強度教練體能，激活滑雪者的無限可能；",
+          "讓幼齡小小孩，從地上玩雪～到衝樹林玩鬆雪，",
+          "讓速度恐懼者～蛻變為速度操控者！",
+          "讓全制動慢慢滑：『我這樣就好！』～升級為併腿滑：『能邊滑看風景真好！』",
+          "【〖安全，快樂，享受〗唯一核心精神！】",
+          "擅長運用地形，雪況，遊戲與人性，啟動大小朋友的滑雪DNA，",
+          "邊玩邊享樂，玩美你的滑雪假期！",
+          "教學總是充滿活力，讓學習心靈輕易被激勵！",
+          "健身教練的肌力，連滑雪教官都稱讚的救援能力，讓學習過程安全有利，",
+          "豐富熟成的教學經驗，多元幽默的適性教學，讓您放心、安心，在滑雪的時時刻刻！"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/Limi-p7-scaled.jpg",
+            "alt": "Naomi 教練照片"
+          },
+          {
+            "src": "/coach-images/Limi-p8.jpg",
+            "alt": "Naomi 教練照片"
+          },
+          {
+            "src": "/coach-images/Limi-p6-scaled.jpg",
+            "alt": "Naomi 教練照片"
+          },
+          {
+            "src": "/coach-images/Limi-p4-scaled.jpg",
+            "alt": "Naomi 教練照片"
+          }
+        ]
+      },
+      {
+        "title": "教學理念",
+        "lines": [
+          "夏日健身，冬日滑雪，日常很文青的小冰，從創意公關滑入雪場，從雪地競速踏上舞台勁力，",
+          "生活充滿斜槓潛能，享樂就要盡其所能，很愛環保救地球，為了北極熊可以滾雪球，",
+          "成為健身教練前已是滑雪教練，十年磨一劍～等你來雪場一起練！"
+        ]
+      },
+      {
+        "title": "專業證照",
+        "lines": [
+          "加拿大CSIA Level 1 Ski 雙板指導員",
+          "中華民國滑草滑雪協會CTSA C級指導員",
+          "日本SAJ技術1級",
+          "Radical Fitness POWER® 勁量槓鈴",
+          "Radical Fitness X55® 超能55",
+          "Radical Fitness FACTOR F® TRX&全效綜訓",
+          "FSBT功能性滑板",
+          "勁芭蕾 BARRE FIT",
+          "CPR+AED初級救護技術員"
+        ]
+      }
+    ]
+  },
+  {
+    "slug": "jane",
+    "name": "Jane",
+    "image": "/coach-images/Jane.jpg",
+    "detailImage": "/coach-images/Jane.jpg",
+    "coachType": "單板 CASI Lv.1 / 雙板 CSIA Lv.1",
+    "coachTypeItems": [
+      "單板 CASI Lv.1",
+      "雙板 CSIA Lv.1"
+    ],
+    "languages": "中文",
+    "cardBio": "為每位學員量身打造流暢的技術升級路徑，具備登山、義大利雪山與神樂峰野雪 BC 實戰經驗，重視風險控管與山域安全。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "中階",
+        "Powder 鬆雪",
+        "Tree Run 樹林",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "中階",
+        "親子",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "高齡"
+      ]
+    },
+    "sections": []
+  },
+  {
+    "slug": "leon",
+    "name": "Leon",
+    "image": "/coach-images/line_oa_chat_260826_201016.jpg",
+    "detailImage": "/coach-images/line_oa_chat_260826_201016.jpg",
+    "coachType": "單板 AASI Lv.1 / 雙板 CSIA Lv.1",
+    "coachTypeItems": [
+      "單板 AASI Lv.1",
+      "雙板 CSIA Lv.1"
+    ],
+    "languages": "中文",
+    "cardBio": "首要目標是讓學員體驗滑雪的樂趣並真正愛上滑雪。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "中階",
+        "Powder 鬆雪",
+        "Tree Run 樹林",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子",
+        "高齡"
+      ],
+      "ski": [
+        "零經驗",
+        "初階",
+        "中階",
+        "親子",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "高齡"
+      ]
+    },
+    "sections": []
+  },
+  {
+    "slug": "bernie",
+    "name": "Bernie",
+    "image": "/coach-images/Bernie.jpg",
+    "detailImage": "/coach-images/bernie-header.jpg",
+    "coachType": "單板 CASI Lv.1",
+    "coachTypeItems": [
+      "單板 CASI Lv.1"
+    ],
+    "languages": "中文/日語",
+    "cardBio": "超愛分享資訊和知識，重視安全和學習步驟，打造美好滑雪體驗。",
+    "abilityTags": {
+      "snowboard": [
+        "零經驗",
+        "初階",
+        "中階",
+        "幼兒(4-6歲)",
+        "兒童(7-10歲)",
+        "親子"
+      ],
+      "ski": []
+    },
+    "sections": [
+      {
+        "title": "個人經歷",
+        "lines": [
+          "主業是一名甜點師，在此領域深耕近10年，西點蛋糕、法式甜點、巧克力都是涉略範圍，「超愛」分享甜點資訊還有知識！",
+          "雖然自己怕冷但都比不上熱愛滑雪的心。",
+          "在日本兩年的留學生活+工作經驗，可以討論文化交流上發生的奇聞異事。",
+          "我也是一名創業家，也擁有一個自己的甜品品牌。",
+          "喜歡自我探索，時常與自己深度對話，甚至能夠逐幀分析他人的狀況。"
+        ]
+      },
+      {
+        "title": "教學理念",
+        "lines": [
+          "【安全第一】",
+          "我們無法控制在雪道上時外部介入的因素，我們能做到的是在危機發生時如何有「正確的反應」，",
+          "不論是自摔、停不下來、或者在被追撞的當下應該做出什麼動作來保護自己。",
+          "【認真學習】",
+          "我們從小生活開始學習都脫離不了這五大步驟",
+          "看到→看懂→記得→可用→可傳遞",
+          "教練的存在是用於最後一個步驟「可傳遞」，先讓學生看到，多看幾次看懂，再來到身體記得，身體可用，我們就可以快樂的在雪道上滑行看風景～",
+          "【美好體驗】",
+          "有多次曾經帶著單眼到雪場上滑行的經驗，把美好的風景，以及他人帥氣英姿那瞬間給紀錄下來，也把自身的每一個專業部分分享給大家～"
+        ]
+      },
+      {
+        "title": "專業證照",
+        "lines": [
+          "加拿大CASI Level 1 Snowboard 單板指導員",
+          "AIDA 2 自由潛水員",
+          "PADI AOW 進階開放水域潛水員"
+        ]
+      },
+      {
+        "title": "自我介紹",
+        "lines": [
+          "我是Bernie，是一名職人甜點師，也正在經營自己的品牌",
+          "我的價值觀是：真誠、樂於分享",
+          "認識我有什麼好處：",
+          "• 可以分享在日本有什麼好吃、好玩的、比起小紅書的攻略，我又能再分享一些不一樣的地方。",
+          "• 獲得甜點的攻略以及更多的知識，幫助大家找到自己喜歡的類型，還能分享如何用看的知道甜點好不好吃～",
+          "• 女生能夠擁有封面網美照、男生可以獲得很帥的意境照"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/bernie-intro-001.jpg",
+            "alt": "Bernie 教練照片"
+          },
+          {
+            "src": "/coach-images/bernie-intro-002.jpg",
+            "alt": "Bernie 教練照片"
+          }
+        ]
+      },
+      {
+        "title": "興趣專業",
+        "lines": [
+          "潛水是一項與我自己內心深度對話的運動，有點類似人們在諮商的感覺？但我可以通過在水下閉氣去詢問我內心深處的感受，並且在每一次下潛挑戰極限深度以及閉氣時裡獲得成就感。",
+          "滑雪則是釋放壓力，滑行時的速度感，眺望雪山美景、還有分享眼前及心裡的快樂。",
+          "攝影是想紀錄生命裡每一個看到的畫面，也因此在遊日期間出遊時會背著全套近15公斤的裝備到處跑。"
+        ],
+        "media": [
+          {
+            "src": "/coach-images/bernie-intro-003.jpg",
+            "alt": "Bernie 教練照片"
+          },
+          {
+            "src": "/coach-images/bernie-intro-004.jpg",
+            "alt": "Bernie 教練照片"
+          },
+          {
+            "src": "/coach-images/bernie-intro-005.jpg",
+            "alt": "Bernie 教練照片"
+          }
+        ]
       }
     ]
   },
@@ -2598,104 +3263,6 @@
           "謝謝Naomi教練！"
         ],
         "photos": []
-      }
-    ],
-    "hideTeachingLead": true
-  },
-  {
-    "slug": "bernie",
-    "name": "Bernie",
-    "image": "/coach-images/Bernie.jpg",
-    "detailImage": "/coach-images/bernie-header.jpg",
-    "coachType": "單板",
-    "languages": "中文/日語",
-    "cardBio": "超愛分享資訊和知識，重視安全和學習步驟，打造美好滑雪體驗。",
-    "abilityTags": {
-      "snowboard": [
-        "零經驗",
-        "初階",
-        "中階",
-        "幼兒(4-6歲)",
-        "兒童(7-10歲)",
-        "親子"
-      ],
-      "ski": []
-    },
-    "sections": [
-      {
-        "title": "個人經歷",
-        "lines": [
-          "主業是一名甜點師，在此領域深耕近10年，西點蛋糕、法式甜點、巧克力都是涉略範圍，「超愛」分享甜點資訊還有知識！",
-          "雖然自己怕冷但都比不上熱愛滑雪的心。",
-          "在日本兩年的留學生活+工作經驗，可以討論文化交流上發生的奇聞異事。",
-          "我也是一名創業家，也擁有一個自己的甜品品牌。",
-          "喜歡自我探索，時常與自己深度對話，甚至能夠逐幀分析他人的狀況。"
-        ]
-      },
-      {
-        "title": "教學理念",
-        "lines": [
-          "【安全第一】",
-          "我們無法控制在雪道上時外部介入的因素，我們能做到的是在危機發生時如何有「正確的反應」，",
-          "不論是自摔、停不下來、或者在被追撞的當下應該做出什麼動作來保護自己。",
-          "【認真學習】",
-          "我們從小生活開始學習都脫離不了這五大步驟",
-          "看到→看懂→記得→可用→可傳遞",
-          "教練的存在是用於最後一個步驟「可傳遞」，先讓學生看到，多看幾次看懂，再來到身體記得，身體可用，我們就可以快樂的在雪道上滑行看風景～",
-          "【美好體驗】",
-          "有多次曾經帶著單眼到雪場上滑行的經驗，把美好的風景，以及他人帥氣英姿那瞬間給紀錄下來，也把自身的每一個專業部分分享給大家～"
-        ]
-      },
-      {
-        "title": "專業證照",
-        "lines": [
-          "加拿大CASI Level 1 Snowboard 單板指導員",
-          "AIDA 2 自由潛水員",
-          "PADI AOW 進階開放水域潛水員"
-        ]
-      },
-      {
-        "title": "自我介紹",
-        "lines": [
-          "我是Bernie，是一名職人甜點師，也正在經營自己的品牌",
-          "我的價值觀是：真誠、樂於分享",
-          "認識我有什麼好處：",
-          "• 可以分享在日本有什麼好吃、好玩的、比起小紅書的攻略，我又能再分享一些不一樣的地方。",
-          "• 獲得甜點的攻略以及更多的知識，幫助大家找到自己喜歡的類型，還能分享如何用看的知道甜點好不好吃～",
-          "• 女生能夠擁有封面網美照、男生可以獲得很帥的意境照"
-        ],
-        "media": [
-          {
-            "src": "/coach-images/bernie-intro-001.jpg",
-            "alt": "Bernie 教練照片"
-          },
-          {
-            "src": "/coach-images/bernie-intro-002.jpg",
-            "alt": "Bernie 教練照片"
-          }
-        ]
-      },
-      {
-        "title": "興趣專業",
-        "lines": [
-          "潛水是一項與我自己內心深度對話的運動，有點類似人們在諮商的感覺？但我可以通過在水下閉氣去詢問我內心深處的感受，並且在每一次下潛挑戰極限深度以及閉氣時裡獲得成就感。",
-          "滑雪則是釋放壓力，滑行時的速度感，眺望雪山美景、還有分享眼前及心裡的快樂。",
-          "攝影是想紀錄生命裡每一個看到的畫面，也因此在遊日期間出遊時會背著全套近15公斤的裝備到處跑。"
-        ],
-        "media": [
-          {
-            "src": "/coach-images/bernie-intro-003.jpg",
-            "alt": "Bernie 教練照片"
-          },
-          {
-            "src": "/coach-images/bernie-intro-004.jpg",
-            "alt": "Bernie 教練照片"
-          },
-          {
-            "src": "/coach-images/bernie-intro-005.jpg",
-            "alt": "Bernie 教練照片"
-          }
-        ]
       }
     ],
     "hideTeachingLead": true

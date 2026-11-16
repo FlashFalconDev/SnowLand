@@ -29,6 +29,16 @@ export function resolveSiteLocale(preference: unknown, languages: readonly unkno
 // Only product-owned UI copy belongs here. Do not translate personal information,
 // course/CMS names or signed/legal documents through a text replacement service.
 const messages: Record<string, { en: string; ja: string }> = {
+  '教練招募申請': { en: 'Instructor application', ja: 'インストラクター応募' },
+  '返回成為教練': { en: 'Back to instructor recruitment', ja: 'インストラクター募集に戻る' },
+  '招募表單暫時無法載入。': { en: 'The application form is temporarily unavailable.', ja: '応募フォームを読み込めません。' },
+  '目前未開放站內應徵，請返回招募頁查看最新資訊。': { en: 'Online applications are currently closed. Check the recruitment page for updates.', ja: '現在はオンライン応募を受け付けていません。募集ページをご確認ください。' },
+  '已收到您的應徵資料': { en: 'We received your application', ja: 'ご応募を受け付けました' },
+  '送件編號 {reference}': { en: 'Application reference {reference}', ja: '応募番号 {reference}' },
+  '送出應徵資料': { en: 'Submit application', ja: '応募を送信' },
+  '未命名題目': { en: 'Untitled question', ja: '無題の質問' },
+  '（必填）': { en: ' (required)', ja: '（必須）' },
+  '單檔上限 {size} MB': { en: 'Up to {size} MB per file', ja: '1ファイル最大 {size} MB' },
   '目前暫停受理新預約': { en: 'New bookings are currently paused', ja: '現在、新規予約の受付を停止しています' },
   '您仍可登入會員查看既有訂單；新預約請洽學校確認。': { en: 'You can still sign in to view existing orders. Contact the school about new bookings.', ja: '会員ログインで既存の予約を確認できます。新規予約については学校にお問い合わせください。' },
   '目前無法載入學校資料': { en: 'School information is currently unavailable', ja: '現在、学校情報を読み込めません' },
@@ -1649,9 +1659,18 @@ const messages: Record<string, { en: string; ja: string }> = {
   '語言偏好無法儲存，本次仍可使用。': { en: 'Your language choice could not be saved, but is active for this visit.', ja: '言語設定を保存できませんでした。この画面では選択した言語を使用できます。' },
 }
 
-export function translateSiteText(locale: SiteLocale, source: string, values: Record<string, string | number> = {}): string {
+export { messages as siteMessages }
+
+export const siteNavigationSources = [
+  '滑雪課程', '海外攝影', '滑雪攻略', '最新消息', '關於Snowland', '會員專區',
+  '冬季雪地攝影', '夏季旅拍攝影', '攝影作品', '預約攝影流程', '北海道所有雪場', '野雪嚮導', '預約流程',
+  '雪場攻略', '行前須知', '滑雪裝備', '常見問題', '滑雪精選文章', '限定優惠',
+  '滑雪學校介紹', '教練團隊', '成為教練', '聯絡我們', '會員條款', '隱私權政策', '取消更改規定', '關於SnowLand',
+];
+
+export function translateSiteText(locale: SiteLocale, source: string, values: Record<string, string | number> = {}, override?: string): string {
   const singular:Record<string,string>={'{count} 人':'{count} person','{count} 天':'{count} day','{count} 組':'{count} group','{count} 堂':'{count} lesson','{count} 位學員':'{count} student','{count} 則已評價':'{count} review'}
-  const text=locale==='en'&&Number(values.count)===1&&singular[source] ? singular[source]
+  const text=override !== undefined ? (override || source) : locale==='en'&&Number(values.count)===1&&singular[source] ? singular[source]
     : locale === 'zh-Hant' ? source : messages[source]?.[locale] ?? source
   return text.replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g,(placeholder,key)=>Object.prototype.hasOwnProperty.call(values,key)?String(values[key]):placeholder)
 }

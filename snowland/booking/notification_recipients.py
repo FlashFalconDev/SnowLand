@@ -6,29 +6,31 @@ from django.utils import timezone
 from .legal_documents import get_current_waiver
 from .models import MemberDetail
 from .participant_forms import insurance_details_complete, signer_details_complete
+from .pre_course_questions import insurance_questions_need_update
 
 
 COURSE_RECIPIENT_EVENTS = {'pre_course', 'missing_documents', 'line_group'}
 
 
-def documents_missing(member, version):
+def documents_missing(member, document):
     insurance = member.insurance_data if isinstance(member.insurance_data, dict) else {}
     return not (
         member.insurance_completed_at and insurance_details_complete(insurance)
+        and not insurance_questions_need_update(member, document)
         and member.waiver_completed_at and member.waiver_signature and not member.waiver_resign_required
-        and member.waiver_document_version == version and signer_details_complete(insurance)
+        and member.waiver_document_version == document['version'] and signer_details_complete(insurance)
     )
 
 
 def group_documents_missing(group):
-    version = get_current_waiver(group.client)['version']
+    document = get_current_waiver(group.client)
     today = timezone.localdate()
     reservations = group.reservations.exclude(status__in=['cancelled', 'deleted']).filter(
         bookings__date__gte=today,
     ).prefetch_related('members').distinct()
     for reservation in reservations:
         members = list(reservation.members.all())
-        if reservation.number_of_people > len(members) or any(documents_missing(member, version) for member in members):
+        if reservation.number_of_people > len(members) or any(documents_missing(member, document) for member in members):
             return True
     return False
 
@@ -94,7 +96,7 @@ def course_notification_recipients(group, template, *, channel=None):
     members = list(MemberDetail.objects.filter(reservation_id__in=first_dates).select_related(
         'user__snowland_member_profile', 'guardian__snowland_member_profile',
     ))
-    version = get_current_waiver(group.client)['version'] if template.event == 'missing_documents' else ''
+    document = get_current_waiver(group.client) if template.event == 'missing_documents' else None
     contact_data = payment.DataJSON if isinstance(payment.DataJSON, dict) else {}
     contact = contact_data.get('contact') if isinstance(contact_data.get('contact'), dict) else {}
     booking_contact = group.booking_contact if isinstance(group.booking_contact, dict) else {}
@@ -120,14 +122,14 @@ def course_notification_recipients(group, template, *, channel=None):
         or (not member.user_id and not member.guardian_id)
     )]
     owner_missing_courses = {
-        member.reservation_id for member in owned_members if template.event == 'missing_documents' and documents_missing(member, version)
+        member.reservation_id for member in owned_members if document is not None and documents_missing(member, document)
     } | {reservation.pk for reservation in reservations if reservation.number_of_people > len(reservation.members.all())}
     if template.event != 'missing_documents':
         add(primary, organizer=True)
     elif owner_missing_courses:
         add(primary, organizer=True, first_date=min(first_dates[pk] for pk in owner_missing_courses))
     for member in members:
-        if template.event == 'missing_documents' and not documents_missing(member, version):
+        if document is not None and not documents_missing(member, document):
             continue
         for user in [member.user, member.guardian]:
             if user and user.pk != group.user_id:

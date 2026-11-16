@@ -41,6 +41,7 @@ ADMIN_PERMISSION_DEFINITIONS = [
     {'key': 'site_reviews', 'label': '網站評論', 'group': '官網內容', 'description': '管理 Google 評論與學員心得'},
     {'key': 'site_media', 'label': '圖庫', 'group': '官網內容', 'description': '管理官網圖庫'},
     {'key': 'site_tracking', 'label': '網站追蹤設定', 'group': '官網內容', 'description': '管理網站分析追蹤'},
+    {'key': 'site_translations', 'label': '中英日文字管理', 'group': '官網內容', 'description': '管理介面與公開內容的翻譯，須有全校資料範圍'},
     {'key': 'site_structure', 'label': '官網頁面與區塊架構', 'group': '官網內容', 'description': '管理共用的網站頁面配置'},
     {'key': 'campuses', 'label': '校區與營運規則', 'group': '設定', 'description': '管理校區、可用雪場及營運規則'},
     {'key': 'staff', 'label': '員工與權限', 'group': '設定', 'description': '管理租戶員工的分頁及校區，限總部管理員'},

@@ -114,9 +114,10 @@ function ResortCoursePage() {
     const matched = slugToLabel[section] ? section : "price";
     setActiveTabSlug(matched);
     if (slugToLabel[section] && tabSectionRef.current) {
-      setTimeout(() => {
-        tabSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const timer = setTimeout(() => {
+        tabSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
+      return () => clearTimeout(timer);
     }
   }, [section, slugToLabel, tabItems]);
 
@@ -1352,7 +1353,7 @@ function ResortCoursePage() {
                         navigate(`${resortTabUrl}/${item.slug}`, { state: { viaTabNav: true } });
                         if (tabSectionRef.current) {
                           setTimeout(() => {
-                            tabSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            tabSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                           }, 50);
                         }
                       }}

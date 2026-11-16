@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ScrollToTop from '@/components/site/ScrollToTop'
 import { useSiteLocale } from '@/contexts/SiteLocale'
+import { useSiteLink } from '@/hooks/useSiteBasePath'
 
 // HomePage is loaded eagerly — it's the first thing users see
 import HomePage from './HomePage'
@@ -85,6 +86,10 @@ function ResortOrAreaPage() {
   return resort?.endsWith('-area') ? <CourseAreaPage /> : <ResortCoursePage />
 }
 
+function OffPistePriceRedirect() {
+  return <Navigate to={useSiteLink('/course/off-piste-guide#pricing')} replace />
+}
+
 export default function SiteRoutes() {
   // Start preloading other pages once HomePage is shown
   usePreloadPages()
@@ -107,6 +112,7 @@ export default function SiteRoutes() {
           <Route path="/course/sapporo" element={<SapporoRedirect />} />
           <Route path="/course/sapporo/:section" element={<SapporoRedirect />} />
           <Route path="/course/off-piste-guide" element={<OffPisteGuidePage />} />
+          <Route path="/course/off-piste-guide/price" element={<OffPistePriceRedirect />} />
           <Route path="/course/hokkaido" element={<HokkaidoCoursePage />} />
           <Route path="/course/:resort" element={<ResortOrAreaPage />} />
           <Route path="/course/:resort/:section" element={<ResortCoursePage />} />
