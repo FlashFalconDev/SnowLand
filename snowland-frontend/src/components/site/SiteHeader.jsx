@@ -65,7 +65,7 @@ function SiteHeader({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [openMobileSection, setOpenMobileSection] = useState(null);
   const [openDesktopSection, setOpenDesktopSection] = useState(null);
-  const {t}=useSiteLocale();
+  const {t,navText=t}=useSiteLocale();
   const location = useLocation();
   const courseAreas = useSiteContent('course.areas', {contentType:'page'});
   const showSummerPhotography = useSummerPhotographyAvailable();
@@ -216,7 +216,7 @@ function SiteHeader({
                           : "text-white/90 hover:text-white text-xs md:text-sm font-medium tracking-wide transition-colors duration-300 drop-shadow-sm font-display relative group"
                     }
                   >
-                    {t(item.label)}
+                    {navText(item.label)}
                   </SiteLink>
                 ) : (
                   <button
@@ -246,7 +246,7 @@ function SiteHeader({
                           : "text-white/90 hover:text-white text-xs md:text-sm font-medium tracking-wide transition-colors duration-300 drop-shadow-sm font-display relative group"
                     }
                     >
-                      {t(item.label)}
+                      {navText(item.label)}
                       {!item.highlight && !item.variant && (
                         <span
                         className={`absolute -bottom-1 left-0 w-0 h-0.5 transition-all duration-300 group-hover:w-full ${isNavCompact ? "bg-[#1f2937]" : "bg-brand-orange"}`}
@@ -299,7 +299,7 @@ function SiteHeader({
                               onClick={() => setOpenDesktopSection(null)}
                               className="flex min-h-11 items-center px-4 py-2 text-sm font-medium font-display hover:bg-[#f3f4f6]"
                             >
-                              {entry.contentLabel?label:t(label)}
+                              {entry.contentLabel?label:navText(label)}
                             </SiteLink>
                           );
                         }
@@ -310,7 +310,7 @@ function SiteHeader({
                             href="#"
                             className="block px-4 py-2 text-sm font-medium font-display hover:bg-[#f3f4f6]"
                           >
-                            {t(label)}
+                            {navText(label)}
                           </a>
                         );
                       })}
@@ -427,7 +427,7 @@ function SiteHeader({
                         setOpenMobileSection((prev) => (prev === item.label ? null : item.label));
                       }}
                     >
-                      {t(item.label)}
+                      {navText(item.label)}
                       <span className="text-lg leading-none text-[#94a3b8]">
                         {openMobileSection === item.label ? "−" : "+"}
                       </span>
@@ -445,7 +445,7 @@ function SiteHeader({
                             setOpenMobileSection(null);
                           }}
                         >
-                          {subItem.contentLabel?subItem.label:t(subItem.label)}
+                          {subItem.contentLabel?subItem.label:navText(subItem.label)}
                         </SiteLink>
                       ))}
                   </div>
@@ -467,7 +467,7 @@ function SiteHeader({
                     }}
                     className="inline-flex items-center justify-start rounded-full border-[0.5px] border-[#111827] px-4 py-1.5 text-base font-semibold text-[#111827]"
                   >
-                    {t(memberItem.label)}
+                    {navText(memberItem.label)}
                   </SiteLink>
                 )}
                 {!hideBookingCta && (

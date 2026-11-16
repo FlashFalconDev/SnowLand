@@ -941,6 +941,11 @@ class SiteContentListAPI(APIView):
             for item in qs
         ]
 
+        locale = request.GET.get('locale')
+        if locale:
+            from Client.site_translations import localize_content_rows
+            data = localize_content_rows(data, client, locale, include_body=view != 'cards')
+
         if location_key in ('guides.articles','guides.article-pages'):
             if view == 'cards':
                 for row in data:
@@ -962,7 +967,10 @@ class SiteContentListAPI(APIView):
                                 for link in article['relatedLinks']]
                         row['metadata'] = {**row['metadata'],'article':updated_article}
 
-        return Response(data, status=status.HTTP_200_OK)
+        response = Response(data, status=status.HTTP_200_OK)
+        if locale:
+            response['Cache-Control'] = 'no-store'
+        return response
 
 
 class CoachListAPI(APIView):
@@ -5032,19 +5040,14 @@ class GoogleLoginAPI(APIView):
         # 方式 1: 前端發送 Google JWT credential
         if credential:
             try:
-                from google.oauth2 import id_token
-                from google.auth.transport import requests as google_requests
+                from snowland.google_auth import verify_google_oauth2_token
 
                 # 驗證 Google JWT token
                 configured_google_client_id = google_client_id(tenant)
                 if not configured_google_client_id:
                     return Response({'code': 503, 'msg': 'Google 登入尚未完成設定'}, status=503)
 
-                idinfo = id_token.verify_oauth2_token(
-                    credential,
-                    google_requests.Request(),
-                    configured_google_client_id
-                )
+                idinfo = verify_google_oauth2_token(credential, configured_google_client_id)
 
                 # 獲取用戶資訊
                 email = idinfo.get('email')

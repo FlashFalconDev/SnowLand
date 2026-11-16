@@ -184,7 +184,6 @@ def api_google_login(request):
     """Google 登入後的處理邏輯 - 前端 JWT 驗證版本"""
     print('=== api_google_login 被調用 ===')
     print(f'Request method: {request.method}')
-    print(f'Request body: {request.body}')
 
     # 🔥 支援兩種登入方式：
     # 1. 前端發送 Google JWT token (前後端分離)
@@ -198,7 +197,6 @@ def api_google_login(request):
         if request.body:
             try:
                 body = json.loads(request.body)
-                print(f'Parsed body: {body}')
                 credential = body.get('credential')
             except json.JSONDecodeError:
                 print('No JSON body or empty body, will check session instead')
@@ -207,17 +205,9 @@ def api_google_login(request):
         if credential:
             print('Found credential in body, verifying...')
             try:
-                from google.oauth2 import id_token
-                from google.auth.transport import requests as google_requests
+                from snowland.google_auth import verify_google_oauth2_token
 
-                # 🔥 驗證 Google JWT token
-                GOOGLE_CLIENT_ID = "754789081671-np8lbocgau68d4rers83v649bnm993vp.apps.googleusercontent.com"
-
-                idinfo = id_token.verify_oauth2_token(
-                    credential,
-                    google_requests.Request(),
-                    GOOGLE_CLIENT_ID
-                )
+                idinfo = verify_google_oauth2_token(credential, settings.GOOGLE_OAUTH_CLIENT_ID)
 
                 # 獲取用戶資訊
                 email = idinfo.get('email')

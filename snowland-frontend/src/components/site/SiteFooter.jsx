@@ -10,7 +10,7 @@ import { footerSettings } from '../../data/site/footerSettings';
 import { useSiteLocale } from '../../contexts/SiteLocale';
 
 function SiteFooter() {
-  const {t} = useSiteLocale();
+  const {t,navText=t} = useSiteLocale();
   const {clientCode,clientInfo,clientName}=useClientInfo();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -64,7 +64,7 @@ function SiteFooter() {
                   &gt;
                 </span>
                 <span className="transition-colors duration-200 group-hover:text-white">
-                  {t(item.label)}
+                  {navText(item.label)}
                 </span>
               </SiteLink>
             ))}
@@ -85,7 +85,7 @@ function SiteFooter() {
                   &gt;
                 </span>
                 <span className="transition-colors duration-200 group-hover:text-white">
-                  {t(item.label)}
+                  {navText(item.label)}
                 </span>
               </SiteLink>
             ))}

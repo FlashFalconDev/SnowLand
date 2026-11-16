@@ -546,7 +546,7 @@ function OffPisteGuidePage() {
         </section>
 
 
-        <section id="pricing" className="bg-white text-[#1f2937]">
+        <section id="pricing" className="scroll-mt-20 bg-white text-[#1f2937]">
           <div className="max-w-6xl mx-auto px-6 py-16 md:py-20">
             <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#94a3b8] font-display text-center">
               Pricing

@@ -18,7 +18,7 @@ assert.doesNotThrow(()=>encodeURIComponent(prepare('<h2 id="&#xD800;">安全錨�
 console.log('PASS original article TOC: preserved markup and anchors, duplicate IDs, entity labels and quoted attributes')
 
 const requests=[]
-const hookContext=vm.createContext({exports:{},URL,require:name=>name==='react'?{useState:initial=>[typeof initial==='function'?initial():initial,()=>{}],useEffect:effect=>effect()}:{fetchSiteContent:params=>{requests.push(params);return Promise.resolve([])}}})
+const hookContext=vm.createContext({exports:{},URL,require:name=>name==='react'?{useState:initial=>[typeof initial==='function'?initial():initial,()=>{}],useEffect:effect=>effect()}:name.includes('SiteLocale')?{useSiteLocale:()=>({locale:'zh-Hant'})}:{fetchSiteContent:params=>{requests.push(params);return Promise.resolve([])}}})
 vm.runInContext(compile('src/hooks/useSiteContent.js'),hookContext)
 hookContext.exports.useSiteContent('guides.articles')
 assert.equal(requests.at(-1).view,'cards')

@@ -67,6 +67,7 @@ export const consoleNavigation = [
     { path: 'cms/news', label: '最新消息', access: 'site_news' },
     { path: 'cms/about', label: '品牌介紹與聯絡頁', access: 'site_about' },
     { path: 'cms/recruitment', label: '教練招募', access: 'recruitment' },
+    { path: 'cms/translations', label: '中英日文字管理', access: 'site_translations' },
     { path: 'cms/coaches', label: '官網教練資料', access: 'site_coaches' },
     { path: 'reviews/manual', label: '網站評論', access: 'site_reviews' },
     { path: 'media', label: '圖庫', access: 'site_media' },

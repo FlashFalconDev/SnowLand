@@ -46,6 +46,7 @@ export const fetchSiteContent = async (params?: {
   limit?: number
   include_ended?: boolean
   view?: 'cards'
+  locale?: 'zh-Hant' | 'en' | 'ja'
 }): Promise<SiteContentItem[]> => {
   return api.get('/site-content/', { params })
 }

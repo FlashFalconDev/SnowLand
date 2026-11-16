@@ -6,11 +6,13 @@ import RecruitmentFields from '@/components/site/RecruitmentFields'
 import { recruitmentError, type RecruitmentSettings } from '@/components/site/recruitmentForm'
 import { schoolBookingApiPath } from '@/utils/tenant'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
+import { useSiteLocale } from '@/contexts/SiteLocale'
 
 const formPath = () => schoolBookingApiPath('/recruitment/')
 
 export default function RecruitmentApplyPage() {
   const joinUrl = useSiteLink('/join-us')
+  const {t, siteText} = useSiteLocale()
   const [config, setConfig] = useState<RecruitmentSettings | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [reload, setReload] = useState(0)
@@ -101,24 +103,24 @@ export default function RecruitmentApplyPage() {
   return <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-slate-900">
     <SiteHeader forceDarkText forceLogoColor />
     <main className="mx-auto w-full max-w-2xl flex-1 px-5 pb-20 pt-28">
-      <Link to={joinUrl} className="text-sm font-medium text-[#2b5f8f] underline underline-offset-4">返回成為教練</Link>
-      <h1 className="mb-6 mt-3 text-3xl font-semibold">教練招募申請</h1>
+      <Link to={joinUrl} className="text-sm font-medium text-[#2b5f8f] underline underline-offset-4">{t('返回成為教練')}</Link>
+      <h1 className="mb-6 mt-3 text-3xl font-semibold">{t('教練招募申請')}</h1>
       <div className="rounded-md border border-slate-200 bg-white p-5 sm:p-8">
         {loadFailed ? <div role="alert" className="space-y-2 text-sm">
-          <p>招募表單暫時無法載入。</p><button type="button" className="underline" onClick={reloadForm}>重新載入</button>
-        </div> : !config ? <p role="status">表單載入中…</p>
-        : !config.enabled ? <p>目前未開放站內應徵，請返回招募頁查看最新資訊。</p>
+          <p>{t('招募表單暫時無法載入。')}</p><button type="button" className="underline" onClick={reloadForm}>{t('重新載入')}</button>
+        </div> : !config ? <p role="status">{t('表單載入中…')}</p>
+        : !config.enabled ? <p>{t('目前未開放站內應徵，請返回招募頁查看最新資訊。')}</p>
         : reference ? <div role="status" className="space-y-2">
-          <h2 className="font-semibold">已收到您的應徵資料</h2>
-          <p className="break-all text-sm text-slate-600">送件編號 {reference}</p>
+          <h2 className="font-semibold">{t('已收到您的應徵資料')}</h2>
+          <p className="break-all text-sm text-slate-600">{t('送件編號 {reference}', {reference})}</p>
         </div> : <form className="space-y-6" onSubmit={submit} onChange={changeAnswer} aria-busy={busy}>
           <fieldset disabled={busy || outdated}>
-            <RecruitmentFields fields={config.fields} errors={fields} />
+            <RecruitmentFields fields={config.fields} errors={fields} t={t} translate={(key, source) => siteText('recruitment', key, source)} />
           </fieldset>
           {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-          {outdated ? <button type="button" className="text-sm underline" onClick={reloadForm}>重新載入表單</button>
+          {outdated ? <button type="button" className="text-sm underline" onClick={reloadForm}>{t('重新載入表單')}</button>
           : <button type="submit" disabled={busy} className="min-h-11 rounded-full bg-[#2b5f8f] px-6 py-2 text-sm font-semibold text-white disabled:opacity-60">
-            {busy ? '送出中…' : '送出應徵資料'}
+            {t(busy ? '送出中…' : '送出應徵資料')}
           </button>}
         </form>}
       </div>

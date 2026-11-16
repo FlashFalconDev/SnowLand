@@ -536,3 +536,4 @@ class FrontendRelease(models.Model):
 
 from .frontend_models import FrontendDeployment  # noqa: E402,F401
 from .recruitment_models import RecruitmentApplication, RecruitmentForm  # noqa: E402,F401
+from .translation_models import SiteTranslation  # noqa: E402,F401

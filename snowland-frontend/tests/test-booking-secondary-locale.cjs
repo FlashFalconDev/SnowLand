@@ -10,7 +10,7 @@ const declarations=ast.statements.filter(n=>ts.isVariableStatement(n)||ts.isFunc
 const find=(node,p)=>{if(!node||typeof node!=='object')return null;if(p(node))return node;for(const child of React.Children.toArray(node.props?.children)){const result=find(child,p);if(result)return result}return null}
 for(const language of ['en','ja']){
  const locale=require('./helpers/site-locale-harness.cjs')(React,language),t=(text,values)=>locale.translateSiteText(language,text,values),events=[]
- const context=vm.createContext({React,exports:{},useSiteLocale:locale.useSiteLocale,useEffect(){},ChevronLeft:()=>null,ChevronRight:()=>null,t,
+ const context=vm.createContext({React,exports:{},useSiteLocale:locale.useSiteLocale,useEffect(){},ChevronLeft:()=>null,ChevronRight:()=>null,t,siteText:(_scope,_key,source)=>source,
   paymentInfoError:'',createdReservationIds:[101,102],isSubmitting:false,membershipUrl:'/snowland/membership/orders',retryPaymentInfo:()=>events.push('retry'),
   cart:[{id:'qa',resortName:'QA雪場',peopleCount:2,totalPrice:9000,courses:[{courseTemplateId:1,courseTemplateName:'QA課程',date:'2026-11-20',timeSlotStart:'09:00',timeSlotEnd:'12:00'}]}],formatCurrency:value=>'NT$ '+value.toLocaleString(),handleEditCartGroup:id=>events.push(id),handleAddCartGroup:()=>events.push('add'),staffConsoleUrl:'/snowland/console/booking-links'})
  vm.runInContext(ts.transpileModule(declarations+`\nexports.recovery=()=>(${recovery});exports.prepare=()=>(${prepare});`,{fileName:'secondary.tsx',compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context)

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { fetchSiteContent } from '../api/booking';
+import { useSiteLocale } from '../contexts/SiteLocale';
 
 export function useSiteContent(locationKey, options = {}) {
+  const {locale} = useSiteLocale();
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(Boolean(locationKey));
   const [error, setError] = useState(null);
@@ -20,6 +22,7 @@ export function useSiteContent(locationKey, options = {}) {
     setError(null);
     fetchSiteContent({
       location_key: locationKey,
+      locale,
       limit: options.limit ?? 500,
       ...(options.contentType ? { content_type: options.contentType } : {}),
       ...(options.includeEnded ? { include_ended: true } : {}),
@@ -42,7 +45,7 @@ export function useSiteContent(locationKey, options = {}) {
     return () => {
       active = false;
     };
-  }, [locationKey, options.contentType, options.includeEnded, options.limit, options.contentId, reloadKey]);
+  }, [locationKey, options.contentType, options.includeEnded, options.limit, options.contentId, locale, reloadKey]);
 
   return { items, isLoading, error, refetch: () => setReloadKey(value => value + 1) };
 }

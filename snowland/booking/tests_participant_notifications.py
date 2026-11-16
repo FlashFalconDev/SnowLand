@@ -8,10 +8,11 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from Client.models import Client
+from Client.models import Client, SiteContent
 from Coursekit.models import CourseCategory, CourseTemplate, CourseType
 from booking.legal_documents import get_current_waiver
 from booking.models import Booking, MemberDetail, MemberProfile, NotificationDelivery, NotificationTemplate, Payment, Reservation, ReservationGroup
+from booking.notification_recipients import group_documents_missing
 from booking.operations import schedule_group_notifications
 
 
@@ -81,6 +82,29 @@ class ParticipantNotificationTests(TestCase):
         self.reservation.save(update_fields=['number_of_people'])
         scheduled = schedule_group_notifications(self.group, 'missing_documents')
         self.assertEqual([item.recipient for item in scheduled], [self.owner.email])
+
+    def test_required_insurance_questions_are_checked_when_scheduling_and_sending(self):
+        question = {'key': 'emergency', 'title': '緊急聯絡資訊', 'kind': 'text',
+                    'required': True, 'section': 'insurance', 'options': []}
+        SiteContent.objects.create(client=self.tenant, location_key='membership.waiver',
+                                   content_type='page', status='active', metadata={'questions': [question]})
+        template = self.template('missing_documents')
+        for member in [self.member, *self.children]:
+            self.complete(member)
+        for child in self.children:
+            child.pre_course_answers = {'insurance': {'questions': [question], 'answers': {'emergency': 'QA'}}}
+            child.save(update_fields=['pre_course_answers'])
+
+        self.assertTrue(group_documents_missing(self.group))
+        scheduled = schedule_group_notifications(self.group, 'missing_documents')
+        self.assertEqual([item.recipient for item in scheduled], [self.adult.email])
+        self.member.pre_course_answers = self.children[0].pre_course_answers
+        self.member.save(update_fields=['pre_course_answers'])
+        self.assertFalse(group_documents_missing(self.group))
+
+        self.jobs()
+        self.assertEqual(NotificationDelivery.objects.get(template=template).status, 'cancelled')
+        self.assertEqual(len(getattr(mail, 'outbox', [])), 0)
 
     def test_cancelled_or_removed_guardian_is_rechecked_before_send(self):
         template = self.template()

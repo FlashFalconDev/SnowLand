@@ -55,6 +55,14 @@ class Command(BaseCommand):
             matches = [item for item in existing if item.external_id == key or item.link_url == url or isinstance(item.metadata,dict) and item.metadata.get('url') == url]
             if len(matches) > 1:
                 raise CommandError('同一篇文章存在多筆後台資料，請先核對；沒有寫入任何變更')
+            if not matches and any(
+                item.title == card['title'] and (item.body.strip() or (
+                    isinstance(item.metadata, dict) and (item.metadata.get('article') or item.metadata.get('blocks'))
+                ))
+                for item in existing
+            ):
+                preserved += 1
+                continue
             if matches:
                 if is_special: continue
                 item = matches[0]
