@@ -56,7 +56,7 @@ from .website_coach_editor import WebsiteCoachEditorViewSet
 from .contact_inbox import ContactInboxViewSet
 from .recruitment import RecruitmentViewSet
 from .site_translations import SiteTranslationAdminViewSet
-from .instagram_sync import InstagramSyncViewSet
+from .instagram_sync import InstagramSyncViewSet, meta_callback
 from .frontend_releases import FrontendReleaseViewSet
 from .staff_positions import staff_positions, staff_position_detail
 from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet
@@ -138,5 +138,6 @@ urlpatterns = [
     path('admin/<str:client_code>/coach/apply-leave/', coach_apply_leave, name='admin-coach-apply-leave'),
     path('admin/<str:client_code>/payment-settings/', payment_settings_view, name='admin-payment-settings'),
     path('admin/<str:client_code>/newebpay-settings/', newebpay_settings_view, name='admin-newebpay-settings'),
+    path('social/meta/callback/', meta_callback, name='meta-social-callback'),
     path('admin/<str:client_code>/', include(admin_router.urls)),
 ]

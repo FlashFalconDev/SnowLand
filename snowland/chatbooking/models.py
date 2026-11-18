@@ -44,6 +44,7 @@ class ChatBookingSession(models.Model):
     )
     channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES, default=CHANNEL_API)
     external_user_id = models.CharField(max_length=255, blank=True, default="")
+    line_channel_id = models.CharField(max_length=64, blank=True, default="")
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
     current_step = models.CharField(max_length=64, blank=True, default="service_type")
     slot_values = models.JSONField(default=dict, blank=True)
@@ -63,6 +64,24 @@ class ChatBookingSession(models.Model):
 
     def __str__(self):
         return f"{self.client.internal_code}:{self.channel}:{self.pk}"
+
+
+class LineChannelBinding(models.Model):
+    client = models.OneToOneField('Client.Client', on_delete=models.CASCADE)
+    bot_id = models.CharField(max_length=64, unique=True)
+    display_name = models.CharField(max_length=100)
+    credentials = models.TextField(blank=True)
+    enabled = models.BooleanField(default=False)
+    webhook_verified_at = models.DateTimeField(null=True, blank=True)
+
+
+class MetaPageBinding(models.Model):
+    client = models.OneToOneField('Client.Client', on_delete=models.CASCADE)
+    page_id = models.CharField(max_length=32, unique=True)
+    page_name = models.CharField(max_length=160)
+    instagram_id = models.CharField(max_length=32, blank=True, null=True, unique=True)
+    instagram_name = models.CharField(max_length=80, blank=True)
+    credentials = models.TextField()
 
 
 class ChatBookingMessage(models.Model):

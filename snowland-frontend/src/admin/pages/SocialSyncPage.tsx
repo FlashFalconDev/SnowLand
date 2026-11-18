@@ -1,53 +1,256 @@
-import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import adminApi from '../api/axios'
-import { fetchAdminMe } from '../api/auth'
+// Overview and platform detail layouts from FlashFalcon's social settings.
+import {
+  ArrowLeft, CheckCircle2, ChevronRight, ExternalLink, Facebook, Instagram,
+  MessageSquare, MessagesSquare, Settings, Settings2, Sparkles, type LucideIcon,
+} from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
+import { currentClientCode } from '@/utils/tenant'
+import { useSiteLink } from '@/hooks/useSiteBasePath'
+import { instagramStatusQuery, lineStatusQuery, metaStatusQuery } from '../api/socialChannels'
+import InstagramPostSettings from '../components/InstagramPostSettings'
+import LineChannelSettings from '../components/LineChannelSettings'
+import MetaChannelSettings from '../components/MetaChannelSettings'
+import SocialPlatformPageHeader from '../components/SocialPlatformPageHeader'
 
-type Connection = {expected_username:string;username:string;enabled:boolean;connected:boolean;missing_configuration:string[];token_expires_at:string|null;last_synced_at:string|null;last_error:string}
-const button='min-h-11 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600'
-const section='rounded-xl border border-gray-200 bg-white p-5 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100'
-const errorText=(error:any)=>error?.response?.data?.msg||error?.response?.data?.detail||'操作未完成，請稍後再試。'
-const date=(value:string|null)=>value?new Date(value).toLocaleString('zh-TW'):'尚無紀錄'
+const CHANNEL_DEFS = [
+  {
+    type: 'line', label: 'LINE 官方帳號', icon: MessageSquare,
+    color: 'bg-green-500/15', iconColor: 'text-green-400', borderColor: 'hover:border-green-500/40',
+    description: '使用 Messaging API 串接 LINE 官方帳號，在訊息中心接收與回覆對話。',
+    feature: '官方帳號連接', instructions: '設定 Messaging API 的 Channel Token、Channel Secret、Webhook URL。',
+    settings: 'line-oa?tab=basic',
+  },
+  {
+    type: 'facebook', label: 'Facebook Messenger', icon: MessagesSquare,
+    color: 'bg-blue-500/15', iconColor: 'text-blue-400', borderColor: 'hover:border-blue-500/40',
+    description: '透過 Meta 一鍵授權連接粉絲專頁。Messenger 收發待開通。',
+    feature: '一鍵授權連接', instructions: '使用 Facebook 帳號授權，再選擇要綁定的粉絲專頁。',
+    settings: 'meta?tab=oauth',
+  },
+  {
+    type: 'instagram', label: 'Instagram DM', icon: Instagram,
+    color: 'bg-pink-500/15', iconColor: 'text-pink-400', borderColor: 'hover:border-pink-500/40',
+    description: '和 Facebook 共用 Meta 授權，連接粉專關聯的 Instagram 帳號。私訊收發待開通。',
+    feature: '一鍵授權連接（透過 Meta）', instructions: 'Instagram 與 Facebook 共用授權流程，請在同一頁完成連接。',
+    settings: 'meta?tab=oauth',
+  },
+  {
+    type: 'instagram-posts', label: 'Instagram 貼文同步', icon: Instagram,
+    color: 'bg-pink-500/15', iconColor: 'text-pink-400', borderColor: 'hover:border-pink-500/40',
+    description: '將官方 Instagram 的公開貼文同步到 SnowLand 官網。',
+    feature: '同步設定', instructions: '授權官方帳號，並查看最近同步時間。',
+    settings: 'channels/instagram-posts/settings',
+  },
+] as const
 
-export default function SocialSyncPage(){
-  const qc=useQueryClient(),me=useQuery({queryKey:['admin','me'],queryFn:fetchAdminMe})
-  const hq=!!me.data?.user?.is_superuser||me.data?.user?.role==='hq_admin'
-  const query=useQuery({queryKey:['admin','instagram-sync'],enabled:hq,queryFn:async()=>{
-    const result=await adminApi.get('/instagram-sync/') as unknown as {data:Connection};return result.data
-  }})
-  const [username,setUsername]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState('')
-  useEffect(()=>{if(query.data)setUsername(query.data.expected_username)},[query.data])
-  const action=useMutation({mutationFn:async(kind:'connect'|'sync'|'disconnect')=>{
-    const result=await adminApi.post(`/instagram-sync/${kind}/`,kind==='connect'?{expected_username:username}: {},{timeout:kind==='sync'?45000:15000}) as unknown as {msg?:string;data?:{authorization_url?:string}}
-    if(kind==='connect'){
-      const target=new URL(result.data?.authorization_url||'')
-      if(target.origin!=='https://www.instagram.com'||target.pathname!=='/oauth/authorize')throw Error('授權網址不正確')
-      window.location.assign(target.href)
+type Channel = (typeof CHANNEL_DEFS)[number]
+type ChannelState = { label: string; linked?: boolean; name?: string }
+
+function useChannelStates(tenant: string) {
+  const line = useQuery(lineStatusQuery(tenant))
+  const meta = useQuery(metaStatusQuery(tenant))
+  const instagram = useQuery(instagramStatusQuery(tenant))
+  const lineData = line.data
+  const metaData = meta.data
+  const instagramData = instagram.data
+  const postsEnabled = instagramData?.connected && instagramData.enabled
+
+  function state(query: { isPending: boolean; isError: boolean }, status: ChannelState): ChannelState {
+    if (query.isPending) return { label: '載入中' }
+    if (query.isError) return { label: '無法取得狀態' }
+    return status
+  }
+
+  return {
+    line: state(line, {
+      label: lineData?.verified ? '已連接' : lineData?.enabled ? '待驗證 Webhook' : lineData?.legacy ? '沿用既有頻道' : lineData?.runtime_ready ? '未連接' : '待平台開通',
+      linked: lineData?.verified,
+      name: lineData?.display_name,
+    }),
+    facebook: state(meta, {
+      label: metaData?.page_id ? '已綁定帳號' : metaData?.platform_ready ? '未連接' : '待平台開通',
+      linked: Boolean(metaData?.page_id),
+      name: metaData?.page_name,
+    }),
+    instagram: state(meta, {
+      label: metaData?.instagram_name ? '已綁定帳號' : metaData?.platform_ready ? '未連接' : '待平台開通',
+      linked: Boolean(metaData?.instagram_name),
+      name: metaData?.instagram_name ? '@' + metaData.instagram_name : undefined,
+    }),
+    'instagram-posts': state(instagram, {
+      label: postsEnabled ? '允許貼文同步' : instagramData?.missing_configuration.length === 0 ? '尚未授權' : '待平台開通',
+      linked: postsEnabled,
+      name: instagramData?.username ? '@' + instagramData.username : undefined,
+    }),
+  }
+}
+
+function ChannelOverview({ tenant, base }: { tenant: string; base: string }) {
+  const states = useChannelStates(tenant)
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700/30 dark:bg-gray-800/30">
+        <h1 className="font-semibold text-gray-900 dark:text-white">基礎設定</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          選擇平台管理帳號連接。LINE 驗證後，可在「社群 → 訊息中心」收發對話。
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {CHANNEL_DEFS.map(def => {
+          const status = states[def.type]
+          const Icon = def.icon
+          return (
+            <Link key={def.type} to={base + '/' + def.type} className="block rounded-xl">
+              <div className={'cursor-pointer rounded-xl border border-gray-200 bg-white transition-all duration-200 hover:bg-gray-50 dark:border-gray-700/40 dark:bg-gray-800/50 dark:hover:bg-gray-800/80 ' + def.borderColor}>
+                <div className="p-5">
+                  <div className="flex items-start gap-4">
+                    <div className={'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ' + def.color}>
+                      <Icon className={'h-6 w-6 ' + def.iconColor} aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <h2 className="font-semibold text-gray-900 dark:text-white">{def.label}</h2>
+                        <span className={'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ' + (status.linked
+                          ? 'border-green-500/30 bg-green-500/15 text-green-700 dark:text-green-400'
+                          : 'border-gray-500/30 bg-gray-500/15 text-gray-500 dark:text-gray-400')}>
+                          {status.linked && <CheckCircle2 className="h-3 w-3" aria-hidden />}{status.label}
+                        </span>
+                      </div>
+                      <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">{def.description}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700/50 dark:text-gray-400">{def.feature}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-gray-400" aria-hidden />
+                  </div>
+                </div>
+                {status.linked && status.name && (
+                  <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-2.5 text-xs dark:border-gray-700/30">
+                    <span className="break-all text-gray-500 dark:text-gray-400">{status.name}</span>
+                    <span className="shrink-0 text-violet-700 dark:text-violet-300">查看設定</span>
+                  </div>
+                )}
+              </div>
+            </Link>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function BackLink({ to, label }: { to: string; label: string }) {
+  return (
+    <Link to={to} aria-label={label} title={label}
+      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-700/50 dark:hover:text-white">
+      <ArrowLeft className="h-5 w-5" aria-hidden />
+    </Link>
+  )
+}
+
+function ChannelDetail({ base, channel }: { base: string; channel: Channel }) {
+  const Icon = channel.icon
+  const settingsPath = useSiteLink('/console/social/' + channel.settings)
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <BackLink to={base} label="返回基礎設定" />
+        <div className={'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ' + channel.color}>
+          <Icon className={'h-6 w-6 ' + channel.iconColor} aria-hidden />
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">{channel.label}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">管理此平台的連接與設定</p>
+        </div>
+      </div>
+      <Link to={settingsPath} className="block rounded-xl">
+        <div className="cursor-pointer rounded-xl border border-gray-200 bg-white p-5 transition-all duration-200 hover:border-purple-500/40 hover:bg-gray-50 dark:border-gray-700/40 dark:bg-gray-800/50 dark:hover:bg-gray-800/80">
+          <div className="flex items-center gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700/50">
+              <Settings className="h-5 w-5 text-gray-500 dark:text-gray-300" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="mb-0.5 font-medium text-gray-900 dark:text-white">{channel.feature}</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{channel.instructions}</p>
+            </div>
+            <ExternalLink className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" aria-hidden />
+          </div>
+        </div>
+      </Link>
+    </div>
+  )
+}
+
+const SETTINGS: Partial<Record<Channel['type'], {
+  label: string; tab: string; icon: LucideIcon; tabIcon: LucideIcon;
+  form: typeof LineChannelSettings;
+}>> = {
+  line: { label: 'LINE OA', tab: '基本設定', icon: Settings2, tabIcon: Settings2, form: LineChannelSettings },
+  facebook: { label: 'FB / IG', tab: '一鍵授權', icon: Facebook, tabIcon: Sparkles, form: MetaChannelSettings },
+  'instagram-posts': { label: 'Instagram 貼文同步', tab: '同步設定', icon: Instagram, tabIcon: Settings2, form: InstagramPostSettings },
+}
+
+function ChannelSettings({ tenant, base, channel }: { tenant: string; base: string; channel: Channel }) {
+  const status = useChannelStates(tenant)[channel.type]
+  const fields = SETTINGS[channel.type]
+  if (!fields) return <Navigate to={base + '/' + channel.type} replace />
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-5">
+      <BackLink to={base + '/' + channel.type} label={'返回 ' + channel.label} />
+      <SocialPlatformPageHeader
+        icon={<fields.icon className="h-6 w-6" aria-hidden />}
+        title={fields.label}
+        description={channel.description}
+        statusLabel={status.label}
+        statusTone={status.linked ? 'green' : 'amber'}
+      >
+        {status.name && <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-200">{status.name}</span>}
+      </SocialPlatformPageHeader>
+      <div className="overflow-x-auto border-b border-gray-200 dark:border-gray-700">
+        <span className="inline-flex items-center gap-2 whitespace-nowrap border-b-2 border-violet-600 px-4 py-3 text-sm font-medium text-violet-700 dark:text-violet-300">
+          <fields.tabIcon size={16} aria-hidden />{fields.tab}
+        </span>
+      </div>
+      <fields.form key={tenant} tenantCode={tenant} />
+    </div>
+  )
+}
+
+export default function SocialSyncPage({ settings = false, legacy = false, settingsChannel }: {
+  settings?: boolean; legacy?: boolean; settingsChannel?: 'line' | 'facebook'
+}) {
+  const params = useParams()
+  const channel = settingsChannel ?? params.channel
+  const { search, hash } = useLocation()
+  const tenant = currentClientCode()
+  const socialBase = '/' + tenant + '/console/social'
+  const base = socialBase + '/channels'
+  if (legacy || !channel) {
+    const callback = new URLSearchParams(search)
+    if (callback.has('meta') || (legacy && channel === 'meta')) {
+      if (!callback.has('tab')) callback.set('tab', 'oauth')
+      return <Navigate to={socialBase + '/meta?' + callback.toString() + hash} replace />
     }
-    return result
-  },onSuccess:async(result)=>{setError('');setMessage(result.msg||'正在前往 Instagram 官方授權頁…');await qc.invalidateQueries({queryKey:['admin','instagram-sync']});await qc.invalidateQueries({queryKey:['admin','site-content']})},onError:failure=>{setMessage('');setError(errorText(failure))}})
-  if(me.isLoading)return <p role="status" className="p-5">正在確認管理權限…</p>
-  if(me.error)return <p role="alert" className="p-5">管理權限載入失敗。<button className={button} onClick={()=>me.refetch()}>重新載入</button></p>
-  if(!hq)return <section className={section}><h1 className="text-xl font-semibold">僅總部管理員可管理官方社群授權</h1><p className="mt-3 text-sm">請由總部管理員操作，不需提供帳號密碼。</p></section>
-  const current=query.data
-  const result=new URLSearchParams(window.location.search).get('ig')
-  const callbackMessages:Record<string,string>={connected:'官方帳號授權已完成，請按「立即同步」檢查貼文。',declined:'您已取消官方授權，原有貼文保留。',invalid_state:'授權流程已逾時或驗證不符，請重新從本頁開始。',failed:'授權未完成，請查看下方原因後重新嘗試。'}
-  return <div className="space-y-5"><header><h1 className="text-2xl font-semibold">官方社群同步</h1><p className="mt-2 text-sm text-gray-500 dark:text-gray-400">只讀取官方公開貼文，不發文、不讀取私訊。授權資料只保存在伺服器加密欄位。</p></header>
-    {result&&callbackMessages[result]&&<p role="status" className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200">{callbackMessages[result]}</p>}
-    <section className={section}><h2 className="text-lg font-semibold">Instagram 貼文</h2>
-      {query.isLoading?<p role="status" className="mt-3">載入同步狀態…</p>:query.error?<p role="alert" className="mt-3">同步設定載入失敗，請先確認測試機已執行最新 migration。<button className={button} onClick={()=>query.refetch()}>重試</button></p>:current&&<>
-        <p className="mt-3 text-sm">目前狀態：{current.enabled&&current.connected?'已授權，允許同步':'尚未連線或已停用'}{current.username&&`（@${current.username}）`}</p>
-        {!!current.missing_configuration.length&&<div role="alert" className="mt-3 rounded-lg bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200"><p className="font-semibold">系統應用程式尚未設定完成，暫不能開啟授權。</p><p className="mt-1 break-words">需由開發／部署端設定：{current.missing_configuration.join('、')}。</p><p className="mt-1">官方 IG 網址不是 API 授權；設定完成後，帳號管理者按下方按鈕在 Instagram 官方頁面登入並同意即可。不需在本頁填密碼或 Token。</p></div>}
-        <form className="mt-5 space-y-4" onSubmit={event=>{event.preventDefault();setError('');setMessage('');action.mutate('connect')}}>
-          <label className="block text-sm">要連線的官方 IG 帳號（不含 @）<input aria-label="官方 IG 帳號" required maxLength={30} pattern="[A-Za-z0-9_.]+" disabled={current.connected||action.isPending} value={username} onChange={event=>setUsername(event.target.value)} className="mt-2 min-h-11 w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 text-gray-900 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-900 dark:text-white"/></label>
-          <div className="flex flex-wrap gap-3"><button type="submit" className={button+' border-violet-600 bg-violet-600 text-white'} disabled={action.isPending||!!current.missing_configuration.length||!username.trim()}>{current.connected?'重新授權官方帳號':'授權並啟用貼文同步'}</button><button type="button" className={button} disabled={action.isPending||!current.enabled||!current.connected||!!current.missing_configuration.length} onClick={()=>{setError('');setMessage('');action.mutate('sync')}}>立即同步</button><button type="button" className={button+' text-red-600 dark:text-red-300'} disabled={action.isPending||!current.connected} onClick={()=>{setError('');setMessage('');action.mutate('disconnect')}}>停用並移除本系統授權</button></div>
-        </form>
-        {action.isPending&&<p role="status" className="mt-3 text-sm">處理中，請勿重複操作…</p>}
-        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-gray-500 dark:text-gray-400">最後成功同步</dt><dd>{date(current.last_synced_at)}</dd></div><div><dt className="text-gray-500 dark:text-gray-400">授權有效期限</dt><dd>{date(current.token_expires_at)}</dd></div></dl>
-        {current.last_error&&<p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{current.last_error}</p>}
-        <p className="mt-4 text-xs leading-6 text-gray-500 dark:text-gray-400">同步最近12則貼文，重跑不新增重複卡片；已隱藏的貼文不會自行恢復公開。同步失敗保留既有內容。自動同步需部署端啟用排程，每小時更新；顯示「已授權」不等於已確認正式排程運作。</p>
-      </>}
-      {message&&<p role="status" className="mt-4 text-sm text-emerald-700 dark:text-emerald-300">{message}</p>}{error&&<p role="alert" className="mt-4 text-sm text-red-600 dark:text-red-300">{error}</p>}
-    </section><section className={section}><h2 className="font-semibold">Google 商家評論</h2><p className="mt-2 text-sm text-gray-500 dark:text-gray-400">依目前安排先預留，尚未綁定商家，也不會顯示自動同步已啟用。</p></section>
-  </div>
+    if (callback.has('ig') || (legacy && channel === 'instagram')) {
+      return <Navigate to={base + '/instagram-posts/settings' + search + hash} replace />
+    }
+    if (legacy && channel === 'line') {
+      return <Navigate to={socialBase + '/line-oa' + (search || '?tab=basic') + hash} replace />
+    }
+    if (legacy) return <Navigate to={base + search + hash} replace />
+    return <ChannelOverview key={tenant} tenant={tenant} base={base} />
+  }
+
+  const platform = CHANNEL_DEFS.find(def => def.type === channel)
+  if (!platform) return <Navigate to={base} replace />
+  if (settings && (channel === 'line' || channel === 'facebook')) {
+    const [path, defaultTab] = platform.settings.split('?')
+    return <Navigate to={socialBase + '/' + path + (search || '?' + defaultTab) + hash} replace />
+  }
+  return settings || settingsChannel
+    ? <ChannelSettings key={tenant + '/' + channel} tenant={tenant} base={base} channel={platform} />
+    : <ChannelDetail base={base} channel={platform} />
 }

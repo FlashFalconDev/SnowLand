@@ -292,7 +292,7 @@ function SidebarItem({ item, collapsed, active, expanded, popup, onToggle, onOpe
               <li key={child.id}>
                 <NavLink
                   to={child.path}
-                  end
+                  end={child.id !== 'social/channels'}
                   onClick={onNavigate}
                   className={({ isActive }) => `flex items-center rounded-lg px-3 py-2 text-sm no-underline ${collapsed ? 'min-h-10' : 'min-h-11'} ${isActive
                     ? 'bg-violet-700 font-semibold text-white'
@@ -420,7 +420,9 @@ function AdminLayoutContent() {
     }] : []
   })
   const pathname = location.pathname.replace(/\/$/, '')
-  const currentGroup = navItems.find(item => item.children.some(child => child.path === pathname))
+  const currentGroup = navItems.find(item => item.children.some(child => (
+    child.path === pathname || (child.id === 'social/channels' && pathname.startsWith(`${child.path}/`))
+  )))
   const visibleGroup = expandedGroup === undefined ? currentGroup?.id : expandedGroup
   const firstAvailablePath = navItems[0]?.children[0].path
 

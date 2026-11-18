@@ -444,9 +444,16 @@ function StaffPositionManager({ onClose }: { onClose: () => void }) {
   const choices = new Set(candidate.permissions.filter(key => hasAdminPermission(candidate, key) && (
     !['site_tracking', 'checkout_policies'].includes(key) || (draft.role === 'hq_admin' && draft.all_campuses)
   )))
-  const groups = consoleNavigation.map(group => ({
-    label: group.label, pages: group.pages.filter(page => choices.has(page.access)),
-  })).filter(group => group.pages.length)
+  const groups = consoleNavigation.map(group => {
+    const permissions = new Map<string, string[]>()
+    for (const page of group.pages) {
+      if (!choices.has(page.access)) continue
+      const labels = permissions.get(page.access) ?? []
+      labels.push(page.label)
+      permissions.set(page.access, labels)
+    }
+    return { label: group.label, permissions: Array.from(permissions) }
+  }).filter(group => group.permissions.length)
   const activeCampuses = (campuses.data ?? []).filter(campus => campus.is_active)
   const scopedIds = draft.campus_ids.filter(id => activeCampuses.some(campus => campus.id === id))
   const mutation = useMutation({
@@ -512,9 +519,9 @@ function StaffPositionManager({ onClose }: { onClose: () => void }) {
           <p className="text-sm font-semibold">可使用的側欄分頁</p>
           {groups.map(group => <fieldset key={group.label} className="grid gap-1 rounded-lg border border-gray-200 px-3 pb-2 sm:grid-cols-2 dark:border-gray-700">
             <legend className="px-1 text-xs text-gray-500 dark:text-gray-400">{group.label}</legend>
-            {group.pages.map(page => <label key={page.path} className="flex min-h-9 items-center gap-2 text-sm">
-              <input type="checkbox" checked={draft.permissions.includes(page.access)} onChange={event => setDraft({ ...draft, permissions: event.target.checked ? [...draft.permissions, page.access] : draft.permissions.filter(key => key !== page.access) })} />
-              {page.label}
+            {group.permissions.map(([permission, labels]) => <label key={permission} className="flex min-h-9 items-center gap-2 text-sm">
+              <input type="checkbox" checked={draft.permissions.includes(permission)} onChange={event => setDraft({ ...draft, permissions: event.target.checked ? [...draft.permissions, permission] : draft.permissions.filter(key => key !== permission) })} />
+              {labels.join('、')}
             </label>)}
           </fieldset>)}
         </div>
