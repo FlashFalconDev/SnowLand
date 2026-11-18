@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import AdminLayout from './layout/AdminLayout'
 import RoleGuard from './components/RoleGuard'
 import DashboardPage from './pages/DashboardPage'
@@ -6,6 +6,7 @@ import ContactInboxPage from './pages/ContactInboxPage'
 import RecruitmentPage from './pages/cms/RecruitmentPage'
 import SiteTranslationsPage from './pages/cms/SiteTranslationsPage'
 import SocialSyncPage from './pages/SocialSyncPage'
+import SocialDashboardPage from './pages/SocialDashboardPage'
 import CoachesPage from './pages/CoachesPage'
 import ResortsPage from './pages/ResortsPage'
 import CampusesPage from './pages/CampusesPage'
@@ -47,7 +48,8 @@ const pages: Record<ConsolePath, ReactElement> = {
   'booking-links': <OperationsHubPage initialTab="links" fixed />,
   'orders/export': <OrdersPage mode="export" />,
   'contact-inbox': <ContactInboxPage />,
-  'chat-support': <ChatSupportPage />,
+  'social/dashboard': <SocialDashboardPage />,
+  'social/inbox': <ChatSupportPage />,
   'notifications': <OperationsHubPage initialTab="notifications" fixed />,
   'customers': <CustomersPage />,
   'insurance': <OperationsHubPage initialTab="insurance" fixed />,
@@ -78,7 +80,9 @@ const pages: Record<ConsolePath, ReactElement> = {
   'my/payroll': <MyPayrollPage />,
   'discounts': <DiscountsPage />,
   'cms/offers': <SiteContentPage initialGroup="news" section="site_campaigns" />,
-  'social-sync': <SocialSyncPage />,
+  'social/channels': <SocialSyncPage />,
+  'social/line-oa': <SocialSyncPage settingsChannel="line" />,
+  'social/meta': <SocialSyncPage settingsChannel="facebook" />,
   'cms/homepage': <SiteContentPage initialGroup="homepage" section="site_home" />,
   'cms/courses': <SiteContentPage initialGroup="courses" section="site_courses" />,
   'cms/photography': <SiteContentPage initialGroup="photography" section="site_photography" />,
@@ -105,6 +109,12 @@ const legacyPaths: Record<string, ConsolePath> = {
   'cms/faq': 'cms/guides',
   'cms/articles': 'cms/guides',
   'reviews/google': 'reviews/manual',
+  'chat-support': 'social/inbox',
+}
+
+function LegacyConsoleRoute({ destination }: { destination: ConsolePath }) {
+  const { search, hash } = useLocation()
+  return <Navigate to={'../' + destination + search + hash} replace />
 }
 
 export default function AdminRoutes() {
@@ -114,10 +124,15 @@ export default function AdminRoutes() {
         {consoleNavigation.flatMap(group => group.pages.map(page => (
           <Route key={page.path} element={<RoleGuard page={page} />}>
             {page.path ? <Route path={page.path} element={pages[page.path]} /> : <Route index element={pages['']} />}
+            {page.path === 'social/channels' && <>
+              <Route path="social/channels/:channel" element={<SocialSyncPage />} />
+              <Route path="social/channels/:channel/settings" element={<SocialSyncPage settings />} />
+              <Route path="social-sync/:channel?" element={<SocialSyncPage legacy />} />
+            </>}
           </Route>
         )))}
         {Object.entries(legacyPaths).map(([path, destination]) => (
-          <Route key={path} path={path} element={<Navigate to={`../${destination}`} replace />} />
+          <Route key={path} path={path} element={<LegacyConsoleRoute destination={destination} />} />
         ))}
       </Route>
     </Routes>

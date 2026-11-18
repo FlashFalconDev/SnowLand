@@ -309,7 +309,12 @@ class ChatSupportViewSet(ViewSet):
             )
 
         try:
-            LineMessagingClient().push(
+            from .channel_binding import line_credentials
+
+            binding, _, access_token = line_credentials(session.client)
+            if session.line_channel_id != (binding.bot_id if binding else '') or (binding and not binding.webhook_verified_at):
+                raise LineConfigurationError('這個對話不屬於目前已驗證的 LINE 頻道')
+            LineMessagingClient(access_token=access_token).push(
                 session.external_user_id,
                 content,
                 retry_key=_agent_retry_key(session, client_message_id),

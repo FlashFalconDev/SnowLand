@@ -17,6 +17,7 @@ from booking.api_views import TenantResolutionError, resolve_tenant_client
 
 from .ai.orchestrator import AIReply, AIDisabledError, AITurnBusyError, run_ai_turn
 from .ai.provider import AIConfigurationError, AIProviderError
+from .channel_binding import legacy_code, line_credentials
 from .intents import (
     is_additional_booking_request,
     is_explicit_fresh_order_request,
@@ -35,6 +36,7 @@ from .models import (
     ChatBookingEvent,
     ChatBookingMessage,
     ChatBookingSession,
+    LineChannelBinding,
 )
 
 
@@ -79,8 +81,10 @@ def _push_retry_key(client, event_record):
 
 
 @transaction.atomic
-def _acquire_event(client, event):
+def _acquire_event(client, event, channel_id):
     external_event_id, payload_hash = _event_identity(event)
+    if channel_id:
+        external_event_id = f'{channel_id}:{hashlib.sha256(external_event_id.encode()).hexdigest()}'
     record, created = ChatBookingEvent.objects.get_or_create(
         client=client,
         channel=ChatBookingSession.CHANNEL_LINE,
@@ -116,11 +120,12 @@ def _acquire_event(client, event):
     return record, True
 
 
-def _create_line_session(client, external_user_id, expires_at):
+def _create_line_session(client, external_user_id, expires_at, channel_id):
     session = ChatBookingSession.objects.create(
         client=client,
         channel=ChatBookingSession.CHANNEL_LINE,
         external_user_id=external_user_id,
+        line_channel_id=channel_id,
         access_token_hash=hashlib.sha256(secrets.token_bytes(32)).hexdigest(),
         expires_at=expires_at,
     )
@@ -136,7 +141,7 @@ def _create_line_session(client, external_user_id, expires_at):
 
 
 @transaction.atomic
-def _line_session(client, external_user_id, event_record, message_text=""):
+def _line_session(client, external_user_id, event_record, message_text="", channel_id=""):
     now = timezone.now()
     expires_at = now + timedelta(days=settings.LINE_SESSION_TTL_DAYS)
     Client.objects.select_for_update().get(pk=client.pk)
@@ -147,6 +152,7 @@ def _line_session(client, external_user_id, event_record, message_text=""):
             pk=event_record.session_id,
             client=client,
             channel=ChatBookingSession.CHANNEL_LINE,
+            line_channel_id=channel_id,
             external_user_id=external_user_id,
         ).first()
         if existing:
@@ -155,6 +161,7 @@ def _line_session(client, external_user_id, event_record, message_text=""):
     candidates = ChatBookingSession.objects.select_for_update().filter(
         client=client,
         channel=ChatBookingSession.CHANNEL_LINE,
+        line_channel_id=channel_id,
         external_user_id=external_user_id,
         status__in=REUSABLE_SESSION_STATUSES,
     ).order_by("-updated_at")
@@ -168,7 +175,7 @@ def _line_session(client, external_user_id, event_record, message_text=""):
         valid_candidates.append((candidate, draft))
 
     if not valid_candidates:
-        return _create_line_session(client, external_user_id, expires_at)
+        return _create_line_session(client, external_user_id, expires_at, channel_id)
 
     def use(candidate):
         candidate.expires_at = expires_at
@@ -233,7 +240,7 @@ def _line_session(client, external_user_id, event_record, message_text=""):
                 else "new_request_after_order"
             ),
         )
-        return _create_line_session(client, external_user_id, expires_at)
+        return _create_line_session(client, external_user_id, expires_at, channel_id)
 
     if working:
         return use(working)
@@ -412,8 +419,8 @@ def _quote_flex_for_reply(session, reply):
     return message
 
 
-def process_line_event(client, event, line_client):
-    event_record, should_process = _acquire_event(client, event)
+def process_line_event(client, event, line_client, *, channel_id=""):
+    event_record, should_process = _acquire_event(client, event, channel_id)
     if not should_process:
         return "duplicate"
 
@@ -429,6 +436,7 @@ def process_line_event(client, event, line_client):
             external_user_id,
             event_record,
             message_text=str((event.get("message") or {}).get("text") or ""),
+            channel_id=channel_id,
         )
         ChatBookingEvent.objects.filter(pk=event_record.pk).update(
             session=session,
@@ -529,13 +537,6 @@ class LineWebhookAPI(APIView):
     throttle_classes = []
 
     def post(self, request, client_code):
-        channel_secret = str(settings.LINE_CHANNEL_SECRET or "").strip()
-        if not channel_secret:
-            return Response(
-                {"error": "LINE webhook 尚未完成伺服器設定"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
         try:
             content_length = int(request.META.get("CONTENT_LENGTH") or 0)
         except (TypeError, ValueError):
@@ -551,18 +552,23 @@ class LineWebhookAPI(APIView):
                 {"error": "LINE webhook payload 過大"},
                 status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             )
+        try:
+            client = resolve_tenant_client(client_code)
+        except TenantResolutionError:
+            return Response({"error": "找不到啟用中的 SnowLand client_code"}, status=404)
+        try:
+            binding, channel_secret, access_token = line_credentials(client)
+        except LineConfigurationError:
+            if client_code != legacy_code() and not LineChannelBinding.objects.filter(client=client).exists():
+                return Response({"error": "此 LINE Channel 未綁定該 client_code"}, status=404)
+            return Response({"error": "LINE webhook 尚未完成伺服器設定"}, status=503)
+        if not channel_secret:
+            return Response({"error": "LINE webhook 尚未完成伺服器設定"}, status=503)
         signature = request.META.get("HTTP_X_LINE_SIGNATURE", "")
         if not verify_line_signature(raw_body, signature, channel_secret):
             return Response(
                 {"error": "LINE webhook 簽章無效"},
                 status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        configured_client_code = str(settings.LINE_CLIENT_CODE or "").strip()
-        if configured_client_code and configured_client_code != client_code:
-            return Response(
-                {"error": "此 LINE Channel 未綁定該 client_code"},
-                status=status.HTTP_404_NOT_FOUND,
             )
 
         try:
@@ -579,18 +585,17 @@ class LineWebhookAPI(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            client = resolve_tenant_client(client_code)
-        except TenantResolutionError:
-            return Response(
-                {"error": "找不到啟用中的 SnowLand client_code"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        if binding:
+            if payload.get('destination') != binding.bot_id:
+                return Response({"error": "LINE webhook 帳號不符"}, status=401)
+            active = LineChannelBinding.objects.filter(pk=binding.pk, enabled=True, credentials=binding.credentials)
+            if not active.update(webhook_verified_at=timezone.now()):
+                return Response({"error": "LINE 頻道設定已變更，請重試"}, status=409)
 
         if not events:
             return Response({"ok": True, "processed": 0})
 
-        line_client = LineMessagingClient()
+        line_client = LineMessagingClient(access_token=access_token)
         counts = {"processed": 0, "ignored": 0, "duplicate": 0, "failed": 0}
         configuration_failed = False
         for event in events:
@@ -599,7 +604,7 @@ class LineWebhookAPI(APIView):
                 continue
             external_event_id, _ = _event_identity(event)
             try:
-                outcome = process_line_event(client, event, line_client)
+                outcome = process_line_event(client, event, line_client, channel_id=binding.bot_id if binding else "")
                 counts[outcome] += 1
             except LineConfigurationError:
                 configuration_failed = True

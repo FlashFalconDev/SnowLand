@@ -1115,7 +1115,7 @@ class LineWebhookTests(TestCase):
         self.assertEqual(retry_keys[0], retry_keys[1])
 
 
-@override_settings(LINE_CHANNEL_ACCESS_TOKEN="test-line-token")
+@override_settings(LINE_CLIENT_CODE="snowland-test", LINE_CHANNEL_ACCESS_TOKEN="test-line-token")
 class ChatSupportAdminAPITests(TestCase):
     def setUp(self):
         self.tenant = Client.objects.create(

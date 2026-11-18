@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingCart, MessageCircle, Users, ClipboardCheck, BookOpen, Wallet, Megaphone, Globe, Settings, Shield } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, MessageCircle, MessagesSquare, Users, ClipboardCheck, BookOpen, Wallet, Megaphone, Globe, Settings, Shield } from 'lucide-react'
 import type { AdminUser } from './api/auth'
 import { canPrepareStaffBooking, canUseFrontendSupport, hasAdminPermission } from './permissions'
 
@@ -38,8 +38,14 @@ export const consoleNavigation = [
   ] },
   { id: 'support', label: '客服與通知', icon: MessageCircle, pages: [
     { path: 'contact-inbox', label: '官網聯絡收件', access: 'contact_inbox' },
-    { path: 'chat-support', label: 'LINE／AI 客服', access: 'chat_support' },
     { path: 'notifications', label: '通知範本與發送紀錄', access: 'notifications' },
+  ] },
+  { id: 'social', label: '社群', icon: MessagesSquare, pages: [
+    { path: 'social/dashboard', label: '社群總覽', access: 'chat_support' },
+    { path: 'social/inbox', label: '訊息中心', access: 'chat_support' },
+    { path: 'social/channels', label: '基礎設定', access: 'social_sync' },
+    { path: 'social/line-oa', label: 'LINE OA', access: 'social_sync' },
+    { path: 'social/meta', label: 'FB / IG', access: 'social_sync' },
   ] },
   { id: 'finance', label: '財務', icon: Wallet, pages: [
     { path: 'payment-settings', label: '收款帳戶與幣別', access: 'payment_accounts' },
@@ -57,7 +63,6 @@ export const consoleNavigation = [
   { id: 'marketing', label: '行銷與優惠', icon: Megaphone, pages: [
     { path: 'discounts', label: '折扣碼與促銷規則', access: 'discounts' },
     { path: 'cms/offers', label: '官網優惠活動與社群', access: 'site_campaigns' },
-    { path: 'social-sync', label: '官方社群授權', access: 'social_sync' },
   ] },
   { id: 'site', label: '官網內容', icon: Globe, pages: [
     { path: 'cms/homepage', label: '首頁與頁尾', access: 'site_home' },

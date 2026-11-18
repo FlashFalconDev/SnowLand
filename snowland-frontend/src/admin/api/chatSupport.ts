@@ -69,13 +69,14 @@ interface ReplyResponse {
 export async function fetchChatSessions(
   queue: ChatQueue,
   search = '',
+  pageSize = 100,
 ): Promise<{ items: ChatSupportSession[]; total: number }> {
   const res = (await adminApi.get('/chat-support/', {
     params: {
       queue,
       search: search || undefined,
       page: 1,
-      page_size: 100,
+      page_size: pageSize,
     },
   })) as unknown as ListResponse
   return {
