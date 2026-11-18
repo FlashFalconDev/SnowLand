@@ -48,15 +48,18 @@ export default function CurrencySelection({clientCode,value,onChange,onReadyChan
     return()=>{active=false;clearTimeout(timer);controller.abort()}
   },[clientCode,retry,reloadKey])
   const selected=choices.find(row=>row.code===value.currency)
-  const ready=value.currency==='TWD'||(!loading&&!error&&selected?.rate===value.rate)
+  const ready=value.currency==='TWD'||(!referenceChoices&&!loading&&!error&&selected?.rate===value.rate)
   useEffect(()=>{onReadyChange(ready)},[ready,onReadyChange])
-  useEffect(()=>{if(referenceChoices && value.currency !== 'TWD') onChange({currency:'TWD',rate:twd.rate})},[referenceChoices,value.currency,onChange])
   if(referenceChoices){
     const selectedReference = referenceChoices.find(row => row.code === referenceCode)
     const estimate = selectedReference && baseTotal !== undefined
       ? quoteJpyPreview([baseTotal],[0],selectedReference.rate,true,selectedReference.code) : null
     return <section aria-label={t('付款幣別設定')} className="mb-4 space-y-3 rounded-sm border border-[#dbe3ec] bg-white p-4">
       <p className="text-sm font-semibold text-[#1f2937]">{t('課程以台幣計價及收費')}</p>
+      {value.currency !== 'TWD' && <div role="alert" className="space-y-2 text-sm text-[#92400e]">
+        <p>{t('目前只接受台幣付款，請確認後再送出訂單。')}</p>
+        <button type="button" onClick={()=>onChange({currency:'TWD',rate:twd.rate})} className="min-h-11 rounded-sm border border-[#e0b760] px-3 font-semibold">{t('改用台幣付款')}</button>
+      </div>}
       {referenceChoices.length > 0 && <label className="block text-sm">{t('參考價格幣別')}
         <select value={referenceCode} onChange={event=>setReferenceCode(event.target.value as PaymentCurrency)} className="mt-2 min-h-11 w-full rounded-sm border border-[#cbd5e1] bg-white px-3 py-2">
           {[twd,...referenceChoices].map(row=><option key={row.code} value={row.code}>{t(paymentCurrencyNames[row.code])}</option>)}

@@ -41,6 +41,25 @@ function setup({fail=false,language='zh-Hant',referenceChoices,choices=[{code:'T
  assert.ok(JSON.stringify(tree).includes('4,500'))
  assert.equal(reference.props.value.currency,'TWD')
  assert.equal(reference.changes.length,0)
+ const switched=setup({choices:[{code:'TWD',rate:'1.00000000'}],referenceChoices:[{code:'JPY',rate:'4.50000000'}]})
+ switched.props.value={currency:'JPY',rate:'4.50000000'}
+ switched.render();await switched.settle();tree=await switched.settle()
+ assert.equal(switched.changes.length,0,'Reference-only mode must not silently change the payment currency')
+ assert.equal(switched.ready.at(-1),false,'Checkout must remain blocked while the old foreign currency is selected')
+ const switchButton=find(tree,n=>n.type==='button'&&React.Children.toArray(n.props.children).join('')==='改用台幣付款')
+ assert.ok(switchButton)
+ switchButton.props.onClick();switched.render();tree=await switched.settle()
+ assert.equal(switched.changes.length,1)
+ assert.equal(switched.props.value.currency,'TWD');assert.equal(switched.props.value.rate,'1.00000000')
+ assert.equal(switched.ready.at(-1),true)
+ assert.equal(find(tree,n=>n.props.role==='alert'),null)
+ for(const [language,label] of [['en','Switch to TWD payment'],['ja','台湾ドルでの支払いに切り替える']]){
+   const localized=setup({language,choices:[{code:'TWD',rate:'1.00000000'}],referenceChoices:[]})
+   localized.props.value={currency:'JPY',rate:'4.50000000'};localized.render();tree=await localized.settle()
+   assert.ok(find(tree,n=>n.type==='button'&&React.Children.toArray(n.props.children).join('')===label))
+   assert.equal(localized.ready.at(-1),false)
+   assert.equal(localized.changes.length,0)
+ }
  const offline=setup({fail:true});offline.props.value={currency:'JPY',rate:'4.50000000'};offline.render();tree=await offline.settle()
  assert.ok(find(tree,n=>n.props.role==='alert'))
  assert.equal(offline.changes.length,0);assert.equal(offline.ready.at(-1),false)
@@ -52,5 +71,5 @@ function setup({fail=false,language='zh-Hant',referenceChoices,choices=[{code:'T
    find(current,n=>n.type==='select').props.onChange({target:{value:'JPY'}})
    assert.equal(localized.props.value.currency,'JPY');assert.equal(localized.props.value.rate,'4.50000000')
  }
- console.log('PASS real currency selector: server choices, loading guard and explicit JPY rate selection')
+ console.log('PASS currency selector: explicit rate and TWD-switch consent, preview isolated from payment')
 })().catch(error=>{console.error(error);process.exitCode=1})

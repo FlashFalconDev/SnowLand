@@ -460,6 +460,8 @@ const messages: Record<string, { en: string; ja: string }> = {
   '立即預約 →': { en: 'Book now →', ja: '今すぐ予約 →' },
   '預約夏季旅拍': { en: 'Book summer photography', ja: '夏のロケーション撮影を予約' },
   '課程以台幣計價及收費': { en: 'Lessons are priced and paid in TWD', ja: 'レッスン料金とお支払いは台湾ドルです' },
+  '目前只接受台幣付款，請確認後再送出訂單。': { en: 'Only TWD payments are accepted now. Confirm the change before placing your order.', ja: '現在は台湾ドルでのみお支払いいただけます。変更を確認してからご注文ください。' },
+  '改用台幣付款': { en: 'Switch to TWD payment', ja: '台湾ドルでの支払いに切り替える' },
   '參考價格幣別': { en: 'Reference currency', ja: '参考価格の通貨' },
   '換算參考價': { en: 'Estimated reference price', ja: '換算参考価格' },
   '預約雪地攝影': { en: 'Book snow photography', ja: '雪上撮影を予約' },
