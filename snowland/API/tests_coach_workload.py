@@ -1,6 +1,8 @@
 from datetime import time, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.db import DatabaseError
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -10,7 +12,7 @@ from Client.models import Client
 from Coach.models import Coach, CoachCourseLevel, CoachLeaveRequest, CoachResort
 from Coursekit.models import CourseTemplate
 from Resorts.models import Campus, Resorts
-from booking.models import Booking, Payment, Reservation, ReservationGroup, SharedCourseClass
+from booking.models import Booking, Payment, Reservation, ReservationGroup, SchedulingRun, SharedCourseClass
 
 
 class CoachWorkloadTests(TestCase):
@@ -153,6 +155,43 @@ class CoachWorkloadTests(TestCase):
         for user in (self.coach_user, None):
             self.api.force_authenticate(user)
             self.assertEqual(self.api.get(self.url, params).status_code, 403)
+
+    def test_scheduler_metrics_use_execution_date_and_never_mix_tenants(self):
+        other = Client.objects.create(name='Other metrics tenant', internal_code='other-metrics')
+        today = timezone.localdate()
+        at = timezone.make_aware(timezone.datetime.combine(today, time(0, 5)))
+        for client, when, elapsed_ms, source in (
+            (self.client_tenant, at, 200, 'checkout'),
+            (self.client_tenant, at, 400, 'checkout'),
+            (self.client_tenant, at, 800, 'console'),
+            (self.client_tenant, at - timedelta(days=1), 90000, 'checkout'),
+            (other, at, 90000, 'checkout'),
+        ):
+            SchedulingRun.objects.create(client=client, started_at=when, elapsed_ms=elapsed_ms, source=source)
+        report = self.get_report(start=today, end=today, campus=self.campus.pk)
+        self.assertEqual(report['scheduling_metrics'], [
+            {'source': 'checkout', 'run_count': 2, 'average_ms': 300.0},
+            {'source': 'console', 'run_count': 1, 'average_ms': 800.0},
+            {'source': 'rejection', 'run_count': 0, 'average_ms': None},
+        ])
+
+    def test_console_ai_action_records_one_run_and_write_failure_is_nonfatal(self):
+        url = f'/api/admin/snowland/orders/{self.group.pk}/'
+        with patch('booking.scheduler.assign_coachs', return_value=(True, {})) as assign:
+            self.assertEqual(self.api.put(url, {'action': 'schedule'}, format='json').status_code, 200)
+            assign.assert_not_called()
+            self.assertFalse(SchedulingRun.objects.exists())
+            self.reservation.status = 'created'
+            self.reservation.preferred_coach = None
+            self.reservation.save(update_fields=['status', 'preferred_coach'])
+            response = self.api.put(url, {'action': 'schedule'}, format='json')
+            self.assertEqual(response.status_code, 200, response.data)
+            assign.assert_called_once()
+            self.assertEqual(SchedulingRun.objects.get().source, 'console')
+            with patch('booking.scheduling_metrics.SchedulingRun.objects.bulk_create', side_effect=DatabaseError):
+                response = self.api.put(url, {'action': 'schedule'}, format='json')
+            self.assertEqual(response.status_code, 200, response.data)
+            self.assertEqual(SchedulingRun.objects.count(), 1)
 
     def test_leave_days_are_clipped_deduplicated_and_private(self):
         for offset in (-1, 0):

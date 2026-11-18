@@ -7,6 +7,7 @@ import { fetchCoachWorkload, type CoachWorkloadRow } from '../api/schedule'
 const formatHours = (seconds: number) => `${(seconds / 3600).toLocaleString('zh-TW', { maximumFractionDigits: 2 })} 小時`
 const formatShare = (seconds: number, total: number) => (total ? seconds / total : 0).toLocaleString('zh-TW', { style: 'percent', maximumFractionDigits: 1 })
 const inputClass = 'mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-900'
+const schedulingSourceLabel = { checkout: '新單排課', console: '後台 AI 排課', rejection: '拒接後重派' }
 
 function CoachSettings({ settings }: { settings: NonNullable<CoachWorkloadRow['settings']> }) {
   return (
@@ -94,6 +95,16 @@ export default function CoachWorkloadPanel() {
       {formError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{formError}</p>}
       {report.isFetching && <p role="status" className="text-sm text-gray-600 dark:text-gray-300">正在查詢排課統計…</p>}
       {report.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">無法載入排課統計，請確認校區權限或重試。</p>}
+      {data?.scheduling_metrics && !report.isError && <section aria-labelledby="scheduling-metrics-title" className="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-900">
+        <h3 id="scheduling-metrics-title" className="font-semibold">AI 排課執行耗時</h3>
+        <p className="mt-1 text-gray-600 dark:text-gray-300">依執行日統計 {applied.start} 至 {applied.end}；涵蓋全租戶，不受校區、雪場篩選影響。每次排課計一筆，包含未排成功，不是教練授課時數。</p>
+        <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+          {data.scheduling_metrics.map(row => <div key={row.source}>
+            <dt>{schedulingSourceLabel[row.source]}</dt>
+            <dd className="font-semibold tabular-nums">{row.run_count} 次 · {row.average_ms === null ? '無紀錄' : `平均 ${(row.average_ms / 1000).toFixed(3)} 秒`}</dd>
+          </div>)}
+        </dl>
+      </section>}
       <details className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
         <summary className="min-h-8 cursor-pointer font-semibold">時數怎麼算？排課設定怎麼看？</summary>
         <ul className="space-y-2 pb-2 pl-4 text-gray-700 dark:text-gray-300">

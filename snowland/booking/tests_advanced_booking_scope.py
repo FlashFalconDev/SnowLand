@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.http import HttpResponse
 from booking.views import home
 from booking import tests_pricing_modes as fixtures
-from booking.models import ReservationGroup,Payment,MemberDetail
+from booking.models import ReservationGroup,Payment,MemberDetail,SchedulingRun
 from Client.models import Client
 from Coursekit.models import CourseCategory,CourseType,CourseTemplate
 from Resorts.models import Campus,Resorts
@@ -153,6 +153,17 @@ class AdvancedBookingScopeTests(TestCase):
         self.assertEqual(result.status_code,400,result.data);self.assertTrue(result.data['scheduling_failed'])
         self.assertEqual(ReservationGroup.objects.count(),0);self.assertEqual(Payment.objects.count(),0)
         self.assertEqual(MemberDetail.objects.count(),0)
+        run = SchedulingRun.objects.get()
+        self.assertEqual((run.client_id, run.source), (self.client_record.pk, 'checkout'))
+
+    def test_checkout_run_is_counted_once_for_a_batch(self):
+        self.resort.auto_scheduling_enabled = True
+        self.resort.save(update_fields=['auto_scheduling_enabled'])
+        with patch('booking.scheduler.assign_coachs', return_value=(True, {})) as assign:
+            response = self.api.post('/booking/snowland/api/create-reservation/', self.payload, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        assign.assert_called_once()
+        self.assertEqual(SchedulingRun.objects.get().source, 'checkout')
 
     def test_shared_class_cannot_bypass_same_coach_flow(self):
         self.private_template.shared_class_enabled=True;self.private_template.save()

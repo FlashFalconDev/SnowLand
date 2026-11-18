@@ -158,6 +158,7 @@ export interface CoachWorkloadReport {
   has_visible_dates: boolean
   resorts: { id: number; display_name: string }[]
   coaches: CoachWorkloadRow[]
+  scheduling_metrics?: { source: 'checkout' | 'console' | 'rejection'; run_count: number; average_ms: number | null }[]
 }
 
 export async function fetchCoachWorkload(params: { start: string; end: string; resort_id?: string }): Promise<CoachWorkloadReport> {
