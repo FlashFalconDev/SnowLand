@@ -1685,6 +1685,46 @@ class OrderAdminViewSet(ModelViewSet):
             raise ValidationError('此訂單已套用會員制度，請保留帳務紀錄並使用取消流程')
         super().perform_destroy(instance)
 
+    @action(detail=True, methods=['get', 'put'], url_path='card-payment')
+    @transaction.atomic
+    def card_payment(self, request, *args, **kwargs):
+        from django.middleware.csrf import get_token
+        from rest_framework.authentication import SessionAuthentication
+        from booking.api_views import get_group_payment_hold
+        from booking.currency import order_settlement
+        from booking.newebpay_settings import order_card_allowed, order_gateway
+
+        if request.method == 'PUT':
+            SessionAuthentication().enforce_csrf(request)
+            Client.objects.select_for_update().get(pk=request.tenant.pk)
+        else:
+            get_token(request._request)
+        group = self.get_object()
+        if request.method == 'PUT':
+            group = ReservationGroup.objects.select_for_update().get(pk=group.pk, client=request.tenant)
+        payment = group.payments.order_by('-created_at', '-pk').first()
+        hold, _ = get_group_payment_hold(group)
+        settlement = order_settlement(group)
+        eligible = bool(
+            payment and payment.status == 'unpaid' and not hold
+            and not group.newebpay_form_issued
+            and settlement['currency'] == 'TWD' and settlement['amount'] > 0
+            and group.reservations.exclude(status__in=('cancelled', 'deleted')).exists()
+        )
+        _, credentials = order_gateway(group)
+        if request.method == 'PUT':
+            if not isinstance(request.data, dict) or type(request.data.get('enabled')) is not bool or set(request.data) != {'enabled'}:
+                raise ValidationError('請指定是否開放刷卡')
+            if not eligible or (request.data['enabled'] and not credentials):
+                return Response({'code': 409, 'msg': '本單不可變更刷卡。請檢查訂單付款狀態及藍新商店設定。'}, status=409)
+            group.newebpay_override = request.data['enabled']
+            group.save(update_fields=['newebpay_override'])
+        return Response({'code': 200, 'data': {
+            'enabled': order_card_allowed(group) and bool(credentials),
+            'can_change': eligible,
+            'gateway_ready': bool(credentials),
+        }})
+
     @action(detail=True,methods=['post'],url_path='amendment-quote')
     def amendment_quote(self,request,*args,**kwargs):
         from rest_framework.authentication import SessionAuthentication
@@ -5252,6 +5292,31 @@ def _save_booking_form_options(tenant, payload):
         'messenger_options': messenger_options,
         'referral_source_options': referral_source_options,
     }
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsTenantManager])
+@transaction.atomic
+def newebpay_settings_view(request, client_code=None):
+    from django.middleware.csrf import get_token
+    from rest_framework.authentication import SessionAuthentication
+    from booking.newebpay_settings import configuration_status, save_configuration
+
+    _require_headquarters(request)
+    if not user_has_admin_permission(request.user, 'payment_accounts', request.tenant):
+        raise PermissionDenied('沒有收款設定管理權限')
+    if request.method == 'GET':
+        get_token(request._request)
+        return Response({'code': 200, 'data': configuration_status(request.tenant)})
+    SessionAuthentication().enforce_csrf(request)
+    tenant = Client.objects.select_for_update().get(pk=request.tenant.pk)
+    try:
+        if not isinstance(request.data, dict):
+            raise ValueError('藍新設定格式錯誤')
+        result = save_configuration(tenant, request.data)
+    except ValueError as exc:
+        return Response({'code': 400, 'msg': str(exc)}, status=400)
+    return Response({'code': 200, 'data': result})
+
 
 @api_view(['GET', 'PUT'])
 @permission_classes([IsTenantManager])

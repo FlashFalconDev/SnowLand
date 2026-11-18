@@ -103,7 +103,10 @@ class PublicURLSettingsTests(SimpleTestCase):
         from booking.api_views import ProcessPaymentAPI
         config = configured_urls({'RUN_HOST': 'https://snowland.tw/'})
         user = SimpleNamespace(id=45, email='qa@example.test', is_authenticated=True)
-        group = SimpleNamespace(pk=123, user=user, client=SimpleNamespace(internal_code='snowland'), reservations=Mock())
+        group = SimpleNamespace(
+            pk=123, user=user, client=SimpleNamespace(internal_code='snowland'),
+            reservations=Mock(), newebpay_override=None, newebpay_form_issued=False, save=Mock(),
+        )
         group.reservations.all.return_value = []
         group.reservations.exclude.return_value = [SimpleNamespace(payment_amount=Decimal('1000'))]
         booking = SimpleNamespace(date=date(2026, 11, 1), course_name='QA lesson')

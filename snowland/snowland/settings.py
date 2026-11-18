@@ -85,6 +85,7 @@ GOOGLE_OAUTH_CLIENT_ID = (
 NEWEBPAY_MERCHANT_ID = os.getenv('NEWEBPAY_MERCHANT_ID', '').strip()
 NEWEBPAY_HASH_KEY = os.getenv('NEWEBPAY_HASH_KEY', '').strip()
 NEWEBPAY_HASH_IV = os.getenv('NEWEBPAY_HASH_IV', '').strip()
+SNOWLAND_NEWEBPAY_SANDBOX_ENABLED = os.getenv('SNOWLAND_NEWEBPAY_SANDBOX_ENABLED', '0') == '1'
 RUN_HOST = (os.getenv('RUN_HOST', '').strip() or 'https://snowland.tw').rstrip('/')
 PAYMENT_HOST = (os.getenv('PAYMENT_HOST', '').strip() or f'{RUN_HOST}/booking/payment/').rstrip('/') + '/'
 FRONTEND_URL = (os.getenv('FRONTEND_URL', '').strip() or RUN_HOST).rstrip('/')

@@ -47,6 +47,7 @@ from .admin_views import (
     coach_apply_leave,
     staff_list,
     payment_settings_view,
+    newebpay_settings_view,
 )
 from chatbooking.admin_views import ChatSupportViewSet
 from .staff_incentives import StaffIncentiveStatementAdminViewSet
@@ -136,5 +137,6 @@ urlpatterns = [
     path('admin/<str:client_code>/coach/my-leaves/', coach_my_leaves, name='admin-coach-my-leaves'),
     path('admin/<str:client_code>/coach/apply-leave/', coach_apply_leave, name='admin-coach-apply-leave'),
     path('admin/<str:client_code>/payment-settings/', payment_settings_view, name='admin-payment-settings'),
+    path('admin/<str:client_code>/newebpay-settings/', newebpay_settings_view, name='admin-newebpay-settings'),
     path('admin/<str:client_code>/', include(admin_router.urls)),
 ]

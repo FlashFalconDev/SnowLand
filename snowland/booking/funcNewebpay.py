@@ -66,9 +66,14 @@ def sha256_hash(encrypt_data, key, iv):
 
 def neweb_pay_request(data):
     store_data = data['store']
+    credit_only = data.get('credit_only') is True
     # 这里假设 JSON 資料结构中包含了 'body' 键
     body_data = data['body']
-    url = "https://core.newebpay.com/MPG/mpg_gateway"  # 藍新金流正試環境的 URL
+    url = (
+        "https://ccore.newebpay.com/MPG/mpg_gateway"
+        if data.get('environment') == 'sandbox'
+        else "https://core.newebpay.com/MPG/mpg_gateway"
+    )
     # url = "https://ccore.newebpay.com/MPG/mpg_gateway"  # 藍新金流測式環境的 URL
     # 商店的 API 資訊
     MerchantID = store_data['MerchantID']  # 商店代號
@@ -87,6 +92,8 @@ def neweb_pay_request(data):
         "Email": body_data.get('Email', '')
     }
 
+    if credit_only:
+        data['CREDIT'] = 1
     query_str = urllib.parse.urlencode(data)
     encrypt_data = aes256_cbc_encrypt(query_str, HashKey, HashIV)
     hashs = sha256_hash(encrypt_data, HashKey, HashIV)
