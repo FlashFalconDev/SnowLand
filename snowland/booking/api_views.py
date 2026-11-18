@@ -54,6 +54,7 @@ from .participant_forms import GUARDIAN_AGE_LIMIT, insurance_details_complete, p
 from .participant_invitations import InvitationError, accept_invitation, binding_status, check_invitation, issue_invitation
 from .payment_access import can_access_payment, payment_url_for_group
 from .staff_link_snapshot import public_staff_cart_snapshot
+from .scheduling_metrics import Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling
 from .trails import trail_names_as_list
 from snowland.settings import RUN_HOST
 
@@ -2294,6 +2295,7 @@ class CreateReservationAPI(APIView):
     }
     """
 
+    @collect_scheduling_metrics
     @transaction.atomic
     def post(self, request, client_code=None):
         try:
@@ -2455,7 +2457,10 @@ class CreateReservationAPI(APIView):
             if reservations_need_scheduling:
                 from .scheduler import assign_coachs
 
-                success, report = assign_coachs(reservations_to_assign=reservations_need_scheduling)
+                success, report = measure_scheduling(
+                    tenant_client.pk, SchedulingSource.CHECKOUT, assign_coachs,
+                    reservations_to_assign=reservations_need_scheduling,
+                )
 
                 if not success:
                     # 自動排課失敗：訂單保留，標記為待人工排課（不刪、不可付款）
@@ -3940,6 +3945,7 @@ class SuperScheduleAPI(APIView):
     用於當常規排課失敗時，嘗試更靈活的排課方式
     """
 
+    @collect_scheduling_metrics
     @transaction.atomic
     def post(self, request, client_code=None):
         try:
@@ -4073,7 +4079,10 @@ class SuperScheduleAPI(APIView):
             if reservations_need_scheduling:
                 from .scheduler import assign_coachs
 
-                success, report = assign_coachs(reservations_to_assign=reservations_need_scheduling)
+                success, report = measure_scheduling(
+                    tenant_client.pk, SchedulingSource.CHECKOUT, assign_coachs,
+                    reservations_to_assign=reservations_need_scheduling,
+                )
 
                 if not success:
                     # 即使進階排課也失敗，刪除已創建的預約記錄

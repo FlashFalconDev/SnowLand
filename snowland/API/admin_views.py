@@ -36,6 +36,9 @@ from booking.models import (
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
 from booking.marketing_source import display_marketing_source
+from booking.scheduling_metrics import (
+    Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling, scheduling_metrics,
+)
 from booking.assessment import RUBRIC_LOCATION, school_rubric, validate_rubric
 
 from .admin_serializers import (
@@ -1993,6 +1996,7 @@ class OrderAdminViewSet(ModelViewSet):
         return Response({'code': 200, 'msg': '群組 QR 碼已更新' if upload else '群組 QR 碼已移除',
                          'data': {'line_group_qr_url': group_qr_url(saved)}})
 
+    @collect_scheduling_metrics
     @transaction.atomic
     def update(self, request, *args, **kwargs):
         """
@@ -2293,7 +2297,13 @@ class OrderAdminViewSet(ModelViewSet):
                     .select_related('preferred_coach', 'resort', 'course_type')
                     .prefetch_related('bookings', 'rejected_coaches')
                 )
-                ok, _schedule_report = assign_coachs(reservations_to_assign=reservations_to_assign)
+                if reservations_to_assign:
+                    ok, _schedule_report = measure_scheduling(
+                        request.tenant.pk, SchedulingSource.CONSOLE, assign_coachs,
+                        reservations_to_assign=reservations_to_assign,
+                    )
+                else:
+                    ok, _schedule_report = assign_coachs(reservations_to_assign=reservations_to_assign)
                 if ok:
                     save_payment_status()
                     for c in coach_changes:
@@ -3445,6 +3455,7 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
             schedule_statuses=SCHEDULED_RESERVATION_STATUSES,
             can_view_settings=True,
         )
+        report['scheduling_metrics'] = scheduling_metrics(request.tenant, start, end)
         return Response({'code': 200, 'msg': 'OK', 'data': report})
 
     @action(detail=False, methods=['get'], url_path='group-candidates')
@@ -4523,6 +4534,7 @@ def coach_pending_confirmations(request, client_code):
 
 @api_view(['POST'])
 @permission_classes([IsTenantCoach])
+@collect_scheduling_metrics
 @transaction.atomic
 def coach_confirm_course(request, client_code, reservation_id):
     """
@@ -4621,7 +4633,9 @@ def _confirm_individual_course(request, coach, reservation_id, action):
             # A failed attempt must not leave partial scheduler writes behind;
             # keep the already successful rejection for manual assignment.
             with transaction.atomic():
-                reassigned = reassign_single_reservation(r.pk)
+                reassigned = measure_scheduling(
+                    request.tenant.pk, SchedulingSource.REJECTION, reassign_single_reservation, r.pk,
+                )
             r.refresh_from_db()
             sync_group_payment_window(r.group)
             if reassigned and r.preferred_coach_id:

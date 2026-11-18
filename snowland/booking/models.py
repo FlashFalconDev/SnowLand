@@ -876,6 +876,21 @@ class StaffBookingLink(models.Model):
         from .staff_link_snapshot import staff_cart_is_current
         return staff_cart_is_current(self)
 
+class SchedulingRun(models.Model):
+    class Source(models.TextChoices):
+        CHECKOUT = 'checkout', '新單排課'
+        CONSOLE = 'console', '後台 AI 排課'
+        REJECTION = 'rejection', '拒接後重派'
+
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)
+    source = models.CharField(max_length=12, choices=Source.choices)
+    started_at = models.DateTimeField()
+    elapsed_ms = models.PositiveBigIntegerField()
+
+    class Meta:
+        indexes = [models.Index(fields=['client', 'started_at'], name='booking_sched_client_date_idx')]
+
+
 @receiver(user_signed_up)
 def user_signed_up_callback(request, user, **kwargs):
     # 在这里可以自定义用户创建后的操作

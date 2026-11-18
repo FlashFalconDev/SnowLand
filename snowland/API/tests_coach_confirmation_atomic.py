@@ -2,7 +2,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 from API import tests_operations as fixtures
-from booking.models import Booking, Reservation
+from booking.models import Booking, Reservation, SchedulingRun
 
 
 class CoachConfirmationAtomicTests(TestCase):
@@ -26,6 +26,7 @@ class CoachConfirmationAtomicTests(TestCase):
         self.assertEqual(self.reservation.preferred_coach_id,self.coach.pk)
         self.assertFalse(self.reservation.rejected_coaches.exists())
         self.assertTrue(all(self.reservation.bookings.values_list('is_scheduled',flat=True)))
+        self.assertFalse(SchedulingRun.objects.exists())
 
     def test_failed_best_effort_reassignment_preserves_clean_manual_fallback(self):
         def fail_after_write(reservation_id):
@@ -41,3 +42,5 @@ class CoachConfirmationAtomicTests(TestCase):
         self.assertIsNone(self.reservation.preferred_coach_id)
         self.assertEqual(list(self.reservation.rejected_coaches.values_list('pk',flat=True)),[self.coach.pk])
         self.assertFalse(any(self.reservation.bookings.values_list('is_scheduled',flat=True)))
+        run = SchedulingRun.objects.get()
+        self.assertEqual((run.client_id, run.source), (self.client_tenant.pk, 'rejection'))
