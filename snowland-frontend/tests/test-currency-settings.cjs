@@ -13,6 +13,7 @@ function setup({failure=false,authorityError=false,company=true,busy=false}={}){
   if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
   if(name==='../context')return{useNotification:()=>({success(){},error(){}})}
   if(name==='../hooks/useAdminDialog')return{useAdminDialog:()=>({current:null})}
+  if(name==='../components/NewebpaySettingsPanel')return{default:()=>null}
   if(name==='../api/paymentSettings')return{async updatePaymentSettings(payload){calls.push(payload);if(failure)throw{response:{data:{msg:'匯率必須大於0'}}};return payload}}
   if(name.startsWith('../api/'))return new Proxy({},{get:()=>()=>{}})
   throw Error(name)

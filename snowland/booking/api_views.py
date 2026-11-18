@@ -54,6 +54,7 @@ from .participant_forms import GUARDIAN_AGE_LIMIT, insurance_details_complete, p
 from .participant_invitations import InvitationError, accept_invitation, binding_status, check_invitation, issue_invitation
 from .payment_access import can_access_payment, payment_url_for_group
 from .staff_link_snapshot import public_staff_cart_snapshot
+from .newebpay_settings import order_card_allowed, order_gateway
 from .scheduling_metrics import Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling
 from .trails import trail_names_as_list
 from snowland.settings import RUN_HOST
@@ -4480,12 +4481,13 @@ class PaymentInfoAPI(APIView):
             settlement = order_settlement(group, base_amount=total_amount)
             if settlement['currency'] != 'TWD':
                 bank_info = settlement['bank_info']
-            is_taiwan = (group.source_country or 'TW') == 'TW'
             payment_methods = []
-            if all(bank_info.get(field) for field in ('bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder')):
+            if not group.newebpay_form_issued and all(bank_info.get(field) for field in ('bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder')):
                 payment_methods.append('bank_transfer')
-            if settlement['currency'] == 'TWD' and not is_taiwan and gateway_settings(group.client):
-                payment_methods.append('newebpay')
+            if settlement['currency'] == 'TWD' and order_card_allowed(group):
+                _, credentials = order_gateway(group)
+                if credentials and not (payment and payment.status == 'pending' and payment.payment_method == 'TT'):
+                    payment_methods.append('newebpay')
 
             return Response({
                 'reservation_group_id': int(reservation_group_id),
@@ -4729,14 +4731,19 @@ class ProcessPaymentAPI(APIView):
                 if request.data.get('currency') != settlement['currency'] or type(request.data.get('expected_amount')) is not int or request.data['expected_amount'] != settlement['amount']:
                     return Response({'error':'請重新載入並確認原幣應付金額後回報匯款'}, status=409)
 
-            if (group.source_country or 'TW') == 'TW' and payment_type != 'bank_transfer':
+            if payment_type != 'bank_transfer' and not order_card_allowed(group):
                 return Response({'error': '台灣地區訂單目前只提供銀行匯款'}, status=status.HTTP_400_BAD_REQUEST)
 
             if payment_type == 'newebpay':
-                if not gateway_settings(group.client):
+                merchant, credentials = order_gateway(group)
+                if not credentials:
                     return Response({'error': '信用卡付款尚未開放，請改用銀行匯款'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-                return self._process_newebpay(request, group)
+                if current_payment and current_payment.status == 'pending' and current_payment.payment_method == 'TT':
+                    return Response({'error': '已回報匯款，請先由客服核對，不可重複付款'}, status=409)
+                return self._process_newebpay(request, group, merchant, credentials)
             elif payment_type == 'bank_transfer':
+                if group.newebpay_form_issued:
+                    return Response({'error': '本單已開啟刷卡付款，請先聯絡客服核對，避免重複付款'}, status=409)
                 from .operations import resolve_payment_account
                 account = resolve_payment_account(group)
                 bank_fields = (
@@ -4760,7 +4767,7 @@ class ProcessPaymentAPI(APIView):
                 'error': f'處理付款失敗: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def _process_newebpay(self, request, group):
+    def _process_newebpay(self, request, group, merchant=None, credentials=None):
         """處理藍新支付"""
         # 獲取所有預約
         bookings = Booking.objects.filter(reservation__in=group.reservations.all())
@@ -4790,21 +4797,28 @@ class ProcessPaymentAPI(APIView):
 
         data = {
             "store": {
-                **(gateway_settings(group.client) or {}),
+                **(credentials if credentials is not None else gateway_settings(group.client) or {}),
             },
+            "environment": merchant.environment if merchant else 'production',
+            "credit_only": merchant is not None or group.newebpay_override is True,
             "body": {
                 "img": False,
                 "OrderNo": str(group.pk),
                 "price": str(total_amount),  # 正式環境用實際金額
                 # "price": '1',  # 測試環境用 1 元
                 "product": product_name,
-                "NotifyURL": f"{RUN_HOST}/call_back/NewebPay/?user_id={user_id}&client_code={group.client.internal_code}",
+                "NotifyURL": f"{RUN_HOST}/call_back/NewebPay/?user_id={user_id}&client_code={group.client.internal_code}"
+                             + (f"&merchant_revision={merchant.pk}" if merchant else ''),
                 "Email": user.email if user and hasattr(user, 'email') else ''
             },
         }
 
         # 生成付款表單 HTML
         html_form = neweb_pay_request(data)
+        if not group.newebpay_form_issued:
+            group.newebpay_form_issued = True
+            group.newebpay_merchant = merchant
+            group.save(update_fields=['newebpay_form_issued', 'newebpay_merchant'])
 
         return Response({
             "payment_type": "newebpay",

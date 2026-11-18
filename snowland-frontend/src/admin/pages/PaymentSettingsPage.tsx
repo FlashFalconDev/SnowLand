@@ -6,6 +6,7 @@ import { fetchPaymentSettings, updatePaymentSettings, fetchPaymentAccounts, fetc
 import { fetchAdminMe } from '../api/auth'
 import { useNotification } from '../context'
 import { useAdminDialog } from '../hooks/useAdminDialog'
+import NewebpaySettingsPanel from '../components/NewebpaySettingsPanel'
 
 import { paymentCurrencyNames, twoDecimalCurrencies, type PaymentCurrency } from '../../utils/settlementPreview'
 
@@ -115,6 +116,7 @@ export default function PaymentSettingsPage({ section = 'accounts' }: { section?
       {adminMeQuery.isError && <div role="alert" className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">無法確認付款設定權限，尚未開放編輯。<button type="button" className="ml-2 min-h-11 rounded-lg border px-3" onClick={()=>adminMeQuery.refetch()}>重新確認權限</button></div>}
       {adminMeQuery.isPending && <p role="status">付款設定權限確認中…</p>}
       {accounts && <PaymentAccountsSection authorityReady={authorityReady} canManageCompany={canManageCompany} allowedCampusIds={adminMe?.user?.assigned_campus_ids || []} />}
+      {accounts && authorityReady && (adminMe?.user?.is_superuser || (canManageCompany && adminMe?.user?.role === 'hq_admin')) && <NewebpaySettingsPanel />}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20">

@@ -27,6 +27,11 @@ EQUIPMENT_CHOICES = [
         ('purchaseAssistanceTime', '加購協助時間'),
     ]
 class ReservationGroup(models.Model):
+    newebpay_override = models.BooleanField(null=True, blank=True)
+    newebpay_form_issued = models.BooleanField(default=False)
+    newebpay_merchant = models.ForeignKey(
+        'NewebpayMerchant', null=True, blank=True, on_delete=models.PROTECT,
+    )
     client = models.ForeignKey(
         'Client.Client',
         on_delete=models.CASCADE,
@@ -875,6 +880,14 @@ class StaffBookingLink(models.Model):
             return False
         from .staff_link_snapshot import staff_cart_is_current
         return staff_cart_is_current(self)
+
+class NewebpayMerchant(models.Model):
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)
+    encrypted_credentials = models.TextField(editable=False)
+    environment = models.CharField(max_length=10, choices=[('sandbox', '測試'), ('production', '正式')])
+    enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
 
 class SchedulingRun(models.Model):
     class Source(models.TextChoices):

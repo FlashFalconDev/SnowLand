@@ -20,6 +20,7 @@ import OrderExportForm from '../components/OrderExportForm'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
+import { OrderCardPaymentPanel } from '../components/NewebpaySettingsPanel'
 import { settlementAmount } from '../../components/booking/SettlementSummary'
 import { formatPaymentValue, quoteJpyPreview } from '../../utils/settlementPreview'
 import { useAdminDialog } from '../hooks/useAdminDialog'
@@ -1022,6 +1023,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                 <span className="font-medium text-gray-900 dark:text-white">總金額</span>
                 <span className="text-lg font-bold" style={{ color: PRIMARY }}>NT$ {(order.total_fee || 0).toLocaleString()}</span>
               </div>
+              {canEdit && !editing && paymentStatus === 'unpaid' && <OrderCardPaymentPanel key={`${currentClientCode()}:${order.id}`} orderId={order.id} />}
               {canReconcile && !editing && !sharedPaymentHeld && order.user === null && ['unpaid', 'pending'].includes(paymentStatus) && (
                 <div className="border-t border-gray-200 pt-3 dark:border-gray-600">
                   <button type="button" onClick={() => paymentLinkMutation.mutate()} disabled={paymentLinkMutation.isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-2 font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:border-violet-600 dark:bg-gray-800 dark:text-violet-300 dark:hover:bg-gray-700">

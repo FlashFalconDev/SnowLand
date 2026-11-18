@@ -11,7 +11,8 @@ from django.views.decorators.csrf import csrf_exempt
 from Client.models import Client
 from Client.tenant_settings import gateway_settings
 from booking.Newebpay import aes256_cbc_decrypt, sha256_hash
-from booking.models import Payment, ReservationGroup
+from booking.models import NewebpayMerchant, Payment, ReservationGroup
+from booking.newebpay_settings import merchant_credentials, merchant_environment_allowed
 
 
 @csrf_exempt
@@ -23,7 +24,15 @@ def call_back(request, tunnel):
         return HttpResponse('Method not allowed',status=405)
     code=request.GET.get('client_code') or getattr(settings,'SNOWLAND_LEGACY_PAYMENT_CLIENT_CODE','snowland')
     school=Client.objects.filter(internal_code=code).first()
-    credentials=gateway_settings(school) if school else None
+    revision = request.GET.get('merchant_revision')
+    merchant = None
+    if revision is not None:
+        if not school or not re.fullmatch(r'[1-9][0-9]{0,17}', revision):
+            return HttpResponse('Invalid merchant revision', status=400)
+        merchant = NewebpayMerchant.objects.filter(pk=revision, client=school).first()
+        credentials = merchant_credentials(merchant) if merchant and merchant_environment_allowed(merchant) else None
+    else:
+        credentials=gateway_settings(school) if school else None
     if not credentials:
         return HttpResponse('Payment gateway unavailable',status=503)
     if request.POST.get('MerchantID') != credentials['MerchantID']:
@@ -47,6 +56,8 @@ def call_back(request, tunnel):
     group=ReservationGroup.objects.select_for_update().filter(pk=number,client=school).first()
     if not group:
         return HttpResponse('Order not found',status=404)
+    if group.newebpay_merchant_id != (merchant.pk if merchant else None):
+        return HttpResponse('Order merchant requires reconciliation', status=409)
     payment=Payment.objects.select_for_update().filter(reservation_group=group).order_by('-created_at','-pk').first()
     if not payment:
         return HttpResponse('Payment not found',status=404)
