@@ -1230,6 +1230,23 @@ class ChatSupportAdminAPITests(TestCase):
         self.assertEqual(outbound.metadata["sent_by_user_id"], self.manager.id)
         self.assertEqual(outbound.metadata["delivery_status"], "sent")
 
+    def test_agent_reply_to_inactive_channel_does_not_claim_conversation(self):
+        self.session.line_channel_id = "U-retired-channel"
+        self.session.ai_enabled = True
+        self.session.save(update_fields=["line_channel_id", "ai_enabled"])
+        with patch("chatbooking.admin_views.LineMessagingClient.push") as line_push:
+            response = self.client.post(
+                f"{self.base}{self.session.pk}/reply/",
+                data=json.dumps({"content": "測試回覆", "client_message_id": str(uuid.uuid4())}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 503)
+        line_push.assert_not_called()
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.ai_enabled)
+        self.assertEqual(self.session.handoff.status, ChatBookingHandoff.STATUS_REQUESTED)
+        self.assertIsNone(self.session.handoff.assigned_to_id)
+
     def test_duplicate_agent_reply_is_idempotent(self):
         client_message_id = str(uuid.uuid4())
         body = json.dumps({

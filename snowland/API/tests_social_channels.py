@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from cryptography.fernet import Fernet
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from Client.models import Client
@@ -59,8 +59,35 @@ class SocialChannelTests(TestCase):
         self.assertFalse(self.client.get(url).json()['data']['verified'])
         self.assertEqual(signed(bot).status_code, 200)
         self.assertTrue(self.client.get(url).json()['data']['verified'])
+        with patch('chatbooking.channel_binding.requests.get', return_value=info):
+            changed = self.client.put(url, {'channel_secret': '2' * 32, 'access_token': token},
+                                      content_type='application/json')
+        self.assertEqual(changed.status_code, 400)
+        self.assertTrue(self.client.get(url).json()['data']['verified'])
         self.assertEqual(self.client.delete(url).status_code, 200)
-        self.assertEqual(signed(bot).status_code, 503)
+        self.assertEqual(signed(bot).status_code, 401)
+
+    @override_settings(LINE_CLIENT_CODE='qa-social', LINE_CHANNEL_SECRET='a' * 32,
+                       LINE_CHANNEL_ACCESS_TOKEN='qa-legacy-access-token')
+    def test_legacy_line_stays_active_and_cannot_be_claimed_by_another_tenant(self):
+        url = self.base + 'line-channel/'
+        status = self.client.get(url).json()['data']
+        self.assertTrue(status['legacy'])
+        secret, token = 'a' * 32, 'qa-replacement-token'
+        payload = {'channel_secret': secret, 'access_token': token}
+        bot = Mock(status_code=200)
+        bot.json.return_value = {'userId': 'U' + 'a' * 32, 'displayName': 'Platform LINE'}
+        with patch('chatbooking.channel_binding.requests.get', return_value=bot) as get_info:
+            self.assertEqual(self.client.put(url, payload, content_type='application/json').status_code, 400)
+            get_info.assert_not_called()
+            other = url.replace('qa-social/', 'qa-social-other/')
+            self.assertEqual(self.client.put(other, payload, content_type='application/json').status_code, 400)
+            self.assertEqual(get_info.call_count, 2)
+        self.assertFalse(LineChannelBinding.objects.exists())
+        body = b'{"events":[]}'
+        signature = base64.b64encode(hmac.new(secret.encode(), body, hashlib.sha256).digest()).decode()
+        self.assertEqual(self.client.post(status['webhook_path'], body, content_type='application/json',
+                                          HTTP_X_LINE_SIGNATURE=signature).status_code, 200)
 
     def test_meta_oauth_uses_selected_page_and_rejects_replay(self):
         url = self.base + 'meta-channel/'
@@ -73,6 +100,7 @@ class SocialChannelTests(TestCase):
             self.assertEqual(target.hostname, 'www.facebook.com')
             state = parse_qs(target.query)['state'][0]
             callback = reverse('meta-social-callback')
+            self.assertEqual(self.client.get(callback, {'state': 'x' * 43}).status_code, 400)
             done = self.client.get(callback, {'state': state, 'code':'test-auth-code'})
             self.assertRedirects(done, '/qa-social/console/social-sync?meta=bound', fetch_redirect_response=False)
             self.assertEqual(self.client.get(callback, {'state': state, 'code':'test-auth-code'}).status_code, 400)

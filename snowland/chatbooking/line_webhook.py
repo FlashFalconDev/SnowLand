@@ -555,12 +555,12 @@ class LineWebhookAPI(APIView):
         try:
             client = resolve_tenant_client(client_code)
         except TenantResolutionError:
-            return Response({"error": "找不到啟用中的 SnowLand client_code"}, status=404)
+            return Response({"error": "LINE webhook 簽章無效"}, status=401)
         try:
             binding, channel_secret, access_token = line_credentials(client)
         except LineConfigurationError:
-            if client_code != legacy_code() and not LineChannelBinding.objects.filter(client=client).exists():
-                return Response({"error": "此 LINE Channel 未綁定該 client_code"}, status=404)
+            if client.internal_code != legacy_code():
+                return Response({"error": "LINE webhook 簽章無效"}, status=401)
             return Response({"error": "LINE webhook 尚未完成伺服器設定"}, status=503)
         if not channel_secret:
             return Response({"error": "LINE webhook 尚未完成伺服器設定"}, status=503)

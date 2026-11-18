@@ -11,6 +11,7 @@ from rest_framework.viewsets import ViewSet
 
 from API.admin_views import IsTenantManager
 
+from .channel_binding import line_credentials
 from .flow import next_field
 from .line import LineAPIError, LineConfigurationError, LineMessagingClient
 from .models import (
@@ -298,10 +299,6 @@ class ChatSupportViewSet(ViewSet):
                 "data": {"message": _message_payload(existing), "replayed": True},
             })
 
-        claim_response = self.claim(request, pk=pk)
-        if claim_response.status_code >= 400:
-            return claim_response
-        session = self._session(request, pk)
         if not session.external_user_id:
             return Response(
                 {"code": 409, "msg": "此對話沒有可用的 LINE user ID"},
@@ -309,11 +306,14 @@ class ChatSupportViewSet(ViewSet):
             )
 
         try:
-            from .channel_binding import line_credentials
-
             binding, _, access_token = line_credentials(session.client)
             if session.line_channel_id != (binding.bot_id if binding else '') or (binding and not binding.webhook_verified_at):
                 raise LineConfigurationError('這個對話不屬於目前已驗證的 LINE 頻道')
+            if not (access_token or '').strip():
+                raise LineConfigurationError('LINE 頻道尚未設定 Access Token')
+            claim_response = self.claim(request, pk=pk)
+            if claim_response.status_code >= 400:
+                return claim_response
             LineMessagingClient(access_token=access_token).push(
                 session.external_user_id,
                 content,

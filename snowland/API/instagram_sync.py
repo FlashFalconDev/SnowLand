@@ -30,12 +30,13 @@ class ConnectionInput(serializers.Serializer):
 @api_view(['GET'])
 @sensitive_variables('code', 'credential')
 def meta_callback(request):
-    pending = request.session.pop('meta_social_oauth', None)
+    pending = request.session.get('meta_social_oauth')
     state = request.query_params.get('state', '')
     if (not isinstance(pending, dict) or not re.fullmatch(r'[A-Za-z0-9_-]{43}', state)
             or not compare_digest(state, pending['state']) or not request.user.is_authenticated
             or pending['user'] != request.user.pk or not 0 <= time.time() - pending['at'] <= 600):
         return HttpResponseBadRequest('授權驗證逾時或不符，請從 Console 重新開始')
+    request.session.pop('meta_social_oauth', None)
     tenant = Client.objects.filter(pk=pending['tenant'], is_active=True).first()
     if not tenant or not user_has_admin_permission(request.user, 'social_sync', tenant):
         return HttpResponseForbidden('沒有官方社群管理權限')

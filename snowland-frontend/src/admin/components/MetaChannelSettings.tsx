@@ -49,7 +49,8 @@ export default function MetaChannelSettings({ tenantCode }: { tenantCode: string
       <Sparkles size={16} className="shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
       <h2 className="text-lg font-semibold leading-none text-gray-900 dark:text-white">用 Facebook 一鍵授權</h2>
     </div>
-    {resultMessages[result] && <p role="status" className="text-sm">{resultMessages[result]}</p>}
+    {resultMessages[result] && (result !== 'bound' || (query.isSuccess && data?.page_id)) &&
+      <p role="status" className="text-sm">{resultMessages[result]}</p>}
     {query.isPending && <p role="status" className="text-sm">正在讀取授權狀態…</p>}
     {query.isError && <div role="alert" className="text-sm">無法讀取授權狀態。 <button className={button} onClick={() => void query.refetch()}>重試</button></div>}
     {data && <div className="space-y-3 text-sm">
