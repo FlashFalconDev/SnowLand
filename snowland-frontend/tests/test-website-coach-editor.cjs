@@ -12,6 +12,7 @@ function setup({editing=null,fail=false,error=false,search=''}={}){
     if(name==='react')return hooks
     if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
     if(name==='../../components/PromptModal')return{default:function PromptModal(){return null}}
+    if(name==='../../components/ImageUploadField'){const m={exports:{}};vm.runInContext(compile(fs.readFileSync(path.join(root,'src/admin/components/ImageUploadField.tsx'),'utf8')),vm.createContext({React,exports:m.exports,require:n=>{if(n==='react')return React;throw new Error(n)}}));return m.exports}
     if(name==='../../context')return{useNotification:()=>({success:v=>messages.push(v),error:v=>messages.push(v)})}
     if(name==='../../api/websiteCoachEditor')return{fetchWebsiteCoachEditor(){},updateWebsiteCoach:async(id,data)=>{calls.push({id,data});if(fail)throw{response:{data:{website_slug:['代號重複']}}};return coach}}
     if(name==='@tanstack/react-query')return{useQuery:()=>({data:[coach],isLoading:false,error:error?new Error('QA'):null,refetch(){retries++}}),useQueryClient:()=>({invalidateQueries:o=>invalidations.push(o.queryKey)}),useMutation:o=>({mutateAsync:async vars=>{try{const result=await o.mutationFn(vars);o.onSuccess(result);return result}catch(e){o.onError(e);throw e}}})}
@@ -53,6 +54,7 @@ const values={img:'/qa.jpg',website_slug:'REAL',website_card_bio:'新簡介',web
   const prompt=vm.createContext({React,exports:{},require:name=>{
     if(name==='react')return{useState:value=>[promptState++===1?'QA驗證錯誤':value,()=>{}],useEffect(){},useRef:()=>({current:null})}
     if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
+    if(name==='./ImageUploadField')return{default:()=>null}
     throw new Error(name)
   }})
   vm.runInContext(compile(fs.readFileSync(path.join(root,'src/admin/components/PromptModal.tsx'),'utf8')),prompt)
@@ -68,6 +70,7 @@ const values={img:'/qa.jpg',website_slug:'REAL',website_card_bio:'新簡介',web
   const serverPrompt=vm.createContext({React,exports:{},FormData:class{*[Symbol.iterator](){yield ['slug','aki']}},require:name=>{
     if(name==='react')return{useState:initial=>{const i=serverIndex++;if(!(i in serverStates))serverStates[i]=initial;return[serverStates[i],value=>serverStates[i]=value]},useEffect(){},useRef:()=>({current:null})}
     if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
+    if(name==='./ImageUploadField')return{default:()=>null}
     throw Error(name)
   }})
   vm.runInContext(compile(fs.readFileSync(path.join(root,'src/admin/components/PromptModal.tsx'),'utf8')),serverPrompt)

@@ -5,7 +5,10 @@ from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.middleware.csrf import get_token
+from django.conf import settings
 from rest_framework import serializers
+from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
@@ -14,6 +17,7 @@ from rest_framework.viewsets import ModelViewSet
 from Coach.models import Coach
 from Client.coach_profiles import read_coach_profile,save_coach_profile
 from .admin_views import IsTenantManager
+from .coach_photo_storage import CoachPhotoError, CoachPhotoStorageUnavailable, upload_coach_photo
 
 
 class WebsiteCoachEditorSerializer(serializers.ModelSerializer):
@@ -73,6 +77,8 @@ class WebsiteCoachEditorSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data=super().to_representation(instance)
+        if data.get('img') in (None,'None'):
+            data['img']=''
         data['website_profile']=read_coach_profile(instance)
         return data
 
@@ -90,7 +96,7 @@ class WebsiteCoachEditorViewSet(ModelViewSet):
     permission_classes=[IsTenantManager]
     permission_key='site_coaches'
     serializer_class=WebsiteCoachEditorSerializer
-    http_method_names=['get','patch','head','options']
+    http_method_names=['get','post','patch','head','options']  # POST 只供 upload-photo；create 已封鎖
 
     def initial(self, request, *args, **kwargs):
         super().initial(request,*args,**kwargs)
@@ -113,3 +119,24 @@ class WebsiteCoachEditorViewSet(ModelViewSet):
         serializer=self.get_serializer(self.get_object(),data=request.data,partial=True)
         serializer.is_valid(raise_exception=True);serializer.save()
         return Response({'code':200,'msg':'官網教練資料已更新','data':serializer.data})
+
+    def create(self, request, *args, **kwargs):
+        return Response({'code':405,'msg':'此處不能新增教練'},status=405)
+
+    @action(detail=True,methods=['post'],url_path='upload-photo',parser_classes=[MultiPartParser])
+    def upload_photo(self, request, *args, **kwargs):
+        """上傳官網照片到 S3 並回傳 URL；寫入 img 欄位由編輯表單儲存時 PATCH 完成。"""
+        coach=self.get_object()  # 套用租戶／校區範圍與 IsTenantManager 權限
+        if not self.get_serializer(coach).get_can_manage(coach):
+            return Response({'code':403,'msg':'此教練涉及其他校區，請由總部修改官網資料'},status=403)
+        try:
+            url=upload_coach_photo(request.FILES.get('photo'),tenant_id=coach.client_id,coach_id=coach.pk)
+        except CoachPhotoError as error:
+            return Response({'code':400,'msg':str(error)},status=400)
+        except CoachPhotoStorageUnavailable as error:
+            return Response({'code':503,'msg':str(error)},status=503)
+        return Response({'code':200,'msg':'照片已上傳','data':{'url':url}})
+
+    @action(detail=False,methods=['get'],url_path='photo-upload-config')
+    def photo_upload_config(self, request, *args, **kwargs):
+        return Response({'code':200,'data':{'enabled':bool(settings.COACH_PHOTO_BUCKET),'max_bytes':settings.COACH_PHOTO_MAX_BYTES}})

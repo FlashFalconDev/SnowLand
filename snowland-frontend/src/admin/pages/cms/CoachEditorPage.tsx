@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Edit, Loader2, Image as ImageIcon } from 'lucide-react'
 import PromptModal from '../../components/PromptModal'
 import { useNotification } from '../../context'
-import { fetchWebsiteCoachEditor, updateWebsiteCoach, type WebsiteCoach, type WebsiteCoachWrite } from '../../api/websiteCoachEditor'
+import { cleanImageValue } from '../../components/ImageUploadField'
+import { fetchPhotoUploadConfig, fetchWebsiteCoachEditor, updateWebsiteCoach, uploadWebsiteCoachPhoto, type WebsiteCoach, type WebsiteCoachWrite } from '../../api/websiteCoachEditor'
 
 const KEY = ['admin', 'website-coach-editor']
 const PROFILE_SECTIONS = ['個人經歷', '教學理念', '自我介紹', '滑雪經驗']
@@ -32,7 +33,7 @@ export function websiteCoachValues(values: Record<string, string>, existing?: We
     else if (lines.length) sections.push({ title, lines })
   }
   return {
-    img: values.img.trim(),
+    img: cleanImageValue(values.img),
     website_slug: values.website_slug.trim().toLowerCase(),
     website_sort_order: Number(values.website_sort_order),
     website_card_bio: values.website_card_bio.trim(),
@@ -66,6 +67,7 @@ export default function CoachEditorPage() {
   const [status, setStatus] = useState('')
   const [editing, setEditing] = useState<WebsiteCoach | null>(null)
   const { data: coaches = [], isLoading, error, refetch } = useQuery({ queryKey: KEY, queryFn: fetchWebsiteCoachEditor })
+  const { data: photoConfig } = useQuery({ queryKey: [...KEY, 'photo-config'], queryFn: fetchPhotoUploadConfig, retry: false })
   const mutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: WebsiteCoachWrite }) => updateWebsiteCoach(id, data),
     onSuccess: () => {
@@ -98,14 +100,17 @@ export default function CoachEditorPage() {
         <p className="text-sm text-gray-500 dark:text-gray-400">共 {filtered.length} 位教練</p>
         {!filtered.length && <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">{coaches.length ? '沒有符合條件的教練，請調整搜尋或狀態。' : '尚無教練資料，請先由管理員在教練管理建立。'}</div>}
         {filtered.map(coach => <div key={coach.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700">{coach.img ? <img key={coach.img} src={coach.img} alt={coach.name} loading="lazy" className="h-full w-full object-cover" onError={e => { e.currentTarget.hidden = true }} /> : <ImageIcon className="text-gray-400" />}</div>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700">{cleanImageValue(coach.img) ? <img key={cleanImageValue(coach.img)} src={cleanImageValue(coach.img)} alt={coach.name} loading="lazy" className="h-full w-full object-cover" onError={e => { e.currentTarget.hidden = true }} /> : <ImageIcon className="text-gray-400" />}</div>
           <div className="min-w-0 flex-1"><p className="break-words font-semibold">{coach.name}</p><p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">{coach.website_slug || '尚未設定官網代號'} · 排序 {coach.website_sort_order}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{coach.website_enabled ? '官網上架' : '官網下架'}</p></div>
           <button type="button" disabled={!coach.can_manage} title={coach.can_manage ? '編輯官網資料' : '跨校區教練請由總部修改'} onClick={() => setEditing(coach)} className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 text-sm text-violet-600 hover:bg-violet-50 disabled:opacity-50 dark:text-violet-400 dark:hover:bg-violet-900/20" aria-label={'編輯' + coach.name}><Edit size={16} />{coach.can_manage ? '編輯' : '總部管理'}</button>
         </div>)}
       </div>}
     <PromptModal open={!!editing} title={'編輯官網介紹：' + (editing?.name || '')} description="儲存後，官網列表重新載入即使用這份設定。下架不會刪除教練或影響既有課程。"
       fields={[
-        { name: 'img', label: '照片網址', defaultValue: editing?.img || '', placeholder: 'https://… 或站內圖片路徑', helper: '貼上可公開開啟的照片網址或既有站內圖片路徑，將「官網顯示」設為上架後儲存。' },
+        { name: 'img', label: '教練照片', type: 'image', defaultValue: cleanImageValue(editing?.img), placeholder: 'https://… 或站內圖片路徑',
+          upload: photoConfig?.enabled && editing ? (file, onProgress) => uploadWebsiteCoachPhoto(editing.id, file, onProgress).catch(error => { throw new Error(websiteCoachError(error).replace('儲存失敗，請重試', '上傳失敗，請稍後再試，或改貼上照片網址')) }) : undefined,
+          maxBytes: photoConfig?.max_bytes,
+          helper: '建議上傳照片檔；也可貼上可公開開啟的照片網址或既有站內圖片路徑。上傳後仍需按「儲存變更」才會套用。' },
         { name: 'website_slug', label: '官網代號', defaultValue: editing?.website_slug || '', helper: '修改代號會改變對外網址，請同步更新已分享的連結。' },
         { name: 'website_card_bio', label: '卡片簡介（最多160字）', type: 'textarea', defaultValue: editing?.website_card_bio || '' },
         { name: 'website_sort_order', label: '顯示排序（數字小的在前）', type: 'number', required: true, defaultValue: String(editing?.website_sort_order ?? 0) },

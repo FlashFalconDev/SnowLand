@@ -4,13 +4,17 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { X, Loader2 } from 'lucide-react'
+import ImageUploadField from './ImageUploadField'
 
 const PRIMARY = '#8b5cf6'
 
 export interface PromptField {
   name: string
   label: string
-  type?: 'text' | 'number' | 'time' | 'date' | 'textarea' | 'select'
+  type?: 'text' | 'number' | 'time' | 'date' | 'textarea' | 'select' | 'image'
+  /** type=image：提供時啟用檔案上傳，回傳可公開的 URL。 */
+  upload?: (file: File, onProgress: (percent: number) => void) => Promise<string>
+  maxBytes?: number
   defaultValue?: string
   placeholder?: string
   required?: boolean
@@ -110,7 +114,11 @@ export default function PromptModal({
               <label htmlFor={'prompt-field-' + f.name} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 {f.label} {f.required && <span className="text-red-500">*</span>}
               </label>
-              {f.type === 'textarea' ? (
+              {f.type === 'image' ? (
+                <ImageUploadField id={'prompt-field-' + f.name} name={f.name} value={values[f.name] || ''}
+                  onChange={(v) => { setValues({ ...values, [f.name]: v }); setError('') }}
+                  upload={f.upload} maxBytes={f.maxBytes} placeholder={f.placeholder} />
+              ) : f.type === 'textarea' ? (
                 <textarea
                   id={'prompt-field-' + f.name}
                   name={f.name}
