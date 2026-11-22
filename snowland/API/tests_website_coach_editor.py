@@ -123,3 +123,89 @@ class WebsiteCoachEditorTests(TestCase):
         self.assertEqual(browser.patch(self.detail,{'website_enabled':True},format='json',HTTP_X_CSRFTOKEN=token,
             HTTP_ORIGIN='https://not-snowland.invalid').status_code,403)
         self.assertEqual(browser.patch(self.detail,{'website_enabled':True},format='json',HTTP_X_CSRFTOKEN=token).status_code,200)
+
+
+class WebsiteCoachPhotoUploadTests(TestCase):
+    """S3 一律 mock；不得打真實 AWS。"""
+    def setUp(self):
+        from django.test import override_settings
+        self.settings=override_settings(COACH_PHOTO_BUCKET='qa-bucket',COACH_PHOTO_REGION='ap-northeast-1',
+                                        COACH_PHOTO_PREFIX='coach-photos',COACH_PHOTO_PUBLIC_BASE_URL='',COACH_PHOTO_MAX_BYTES=1024*1024)
+        self.settings.enable();self.addCleanup(self.settings.disable)
+        self.tenant=Client.objects.create(name='SnowLand',internal_code='snowland')
+        self.other=Client.objects.create(name='Other',internal_code='other')
+        self.user=User.objects.create_user('photo-editor',password='test-password')
+        profile=self.user.userprofile;profile.is_manager=True;profile.manager_client=self.tenant
+        profile.role='web_editor';profile.admin_permissions=['cms'];profile.save()
+        self.coach=Coach.objects.create(client=self.tenant,name='真正教練',website_slug='real')
+        self.foreign=Coach.objects.create(client=self.other,name='其他公司',website_slug='other')
+        self.api=APIClient();self.api.force_authenticate(self.user)
+        self.url=f'/api/admin/snowland/website-coach-editor/{self.coach.pk}/upload-photo/'
+
+    def _image(self,fmt='PNG',name='a.png',content_type='image/png'):
+        import io
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+        buf=io.BytesIO();Image.new('RGB',(4,4),'red').save(buf,fmt)
+        return SimpleUploadedFile(name,buf.getvalue(),content_type=content_type)
+
+    def test_upload_sends_validated_image_to_mocked_s3_and_returns_public_url(self):
+        from unittest import mock
+        client=mock.Mock()
+        with mock.patch('API.coach_photo_storage._s3_client',return_value=client):
+            result=self.api.post(self.url,{'photo':self._image()},format='multipart')
+        self.assertEqual(result.status_code,200,result.data)
+        args,kwargs=client.upload_fileobj.call_args
+        self.assertEqual(args[1],'qa-bucket');self.assertEqual(kwargs['ExtraArgs']['ContentType'],'image/png')
+        self.assertNotIn('ACL',kwargs['ExtraArgs'])
+        key=args[2];self.assertRegex(key,rf'^coach-photos/{self.tenant.pk}/{self.coach.pk}/[0-9a-f]{{32}}\.png$')
+        self.assertEqual(result.data['data']['url'],f'https://qa-bucket.s3.ap-northeast-1.amazonaws.com/{key}')
+        self.assertLessEqual(len(result.data['data']['url']),200)
+        self.coach.refresh_from_db();self.assertFalse(self.coach.img)  # 儲存時才由 PATCH 寫入
+
+    def test_uploaded_url_can_be_saved_into_img_field(self):
+        url='https://qa-bucket.s3.ap-northeast-1.amazonaws.com/coach-photos/1/1/x.png'
+        result=self.api.patch(f'/api/admin/snowland/website-coach-editor/{self.coach.pk}/',{'img':url},format='json')
+        self.assertEqual(result.status_code,200,result.data);self.coach.refresh_from_db();self.assertEqual(self.coach.img,url)
+
+    def test_rejects_invalid_files_without_calling_s3(self):
+        from unittest import mock
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        bad=[SimpleUploadedFile('a.png',b'not an image',content_type='image/png'),
+             self._image('GIF','a.gif','image/gif'),
+             SimpleUploadedFile('a.png',b'\x89PNG'+b'0'*(1024*1024+1),content_type='image/png')]
+        with mock.patch('API.coach_photo_storage._s3_client') as factory:
+            for upload in bad:
+                self.assertEqual(self.api.post(self.url,{'photo':upload},format='multipart').status_code,400)
+            self.assertEqual(self.api.post(self.url,{},format='multipart').status_code,400)
+        factory.assert_not_called()
+
+    def test_permission_and_tenant_scope(self):
+        from unittest import mock
+        with mock.patch('API.coach_photo_storage._s3_client') as factory:
+            anon=APIClient()
+            self.assertIn(anon.post(self.url,{'photo':self._image()},format='multipart').status_code,(401,403))
+            plain=User.objects.create_user('plain',password='x');client=APIClient();client.force_authenticate(plain)
+            self.assertIn(client.post(self.url,{'photo':self._image()},format='multipart').status_code,(401,403,404))
+            foreign=f'/api/admin/snowland/website-coach-editor/{self.foreign.pk}/upload-photo/'
+            self.assertEqual(self.api.post(foreign,{'photo':self._image()},format='multipart').status_code,404)
+        factory.assert_not_called()
+
+    def test_unconfigured_bucket_and_s3_failure_return_503(self):
+        from unittest import mock
+        from django.test import override_settings
+        with override_settings(COACH_PHOTO_BUCKET=''),mock.patch('API.coach_photo_storage._s3_client') as factory:
+            self.assertEqual(self.api.post(self.url,{'photo':self._image()},format='multipart').status_code,503)
+        factory.assert_not_called()
+        client=mock.Mock();client.upload_fileobj.side_effect=RuntimeError('boom')
+        with mock.patch('API.coach_photo_storage._s3_client',return_value=client):
+            result=self.api.post(self.url,{'photo':self._image()},format='multipart')
+        self.assertEqual(result.status_code,503);self.assertNotIn('boom',str(result.data))
+
+    def test_null_or_none_img_is_blank_and_create_is_blocked(self):
+        Coach.objects.filter(pk=self.coach.pk).update(img=None)
+        row=self.api.get('/api/admin/snowland/website-coach-editor/').data['data']['list'][0]
+        self.assertEqual(row['img'],'')
+        self.assertEqual(self.api.post('/api/admin/snowland/website-coach-editor/',{'name':'x'},format='json').status_code,405)
+        config=self.api.get('/api/admin/snowland/website-coach-editor/photo-upload-config/').data['data']
+        self.assertTrue(config['enabled'])

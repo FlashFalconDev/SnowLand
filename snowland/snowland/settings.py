@@ -100,6 +100,12 @@ if not SNOWLAND_PRIVATE_MEDIA_BUCKET:
     PRIVATE_COURSE_MEDIA_ROOT = Path(os.getenv('SNOWLAND_PRIVATE_COURSE_MEDIA_ROOT', '').strip() or BASE_DIR / 'private_course_media')
 COURSE_MEDIA_MAX_PHOTO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_PHOTO_BYTES') or 20 * 1024 * 1024)
 COURSE_MEDIA_MAX_VIDEO_BYTES = int(os.getenv('SNOWLAND_COURSE_MEDIA_MAX_VIDEO_BYTES') or 100 * 1024 * 1024)
+# 教練官網照片（公開讀取）：bucket 為空時關閉上傳，後台仍可貼上網址。
+COACH_PHOTO_BUCKET = os.getenv('SNOWLAND_COACH_PHOTO_BUCKET', '').strip()
+COACH_PHOTO_REGION = os.getenv('SNOWLAND_COACH_PHOTO_REGION', '').strip() or os.getenv('AWS_REGION', '').strip()
+COACH_PHOTO_PREFIX = os.getenv('SNOWLAND_COACH_PHOTO_PREFIX', '').strip() or 'coach-photos'
+COACH_PHOTO_PUBLIC_BASE_URL = os.getenv('SNOWLAND_COACH_PHOTO_PUBLIC_BASE_URL', '').strip()
+COACH_PHOTO_MAX_BYTES = int(os.getenv('SNOWLAND_COACH_PHOTO_MAX_BYTES') or 5 * 1024 * 1024)
 # ALB health checks address the target by its EC2 private IP. Use IMDSv2 only.
 ec2_private_ip = None
 try:
