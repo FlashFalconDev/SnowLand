@@ -152,13 +152,11 @@ class FrontendReleaseViewSet(ViewSet):
     def queue_publication(self, request, release, target, operation):
         with transaction.atomic():
             get_object_or_404(Client.objects.select_for_update(), pk=self.tenant.pk, is_active=True)
-            active = FrontendDeployment.objects.filter(client=self.tenant, status__in=FrontendDeployment.ACTIVE).first()
+            active = frontend_publish.active_deployment(self.tenant)
             if active:
                 return Response({'detail': '已有發布工作進行中，請等待完成。',
                                  'deployment': frontend_publish.job_data(active)}, status=409)
-            job = FrontendDeployment.objects.create(client=self.tenant, release=release, target=target,
-                                                     requested_by=request.user, operation=operation)
-            transaction.on_commit(lambda: frontend_publish.start_deployment(job.pk))
+            job = frontend_publish.queue_publication(self.tenant, release, target, operation, requested_by=request.user)
         return Response({'deployment': frontend_publish.job_data(job)}, status=202)
 
     def create(self, request, **kwargs):

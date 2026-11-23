@@ -9,6 +9,7 @@ class FrontendDeployment(models.Model):
     release = models.ForeignKey('Client.FrontendRelease', on_delete=models.PROTECT, related_name='deployments')
     backup = models.ForeignKey('Client.FrontendRelease', on_delete=models.PROTECT, null=True, blank=True, related_name='backup_jobs')
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    cli_request_id = models.UUIDField(null=True, blank=True, unique=True)
     operation = models.CharField(max_length=12, default='publish')
     status = models.CharField(max_length=20, default='queued', db_index=True)
     message = models.CharField(max_length=500, blank=True, default='')
