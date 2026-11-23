@@ -58,7 +58,7 @@ class BuildIdentity(HTMLParser):
             self.name = attrs.get('content', '')
 
 
-def validate_build(archive, require_identity=True, prefix=''):
+def validate_build(archive, require_identity=True, prefix='', *, verify_crc=True):
     entries = [entry for entry in archive.infolist() if not entry.is_dir()]
     names = [entry.filename for entry in entries]
     file_limit = MAX_FILES if require_identity else MAX_BACKUP_FILES
@@ -69,7 +69,7 @@ def validate_build(archive, require_identity=True, prefix=''):
         raise PublishError('建置包含非法、受保護或重複的路徑。')
     if 'index.html' not in names or any(e.flag_bits & 1 or e.file_size > MAX_FILE_BYTES for e in entries):
         raise PublishError('請選擇含根目錄 index.html 的完整建置資料夾。')
-    if archive.getinfo('index.html').file_size > 4 * 1024 * 1024 or archive.testzip() is not None:
+    if archive.getinfo('index.html').file_size > 4 * 1024 * 1024 or (verify_crc and archive.testzip() is not None):
         raise PublishError('建置檔案無法完整讀取。')
     if not require_identity:
         return set(names)  # A server-generated backup may predate UTF-8/build identity markers.
@@ -247,9 +247,14 @@ def save_release(client, storage, buffer, label):
     buffer.seek(0)
     digest = hashlib.file_digest(buffer, 'sha256').hexdigest()
     buffer.seek(0)
+    release, _ = store_release(client, storage, buffer, label, digest, size)
+    return release
+
+
+def store_release(client, storage, buffer, label, digest, size):
     existing = FrontendRelease.objects.filter(client=client, sha256=digest).first()
     if existing:
-        return existing
+        return existing, False
     name = storage.save(f'{client.pk}/{uuid.uuid4().hex}.zip', File(buffer, name=label))
     try:
         release, created = FrontendRelease.objects.get_or_create(
@@ -259,7 +264,19 @@ def save_release(client, storage, buffer, label):
         raise
     if not created:
         storage.delete(name)
-    return release
+    return release, created
+
+
+def active_deployment(client):
+    return FrontendDeployment.objects.filter(client=client, status__in=FrontendDeployment.ACTIVE).first()
+
+
+def queue_publication(client, release, target, operation, *, requested_by=None, cli_request_id=None):
+    """Queue under the caller's Client row lock, after checking for active work."""
+    job = FrontendDeployment.objects.create(client=client, release=release, target=target, operation=operation,
+                                             requested_by=requested_by, cli_request_id=cli_request_id)
+    transaction.on_commit(lambda: start_deployment(job.pk))
+    return job
 
 
 def folder_archive(files, paths, prefix=''):

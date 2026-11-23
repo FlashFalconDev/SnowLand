@@ -58,6 +58,7 @@ from .recruitment import RecruitmentViewSet
 from .site_translations import SiteTranslationAdminViewSet
 from .instagram_sync import InstagramSyncViewSet, meta_callback
 from .frontend_releases import FrontendReleaseViewSet
+from .frontend_cli_publish import PublisherJobView, PublisherUploadView
 from .staff_positions import staff_positions, staff_position_detail
 from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet
 from .vehicle_views import VehicleDesk, VehicleFile
@@ -103,6 +104,8 @@ admin_router.register(r'chat-support', ChatSupportViewSet, basename='admin-chat-
 
 
 urlpatterns = [
+    path('admin/flashfalcon/frontend-releases/cli/publish/', PublisherUploadView.as_view(), name='frontend-cli-publish'),
+    path('admin/flashfalcon/frontend-releases/cli/jobs/<uuid:request_id>/', PublisherJobView.as_view(), name='frontend-cli-job'),
     path('login/', LoginView.as_view()),
     path('token/refresh/', CustomTokenRefreshView.as_view()),
     path('client_ip/', client_ip),
