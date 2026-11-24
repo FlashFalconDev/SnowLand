@@ -18,7 +18,8 @@ const data = {
   payment_statuses: [{ status: 'paid', name: '已付款', orders: 1 }],
   marketing_sources: [{name:'上次期間來源',orders:1,revenue:3000}], campus_summary: [{name:'上次期間校區',orders:1,revenue:3000}],
 }
-function render({ states = ['quarter', 'completed', '', '', '39', false, ''], fetching = false, failExport = false } = {}) {
+function render({ states = ['quarter', 'completed', '', '', '39', false, ''], fetching = false,
+  failExport = false, dashboard = data } = {}) {
   let index = 0, query
   const calls = [], links = [], messages = []
   const context = vm.createContext({ React, console, Date, Number, exports: {},
@@ -30,7 +31,7 @@ function render({ states = ['quarter', 'completed', '', '', '39', false, ''], fe
         return [n < states.length ? states[n] : initial, value => { if (n === 6) messages.push(value) }]
       } }
       if (name === '@tanstack/react-query') return { keepPreviousData: value => value,
-        useQuery: options => { query = options; return { data, isFetching: fetching, error: null } } }
+        useQuery: options => { query = options; return { data: dashboard, isFetching: fetching, error: null } } }
       if (name === 'lucide-react') return new Proxy({}, { get: () => () => null })
       if (name === '../api/dashboard') return {
         fetchDashboard: async (...args) => { calls.push(['fetch', ...args]); return data },
@@ -57,6 +58,14 @@ async function main() {
   assert.match(ready.html, /已完成學員人次（每堂）/)
   assert.match(ready.html, /非計薪時數/)
   assert.match(ready.html, /付款狀態分布/)
+  assert.match(ready.html, /上次期間來源/)
+  const empty = render({ dashboard: {
+    ...data, stats: { ...data.stats, orders: 0, completed_orders: 0, revenue: 0, avg_order_value: 0,
+      student_visits: 0, teaching_hours: 0 },
+    payment_statuses: [], marketing_sources: [], campus_summary: [],
+  } })
+  assert.doesNotMatch(empty.html, /上次期間來源|上次期間校區|3,000/)
+  assert.match(empty.html, /已完成訂單數<\/[^>]+><[^>]+>0</)
   assert.equal(ready.excel.props.disabled, false)
   await ready.query.queryFn()
   await ready.excel.props.onClick()

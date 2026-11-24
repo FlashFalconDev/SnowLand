@@ -3,15 +3,15 @@ const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,
 const React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
 const source=fs.readFileSync(path.join(root,'src/pages/PaymentPage.tsx'),'utf8')
 const loadSiteLocale=require('./helpers/site-locale-harness.cjs')
-function render(status,inspect=false,overrides={},language='zh-Hant'){
- let cursor=0;const calls=[],updates=[],clipboard={}
+function render(status,inspect=false,overrides={},language='zh-Hant',bookmark={}){
+ let cursor=0;const calls=[],updates=[],clipboard={},effects=[],navigation=[]
  const locale=loadSiteLocale(React,language),settlementExports={},selector={exports:{},require:name=>name==='react'?React:locale}
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/components/booking/SettlementSummary.tsx'),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{React,exports:settlementExports,require:()=>locale})
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'src/components/site/SiteLanguageSelect.jsx'),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,selector)
  const data={reservation_group_id:42,total_amount:1000,order_details:[],payment_status:status,payment_methods:['bank_transfer','newebpay'],bank_info:{bank_name:'QA',bank_branch:'QA',bank_account_number:'QA',bank_account_holder:'QA'},...overrides}
- const context=vm.createContext({React,exports:{},URLSearchParams,navigator:{clipboard:{writeText:()=>new Promise((resolve,reject)=>{clipboard.resolve=resolve;clipboard.reject=reject})}},document:{cookie:'other=1; csrftoken=qa-csrf-only'},setTimeout(){},fetch:async(url,options)=>{calls.push({url,options});return{ok:true,json:async()=>({})}},require:name=>{
-  if(name==='react')return{...React,useEffect(){},useState:initial=>{const slot=cursor++;return[slot===0?data:slot===1?false:slot===4?'12345':initial,value=>updates.push({slot,value})]}}
-  if(name==='react-router-dom')return{useNavigate:()=>()=>{},useParams:()=>({clientCode:'snowland'}),useSearchParams:()=>[new URLSearchParams('reservation_group=42')]}
+ const context=vm.createContext({React,exports:{},URLSearchParams,AbortController,navigator:{clipboard:{writeText:()=>new Promise((resolve,reject)=>{clipboard.resolve=resolve;clipboard.reject=reject})}},document:{cookie:'other=1; csrftoken=qa-csrf-only'},setTimeout(){},fetch:async(url,options)=>{calls.push({url,options});return bookmark.response||{ok:true,json:async()=>({})}},require:name=>{
+  if(name==='react')return{...React,useEffect:effect=>effects.push(effect),useState:initial=>{const slot=cursor++;return[slot===0?(bookmark.loadError?null:data):slot===1?false:slot===2?(bookmark.loadError||''):slot===4?'12345':initial,value=>updates.push({slot,value})]}}
+  if(name==='react-router-dom')return{useNavigate:()=>target=>navigation.push(target),useParams:()=>({clientCode:'snowland'}),useSearchParams:()=>[new URLSearchParams(bookmark.query||'reservation_group=42')]}
   if(name==='lucide-react')return new Proxy({},{get:()=>()=>null})
   if(name.startsWith('@/components/ui/'))return{default:()=>null}
   if(name==='@/components/booking/SettlementSummary')return settlementExports
@@ -21,7 +21,7 @@ function render(status,inspect=false,overrides={},language='zh-Hant'){
  }})
  vm.runInContext(ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context)
  const tree=context.exports.default()
- return inspect?{tree,calls,updates,clipboard}:renderToStaticMarkup(tree)
+ return inspect?{tree,calls,updates,clipboard,effects,navigation}:renderToStaticMarkup(tree)
 }
 for(const status of ['paid','pending','refunded','expired','unexpected']){
  const html=render(status)
@@ -63,4 +63,24 @@ async function checkSubmission(){
  assert.ok(copied.updates.some(update=>update.value?.type==='success'))
  console.log('PASS actual payment page: unpaid only; terminal states cannot resubmit; real transfer handler sends CSRF')
 }
-checkSubmission().catch(error=>{console.error(error);process.exitCode=1})
+
+async function checkArchivedBookmark(){
+ const query='reservation_group=42&access_token=qa-guest'
+ const loadError='找不到預約群組'
+ const response={ok:false,status:404,json:async()=>({error:loadError})}
+ const previous=render('unpaid',true,{},'zh-Hant',{query,response})
+ previous.effects[0]()
+ await new Promise(resolve=>setImmediate(resolve))
+ assert.match(previous.calls[0].url,/reservation_group=42&access_token=qa-guest$/)
+ assert.deepEqual(previous.updates.filter(({slot})=>slot===0).map(({value})=>value),[null])
+ assert.ok(previous.updates.some(update=>update.value===loadError))
+ const missing=render('unpaid',true,{},'zh-Hant',{query,loadError})
+ const html=renderToStaticMarkup(missing.tree)
+ assert.match(html,/找不到預約群組/)
+ assert.doesNotMatch(html,/確認已匯款|前往付款/)
+ find(missing.tree,n=>n.type==='button'&&n.props.children==='返回官網').props.onClick()
+ assert.deepEqual(missing.navigation,['/snowland/'])
+ console.log('PASS archived payment bookmark: 404 clears old data and payment controls')
+}
+
+checkSubmission().then(checkArchivedBookmark).catch(error=>{console.error(error);process.exitCode=1})
