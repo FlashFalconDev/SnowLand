@@ -15,8 +15,6 @@ class Command(BaseCommand):
             internal_code='snowland_chuangyou',
             defaults={
                 'name': '雪域創遊',
-                'contact_person': '待設定',
-                'contact_email': 'contact@snowland.com',
                 'is_active': True,
                 'sales': '待設定',
                 'program': '標準版',
