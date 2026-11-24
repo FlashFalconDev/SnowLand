@@ -1,6 +1,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { isAxiosError } from 'axios'
+import { BookOpen } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import adminApi from '../api/axios'
+import { vehicleGuidePage } from '../consoleNavigation'
 
 type Option = { id: number; name: string }
 type Resort = Option & { exempt: boolean; campuses: number[] }
@@ -226,7 +229,16 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
   }
 
   return <div className="space-y-4">
-    <h1 className="text-2xl font-bold">{mode === 'coach' ? '我的用車' : mode === 'review' ? '車輛排班與用車審核' : '車輛費率與費用核准'}</h1>
+    <header className="flex flex-wrap items-center justify-between gap-2">
+      <h1 className="text-2xl font-bold">{mode === 'coach' ? '我的用車' : mode === 'review' ? '車輛排班與用車審核' : '車輛費率與費用核准'}</h1>
+      <Link
+        to={`../../${vehicleGuidePage.path}#${mode}`}
+        relative="path"
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-200 bg-white px-3 text-sm font-medium text-violet-800 hover:bg-violet-50 dark:border-violet-800 dark:bg-gray-800 dark:text-violet-200 dark:hover:bg-violet-950"
+      >
+        <BookOpen aria-hidden="true" size={16} /> 使用說明
+      </Link>
+    </header>
     {error && <p role="alert" className="rounded border border-red-300 p-3 text-red-700 dark:text-red-300">{error}</p>}
     {message && <p role="status" className="text-green-700 dark:text-green-300">{message}</p>}
     {!data && !error && <p role="status">載入用車資料中…</p>}

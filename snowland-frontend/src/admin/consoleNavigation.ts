@@ -90,12 +90,22 @@ export const consoleNavigation = [
   ] },
 ] as const
 
-export type ConsolePage = (typeof consoleNavigation)[number]['pages'][number]
-export type ConsolePath = ConsolePage['path']
+export const vehicleGuidePage = {
+  path: 'help/vehicles',
+  label: '車輛用車說明',
+  access: '@vehicle-guide',
+} as const
+
+type NavigationPage = (typeof consoleNavigation)[number]['pages'][number]
+export type ConsolePage = NavigationPage | typeof vehicleGuidePage
+export type ConsolePath = NavigationPage['path']
 
 export function canOpenConsolePage(page: ConsolePage, user: AdminUser | null | undefined, basePath: string) {
   if (page.access === 'booking_links') return canPrepareStaffBooking(user)
   if (page.access === '@coach') return user?.is_coach === true
+  if (page.access === '@vehicle-guide') {
+    return user?.is_coach === true || hasAdminPermission(user, 'vehicle_review') || hasAdminPermission(user, 'vehicle_finance')
+  }
   if (page.access === '@superuser') return user?.is_superuser === true
   if (page.access === '@platform') return canUseFrontendSupport(basePath, user)
   return hasAdminPermission(user, page.access)
