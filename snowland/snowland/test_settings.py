@@ -8,6 +8,12 @@ DATABASES = {
     },
 }
 
+# Keep test uploads and admin static URLs independent of S3 when DEBUG is off.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 # Several legacy project migrations contain MySQL-only raw SQL. Unit tests use
