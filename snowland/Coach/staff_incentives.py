@@ -8,7 +8,8 @@ from django.db.models import Max, Q, Sum
 from django.utils import timezone
 
 from Resorts.models import Campus
-from booking.models import CancellationRequest, ReservationGroup
+from booking.models import Booking, CancellationRequest, ReservationGroup
+from booking.operations import prefetch_order_activity
 from .models import StaffIncentiveLine, StaffIncentiveRule, StaffIncentiveStatement
 
 
@@ -63,6 +64,8 @@ def calculate_staff_incentive(*, user, campus, month):
         raise ValueError('不能計算未來月份的員工獎金')
     user = User.objects.select_for_update().get(pk=user.pk)
     campus = Campus.objects.select_for_update().get(pk=campus.pk)
+    if StaffIncentiveStatement.all_objects.filter(user=user, campus=campus, month=month, is_deleted=True).exists():
+        raise ValueError('此月份已有封存員工獎金，須先由平台管理者還原該批次')
     rule = StaffIncentiveRule.objects.filter(user=user, campus=campus).first()
     paid_sources = StaffIncentiveLine.objects.filter(
         statement__user=user, statement__campus=campus, statement__status='paid',
@@ -73,9 +76,10 @@ def calculate_staff_incentive(*, user, campus, month):
     percent = rule.completed_order_percent if rule and rule.is_active else Decimal(0)
     if not percent.is_finite() or not 0 <= percent <= 100:
         raise ValueError('獎金比例須為0～100%，請先修正原設定')
-    statement, _ = StaffIncentiveStatement.objects.get_or_create(user=user, campus=campus, month=month,
+    statement, _ = StaffIncentiveStatement.all_objects.select_for_update().get_or_create(user=user, campus=campus, month=month,
         defaults={'user_name': user.get_full_name() or user.username, 'campus_name': campus.name})
-    statement = StaffIncentiveStatement.objects.select_for_update().get(pk=statement.pk)
+    if statement.is_deleted:
+        raise ValueError('此月份已有封存員工獎金，須先由平台管理者還原該批次')
     if statement.status != 'draft':
         raise ValueError('已確認或已記錄發放的員工獎金不能重新計算')
     next_month = _next_month(month)
@@ -92,10 +96,11 @@ def calculate_staff_incentive(*, user, campus, month):
     statement.campus_name = campus.name
     statement.revenue = statement.earned_amount = statement.refund_deduction = 0
     if rule and rule.is_active and user.is_active and campus.is_active:
-        groups = ReservationGroup.objects.filter(client_id=campus.client_id, campus=campus).annotate(
-            completion_date=Max('reservations__bookings__date', filter=~Q(reservations__status='deleted')),
-        ).filter(completion_date__gte=month, completion_date__lt=next_month).prefetch_related('reservations__bookings', 'payments').order_by('pk')
-        for group in groups:
+        groups = ReservationGroup.objects.live().filter(client_id=campus.client_id, campus=campus).annotate(
+            completion_date=Max('reservations__bookings__date',
+                                filter=Booking.live_filter('reservations__bookings') & ~Q(reservations__status='deleted')),
+        ).filter(completion_date__gte=month, completion_date__lt=next_month).order_by('pk')
+        for group in prefetch_order_activity(groups):
             reservations = [item for item in group.reservations.all() if item.status != 'deleted']
             payment = max(group.payments.all(), key=lambda item: (item.created_at, item.pk), default=None)
             if not reservations or any(item.status != 'completed' or not item.bookings.all() for item in reservations):
@@ -103,10 +108,10 @@ def calculate_staff_incentive(*, user, campus, month):
             if not payment or payment.status != 'paid':
                 continue
             key = f'earning:{user.pk}:{group.pk}'
-            previous = StaffIncentiveLine.objects.filter(group=group,
+            previous = StaffIncentiveLine.all_objects.filter(group=group,
                 statement__user=user, line_type='earning').select_related('statement').first()
             if previous:
-                if previous.statement.status == 'draft':
+                if not previous.is_deleted and not previous.statement.is_deleted and previous.statement.status == 'draft':
                     raise ValueError(f'訂單 {group.order_number} 已在其他月份草稿，請先重算原月份')
                 continue
             base = sum(item.payment_amount for item in reservations)
@@ -129,7 +134,7 @@ def calculate_staff_incentive(*, user, campus, month):
             if _next_month(refunded_day.replace(day=1)) > month:
                 continue
             key = f'refund:{source.pk}:{cancellation.pk}'
-            if StaffIncentiveLine.objects.filter(entry_key=key).exists():
+            if StaffIncentiveLine.all_objects.filter(entry_key=key).exists():
                 continue
             base = min(cancellation.refund_amount, remaining_base)
             if not base:
@@ -200,8 +205,12 @@ def adjust_staff_incentive(statement, *, amount, note):
 
 
 @transaction.atomic
-def delete_staff_incentive_draft(statement):
+def delete_staff_incentive_draft(statement, actor):
+    from Client.models import Client
+    from booking.order_archive import archive_statement_draft
+
+    tenant = Client.objects.select_for_update().get(pk=statement.campus.client_id)
     statement = _lock_statement(statement)
     if statement.status != 'draft':
         raise ValueError('只能刪除草稿；已確認或已記錄發放的員工獎金須保留')
-    statement.delete()
+    archive_statement_draft(tenant, actor, statement)

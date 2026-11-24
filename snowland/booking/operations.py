@@ -5,11 +5,23 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from Resorts.models import OperatingPolicy, PaymentAccount
 
-from .models import Booking, CancellationRequest, NotificationDelivery, OrderRevision, ReservationGroup
+from .models import Booking, CancellationRequest, NotificationDelivery, OrderRevision, Payment, Reservation, ReservationGroup
+
+
+def prefetch_order_activity(groups):
+    """Populate the reverse caches used when calculating completed-order revenue."""
+    reservations = Reservation.objects.live().prefetch_related(
+        Prefetch('bookings', queryset=Booking.objects.live()),
+    )
+    return groups.prefetch_related(
+        Prefetch('reservations', queryset=reservations),
+        Prefetch('payments', queryset=Payment.objects.live()),
+    )
 
 
 def validate_class_group_url(value):

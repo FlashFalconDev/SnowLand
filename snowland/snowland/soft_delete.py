@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.db.models.deletion import ProtectedError
 
 
 class SoftDeleteQuerySet(models.QuerySet):
@@ -44,3 +45,8 @@ class SoftDeleteModel(models.Model):
         abstract = True
         base_manager_name = "all_objects"
         default_manager_name = "objects"
+
+
+def protect_archived_row(sender, instance, **kwargs):
+    if instance.is_deleted:
+        raise ProtectedError("已封存的紀錄須保留，包含透過其他物件的級聯刪除", [instance])

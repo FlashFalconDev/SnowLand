@@ -640,7 +640,8 @@ class PricingModeApiTests(TestCase):
         }, format='json')
         self.assertEqual(cancel_failed.status_code, 200, cancel_failed.data)
         self.assertEqual(cancel_failed.data['deleted_count'], 1)
-        self.assertFalse(ReservationGroup.objects.filter(pk=pending_group.id).exists())
+        self.assertFalse(ReservationGroup.objects.live().filter(pk=pending_group.id).exists())
+        self.assertTrue(ReservationGroup.all_objects.filter(pk=pending_group.id, is_deleted=True).exists())
         repeated_cancel = self.api.post('/booking/snowland/api/cancel-failed-reservations/', {
             'reservation_group_ids': [pending_group.id],
         }, format='json')

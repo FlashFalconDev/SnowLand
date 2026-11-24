@@ -32,16 +32,36 @@ def level_label(account, rules):
     return next((row['label'] for row in reversed(rules['levels']) if account.points >= row['minimum_points']), '')
 
 
+def rebuild_loyalty_account(account):
+    """Reconcile a locked account from its reviewed baseline and active ledger."""
+    before = (account.points, account.reward_balance, account.opening_points, account.opening_rewards)
+    entries = MemberLoyaltyEntry.all_objects.filter(account=account, order__group__client_id=account.client_id)
+    totals = entries.live().aggregate(points=Sum('points_delta'), rewards=Sum('rewards_delta'))
+    if account.opening_points is None or account.opening_rewards is None:
+        original = entries.aggregate(points=Sum('points_delta'), rewards=Sum('rewards_delta'))
+        account.opening_points = account.points - account.previous_points - (original['points'] or 0)
+        account.opening_rewards = account.reward_balance - (original['rewards'] or 0)
+    account.points = account.previous_points + account.opening_points + (totals['points'] or 0)
+    account.reward_balance = account.opening_rewards + (totals['rewards'] or 0)
+    if before != (account.points, account.reward_balance, account.opening_points, account.opening_rewards):
+        account.save(update_fields=['points', 'reward_balance', 'opening_points', 'opening_rewards', 'updated_at'])
+
+
+def rebuild_tenant_loyalty(tenant):
+    for account in MemberLoyaltyAccount.objects.select_for_update().filter(client=tenant).order_by('pk'):
+        rebuild_loyalty_account(account)
+
+
 def add_entry(order, account, kind, *, points=0, rewards=0):
     """Call with the account locked. A signed reward balance preserves refund debt."""
     if not (points or rewards):
         return
     if account.client_id != order.group.client_id:
         raise ValueError('不能跨學校變更紅利')
-    account.points += points
-    account.reward_balance += rewards
-    account.save(update_fields=['points', 'reward_balance', 'updated_at'])
+    if account.opening_points is None or account.opening_rewards is None:
+        rebuild_loyalty_account(account)
     MemberLoyaltyEntry.objects.create(account=account, order=order, kind=kind, points_delta=points, rewards_delta=rewards)
+    rebuild_loyalty_account(account)
 
 
 def start_order_loyalty(group, revision, rules, *, spent=0, discount=0, referrer_user_id=None):
@@ -51,6 +71,8 @@ def start_order_loyalty(group, revision, rules, *, spent=0, discount=0, referrer
     referrer = None
     if referrer_user_id:
         referrer, _ = MemberLoyaltyAccount.objects.get_or_create(client_id=group.client_id, user_id=referrer_user_id)
+    if spent:
+        rebuild_loyalty_account(account)
     if spent and spent > account.reward_balance:
         raise ValueError('紅利餘額已變更，請重新試算')
     order = OrderLoyalty.objects.create(group=group, account=account, rules=rules, policy_revision=revision,
@@ -82,9 +104,9 @@ def checkout_rewards(tenant, user, summary, requested, referral_code):
     if code:
         if not (rules['referrer_rewards'] or rules['new_member_rewards']):
             raise ValueError('此學校尚未開放推薦活動')
-        prior = ReservationGroup.objects.filter(client=tenant, user=user)
-        if (prior.filter(payments__status__in=('paid', 'pending', 'refunded')).exists()
-                or Reservation.objects.filter(group__in=prior).exclude(status__in=('cancelled', 'deleted')).exists()):
+        prior = ReservationGroup.objects.live().filter(client=tenant, user=user)
+        if (prior.filter(payments__is_deleted=False, payments__status__in=('paid', 'pending', 'refunded')).exists()
+                or Reservation.objects.live().filter(group__in=prior).exclude(status__in=('cancelled', 'deleted')).exists()):
             raise ValueError('推薦碼限本校首次訂課使用')
         referrer_id = ClientMemberProfile.objects.filter(client=tenant, referral_code=code).exclude(user=user).values_list('user_id', flat=True).first()
         if not referrer_id:
@@ -122,8 +144,8 @@ def sync_order_loyalty(group, *, confirmed_base=None, refund=None, actual_receiv
     rules = order.rules
     amendments = group.amendments.filter(status='settled', settled_at__isnull=False)
     eligible = rules['earn_on'] == 'paid' or (
-        group.reservations.filter(status='completed').exists()
-        and not group.reservations.exclude(status__in=('completed', 'cancelled', 'deleted')).exists()
+        group.reservations.live().filter(status='completed').exists()
+        and not group.reservations.live().exclude(status__in=('completed', 'cancelled', 'deleted')).exists()
     )
     if refund is not None:
         # A cancellation can mark all reservations cancelled after they earned points.

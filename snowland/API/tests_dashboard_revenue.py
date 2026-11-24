@@ -73,6 +73,19 @@ class DashboardRevenueTests(TestCase):
         Payment.objects.create(reservation_group=group, status='paid')
         self.assertEqual(self.dashboard()['stats']['revenue'], 1001)
 
+    def test_archived_children_do_not_move_completion_or_mask_latest_live_payment(self):
+        group = self.order(bookings=1)
+        reservation = group.reservations.get()
+        Booking.objects.create(reservation=reservation, date=timezone.localdate().replace(year=2038),
+                               start_time=time(9), end_time=time(11), is_deleted=True)
+        Reservation.objects.create(group=group, resort=self.resort, status='created', course_fee=9000, is_deleted=True)
+        Payment.objects.create(reservation_group=group, status='refunded', is_deleted=True)
+        other = self.order(amount=9000)
+        ReservationGroup.all_objects.filter(pk=other.pk).update(is_deleted=True)
+        data = self.dashboard({'date_basis': 'completed'})
+        self.assertEqual(data['stats']['orders'], 1)
+        self.assertEqual(data['stats']['revenue'], 1001)
+
     def test_discounts_and_average_use_completed_orders_not_all_created_orders(self):
         group = self.order(amount=2000)
         reservation = group.reservations.get()

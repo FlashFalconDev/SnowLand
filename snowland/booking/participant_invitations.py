@@ -27,6 +27,8 @@ def check_invitable_course(member):
 
 def binding_status(member):
     invitation = getattr(member, 'invitation', None)
+    if invitation and invitation.is_deleted:
+        invitation = None
     if (invitation and invitation.accepted_at) or member.guardian_id or (
         member.user_id and member.user_id != member.reservation.group.user_id
     ):
@@ -43,6 +45,8 @@ def issue_invitation(tenant, organizer, member_id, *, revoke=False):
     ).first()
     if not member:
         raise InvitationError('找不到可邀請的學員', 404)
+    if ParticipantInvitation.all_objects.filter(member=member, is_deleted=True).exists():
+        raise InvitationError('原邀請已封存，請聯絡學校核對紀錄', 409)
     if binding_status(member) == 'bound':
         raise InvitationError('此學員已綁定帳號，不能重新邀請或撤銷綁定', 409)
     if revoke:

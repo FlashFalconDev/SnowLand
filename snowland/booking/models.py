@@ -106,7 +106,7 @@ class SharedCourseClass(SoftDeleteModel):
 
     @property
     def registered_students(self):
-        return self.reservations.exclude(status__in=['cancelled', 'deleted']).aggregate(
+        return self.reservations.live().exclude(status__in=['cancelled', 'deleted']).aggregate(
             total=models.Sum('number_of_people'),
         )['total'] or 0
 
@@ -707,6 +707,8 @@ class MemberLoyaltyAccount(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     points = models.PositiveBigIntegerField(default=0)
     reward_balance = models.BigIntegerField(default=0)
+    opening_points = models.BigIntegerField(null=True, editable=False)
+    opening_rewards = models.BigIntegerField(null=True, editable=False)
     previous_points = models.PositiveIntegerField(default=0)
     level = models.CharField(max_length=20, choices=MemberProfile.LEVEL_CHOICES, default='new')
     alumni_verified = models.BooleanField(default=False)
@@ -770,6 +772,30 @@ class MemberLoyaltyEntry(SoftDeleteModel):
         indexes = [
             models.Index(fields=['account', 'is_deleted', 'created_at'], name='sl_loyalty_account_live_date'),
         ]
+
+
+class OrderDiscountUsage(models.Model):
+    reservation = models.ForeignKey(Reservation, on_delete=models.CASCADE, related_name='discount_usages')
+    # Keep the checkout's rule identity even if the catalog rule is removed.
+    rule_id = models.PositiveBigIntegerField()
+    checkout_key = models.UUIDField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['reservation', 'rule_id'], name='unique_reservation_discount_use'),
+        ]
+        indexes = [models.Index(fields=['rule_id', 'checkout_key'], name='discount_use_checkout_idx')]
+
+
+class TenantOrderArchiveBatch(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey('Client.Client', on_delete=models.PROTECT)
+    actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    deleted_at = models.DateTimeField()
+    plan_digest = models.CharField(max_length=64)
+    targets = models.JSONField()
+    restored_at = models.DateTimeField(null=True)
+    restored_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
 
 
 class OrderRevision(SoftDeleteModel):
@@ -1043,7 +1069,7 @@ def get_booked_slots(self):
     获取教练的预订信息，返回格式化的字典。
     过滤掉没有指定教练的预订。
     """
-    bookings = Booking.objects.filter(reservation__preferred_coach=self)
+    bookings = Booking.objects.live().filter(reservation__preferred_coach=self)
     booked_slots = {}
     for booking in bookings:
         date_str = booking.date.strftime("%Y-%m-%d")

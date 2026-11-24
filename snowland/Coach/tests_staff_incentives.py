@@ -56,6 +56,15 @@ class StaffIncentiveCalculationTests(TestCase):
         self.assertEqual(self.calculate().revenue, 0)
         self.assertFalse(self.calculate().lines.exists())
 
+    def test_archived_reservations_bookings_and_payment_are_excluded(self):
+        self.booking_2.date = date(2026, 2, 1)
+        self.booking_2.is_deleted = True
+        self.booking_2.save(update_fields=['date', 'is_deleted'])
+        Reservation.objects.create(group=self.group, resort=self.resort, status='created', is_deleted=True)
+        Payment.objects.create(reservation_group=self.group, status='refunded', is_deleted=True)
+        self.assertEqual(self.calculate().revenue, 10000)
+        self.assertEqual(self.calculate(date(2026, 2, 1)).revenue, 0)
+
     def test_old_paid_statement_keeps_original_percentage_and_names(self):
         statement = self.pay(self.calculate())
         self.rule.completed_order_percent = 10

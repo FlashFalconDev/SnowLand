@@ -144,11 +144,17 @@ class StaffIncentiveStatementApiTests(TestCase):
             self.assertEqual(self.api.get(path).status_code, 403)
         self.assertEqual(self.api.post(self.url + 'calculate/', self.data, format='json').status_code, 403)
 
-    def test_confirm_and_record_payment_are_idempotent_and_draft_deletion_is_allowed(self):
+    def test_draft_archive_keeps_unique_month_until_restored(self):
         row = self.calculate()
         detail = f"{self.url}{row['id']}/"
         self.assertEqual(self.api.delete(detail).status_code, 204)
         self.assertFalse(StaffIncentiveStatement.objects.exists())
+        self.assertTrue(StaffIncentiveStatement.all_objects.filter(pk=row['id'], is_deleted=True).exists())
+        result = self.api.post(self.url + 'calculate/', self.data, format='json')
+        self.assertEqual(result.status_code, 400, result.data)
+        self.assertIn('封存員工獎金', result.data['msg'])
+
+    def test_confirm_and_record_payment_are_idempotent(self):
         row = self.calculate()
         detail = f"{self.url}{row['id']}/"
         for action, field in [('confirm/', 'confirmed_at'), ('record-paid/', 'paid_at')]:
