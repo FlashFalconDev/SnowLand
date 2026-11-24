@@ -236,7 +236,7 @@ function PayrollPanel() {
       {detail.status === 'draft' && <button type="button" disabled={removePayroll.isPending || addManual.isPending} className="mb-2 min-h-10 rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-40 dark:border-red-800 dark:text-red-300" onClick={() => setPendingDelete({ lineId: null, label: `${detail.coach_name} ${detail.period_start}～${detail.period_end}` })}>刪除這張草稿薪資單</button>}
       {pendingDelete && <div role="alert" className="my-3 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
         <p className="break-words font-semibold">確認刪除：{pendingDelete.label}？</p>
-        <p className="mt-1">{pendingDelete.lineId === null ? '這張草稿與手動項目會移除；原訂單、課程及薪資規則不會刪除。可以重新結算，但手動項目需重新輸入。' : '只移除此手動項目，應付合計會一起更新。'}</p>
+        <p className="mt-1">{pendingDelete.lineId === null ? '這張草稿與明細將封存。同一期間須還原原單才能重新結算。' : '只移除此手動項目，應付合計會一起更新。'}</p>
         <div className="mt-3 flex flex-wrap gap-3">
           <button type="button" ref={deleteConfirmRef} disabled={removePayroll.isPending} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-white" onClick={() => setPendingDelete(null)}>保留，不刪除</button>
           <button type="button" disabled={removePayroll.isPending} className="min-h-11 rounded-lg bg-red-600 px-4 py-2 font-semibold text-white disabled:opacity-40" onClick={() => removePayroll.mutate()}>{removePayroll.isPending ? '刪除中…' : '確認刪除'}</button>

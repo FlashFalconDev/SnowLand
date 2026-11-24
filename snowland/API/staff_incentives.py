@@ -129,6 +129,6 @@ class StaffIncentiveStatementAdminViewSet(PayrollCsrfMixin, ModelViewSet):
 
     def perform_destroy(self, instance):
         try:
-            delete_staff_incentive_draft(instance)
+            delete_staff_incentive_draft(instance, self.request.user)
         except ValueError as exc:
             raise ValidationError({'detail': str(exc)})

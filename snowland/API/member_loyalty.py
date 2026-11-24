@@ -18,7 +18,7 @@ from .admin_views import IsTenantManager, _require_admin_permission, _campus_ids
 
 
 def visible_customer_ids(request):
-    groups = ReservationGroup.objects.filter(client=request.tenant)
+    groups = ReservationGroup.objects.live().filter(client=request.tenant)
     scoped = not request.can_view_all_campuses or request.selected_campus_id is not None
     if scoped:
         groups = groups.filter(campus_id__in=_campus_ids(request))

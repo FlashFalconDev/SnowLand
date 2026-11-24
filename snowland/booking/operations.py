@@ -5,11 +5,23 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from Resorts.models import OperatingPolicy, PaymentAccount
 
-from .models import Booking, CancellationRequest, NotificationDelivery, OrderRevision, ReservationGroup
+from .models import Booking, CancellationRequest, NotificationDelivery, OrderRevision, Payment, Reservation, ReservationGroup
+
+
+def prefetch_order_activity(groups):
+    """Populate the reverse caches used when calculating completed-order revenue."""
+    reservations = Reservation.objects.live().prefetch_related(
+        Prefetch('bookings', queryset=Booking.objects.live()),
+    )
+    return groups.prefetch_related(
+        Prefetch('reservations', queryset=reservations),
+        Prefetch('payments', queryset=Payment.objects.live()),
+    )
 
 
 def validate_class_group_url(value):
@@ -38,7 +50,7 @@ def get_operating_policy(group):
 
 def resolve_payment_account(group, *, currency=None, lock=False):
     currency = currency or (group.currency_snapshot or {}).get('currency', 'TWD')
-    resort_ids = list(group.reservations.exclude(resort_id=None).values_list('resort_id', flat=True))
+    resort_ids = list(group.reservations.live().exclude(resort_id=None).values_list('resort_id', flat=True))
     candidates = PaymentAccount.objects.filter(client=group.client, is_active=True, currency=currency)
     if lock:
         candidates = candidates.select_for_update()
@@ -71,13 +83,13 @@ def sync_group_payment_window(group):
     from Client.models import Client
     from .models import Payment
     Client.objects.select_for_update().get(pk=group.client_id)
-    group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
-    payment = group.payments.select_for_update().order_by('-created_at', '-pk').first()
+    group = ReservationGroup.objects.live().select_for_update().get(pk=group.pk)
+    payment = group.payments.live().select_for_update().order_by('-created_at', '-pk').first()
     if payment and payment.status != 'unpaid':
         return payment
-    if group.payments.filter(status__in=['paid', 'pending', 'refunded', 'expired']).exists():
+    if group.payments.live().filter(status__in=['paid', 'pending', 'refunded', 'expired']).exists():
         return payment
-    active = group.reservations.exclude(status__in=['cancelled', 'deleted'])
+    active = group.reservations.live().exclude(status__in=['cancelled', 'deleted'])
     blocked = active.exclude(status__in=['auto_assigned', 'manually_assigned', 'form_filled', 'completed']).exists()
     blocked = blocked or active.filter(shared_course_class__status='collecting').exists()
     if not active.exists() or blocked:
@@ -130,10 +142,10 @@ def order_snapshot(group):
                         'course_name': booking.course_name,
                         'fee_snapshot': booking.fee_snapshot,
                     }
-                    for booking in reservation.bookings.all().order_by('date', 'start_time')
+                    for booking in reservation.bookings.live().all().order_by('date', 'start_time')
                 ],
             }
-            for reservation in group.reservations.select_related(
+            for reservation in group.reservations.live().select_related(
                 'resort', 'course_type', 'course_template', 'preferred_coach',
             ).prefetch_related('bookings')
         ],
@@ -141,10 +153,13 @@ def order_snapshot(group):
 
 
 def record_order_revision(group, user=None, change_type='modify', reason='', previous_total=None):
+    if group.is_deleted:
+        raise ValueError('封存訂單不能新增版本')
     snapshot = order_snapshot(group)
     current_total = sum(item['payable'] for item in snapshot['reservations'] if item.get('status') not in {'deleted', 'cancelled'})
     latest = group.revisions.order_by('-version').first()
-    version = (latest.version + 1) if latest else 1
+    last_version = OrderRevision.all_objects.filter(group=group).order_by('-version').values_list('version', flat=True).first()
+    version = (last_version or 0) + 1
     if previous_total is None and latest:
         previous_total = sum(item.get('payable', 0) for item in latest.snapshot.get('reservations', []) if item.get('status') not in {'deleted', 'cancelled'})
     difference = current_total - int(current_total if previous_total is None else previous_total)
@@ -164,13 +179,13 @@ def outstanding_amendments(group):
 
 
 def first_course_start(group):
-    return group.reservations.exclude(status__in=['deleted', 'cancelled']).filter(
-        bookings__date__isnull=False).order_by('bookings__date', 'bookings__start_time').values_list(
+    return group.reservations.live().exclude(status__in=['deleted', 'cancelled']).filter(
+        bookings__is_deleted=False, bookings__date__isnull=False).order_by('bookings__date', 'bookings__start_time').values_list(
         'bookings__date', 'bookings__start_time').first()
 
 
 def calculate_refund(group):
-    active_courses = group.reservations.exclude(status__in=['deleted', 'cancelled'])
+    active_courses = group.reservations.live().exclude(status__in=['deleted', 'cancelled'])
     now = timezone.localtime()
     first_course = first_course_start(group)
     days_before = (first_course[0] - now.date()).days if first_course else 0
@@ -215,12 +230,12 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
                          expected_user_id=None, expected_client_id=None, require_paid=False,
                          currency=None,expected_refund_amount=None):
     # Serialize with refund processing; never trust a caller's cached order/payment.
-    group = ReservationGroup.objects.select_for_update().get(pk=group.pk)
+    group = ReservationGroup.objects.live().select_for_update().get(pk=group.pk)
     if ((expected_user_id is not None and group.user_id != expected_user_id)
             or (expected_client_id is not None and group.client_id != expected_client_id)):
         from django.http import Http404
         raise Http404('找不到您的訂單')
-    payment = group.payments.order_by('-created_at', '-pk').first()
+    payment = group.payments.live().order_by('-created_at', '-pk').first()
     if require_paid and (not payment or payment.status != 'paid'):
         raise ValueError('目前僅已付款訂單可申請退款，其他情況請聯絡客服')
     if group.cancellation_requests.filter(status='refunded').exists() or (payment and payment.status == 'refunded'):
@@ -327,7 +342,7 @@ def notification_template_matches_group(template, group):
         return False
     if template.campus_id and template.campus_id != group.campus_id:
         return False
-    return not template.course_templates.exists() or group.reservations.exclude(
+    return not template.course_templates.exists() or group.reservations.live().exclude(
         status__in=['cancelled', 'deleted'],
     ).filter(course_template__in=template.course_templates.all()).exists()
 
@@ -335,15 +350,15 @@ def notification_template_matches_group(template, group):
 @transaction.atomic
 def schedule_group_notifications(group, event):
     # Serialize scheduling for the same order so concurrent callers cannot add duplicate recipients.
-    group = ReservationGroup.objects.select_for_update().select_related('client', 'user').get(pk=group.pk)
+    group = ReservationGroup.objects.live().select_for_update().select_related('client', 'user').get(pk=group.pk)
     from .notification_recipients import COURSE_RECIPIENT_EVENTS, course_notification_recipients
     templates = group.client.notification_templates.filter(is_active=True, event=event).filter(
         campus__isnull=True
     ) | group.client.notification_templates.filter(is_active=True, event=event, campus=group.campus)
-    first_course = Booking.objects.filter(reservation__group=group).exclude(
+    first_course = Booking.objects.live().filter(reservation__group=group).exclude(
         reservation__status__in=['cancelled', 'deleted'],
     ).order_by('date').values_list('date', flat=True).first()
-    payment = group.payments.order_by('-created_at').first()
+    payment = group.payments.live().order_by('-created_at').first()
     payment_data = payment.DataJSON if payment and isinstance(payment.DataJSON, dict) else {}
     contact = payment_data.get('contact') if isinstance(payment_data.get('contact'), dict) else {}
     booking_contact = group.booking_contact if isinstance(group.booking_contact, dict) else {}

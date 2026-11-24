@@ -25,11 +25,11 @@ def documents_missing(member, document):
 def group_documents_missing(group):
     document = get_current_waiver(group.client)
     today = timezone.localdate()
-    reservations = group.reservations.exclude(status__in=['cancelled', 'deleted']).filter(
-        bookings__date__gte=today,
+    reservations = group.reservations.live().exclude(status__in=['cancelled', 'deleted']).filter(
+        bookings__is_deleted=False, bookings__date__gte=today,
     ).prefetch_related('members').distinct()
     for reservation in reservations:
-        members = list(reservation.members.all())
+        members = list(reservation.members.live().all())
         if reservation.number_of_people > len(members) or any(documents_missing(member, document) for member in members):
             return True
     return False
@@ -68,7 +68,7 @@ def course_notification_recipients(group, template, *, channel=None):
     if (template.event not in COURSE_RECIPIENT_EVENTS or template.client_id != group.client_id
             or not template.is_active or (template.campus_id and template.campus_id != group.campus_id)):
         return {}
-    payment = group.payments.order_by('-created_at', '-pk').first()
+    payment = group.payments.live().order_by('-created_at', '-pk').first()
     if not payment or payment.status != 'paid':
         return {}
     if template.event == 'line_group':
@@ -80,8 +80,8 @@ def course_notification_recipients(group, template, *, channel=None):
         except ValueError:
             return {}
     today = timezone.localdate()
-    reservations = group.reservations.exclude(status__in=['cancelled', 'deleted']).filter(
-        bookings__date__gte=today,
+    reservations = group.reservations.live().exclude(status__in=['cancelled', 'deleted']).filter(
+        bookings__is_deleted=False, bookings__date__gte=today,
     ).distinct()
     selected_templates = list(template.course_templates.values_list('pk', flat=True))
     if selected_templates:
@@ -90,10 +90,10 @@ def course_notification_recipients(group, template, *, channel=None):
     if not reservations:
         return {}
     first_dates = {
-        reservation.pk: min(booking.date for booking in reservation.bookings.all() if booking.date >= today)
+        reservation.pk: min(booking.date for booking in reservation.bookings.live().all() if booking.date >= today)
         for reservation in reservations
     }
-    members = list(MemberDetail.objects.filter(reservation_id__in=first_dates).select_related(
+    members = list(MemberDetail.objects.live().filter(reservation_id__in=first_dates).select_related(
         'user__snowland_member_profile', 'guardian__snowland_member_profile',
     ))
     document = get_current_waiver(group.client) if template.event == 'missing_documents' else None
@@ -123,7 +123,7 @@ def course_notification_recipients(group, template, *, channel=None):
     )]
     owner_missing_courses = {
         member.reservation_id for member in owned_members if document is not None and documents_missing(member, document)
-    } | {reservation.pk for reservation in reservations if reservation.number_of_people > len(reservation.members.all())}
+    } | {reservation.pk for reservation in reservations if reservation.number_of_people > len(reservation.members.live().all())}
     if template.event != 'missing_documents':
         add(primary, organizer=True)
     elif owner_missing_courses:

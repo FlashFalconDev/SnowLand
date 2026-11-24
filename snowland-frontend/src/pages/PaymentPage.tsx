@@ -68,7 +68,7 @@ export default function PaymentPage() {
 
   const reservationGroupId = searchParams.get('reservation_group')
   const accessToken = searchParams.get('access_token') || ''
-  const returnToOrders = () => navigate(`/${clientCode}/membership/orders${reservationGroupId ? `/${reservationGroupId}` : ''}`)
+  const returnToOrders = () => navigate(`/${clientCode}/membership/orders${paymentData && reservationGroupId ? `/${reservationGroupId}` : ''}`)
   const leavePayment = () => accessToken ? navigate(`/${clientCode}/`) : returnToOrders()
   const leaveLabel = accessToken ? '返回官網' : '返回我的訂單'
   const money = (amount: number) => amount.toLocaleString('zh-TW')
@@ -84,16 +84,22 @@ export default function PaymentPage() {
       return
     }
 
-    // 從後端獲取付款資料
+    const controller = new AbortController()
+    setLoading(true)
+    setLoadError('')
+    setPaymentData(null)
+
     const fetchPaymentData = async () => {
       try {
         const response = await fetch(
           `/booking/${encodeURIComponent(clientCode)}/api/payment-info/?${new URLSearchParams({ reservation_group: reservationGroupId, ...(accessToken ? { access_token: accessToken } : {}) })}`,
           {
             credentials: 'include', // 包含 session cookies
+            signal: controller.signal,
           }
         )
         const data = await response.json()
+        if (controller.signal.aborted) return
 
         if (!response.ok) {
           const message = paymentError(data,'獲取付款資訊失敗')
@@ -108,6 +114,7 @@ export default function PaymentPage() {
         setSelectedMethod(data.payment_methods?.includes('bank_transfer') ? 'bank_transfer' : 'newebpay')
         setLoading(false)
       } catch (error) {
+        if (controller.signal.aborted) return
         setLoadError('無法連接到伺服器，請稍後再試')
         showToast('無法連接到伺服器', 'error')
         setLoading(false)
@@ -115,6 +122,7 @@ export default function PaymentPage() {
     }
 
     fetchPaymentData()
+    return () => controller.abort()
   }, [reservationGroupId, accessToken, clientCode, navigate])
 
   const handleCopyAccount = async () => {

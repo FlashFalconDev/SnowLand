@@ -52,7 +52,7 @@ def set_checkout_learners(reservation, choices, user):
         raise ValueError('同一學員不能佔用同一堂課的兩個名額')
     if len(profiles) != len(ids):
         raise ValueError('找不到可使用的學員檔案，請重新選擇')
-    places = list(reservation.members.order_by('pk'))
+    places = list(reservation.members.live().order_by('pk'))
     if len(places) != len(choices):
         raise ValueError('課程名額已變更，請重新確認學員')
     for place, value in zip(places, choices):
@@ -70,7 +70,7 @@ def bind_profile(place, value, *, client):
     profile = scoped_profiles(client, owner_id).filter(pk=profile_id(value)).first()
     if not profile:
         raise ValueError('找不到這個帳號可使用的學員檔案')
-    if MemberDetail.objects.filter(reservation_id=place.reservation_id, learner=profile).exclude(pk=place.pk).exists():
+    if MemberDetail.objects.live().filter(reservation_id=place.reservation_id, learner=profile).exclude(pk=place.pk).exists():
         raise ValueError('這個學員檔案已用於同一堂課的另一個名額')
     place.learner = profile
     place.save(update_fields=['learner'])
@@ -82,7 +82,7 @@ def ended_sessions(now=None):
 
 
 def coach_history(reservation):
-    places = list(reservation.members.select_related('learner', 'user').order_by('pk'))
+    places = list(reservation.members.live().select_related('learner', 'user').order_by('pk'))
     profile_ids = {row.learner_id for row in places if row.learner_id and (
         row.learner.client_id == reservation.group.client_id and row.learner.owner_id == place_owner_id(row)
     )}

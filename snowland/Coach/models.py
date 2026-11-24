@@ -6,6 +6,7 @@ from Resorts.models import Resorts
 from Coursekit.models import CourseType
 from django.db.utils import ProgrammingError
 from booking.media_files import PrivateCourseMediaStorage
+from snowland.soft_delete import SoftDeleteManager, SoftDeleteModel
 
 
 
@@ -299,7 +300,9 @@ class PayrollDocumentSettings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class PayrollStatement(models.Model):
+class PayrollStatement(SoftDeleteModel):
+    objects = SoftDeleteManager()
+
     STATUS_CHOICES = [('draft', '草稿'), ('review', '待教練確認'), ('confirmed', '已確認'), ('paid', '已發放')]
     coach = models.ForeignKey(Coach, on_delete=models.PROTECT, related_name='payroll_statements')
     campus = models.ForeignKey('Resorts.Campus', on_delete=models.PROTECT, related_name='payroll_statements')
@@ -329,11 +332,22 @@ class PayrollStatement(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         unique_together = ('coach', 'campus', 'period_start', 'period_end')
+        indexes = [
+            models.Index(fields=['campus', 'is_deleted', 'period_start'], name='sl_payroll_campus_live_period'),
+        ]
 
 
-class PayrollLine(models.Model):
+class PayrollLine(SoftDeleteModel):
+    soft_delete_parents = (
+        'statement',
+        'booking',
+        'booking__reservation',
+        'booking__reservation__group',
+        'booking__reservation__shared_course_class',
+    )
+
     LINE_TYPES = [('course', '課程時薪'), ('specified', '指定費'), ('referral', '介紹費'), ('assistance', '協助費'), ('allowance', '主管加給'), ('adjustment', '調整')]
     statement = models.ForeignKey(PayrollStatement, on_delete=models.CASCADE, related_name='lines')
     booking = models.ForeignKey('booking.Booking', on_delete=models.SET_NULL, null=True, blank=True, related_name='payroll_lines')
@@ -343,6 +357,11 @@ class PayrollLine(models.Model):
     unit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_amount = models.IntegerField(default=0)
     metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['statement', 'is_deleted', 'line_type'], name='sl_payline_stmt_live_type'),
+        ]
 
 
 class StaffIncentiveRule(models.Model):
@@ -358,7 +377,7 @@ class StaffIncentiveRule(models.Model):
         unique_together = ('user', 'campus')
 
 
-class StaffIncentiveStatement(models.Model):
+class StaffIncentiveStatement(SoftDeleteModel):
     STATUS_CHOICES = [('draft', '草稿'), ('confirmed', '已確認'), ('paid', '已記錄發放')]
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='staff_incentive_statements')
     campus = models.ForeignKey('Resorts.Campus', on_delete=models.PROTECT, related_name='staff_incentive_statements')
@@ -382,11 +401,24 @@ class StaffIncentiveStatement(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         unique_together = ('user', 'campus', 'month')
+        indexes = [
+            models.Index(fields=['campus', 'is_deleted', 'month'], name='sl_incentive_campus_live_month'),
+        ]
 
 
-class StaffIncentiveLine(models.Model):
+class StaffIncentiveLine(SoftDeleteModel):
+    soft_delete_parents = (
+        'statement',
+        'group',
+        'cancellation',
+        'cancellation__group',
+        'source_line',
+        'source_line__group',
+        'source_line__statement',
+    )
+
     statement = models.ForeignKey(StaffIncentiveStatement, on_delete=models.CASCADE, related_name='lines')
     group = models.ForeignKey('booking.ReservationGroup', on_delete=models.PROTECT, related_name='staff_incentive_lines')
     cancellation = models.ForeignKey('booking.CancellationRequest', on_delete=models.PROTECT, null=True, blank=True, related_name='staff_incentive_lines')
@@ -398,6 +430,12 @@ class StaffIncentiveLine(models.Model):
     base_amount = models.PositiveBigIntegerField()
     percent = models.DecimalField(max_digits=5, decimal_places=2)
     amount = models.BigIntegerField()
+
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['statement', 'is_deleted', 'line_type'], name='sl_incline_stmt_live_type'),
+            models.Index(fields=['source_line', 'is_deleted'], name='sl_incline_source_live'),
+        ]
 
 
 from .vehicle_models import Vehicle, VehicleCharge, VehicleDeduction, VehicleExpense, VehiclePolicy, VehicleTrip  # noqa: E402,F401

@@ -1,7 +1,9 @@
 from importlib import import_module
+from io import StringIO
 from types import SimpleNamespace
 from django.apps import apps
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.db import connection
 from django.test import TestCase
 from Client.models import Client, ClientMemberProfile
@@ -51,3 +53,18 @@ class BackfillTests(TestCase):
         self.assertEqual(second.line_user_id,'')
         self.assertNotEqual(second.referral_code,old.referral_code)
         self.assertEqual(ClientMemberProfile.objects.count(),2)
+
+    def test_default_client_command_only_assigns_active_unowned_orders(self):
+        active = ReservationGroup.objects.create()
+        archived = ReservationGroup.all_objects.create(is_deleted=True)
+        owned = ReservationGroup.objects.create(client=self.a)
+
+        call_command('assign_default_client', stdout=StringIO())
+
+        active.refresh_from_db()
+        archived.refresh_from_db()
+        owned.refresh_from_db()
+        self.assertEqual(active.client.internal_code, 'snowland_chuangyou')
+        self.assertIsNone(archived.client_id)
+        self.assertTrue(archived.is_deleted)
+        self.assertEqual(owned.client_id, self.a.pk)

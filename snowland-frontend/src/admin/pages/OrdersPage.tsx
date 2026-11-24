@@ -471,7 +471,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
           onClose={() => setViewingId(null)}
         />
       )}
-      {viewingId !== null && viewing && <div className={isViewingLoading || viewingError ? 'invisible' : undefined} aria-hidden={Boolean(isViewingLoading || viewingError)}><OrderDetailDrawer order={viewing} workflow={workflow} onClose={() => setViewingId(null)} /></div>}
+      {viewingId !== null && viewing && (viewingError as { response?: { status?: number } } | null)?.response?.status !== 404 && <div className={isViewingLoading || viewingError ? 'invisible' : undefined} aria-hidden={Boolean(isViewingLoading || viewingError)}><OrderDetailDrawer order={viewing} workflow={workflow} onClose={() => setViewingId(null)} /></div>}
     </div>
   )
 }

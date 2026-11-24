@@ -16,7 +16,7 @@ def order_email_response(request, group_id):
             raise ValueError
     except (ValueError, TypeError):
         return JsonResponse({'code': 400, 'msg': '請提供正確的訂單編號'}, status=400)
-    group = ReservationGroup.objects.select_related('client').filter(pk=group_id).first()
+    group = ReservationGroup.objects.live().select_related('client').filter(pk=group_id).first()
     if not group or not group.client:
         return JsonResponse({'code': 404, 'msg': '找不到訂單'}, status=404)
     from .admin_views import send_order_email

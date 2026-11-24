@@ -125,7 +125,7 @@ def payment(request, client_code):
     try:
         tenant = resolve_tenant_client(client_code)
         group_id = int(request.GET.get('reservation_group', ''))
-        group = ReservationGroup.objects.get(pk=group_id, client=tenant)
+        group = ReservationGroup.objects.live().get(pk=group_id, client=tenant)
     except (TenantResolutionError, ReservationGroup.DoesNotExist, ValueError, TypeError, OverflowError):
         raise Http404
     token = request.GET.get('access_token', '')
@@ -158,7 +158,7 @@ def payment(request, client_code):
         context['message'] = '此訂單已退款，請勿再次付款。'
     elif context['payment_status'] == 'unpaid' and context['total_amount'] <= 0:
         context.update(payment_status='zero_amount', message='此預約群組的總費用為0，無需付款。')
-    elif context['payment_status'] == 'unpaid' and group.reservations.exclude(
+    elif context['payment_status'] == 'unpaid' and group.reservations.live().exclude(
         status__in=['auto_assigned', 'manually_assigned', 'completed', 'form_filled', 'cancelled', 'deleted'],
     ).exists():
         context.update(payment_status='processing', message='您的預約正在處理中，確認排課前不需要付款。')
@@ -602,139 +602,144 @@ def API(request, tunnel, Client_Info=None):
 
     elif tunnel == 'member_detail': #!!!待確認是否還需要
         if request.method == 'POST':
-            body = request.data
-            user_id = body.get("user_id")
-            reservation_pk = body.get("reservation_pk")
-            members_data = body.get("members_data", [])
-            user = get_object_or_404(User, pk=user_id)
-            resv = get_object_or_404(Reservation, pk=reservation_pk)
+            with transaction.atomic():
+                body = request.data
+                user_id = body.get("user_id")
+                reservation_pk = body.get("reservation_pk")
+                members_data = body.get("members_data", [])
+                user = get_object_or_404(User, pk=user_id)
+                # Archive locks the order before its reservations. Recheck both in that order.
+                group_ids = Reservation.objects.live().filter(pk=reservation_pk).values('group_id')
+                group = get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk__in=group_ids)
+                resv = get_object_or_404(Reservation.objects.live().select_for_update(),
+                                         pk=reservation_pk, group=group)
 
-            # 先刪除與 resv 關聯的所有 MemberDetail 對象
-            MemberDetail.objects.filter(reservation=resv).delete()
+                # 先刪除與 resv 關聯的所有 MemberDetail 對象
+                MemberDetail.objects.live().filter(reservation=resv).delete()
 
-            created_list = []
-            for md in members_data:
-                age_range = md.get("age_range", "19-24y")
-                snowboard_skills = md.get("snowboard_skills", [])
-                ski_skills = md.get("ski_skills", [])
+                created_list = []
+                for md in members_data:
+                    age_range = md.get("age_range", "19-24y")
+                    snowboard_skills = md.get("snowboard_skills", [])
+                    ski_skills = md.get("ski_skills", [])
 
-                # 創建 MemberDetail 對象
-                member_obj = MemberDetail.objects.create(
-                    user=user,
-                    reservation=resv,
-                    filled_by='user',
-                    age_range=age_range,
-                    snowboard_skills=snowboard_skills,  # MultiSelectField可以接受list
-                    ski_skills=ski_skills
-                )
-                created_list.append(member_obj.id)
+                    # 創建 MemberDetail 對象
+                    member_obj = MemberDetail.objects.create(
+                        user=user,
+                        reservation=resv,
+                        filled_by='user',
+                        age_range=age_range,
+                        snowboard_skills=snowboard_skills,  # MultiSelectField可以接受list
+                        ski_skills=ski_skills
+                    )
+                    created_list.append(member_obj.id)
 
-            # # 更新 resv 的 member_count
-            # resv.number_of_people = len(created_list)
+                # # 更新 resv 的 member_count
+                # resv.number_of_people = len(created_list)
 
-            # 计算总课程费用
-            season = "off"  # 或 "peak"，根据实际情况设置
-            total_course_fee = 0
-            bookings = Booking.objects.filter(reservation=resv)
-            # 使用集合来跟踪已经计算过的日期和课程类型组合
-            calculated_courses = set()
-            for booking in bookings:
-                # 创建一个唯一的标识符用于日期和课程类型组合
-                course_key = (booking.date, booking.course_type)
-                if course_key not in calculated_courses:
-                    # 使用新的價格計算邏輯
-                    booking_date = datetime.strptime(booking.date, '%Y-%m-%d').date()
-                    season_type = SeasonSetting.get_season_type_for_date(booking_date)
-                    try:
-                        # 使用新的CoursePricing模型
-                        from Coursekit.models import CoursePricing
-                        pricing_strategy = CoursePricing.objects.filter(
-                            templates=booking.course_type,
-                            resort=resv.resort,
-                            is_active=True
-                        ).first()
-                        if pricing_strategy:
-                            is_peak_season = (season_type == 'peak')
-                            course_fee = pricing_strategy.calculate_price(resv.number_of_people, is_peak_season)
-                        else:
-                            raise Exception("找不到定價策略")
-                    except Exception as e:
-                        # 如果找不到定價策略，嘗試使用CoursePricing模型
+                # 计算总课程费用
+                season = "off"  # 或 "peak"，根据实际情况设置
+                total_course_fee = 0
+                bookings = Booking.objects.live().filter(reservation=resv)
+                # 使用集合来跟踪已经计算过的日期和课程类型组合
+                calculated_courses = set()
+                for booking in bookings:
+                    # 创建一个唯一的标识符用于日期和课程类型组合
+                    course_key = (booking.date, booking.course_type)
+                    if course_key not in calculated_courses:
+                        # 使用新的價格計算邏輯
+                        booking_date = datetime.strptime(booking.date, '%Y-%m-%d').date()
+                        season_type = SeasonSetting.get_season_type_for_date(booking_date)
                         try:
+                            # 使用新的CoursePricing模型
                             from Coursekit.models import CoursePricing
-                            pricing = CoursePricing.objects.filter(
+                            pricing_strategy = CoursePricing.objects.filter(
                                 templates=booking.course_type,
                                 resort=resv.resort,
                                 is_active=True
                             ).first()
-                            if pricing:
+                            if pricing_strategy:
                                 is_peak_season = (season_type == 'peak')
-                                course_fee = pricing.calculate_price(resv.number_of_people, is_peak_season)
+                                course_fee = pricing_strategy.calculate_price(resv.number_of_people, is_peak_season)
                             else:
-                                raise Exception(f"找不到對應的價格設定: 課程='{booking.course_type.name}', 雪場='{resv.resort.name}'")
+                                raise Exception("找不到定價策略")
                         except Exception as e:
-                            raise Exception(f"找不到對應的價格設定: 課程='{booking.course_type.name}', 人數={resv.number_of_people}, 季節='{season_type}': {str(e)}")
-                    total_course_fee += course_fee
-                    # 将此组合添加到集合中，避免重复计算
-                    calculated_courses.add(course_key)
+                            # 如果找不到定價策略，嘗試使用CoursePricing模型
+                            try:
+                                from Coursekit.models import CoursePricing
+                                pricing = CoursePricing.objects.filter(
+                                    templates=booking.course_type,
+                                    resort=resv.resort,
+                                    is_active=True
+                                ).first()
+                                if pricing:
+                                    is_peak_season = (season_type == 'peak')
+                                    course_fee = pricing.calculate_price(resv.number_of_people, is_peak_season)
+                                else:
+                                    raise Exception(f"找不到對應的價格設定: 課程='{booking.course_type.name}', 雪場='{resv.resort.name}'")
+                            except Exception as e:
+                                raise Exception(f"找不到對應的價格設定: 課程='{booking.course_type.name}', 人數={resv.number_of_people}, 季節='{season_type}': {str(e)}")
+                        total_course_fee += course_fee
+                        # 将此组合添加到集合中，避免重复计算
+                        calculated_courses.add(course_key)
 
-            resv.course_fee = total_course_fee  # 假设 Reservation 模型有 course_fee 字段
+                resv.course_fee = total_course_fee  # 假设 Reservation 模型有 course_fee 字段
 
-            # 计算设备租赁费
-            number_of_courses = 0
-            calculated_courses = set()  # 用于跟踪已计算的课程组合
-            for booking in bookings:
-                # 创建一个唯一的标识符用于日期和课程类型组合
-                course_key = (booking.date, booking.course_type)
-                if course_key not in calculated_courses:
-                    number_of_courses += 1
-                    # 将此组合添加到集合中，避免重复计算
-                    calculated_courses.add(course_key)
+                # 计算设备租赁费
+                number_of_courses = 0
+                calculated_courses = set()  # 用于跟踪已计算的课程组合
+                for booking in bookings:
+                    # 创建一个唯一的标识符用于日期和课程类型组合
+                    course_key = (booking.date, booking.course_type)
+                    if course_key not in calculated_courses:
+                        number_of_courses += 1
+                        # 将此组合添加到集合中，避免重复计算
+                        calculated_courses.add(course_key)
 
-            # 使用雪場綁定的裝備費用
-            if resv.resort:
-                from Resorts.models import ResortFee
-                resv.equipment_rental_fee = ResortFee.get_equipment_fee(resv.resort, resv.number_of_people) * number_of_courses
-            else:
-                # 如果沒有雪場信息，使用預設費用（保持向後兼容）
-                if 1 <= resv.number_of_people <= 3:
-                    resv.equipment_rental_fee = 1000 * number_of_courses
-                elif 4 <= resv.number_of_people <= 6:
-                    resv.equipment_rental_fee = 2000 * number_of_courses
+                # 使用雪場綁定的裝備費用
+                if resv.resort:
+                    from Resorts.models import ResortFee
+                    resv.equipment_rental_fee = ResortFee.get_equipment_fee(resv.resort, resv.number_of_people) * number_of_courses
                 else:
-                    resv.equipment_rental_fee = 0
+                    # 如果沒有雪場信息，使用預設費用（保持向後兼容）
+                    if 1 <= resv.number_of_people <= 3:
+                        resv.equipment_rental_fee = 1000 * number_of_courses
+                    elif 4 <= resv.number_of_people <= 6:
+                        resv.equipment_rental_fee = 2000 * number_of_courses
+                    else:
+                        resv.equipment_rental_fee = 0
 
-            resv.status = 'form_filled'
-            resv.save()
+                resv.status = 'form_filled'
+                resv.save()
 
-            price_list = {
-                "equipment_rental_fee": resv.equipment_rental_fee,
-                "language_fee": resv.language_fee,
-                "coach_fee": resv.coach_fee,
-                "course_fee": resv.course_fee,
-                "total_fee": resv.total_fee
-            }
-            # 返回成功信息
-            return JsonResponse({
-                "message": "Members created",
-                "price_list": price_list
-            }, status=200)
+                price_list = {
+                    "equipment_rental_fee": resv.equipment_rental_fee,
+                    "language_fee": resv.language_fee,
+                    "coach_fee": resv.coach_fee,
+                    "course_fee": resv.course_fee,
+                    "total_fee": resv.total_fee
+                }
+                # 返回成功信息
+                return JsonResponse({
+                    "message": "Members created",
+                    "price_list": price_list
+                }, status=200)
     elif tunnel == 'process_payment':
         from .legacy_payment import process_legacy_payment
         return process_legacy_payment(request)
     elif tunnel == 'history_reservations':
         if request.method == 'GET':
-            reservations = Reservation.objects.filter(user=request.user)
+            reservations = Reservation.objects.live().filter(user=request.user)
             reservations_list = []
             for resv in reservations:
                 # 获取与预订相关的学生信息
-                students = MemberDetail.objects.filter(reservation=resv, filled_by='user').values(
+                students = MemberDetail.objects.live().filter(reservation=resv, filled_by='user').values(
                     'age_range', 'snowboard_skills', 'ski_skills'
                 )
-                students_coach = MemberDetail.objects.filter(reservation=resv, filled_by='coach').values(
+                students_coach = MemberDetail.objects.live().filter(reservation=resv, filled_by='coach').values(
                     'age_range', 'snowboard_skills', 'ski_skills'
                 )
-                bookings = Booking.objects.filter(reservation=resv)
+                bookings = Booking.objects.live().filter(reservation=resv)
                 sessions = []
                 # 格式化学生信息
                 formatted_students = [

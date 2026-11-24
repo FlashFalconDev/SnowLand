@@ -71,6 +71,8 @@ def _content(row,event=None):
 
 def prepare_amendment_notice(row,actor,event=None):
     # Called within the business transaction holding the client/order lock.
+    if row.is_deleted or row.group.is_deleted or (event and event.is_deleted):
+        return
     owner=row.group.user
     if not owner or not owner.is_active:return
     from API.order_email_notifications import prepare_email, mail_mode
@@ -96,6 +98,8 @@ def prepare_amendment_notice(row,actor,event=None):
 
 def amendment_delivery_is_current(delivery):
     group=delivery.group
+    if delivery.is_deleted or (group and group.is_deleted):
+        return False
     owner=group.user if group else None
     payload=delivery.payload
     if not owner or not owner.is_active or owner.pk!=payload.get('expected_owner_id'):return False

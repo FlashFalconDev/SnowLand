@@ -31,7 +31,7 @@ def mail_mode():
 def sync_accounts(group, recipient):
     recipient = channel_recipient('email', recipient)
     owner = group.user
-    payment = group.payments.order_by('-created_at', '-pk').first()
+    payment = group.payments.live().order_by('-created_at', '-pk').first()
     info = payment.DataJSON if payment and isinstance(payment.DataJSON, dict) else {}
     contact = info.get('contact') if isinstance(info.get('contact'), dict) else {}
     booking_contact = group.booking_contact if isinstance(group.booking_contact, dict) else {}
@@ -41,7 +41,7 @@ def sync_accounts(group, recipient):
     if owner and owner.is_active and recipient in owner_addresses:
         return [owner.pk]
     users = {}
-    for member in MemberDetail.objects.filter(reservation__group=group).exclude(reservation__status='deleted').select_related('user', 'guardian'):
+    for member in MemberDetail.objects.live().filter(reservation__group=group).exclude(reservation__status='deleted').select_related('user', 'guardian'):
         for user in [member.user, member.guardian]:
             if user and user.is_active and channel_recipient('email', user.email) == recipient:
                 users[user.pk] = user
@@ -92,7 +92,9 @@ def result_for(delivery, *, duplicate=False):
 
 def deliver_order_email(delivery_id):
     with transaction.atomic():
-        delivery = NotificationDelivery.objects.select_for_update().select_related('template','group__user').get(pk=delivery_id)
+        delivery = NotificationDelivery.objects.select_for_update().select_related('template','group__user').filter(pk=delivery_id).first()
+        if delivery is None:
+            return 409, {'code': 409, 'msg': '通知已停止寄送，請以最新訂單狀態為準。'}
         if delivery.status != 'sending' or delivery.payload.get('email_claimed'):
             return result_for(delivery, duplicate=True)
         if delivery.payload.get('amendment_notice'):

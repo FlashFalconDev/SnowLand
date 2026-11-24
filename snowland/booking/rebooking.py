@@ -10,7 +10,7 @@ def rebook_source_details(reservation, user):
     return {
         'reservationId': reservation.pk,
         'peopleCount': reservation.number_of_people,
-        'learnerCount': reservation.members.filter(Q(user=user) | Q(guardian=user)).count(),
+        'learnerCount': reservation.members.live().filter(Q(user=user) | Q(guardian=user)).count(),
     }
 
 
@@ -22,7 +22,7 @@ def copy_rebook_learners(reservation, reference, user):
     if (not raw_id.isascii() or not raw_id.isdecimal() or len(raw_id) > 19
             or not 0 < int(raw_id) <= 9223372036854775807):
         raise ValueError('上次學員資料連結無效，請重新從會員訂單開始預約')
-    source = Reservation.objects.select_for_update().select_related('group').filter(
+    source = Reservation.objects.live().select_for_update().select_related('group').filter(
         pk=int(raw_id), group__client_id=reservation.group.client_id, group__user=user,
     ).exclude(group_id=reservation.group_id).first()
     if not source or source.status == 'deleted':
@@ -30,7 +30,7 @@ def copy_rebook_learners(reservation, reference, user):
     if source.number_of_people != reservation.number_of_people:
         raise ValueError('學員人數已變更，請重新確認學員，不會自動猜測沿用哪幾位')
 
-    sources = list(source.members.select_for_update().order_by('pk'))
+    sources = list(source.members.live().select_for_update().order_by('pk'))
     targets = ensure_reservation_members(reservation)
     selected_profiles = {place.learner_id for place in targets if place.learner_id}
     previous_by_profile = {place.learner_id: place for place in sources

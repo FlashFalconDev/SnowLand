@@ -20,9 +20,11 @@ def group_qr_url(group):
     }) + '?v=' + group.line_group_qr.name.rsplit('/', 1)[-1]
 
 
-def paid_group_qr_url(group):
-    payment = group.payments.order_by('-created_at', '-pk').first()
-    if not payment or payment.status != 'paid' or not group.reservations.exclude(status__in=['cancelled', 'deleted']).exists():
+def paid_group_qr_url(group, *, historical=False):
+    payments = group.payments.all() if historical else group.payments.live()
+    reservations = group.reservations.all() if historical else group.reservations.live()
+    payment = payments.order_by('-created_at', '-pk').first()
+    if not payment or payment.status != 'paid' or not reservations.exclude(status__in=['cancelled', 'deleted']).exists():
         return ''
     return group_qr_url(group)
 
@@ -44,7 +46,7 @@ def replace_group_qr(group, upload=None):
     storage = group.line_group_qr.storage
     try:
         with transaction.atomic():
-            locked = ReservationGroup.objects.select_for_update().get(pk=group.pk)
+            locked = ReservationGroup.objects.live().select_for_update().get(pk=group.pk)
             old_name = locked.line_group_qr.name
             if upload:
                 locked.line_group_qr.save(f'{group.client_id}/{group.pk}/{uuid.uuid4().hex}{extension}', upload, save=False)
@@ -69,7 +71,7 @@ class ClassGroupQRAPI(APIView):
     def get(self, request, client_code, group_id):
         if not request.user.is_authenticated:
             return Response({'error': '請先登入'}, status=401)
-        group = get_object_or_404(ReservationGroup.objects.select_related('client'),
+        group = get_object_or_404(ReservationGroup.all_objects.select_related('client'),
                                  pk=group_id, client__internal_code=client_code, client__is_active=True)
         allowed = False
         profile = staff_profile(request.user, group.client)
@@ -81,7 +83,7 @@ class ClassGroupQRAPI(APIView):
             ):
                 if IsTenantManager().has_permission(request, self):
                     allowed = (request.can_view_all_campuses and request.selected_campus_id is None) or group.campus_id in request.campus_ids
-        if not allowed and paid_group_qr_url(group):
+        if not allowed and paid_group_qr_url(group, historical=True):
             allowed = group.user_id == request.user.pk or MemberDetail.objects.filter(
                 Q(user=request.user) | Q(guardian=request.user), reservation__group=group,
             ).exclude(reservation__status__in=['cancelled', 'deleted']).exists()

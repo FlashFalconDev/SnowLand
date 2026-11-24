@@ -30,19 +30,19 @@ class Command(BaseCommand):
         dry_run = options['dry_run']
         from Coach.payroll_review import confirm_due_statements
         payroll_confirmed = confirm_due_statements(now, dry_run=dry_run)
-        expired = Payment.objects.filter(status='unpaid', expires_at__isnull=False, expires_at__lte=now)
+        expired = Payment.objects.live().filter(status='unpaid', expires_at__isnull=False, expires_at__lte=now)
         expired_count = expired.count()
         if not dry_run:
             auto_cancel_unpaid_reservations()
 
         evaluation_count = 0
-        completed_groups = ReservationGroup.objects.filter(
-            reservations__status='completed'
+        completed_groups = ReservationGroup.objects.live().filter(
+            reservations__is_deleted=False, reservations__status='completed',
         ).prefetch_related('reservations__bookings', 'reservations__members', 'reservations__preferred_coach').distinct()
         for group in completed_groups:
-            for reservation in group.reservations.filter(status='completed'):
-                for booking in reservation.bookings.all():
-                    for member in reservation.members.all():
+            for reservation in group.reservations.live().filter(status='completed'):
+                for booking in reservation.bookings.live().all():
+                    for member in reservation.members.live().all():
                         if not CourseEvaluation.objects.filter(booking=booking, member=member).exists():
                             evaluation_count += 1
                             if not dry_run:
@@ -56,7 +56,9 @@ class Command(BaseCommand):
             event__in=['pre_course', 'missing_documents', 'line_group', 'evaluation_due'],
         ).values_list('client_id', 'event').distinct()
         for client_id, event in events:
-            for group in ReservationGroup.objects.filter(client_id=client_id, payments__status='paid').distinct():
+            for group in ReservationGroup.objects.live().filter(
+                client_id=client_id, payments__is_deleted=False, payments__status='paid',
+            ).distinct():
                 if dry_run:
                     continue
                 if not self._event_is_applicable(group, event):
@@ -147,7 +149,7 @@ class Command(BaseCommand):
                 delivery.save(update_fields=['status'])
             return 0, 0
         if delivery.template.event in {'pre_course', 'missing_documents', 'line_group', 'evaluation_due'}:
-            latest_payment = delivery.group.payments.order_by('-created_at', '-pk').first()
+            latest_payment = delivery.group.payments.live().order_by('-created_at', '-pk').first()
             if not latest_payment or latest_payment.status != 'paid':
                 if not dry_run and latest_payment and latest_payment.status in {'refunded', 'expired'}:
                     delivery.status = 'cancelled'
@@ -233,10 +235,10 @@ class Command(BaseCommand):
     @staticmethod
     def _event_is_applicable(group, event):
         if event == 'shared_class_ready':
-            return group.payments.filter(status='unpaid').exists() and group.reservations.filter(
+            return group.payments.live().filter(status='unpaid').exists() and group.reservations.live().filter(
                 shared_course_class__status='ready',
             ).exclude(status__in=['cancelled', 'deleted']).exists()
-        if event in {'pre_course', 'missing_documents', 'line_group'} and not Booking.objects.filter(
+        if event in {'pre_course', 'missing_documents', 'line_group'} and not Booking.objects.live().filter(
             reservation__group=group, date__gte=timezone.localdate(),
         ).exclude(reservation__status__in=['cancelled', 'deleted']).exists():
             return False

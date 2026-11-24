@@ -31,7 +31,7 @@ def coach_bookings(request):
 
 def coach_album_bookings(request):
     return _with_current_schedule_payment(
-        coach_bookings(request).filter(ended_sessions()), 'reservation__group_id',
+        coach_bookings(request).filter(ended_sessions()), 'reservation__group_id', historical=True,
     )
 
 
@@ -40,7 +40,7 @@ class CoachLearnerHistoryAPI(APIView):
 
     def get(self, request, client_code, reservation_id):
         bookings = _with_current_schedule_payment(
-            coach_bookings(request).filter(reservation_id=reservation_id), 'reservation__group_id',
+            coach_bookings(request).live().filter(reservation_id=reservation_id), 'reservation__group_id',
         )
         booking = bookings.first()
         if not booking:
@@ -119,8 +119,8 @@ class EvaluationLearnerLinkViewSet(CourseEvaluationAdminViewSet):
         if not isinstance(request.data, Mapping) or request.data.get('verified') is not True:
             return Response({'msg': '請先核對這兩筆資料屬於同一位學員'}, status=400)
         with transaction.atomic():
-            get_object_or_404(Reservation.objects.select_for_update(), pk=place.reservation_id)
-            place = get_object_or_404(MemberDetail.objects.select_for_update(), pk=place.pk)
+            get_object_or_404(Reservation.objects.live().select_for_update(), pk=place.reservation_id)
+            place = get_object_or_404(MemberDetail.objects.live().select_for_update(), pk=place.pk)
             try:
                 bind_profile(place, request.data.get('profile_id'), client=request.tenant)
             except ValueError as exc:

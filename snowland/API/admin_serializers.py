@@ -767,7 +767,7 @@ class CoachLeaveRequestAdminSerializer(serializers.ModelSerializer):
 
     def get_affected_count(self, obj):
         request = self.context.get('request')
-        qs = obj.affected_reservations.all()
+        qs = obj.affected_reservations.live().all()
         if not request:
             return 0
         qs = qs.filter(group__client=getattr(request, 'tenant', None))
@@ -1646,8 +1646,8 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
         limit = today + timedelta(days=10) if today else None
         return [
             (reservation, booking)
-            for reservation in obj.reservations.all()
-            for booking in reservation.bookings.all()
+            for reservation in obj.reservations.live().all()
+            for booking in reservation.bookings.live().all()
             if not manager_window or today <= booking.date <= limit
         ]
 
@@ -1663,7 +1663,7 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
         visible_reservation_ids = {reservation.id for reservation, _ in self._visible_bookings(obj)}
         return sum(
             reservation.number_of_people or 0
-            for reservation in obj.reservations.all()
+            for reservation in obj.reservations.live().all()
             if reservation.id in visible_reservation_ids
         )
 
@@ -1673,7 +1673,7 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
     def get_sessions(self, obj):
         sessions = []
         for reservation, booking in self._visible_bookings(obj):
-            members = list(reservation.members.all())
+            members = list(reservation.members.live().all())
             sessions.append({
                 'date': booking.date,
                 'start_time': booking.start_time,
@@ -1781,14 +1781,14 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     def get_user_email(self, obj):
         if obj.user:
             return obj.user.email
-        payment = obj.payments.last()
+        payment = obj.payments.live().last()
         contact = (payment.DataJSON or {}).get('contact', {}) if payment else {}
         return contact.get('email', '')
 
     def get_booking_contact(self, obj):
         contact = obj.booking_contact if isinstance(obj.booking_contact, dict) else {}
         if not contact:
-            payment = obj.payments.last()
+            payment = obj.payments.live().last()
             payload = payment.DataJSON if payment and isinstance(payment.DataJSON, dict) else {}
             legacy = payload.get('contact', {})
             contact = legacy if isinstance(legacy, dict) else {}
@@ -1803,7 +1803,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     def get_reservations(self, obj):
         items = []
         include_available_coaches = self.context.get('include_available_coaches', False)
-        for r in obj.reservations.all():
+        for r in obj.reservations.live().all():
             item = {
                 'id': r.id,
                 'resort': r.resort.display_name if r.resort else '',
@@ -1839,7 +1839,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
                         'start_time': b.start_time,
                         'end_time': b.end_time,
                         'course_name': b.course_name,
-                    } for b in r.bookings.all()
+                    } for b in r.bookings.live().all()
                 ],
             }
             if include_available_coaches:
@@ -1852,13 +1852,13 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             from collections import defaultdict
             from booking.scheduler import get_manual_assignment_coaches, can_assign_all_bookings
 
-            bookings = list(reservation.bookings.all())
+            bookings = list(reservation.bookings.live().all())
             feasible_coaches = get_manual_assignment_coaches(reservation, bookings)
 
             coach_busy_map = defaultdict(list)
             busy_bookings = self.context.get('_coach_busy_bookings')
             if busy_bookings is None:
-                busy_bookings = list(Booking.objects.filter(
+                busy_bookings = list(Booking.objects.live().filter(
                     reservation__preferred_coach__isnull=False,
                     reservation__status__in=[
                         'auto_assigned',
@@ -1891,19 +1891,19 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             return []
 
     def get_payment_status(self, obj):
-        p = obj.payments.last()
+        p = obj.payments.live().last()
         return p.status if p else 'unpaid'
 
     def get_payment_method(self, obj):
-        p = obj.payments.last()
+        p = obj.payments.live().last()
         return p.payment_method if p else 'TT'
 
     def get_bank_account(self, obj):
-        p = obj.payments.last()
+        p = obj.payments.live().last()
         return p.bank_account if p else ''
 
     def get_total_fee(self, obj):
-        return sum((r.payment_amount or 0) for r in obj.reservations.all())
+        return sum((r.payment_amount or 0) for r in obj.reservations.live().all())
 
 
 class OrderRevisionAdminSerializer(serializers.ModelSerializer):
@@ -2138,7 +2138,7 @@ class InsuranceRecordAdminSerializer(serializers.ModelSerializer):
     def get_course_dates(self, obj):
         if obj.reservation.status in {'cancelled','deleted'}:
             return []
-        return list(obj.reservation.bookings.order_by('date').values_list('date', flat=True).distinct())
+        return list(obj.reservation.bookings.live().order_by('date').values_list('date', flat=True).distinct())
 
     def get_can_remind(self, obj):
         request = self.context.get('request')

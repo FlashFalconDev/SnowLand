@@ -54,17 +54,17 @@ def group_balances(group, *, staff=False):
 @transaction.atomic
 def process_balance(group, actor, data, *, staff=False, scope=None):
     Client.objects.select_for_update().get(pk=group.client_id)
-    groups=ReservationGroup.objects.select_for_update().filter(client_id=group.client_id)
+    groups=ReservationGroup.objects.live().select_for_update().filter(client_id=group.client_id)
     groups=groups.filter(pk__in=scope.values('pk')) if staff else groups.filter(user=actor)
     group=get_object_or_404(groups,pk=group.pk)
     row=get_object_or_404(OrderAmendment.objects.select_for_update().select_related('revision'),group=group,pk=data['amendment_id'])
     fingerprint=amendment_digest({'group':group.pk,'actor':actor.pk,'staff':staff,'data':data})
-    previous_event=OrderAmendmentEvent.objects.filter(request_key=data['request_key']).first()
+    previous_event=OrderAmendmentEvent.all_objects.filter(request_key=data['request_key']).first()
     if previous_event:
-        if previous_event.amendment_id!=row.pk or previous_event.request_fingerprint!=fingerprint:
+        if previous_event.is_deleted or previous_event.amendment_id!=row.pk or previous_event.request_fingerprint!=fingerprint:
             raise NotificationConflict('此差額處理識別碼已使用，請重新載入')
         return row,True,previous_event
-    payment=group.payments.order_by('-created_at','-pk').first()
+    payment=group.payments.live().order_by('-created_at','-pk').first()
     if not payment or payment.status!='paid':raise NotificationConflict('原訂單付款狀態已變更，請聯絡 SnowLand 先核對原付款')
     if group.cancellation_requests.filter(status__in=['requested','approved','refunded']).exists():
         raise NotificationConflict('訂單已有取消／退款流程，請先由 SnowLand 核對，不會重複處理差額')

@@ -88,12 +88,17 @@ class PayrollDraftEditingTests(TestCase):
         self.assertEqual(self.api.post(self.remove, {}, format='json', **headers).status_code, 404)
         self.assertEqual(self.api.delete(self.url, **headers).status_code, 404)
 
-    def test_delete_draft_only_removes_statement_and_lines_not_courses(self):
+    def test_delete_draft_archives_statement_and_lines(self):
         reservation_id = self.reservation.pk
         self.assertEqual(self.api.delete(self.url).status_code, 204)
-        self.assertFalse(PayrollStatement.objects.filter(pk=self.statement.pk).exists())
+        self.assertTrue(PayrollStatement.all_objects.filter(pk=self.statement.pk, is_deleted=True).exists())
+        self.assertFalse(PayrollStatement.objects.live().filter(pk=self.statement.pk).exists())
+        self.assertTrue(PayrollLine.all_objects.filter(pk=self.line.pk, is_deleted=True).exists())
         self.assertFalse(PayrollLine.objects.filter(pk=self.line.pk).exists())
         self.assertTrue(self.reservation.__class__.objects.filter(pk=reservation_id).exists())
+        with self.assertRaisesMessage(ValueError, '封存薪資單'):
+            calculate_payroll_statement(coach=self.coach, campus=self.campus,
+                period_start=self.statement.period_start, period_end=self.statement.period_end)
 
     def test_general_patch_and_post_cannot_bypass_financial_operations(self):
         self.assertEqual(self.api.patch(self.url, {'total_amount': 9999, 'status': 'paid'}, format='json').status_code, 405)
@@ -107,3 +112,12 @@ class PayrollDraftEditingTests(TestCase):
         self.assertEqual(result.course_pay, 4000)
         self.assertEqual(result.total_amount, 3900)
         self.assertEqual(result.lines.filter(line_type='adjustment').count(), 1)
+
+    def test_payroll_recalculation_excludes_archived_booking(self):
+        self.booking_2.is_deleted = True
+        self.booking_2.save(update_fields=['is_deleted'])
+        CoachPayRule.objects.create(coach=self.coach, discipline='snowboard', hourly_rate=1000)
+        result = calculate_payroll_statement(coach=self.coach, campus=self.campus,
+            period_start=self.statement.period_start, period_end=self.statement.period_end)
+        self.assertEqual(result.course_pay, 2000)
+        self.assertEqual(list(result.lines.filter(line_type='course').values_list('booking_id', flat=True)), [self.booking_1.pk])

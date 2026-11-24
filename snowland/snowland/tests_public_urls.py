@@ -107,12 +107,11 @@ class PublicURLSettingsTests(SimpleTestCase):
             pk=123, user=user, client=SimpleNamespace(internal_code='snowland'),
             reservations=Mock(), newebpay_override=None, newebpay_form_issued=False, save=Mock(),
         )
-        group.reservations.all.return_value = []
-        group.reservations.exclude.return_value = [SimpleNamespace(payment_amount=Decimal('1000'))]
+        group.reservations.live.return_value.exclude.return_value = [SimpleNamespace(payment_amount=Decimal('1000'))]
         booking = SimpleNamespace(date=date(2026, 11, 1), course_name='QA lesson')
         with patch('booking.api_views.RUN_HOST', config['RUN_HOST']), \
                 patch('booking.api_views.gateway_settings', return_value={'MerchantID':'qa','HashKey':'qa','HashIV':'qa'}), \
-                patch('booking.api_views.Booking.objects.filter', return_value=[booking]), \
+                patch('booking.api_views.Booking.objects.live', return_value=Mock(filter=Mock(return_value=[booking]))), \
                 patch('booking.api_views.neweb_pay_request', return_value='<form>local-only</form>') as pay:
             response = ProcessPaymentAPI()._process_newebpay(SimpleNamespace(user=user), group)
         self.assertEqual(response.status_code, 200)

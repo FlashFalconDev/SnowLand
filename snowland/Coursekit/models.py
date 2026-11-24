@@ -341,6 +341,7 @@ class DiscountCode(models.Model):
     new_customer_only = models.BooleanField(default=False, verbose_name='限新客')
     usage_limit = models.PositiveIntegerField(null=True, blank=True, verbose_name='使用上限')
     used_count = models.PositiveIntegerField(default=0, verbose_name='已使用次數')
+    legacy_used_count = models.PositiveIntegerField(null=True, editable=False)
     start_at = models.DateTimeField(null=True, blank=True, verbose_name='開始時間')
     end_at = models.DateTimeField(null=True, blank=True, verbose_name='結束時間')
     is_active = models.BooleanField(default=True, verbose_name='是否啟用')

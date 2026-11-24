@@ -49,6 +49,7 @@ from .legal_documents import get_current_waiver, course_waiver_revision
 from .pre_course_questions import required_answers_complete, saved_section_answers, section_questions, validate_answers
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
+from .discount_usage import rebuild_discount_usage, record_checkout_discount_usage
 from .media_files import course_media_url, private_file_response
 from .participant_forms import GUARDIAN_AGE_LIMIT, insurance_details_complete, participant_age, signer_details_complete
 from .participant_invitations import InvitationError, accept_invitation, binding_status, check_invitation, issue_invitation
@@ -90,18 +91,18 @@ def has_pending_coach_confirmation(reservations):
 
 
 def group_has_pending_coach_confirmation(group):
-    return group.reservations.filter(status='pending_coach_confirmation').exists()
+    return group.reservations.live().filter(status='pending_coach_confirmation').exists()
 
 
 def get_group_payment_hold(group):
-    if group.reservations.filter(shared_course_class__status='collecting').exists():
+    if group.reservations.live().filter(shared_course_class__status='collecting').exists():
         return '團體班尚未成班，滿人後才會開放付款', 'collecting_class'
-    if group.reservations.filter(status='pending_coach_confirmation').exists():
+    if group.reservations.live().filter(status='pending_coach_confirmation').exists():
         return PENDING_COACH_CONFIRMATION_MESSAGE, 'pending_coach_approval'
-    if group.reservations.filter(status='auto_assignment_failed').exists():
+    if group.reservations.live().filter(status='auto_assignment_failed').exists():
         return SCHEDULING_FAILED_PAYMENT_MESSAGE, 'scheduling_failed'
-    payment = group.payments.order_by('-created_at', '-pk').first()
-    if payment and payment.status == 'unpaid' and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
+    payment = group.payments.live().order_by('-created_at', '-pk').first()
+    if payment and payment.status == 'unpaid' and group.payments.live().exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
         return '此訂單有既有收款或退款紀錄，請先聯絡客服核對；請勿再次付款', 'payment_records_review'
     if payment and payment.status == 'expired':
         return '付款期限已結束，請聯絡客服改期或取消', 'expired'
@@ -481,14 +482,14 @@ def compute_cart_item_pricing_authoritative(item):
 
 def is_new_customer_for_discount(tenant_client, user, contact_info):
     phone = (contact_info or {}).get('phone') or ''
-    groups = ReservationGroup.objects.filter(client=tenant_client)
+    groups = ReservationGroup.objects.live().filter(client=tenant_client)
 
     if user and groups.filter(user=user).exists():
         return False
 
     if phone:
         try:
-            if Payment.objects.filter(
+            if Payment.objects.live().filter(
                 reservation_group__client=tenant_client,
                 DataJSON__contact__phone=phone,
             ).exists():
@@ -711,16 +712,6 @@ def calculate_cart_discount_summary(cart_data, tenant_client, user=None, contact
         'discount_code_error': manual_error,
         'is_new_customer': is_new_customer,
     }
-
-
-def increment_discount_usage(applied_discounts):
-    seen_ids = set()
-    for discount in applied_discounts:
-        discount_id = discount.get('id')
-        if not discount_id or discount_id in seen_ids:
-            continue
-        seen_ids.add(discount_id)
-        DiscountCode.objects.filter(id=discount_id).update(used_count=F('used_count') + 1)
 
 
 def parse_time_value(value):
@@ -1087,7 +1078,7 @@ class CoachListAPI(APIView):
             if any(leave_start <= requested_date <= leave_end for requested_date in requested_dates):
                 return True
 
-        return Booking.objects.filter(
+        return Booking.objects.live().filter(
             reservation__preferred_coach=coach,
             reservation__is_preferred_coach=True,
             reservation__status__in=SCHEDULED_RESERVATION_STATUSES,
@@ -1451,14 +1442,14 @@ class CoachBookingsAPI(APIView):
         """獲取教練的已預約時段"""
         from .models import Reservation
 
-        reservations = Reservation.objects.filter(
+        reservations = Reservation.objects.live().filter(
             preferred_coach=coach,
             status__in=['auto_assigned', 'manually_assigned', 'pending_coach_confirmation']
         ).prefetch_related('bookings')
 
         booked_slots = []
         for resv in reservations:
-            for booking in resv.bookings.all():
+            for booking in resv.bookings.live().all():
                 booked_slots.append({
                     'date': booking.date,
                     'start_time': booking.start_time.strftime('%H:%M'),
@@ -2020,9 +2011,9 @@ class CourseSessionListAPI(APIView):
                     continue
 
                 # 檢查容量（同模板同日同時段已預約人數）
-                booked_reservations = Reservation.objects.filter(
+                booked_reservations = Reservation.objects.live().filter(
                     course_template=tmpl,
-                    bookings__date=check_date,
+                    bookings__is_deleted=False, bookings__date=check_date,
                     bookings__start_time=session.start_time,
                     bookings__end_time=session.end_time,
                 ).exclude(status__in=['cancelled', 'deleted'])
@@ -2362,6 +2353,7 @@ class CreateReservationAPI(APIView):
                 except ValueError as exc:
                     return Response({'code': 400, 'msg': str(exc)}, status=400)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
+            rebuild_discount_usage(tenant_client)
             discount_summary = calculate_cart_discount_summary(
                 cart_data,
                 tenant_client,
@@ -2377,6 +2369,7 @@ class CreateReservationAPI(APIView):
 
             created_group_ids = []
             created_reservations = []
+            reservation_discount_rules = {}
             reservation_groups = []
             item_discounts = discount_summary.get('item_discount_amounts') or []
             applied_discount_details = discount_summary.get('applied_discount_details') or []
@@ -2406,6 +2399,9 @@ class CreateReservationAPI(APIView):
                 )
                 created_group_ids.append(group_id)
                 created_reservations.append(reservation)
+                reservation_discount_rules[reservation.pk] = {
+                    discount['id'] for discount in item_applied_discounts if 'id' in discount
+                }
                 reservation_groups.append(group)
                 if reward.get('discount') and (reservation.discount_amount < item_discount_amount or reservation.payment_amount <= 0):
                     raise ValueError('課程價格已變更，請重新試算紅利折抵')
@@ -2424,10 +2420,10 @@ class CreateReservationAPI(APIView):
                 shared_class.refresh_readiness()
                 if was_collecting and shared_class.status == 'ready':
                     from .operations import payment_expiration_for
-                    for class_group in ReservationGroup.objects.filter(
-                        reservations__shared_course_class=shared_class,
-                    ).exclude(reservations__status__in=['cancelled', 'deleted']).distinct():
-                        class_group.payments.filter(status='unpaid').update(
+                    for class_group in ReservationGroup.objects.live().filter(
+                        pk__in=shared_class.reservations.live().exclude(status__in=['cancelled', 'deleted']).values('group_id'),
+                    ):
+                        class_group.payments.live().filter(status='unpaid').update(
                             expires_at=payment_expiration_for(class_group),
                         )
 
@@ -2448,7 +2444,7 @@ class CreateReservationAPI(APIView):
             for shared_class in shared_classes.values():
                 if shared_class.status != 'ready':
                     continue
-                representative = shared_class.reservations.exclude(
+                representative = shared_class.reservations.live().exclude(
                     status__in=['cancelled', 'deleted'],
                 ).order_by('id').first()
                 if representative and representative.resort.auto_scheduling_enabled and representative.status == 'created':
@@ -2471,7 +2467,7 @@ class CreateReservationAPI(APIView):
                     # 將所有相關預約標記為排課失敗（讓後台/課服可介入處理）
                     affected_reservations = list(created_reservations)
                     for shared_class in shared_classes.values():
-                        affected_reservations.extend(shared_class.reservations.exclude(
+                        affected_reservations.extend(shared_class.reservations.live().exclude(
                             status__in=['cancelled', 'deleted'],
                         ))
                     for resv in affected_reservations:
@@ -2495,7 +2491,7 @@ class CreateReservationAPI(APIView):
             for shared_class in shared_classes.values():
                 if shared_class.status != 'ready':
                     continue
-                class_reservations = list(shared_class.reservations.exclude(
+                class_reservations = list(shared_class.reservations.live().exclude(
                     status__in=['cancelled', 'deleted'],
                 ).order_by('id'))
                 representative = class_reservations[0]
@@ -2504,10 +2500,10 @@ class CreateReservationAPI(APIView):
                         member.preferred_coach_id = representative.preferred_coach_id
                         member.status = representative.status
                         member.save(update_fields=['preferred_coach', 'status'])
-                        member.bookings.update(is_scheduled=True)
+                        member.bookings.live().update(is_scheduled=True)
 
+            record_checkout_discount_usage(tenant_client, reservation_discount_rules)
             if shared_classes and any(shared_class.status == 'collecting' for shared_class in shared_classes.values()):
-                increment_discount_usage(applied_discount_details)
                 return Response({
                     'code': 200,
                     'msg': '團體班報名成功，滿人後會通知付款',
@@ -2517,7 +2513,6 @@ class CreateReservationAPI(APIView):
                 }, status=status.HTTP_200_OK)
 
             if has_pending_coach_confirmation(created_reservations):
-                increment_discount_usage(applied_discount_details)
                 return Response({
                     'code': 200,
                     'msg': PENDING_COACH_CONFIRMATION_MESSAGE,
@@ -2528,7 +2523,6 @@ class CreateReservationAPI(APIView):
                 }, status=status.HTTP_200_OK)
 
             # 為每個預約組創建付款記錄
-            increment_discount_usage(applied_discount_details)
 
             from .models import Payment
             from snowland.settings import PAYMENT_HOST
@@ -2539,13 +2533,13 @@ class CreateReservationAPI(APIView):
                 if shared_class.status == 'ready':
                     groups_to_pay = list({
                         reservation.group_id: reservation.group
-                        for reservation in shared_class.reservations.exclude(
+                        for reservation in shared_class.reservations.live().exclude(
                             status__in=['cancelled', 'deleted'],
                         ).select_related('group')
                     }.values())
             for group in groups_to_pay:
-                if group.payments.exists():
-                    payment = group.payments.order_by('-created_at').first()
+                if group.payments.live().exists():
+                    payment = group.payments.live().order_by('-created_at').first()
                 else:
                     # 創建付款記錄
                     from .operations import payment_expiration_for, resolve_payment_account, schedule_group_notifications
@@ -2567,7 +2561,7 @@ class CreateReservationAPI(APIView):
                             'reservation_group_id': group.pk,
                             'payment_url': payment_url
                         })
-                if payment.status == 'unpaid' and group.reservations.filter(shared_course_class__status='ready').exists():
+                if payment.status == 'unpaid' and group.reservations.live().filter(shared_course_class__status='ready').exists():
                     from .operations import schedule_group_notifications
                     schedule_group_notifications(group, 'shared_class_ready')
 
@@ -2705,7 +2699,7 @@ class CreateReservationAPI(APIView):
         template = reservation.course_template
         if template.billing_mode != 'per_person':
             raise ValueError('團體湊班只能使用每人計價的課程模板')
-        if len(item['courses']) != 1 or reservation.bookings.count() != 1:
+        if len(item['courses']) != 1 or reservation.bookings.live().count() != 1:
             raise ValueError('團體湊班每筆訂單只能選一堂課')
         if reservation.is_preferred_coach:
             raise ValueError('團體湊班由學校安排同一位教練，不能個別指定教練')
@@ -2714,16 +2708,16 @@ class CreateReservationAPI(APIView):
             raise ValueError('團體湊班的學員需為相同程度，請分開下單')
         if template.shared_class_minimum_students > template.max_capacity:
             raise ValueError('此團體班成班人數大於人數上限，請管理員修正設定')
-        booking = reservation.bookings.get()
+        booking = reservation.bookings.live().get()
         slot = {
             'client': reservation.group.client, 'campus': reservation.group.campus,
             'resort': reservation.resort, 'template': template, 'date': booking.date,
             'start_time': booking.start_time, 'end_time': booking.end_time,
             'ability_level': next(iter(counts)), 'language': reservation.language,
         }
-        classes = SharedCourseClass.objects.select_for_update()
+        classes = SharedCourseClass.all_objects.select_for_update()
         if template.shared_class_fixed_dates:
-            shared_class = classes.filter(**slot, opening_mode='school').first()
+            shared_class = classes.live().filter(**slot, opening_mode='school').first()
             if not shared_class:
                 raise ValueError('此團體班僅開放學校已公布的日期與時段，請重新選課')
         else:
@@ -2731,7 +2725,7 @@ class CreateReservationAPI(APIView):
                 'minimum_students': template.shared_class_minimum_students,
                 'max_capacity': template.max_capacity,
             })
-        if shared_class.status == 'cancelled':
+        if shared_class.is_deleted or shared_class.status == 'cancelled':
             raise ValueError('此團體班已取消，請選其他時段')
         if shared_class.registered_students + reservation.number_of_people > shared_class.max_capacity:
             raise ValueError('此團體班名額已滿，請選其他時段')
@@ -2933,8 +2927,8 @@ class StaffBookingLinkResolveAPI(APIView):
 
 
 def paid_class_group_url(group):
-    payment = group.payments.order_by('-created_at', '-pk').first()
-    if not payment or payment.status != 'paid' or not group.reservations.exclude(status__in=['cancelled', 'deleted']).exists():
+    payment = group.payments.live().order_by('-created_at', '-pk').first()
+    if not payment or payment.status != 'paid' or not group.reservations.live().exclude(status__in=['cancelled', 'deleted']).exists():
         return ''
     from .operations import validate_class_group_url
     try:
@@ -2976,7 +2970,7 @@ class MemberCenterAPI(APIView):
         waiver_document = get_current_waiver(tenant)
         local_now = timezone.localtime()
         today = local_now.date()
-        groups = ReservationGroup.objects.filter(
+        groups = ReservationGroup.objects.live().filter(
             client=tenant, user=request.user,
         ).select_related('campus').prefetch_related(
             'payments',
@@ -2994,12 +2988,12 @@ class MemberCenterAPI(APIView):
         shared_student_counts = {}
         for group in groups:
             reservations = []
-            for reservation in group.reservations.exclude(status='deleted'):
+            for reservation in group.reservations.live().exclude(status='deleted'):
                 shared_summary = None
                 shared = reservation.shared_course_class
                 if shared and shared.client_id == tenant.pk and reservation.status != 'cancelled':
                     if shared.pk not in shared_student_counts:
-                        shared_student_counts[shared.pk] = sum(shared.reservations.filter(
+                        shared_student_counts[shared.pk] = sum(shared.reservations.live().filter(
                             group__client=tenant,
                         ).exclude(status__in=['cancelled', 'deleted']).values_list('number_of_people', flat=True))
                     registered_students = shared_student_counts[shared.pk]
@@ -3010,7 +3004,7 @@ class MemberCenterAPI(APIView):
                         'other_students': max(registered_students - reservation.number_of_people, 0),
                         'ability_level_label': shared.get_ability_level_display(),
                     }
-                course_bookings = sorted(reservation.bookings.all(), key=lambda item: (item.date, item.start_time, item.pk))
+                course_bookings = sorted(reservation.bookings.live().all(), key=lambda item: (item.date, item.start_time, item.pk))
                 bookings = [{
                     'id': booking.id,
                     'course_name': booking.course_name,
@@ -3031,15 +3025,15 @@ class MemberCenterAPI(APIView):
                     'shared_class_summary': shared_summary,
                     'status': reservation.status,
                     'people': reservation.number_of_people,
-                    'student_count': reservation.members.count(),
-                    'missing_students': max(reservation.number_of_people - reservation.members.count(), 0),
+                    'student_count': reservation.members.live().count(),
+                    'missing_students': max(reservation.number_of_people - reservation.members.live().count(), 0),
                     'participants': [{
                         'id': member.pk, 'student_number': index,
                         'binding_status': binding_status(member),
-                    } for index, member in enumerate(sorted(reservation.members.all(), key=lambda item: item.pk), 1)],
+                    } for index, member in enumerate(sorted(reservation.members.live().all(), key=lambda item: item.pk), 1)],
                     'bookings': bookings,
                 })
-            payment = group.payments.order_by('-created_at','-pk').first()
+            payment = group.payments.live().order_by('-created_at','-pk').first()
             for reservation in reservations:
                 for participant in reservation['participants']:
                     participant['can_invite'] = bool(
@@ -3053,16 +3047,16 @@ class MemberCenterAPI(APIView):
             class_group_url = paid_class_group_url(group)
             payment_hold_status = None
             if payment is None or payment.status == 'unpaid':
-                active_reservations = group.reservations.exclude(status__in=['deleted', 'cancelled'])
-                if not active_reservations.exists() and group.reservations.filter(status='cancelled').exists():
+                active_reservations = group.reservations.live().exclude(status__in=['deleted', 'cancelled'])
+                if not active_reservations.exists() and group.reservations.live().filter(status='cancelled').exists():
                     payment_hold_status = 'all_cancelled'
                 elif active_reservations.filter(shared_course_class__status='collecting').exists():
                     payment_hold_status = 'collecting_class'
-                elif group.reservations.filter(status='pending_coach_confirmation').exists():
+                elif group.reservations.live().filter(status='pending_coach_confirmation').exists():
                     payment_hold_status = 'pending_coach_approval'
-                elif group.reservations.filter(status='auto_assignment_failed').exists():
+                elif group.reservations.live().filter(status='auto_assignment_failed').exists():
                     payment_hold_status = 'scheduling_failed'
-                elif payment and group.payments.exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
+                elif payment and group.payments.live().exclude(pk=payment.pk).filter(status__in=['paid','pending','refunded']).exists():
                     payment_hold_status = 'payment_records_review'
                 elif payment and payment.expires_at and payment.expires_at <= timezone.now():
                     # Display the elapsed deadline immediately, even before the
@@ -3091,17 +3085,17 @@ class MemberCenterAPI(APIView):
                 } if cancellation else None,
                 'total_amount': sum(
                     reservation.payment_amount
-                    for reservation in group.reservations.exclude(status__in=['deleted', 'cancelled'])
+                    for reservation in group.reservations.live().exclude(status__in=['deleted', 'cancelled'])
                 ),
                 # Historical display is separate from current payable/refund calculations.
                 'historical_amount': sum(
                     reservation.payment_amount
-                    for reservation in group.reservations.exclude(status='deleted')
+                    for reservation in group.reservations.live().exclude(status='deleted')
                 ),
                 'reservations': reservations,
             })
 
-        member_details = list(MemberDetail.objects.filter(
+        member_details = list(MemberDetail.objects.live().filter(
             Q(user=request.user) | Q(guardian=request.user),
             reservation__group__client=tenant,
         ).select_related(
@@ -3113,7 +3107,7 @@ class MemberCenterAPI(APIView):
         student_counts = {}
         student_numbers = {}
         # Number seats across the whole course, not just the current viewer's visible learners.
-        for member_id, reservation_id in MemberDetail.objects.filter(
+        for member_id, reservation_id in MemberDetail.objects.live().filter(
             reservation_id__in={member.reservation_id for member in member_details},
         ).order_by('reservation_id', 'id').values_list('id', 'reservation_id'):
             student_counts[reservation_id] = student_counts.get(reservation_id, 0) + 1
@@ -3169,8 +3163,8 @@ class MemberCenterAPI(APIView):
             if group.user_id == request.user.pk or reservation.status == 'deleted':
                 continue
             if reservation.pk not in participant_courses:
-                payment = group.payments.order_by('-created_at', '-pk').first()
-                course_bookings = sorted(reservation.bookings.all(), key=lambda item: (item.date, item.start_time, item.pk))
+                payment = group.payments.live().order_by('-created_at', '-pk').first()
+                course_bookings = sorted(reservation.bookings.live().all(), key=lambda item: (item.date, item.start_time, item.pk))
                 participant_courses[reservation.pk] = {
                     'id': reservation.pk,
                     'resort': reservation.resort.display_name if reservation.resort else '雪場安排中',
@@ -3300,7 +3294,7 @@ class MemberCenterAPI(APIView):
                 reservation_id = int(request.data.get('reservation_id'))
             except (TypeError, ValueError):
                 return Response({'error': '請選擇要填寫學員資料的課程'}, status=400)
-            reservation = Reservation.objects.filter(
+            reservation = Reservation.objects.live().filter(
                 id=reservation_id, group__client=tenant, group__user=request.user,
             ).first()
             if not reservation:
@@ -3314,7 +3308,7 @@ class MemberCenterAPI(APIView):
 
         if action == 'update_pre_course_form':
             Client.objects.select_for_update().get(pk=tenant.pk)
-            member = MemberDetail.objects.select_for_update().filter(
+            member = MemberDetail.objects.live().select_for_update().filter(
                 Q(user=request.user) | Q(guardian=request.user),
                 id=request.data.get('member_id'),
                 reservation__group__client=tenant,
@@ -3561,7 +3555,7 @@ class MemberCenterAPI(APIView):
                 or len(raw_id) > 19 or not 0 < int(raw_id) <= 9223372036854775807):
             return Response({'error': '請提供有效的訂單編號'}, status=400)
         try:
-            group = ReservationGroup.objects.select_related('campus').prefetch_related(
+            group = ReservationGroup.objects.live().select_related('campus').prefetch_related(
                 'reservations__bookings__course_template__course_type', 'reservations__preferred_coach',
                 'reservations__resort', 'reservations__course_type__category', 'reservations__course_template',
             ).get(id=group_id, client=tenant, user=request.user)
@@ -3569,7 +3563,7 @@ class MemberCenterAPI(APIView):
             return Response({'error': '找不到可再次預約的訂單'}, status=404)
         cart = []
         from .rebooking import rebook_source_details
-        for reservation in group.reservations.exclude(status='deleted'):
+        for reservation in group.reservations.live().exclude(status='deleted'):
             is_shared_class = bool(reservation.course_template and reservation.course_template.shared_class_enabled)
             specified_coach = reservation.preferred_coach if reservation.is_preferred_coach and not is_shared_class else None
             equipment_option = {
@@ -3579,7 +3573,7 @@ class MemberCenterAPI(APIView):
                 'purchaseAssistanceTime': 'extra_time_help',
             }.get(reservation.equipment)
             courses = []
-            for booking in reservation.bookings.order_by('date', 'start_time', 'id'):
+            for booking in reservation.bookings.live().order_by('date', 'start_time', 'id'):
                 template = booking.course_template or reservation.course_template
                 kind = template.course_type if template else reservation.course_type
                 courses.append({
@@ -3646,9 +3640,9 @@ class ParticipantInvitationAPI(APIView):
         member = invitation.member
         reservation = member.reservation
         return Response({
-            'student_number': reservation.members.filter(pk__lte=member.pk).count(),
+            'student_number': reservation.members.live().filter(pk__lte=member.pk).count(),
             'resort': reservation.resort.display_name if reservation.resort else '雪場安排中',
-            'dates': [str(value) for value in reservation.bookings.order_by('date').values_list('date', flat=True)],
+            'dates': [str(value) for value in reservation.bookings.live().order_by('date').values_list('date', flat=True)],
             'accepted': bool(invitation.accepted_at),
             'reservation_id': reservation.pk,
             'expires_at': invitation.expires_at.isoformat(),
@@ -3672,7 +3666,7 @@ class ParticipantInvitationAPI(APIView):
 
 
 def member_notification_queryset(tenant, user):
-    member_groups = MemberDetail.objects.filter(
+    member_groups = MemberDetail.objects.live().filter(
         Q(user=user) | Q(guardian=user), reservation__group__client=tenant,
     ).exclude(reservation__status='deleted').values('reservation__group_id')
     return NotificationDelivery.objects.filter(
@@ -3714,9 +3708,12 @@ class MemberNotificationsAPI(APIView):
                 action_path = '/membership/orders' if group else ''
                 reminder_reservation = payload.get('insurance_reminder_reservation_id')
                 if reminder_reservation and group:
-                    visible_course = Reservation.objects.filter(pk=reminder_reservation, group=group).exclude(status__in=['cancelled','deleted'])
+                    visible_course = Reservation.objects.live().filter(pk=reminder_reservation, group=group).exclude(status__in=['cancelled','deleted'])
                     if group.user_id != request.user.pk:
-                        visible_course = visible_course.filter(Q(members__user=request.user)|Q(members__guardian=request.user))
+                        visible_course = visible_course.filter(
+                            Q(members__user=request.user) | Q(members__guardian=request.user),
+                            members__is_deleted=False,
+                        )
                     notice_active = visible_course.exists()
                     action_path = f'/membership/pre-course-forms?reservation={reminder_reservation}' if notice_active else ''
                 if payload.get('amendment_notice'):
@@ -3842,7 +3839,7 @@ class MemberAmendmentsAPI(APIView):
         if not request.user.is_authenticated:return None,Response({'error':'請先登入'},status=401)
         try:tenant=resolve_tenant_client(client_code)
         except TenantResolutionError:return None,Response({'error':'找不到您的訂單'},status=404)
-        return get_object_or_404(ReservationGroup,pk=group_id,client=tenant,user=request.user),None
+        return get_object_or_404(ReservationGroup.objects.live(),pk=group_id,client=tenant,user=request.user),None
 
     def get(self,request,client_code,group_id):
         from .amendment_balances import group_balances
@@ -3878,10 +3875,10 @@ class MemberCancellationAPI(APIView):
             return None, Response({'error': '請先登入'}, status=401)
         try:
             tenant = resolve_tenant_client(client_code)
-            group = ReservationGroup.objects.get(pk=group_id, client=tenant, user=request.user)
+            group = ReservationGroup.objects.live().get(pk=group_id, client=tenant, user=request.user)
         except (TenantResolutionError, ReservationGroup.DoesNotExist):
             return None, Response({'error': '找不到您的訂單'}, status=404)
-        payment = group.payments.order_by('-created_at').first()
+        payment = group.payments.live().order_by('-created_at').first()
         if not payment or payment.status != 'paid':
             return None, Response({'error': '目前僅已付款訂單可申請退款，其他情況請聯絡客服'}, status=400)
         return group, None
@@ -3901,7 +3898,7 @@ class MemberCancellationAPI(APIView):
                 'refund_amount':None if existing.requires_cash_review and existing.actual_received_amount is None else existing.refund_amount,
                 'requires_cash_review':existing.requires_cash_review,'refund_percent':existing.refund_percent,
                 'handling_fee_percent':existing.handling_fee_percent,'days_before':existing.days_before})
-        payment = group.payments.order_by('-created_at').first()
+        payment = group.payments.live().order_by('-created_at').first()
         return Response({
             **preview,
             'requires_bank_account': preview['requires_cash_review'] or payment.payment_method not in ('newebpay', 'credit_card', 'apple_pay', 'google_pay'),
@@ -3996,6 +3993,7 @@ class SuperScheduleAPI(APIView):
             except ValueError as exc:
                 return Response({'code': 400, 'msg': str(exc)}, status=400)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
+            rebuild_discount_usage(tenant_client)
             discount_summary = calculate_cart_discount_summary(
                 cart_data,
                 tenant_client,
@@ -4017,6 +4015,7 @@ class SuperScheduleAPI(APIView):
             )
 
             created_reservations = []
+            reservation_discount_rules = {}
             item_discounts = discount_summary.get('item_discount_amounts') or []
             applied_discount_details = discount_summary.get('applied_discount_details') or []
 
@@ -4058,6 +4057,9 @@ class SuperScheduleAPI(APIView):
                         learner_choices=learner_choices[item_index],
                     )
                     created_reservations.append(reservation)
+                    reservation_discount_rules[reservation.pk] = {
+                        discount['id'] for discount in item_applied_discounts if 'id' in discount
+                    }
                     item_reservations.append(reservation)
                 if reward.get('discount') and (
                     sum(row.discount_amount for row in item_reservations) < item_discount_amount
@@ -4106,8 +4108,8 @@ class SuperScheduleAPI(APIView):
             for created_group in created_groups:record_order_revision(created_group,user=request_user,change_type='create',reason='客戶進階拆課訂單')
             group_ids=[created_group.pk for created_group in created_groups]
             # 創建付款記錄
+            record_checkout_discount_usage(tenant_client, reservation_discount_rules)
             if has_pending_coach_confirmation(created_reservations):
-                increment_discount_usage(applied_discount_details)
                 return Response({
                     'code': 200,
                     'msg': PENDING_COACH_CONFIRMATION_MESSAGE,
@@ -4117,8 +4119,6 @@ class SuperScheduleAPI(APIView):
                     'pending_coach_confirmation': True,
                     'requires_payment': False,
                 }, status=status.HTTP_200_OK)
-
-            increment_discount_usage(applied_discount_details)
 
             payment_urls=[]
             for created_group in created_groups:
@@ -4390,7 +4390,7 @@ class PaymentInfoAPI(APIView):
 
             # 獲取預約群組
             try:
-                group = ReservationGroup.objects.get(pk=reservation_group_id, client=tenant)
+                group = ReservationGroup.objects.live().get(pk=reservation_group_id, client=tenant)
             except (ReservationGroup.DoesNotExist, ValueError, TypeError):
                 return Response({
                     'error': '找不到預約群組'
@@ -4400,11 +4400,11 @@ class PaymentInfoAPI(APIView):
                 return Response({'error': '找不到預約群組'}, status=status.HTTP_404_NOT_FOUND)
 
             # 獲取付款記錄
-            payment = group.payments.order_by('-created_at','-pk').first()
+            payment = group.payments.live().order_by('-created_at','-pk').first()
             payment_status = payment.status if payment else 'unpaid'
 
             # 獲取有效的預約（排除已刪除的）
-            active_reservations = group.reservations.exclude(status='deleted')
+            active_reservations = group.reservations.live().exclude(status='deleted')
 
             if not active_reservations.exists():
                 return Response({
@@ -4561,7 +4561,7 @@ class ReservationHistoryAPI(APIView):
 
             # 獲取用戶的所有預約組（按創建時間倒序）
             tenant = resolve_tenant_client(client_code)
-            reservation_groups = ReservationGroup.objects.filter(
+            reservation_groups = ReservationGroup.objects.live().filter(
                 user=user, client=tenant
             ).order_by('-created_at')
 
@@ -4570,13 +4570,13 @@ class ReservationHistoryAPI(APIView):
             for group in reservation_groups:
                 # 獲取付款狀態
                 try:
-                    payment = Payment.objects.get(reservation_group=group)
+                    payment = Payment.objects.live().get(reservation_group=group)
                     payment_status = payment.status
                 except Payment.DoesNotExist:
                     payment_status = 'unpaid'
 
                 # 獲取該組的所有預約
-                reservations = group.reservations.all()
+                reservations = group.reservations.live().all()
 
                 # 計算總金額
                 total_amount = sum([
@@ -4589,7 +4589,7 @@ class ReservationHistoryAPI(APIView):
                 reservation_details = []
                 for resv in reservations:
                     # 獲取該預約的所有課程時段
-                    bookings = Booking.objects.filter(reservation=resv).order_by('date', 'start_time')
+                    bookings = Booking.objects.live().filter(reservation=resv).order_by('date', 'start_time')
 
                     booking_details = []
                     for booking in bookings:
@@ -4698,7 +4698,7 @@ class ProcessPaymentAPI(APIView):
             type(tenant).objects.select_for_update().get(pk=tenant.pk)
             # 獲取預約群組
             try:
-                group = ReservationGroup.objects.select_for_update().get(pk=reservation_group_id, client=tenant)
+                group = ReservationGroup.objects.live().select_for_update().get(pk=reservation_group_id, client=tenant)
             except (ReservationGroup.DoesNotExist, ValueError, TypeError):
                 return Response({
                     'error': '找不到預約群組'
@@ -4715,10 +4715,10 @@ class ProcessPaymentAPI(APIView):
                     'requires_payment': False,
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            if not group.reservations.exclude(status__in=['deleted', 'cancelled']).exists():
+            if not group.reservations.live().exclude(status__in=['deleted', 'cancelled']).exists():
                 return Response({'error': '此訂單已沒有可付款的課程'}, status=status.HTTP_400_BAD_REQUEST)
 
-            current_payment = group.payments.order_by('-created_at', '-pk').first()
+            current_payment = group.payments.live().order_by('-created_at', '-pk').first()
             if current_payment and current_payment.status not in {'unpaid','pending'}:
                 message = {'paid':'此訂單已付款，請勿重複提交','expired':'付款期限已結束，請聯絡客服','refunded':'此訂單已退款，不能重新回報付款'}.get(current_payment.status,'付款狀態不允許回報，請聯繫客服')
                 return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
@@ -4770,7 +4770,7 @@ class ProcessPaymentAPI(APIView):
     def _process_newebpay(self, request, group, merchant=None, credentials=None):
         """處理藍新支付"""
         # 獲取所有預約
-        bookings = Booking.objects.filter(reservation__in=group.reservations.all())
+        bookings = Booking.objects.live().filter(reservation__group_id=group.pk)
 
         # 構建商品名稱
         written_courses = set()
@@ -4788,7 +4788,7 @@ class ProcessPaymentAPI(APIView):
         # 計算總金額
         total_amount = sum([
             resv.payment_amount
-            for resv in group.reservations.exclude(status__in=['deleted', 'cancelled'])
+            for resv in group.reservations.live().exclude(status__in=['deleted', 'cancelled'])
         ])
 
         # 準備藍新支付資料
@@ -4838,7 +4838,7 @@ class ProcessPaymentAPI(APIView):
         # 更新付款記錄
         user = request.user if request.user.is_authenticated else group.user
 
-        payment = group.payments.select_for_update().order_by('-created_at', '-pk').first()
+        payment = group.payments.live().select_for_update().order_by('-created_at', '-pk').first()
         if payment and payment.status not in {'unpaid', 'pending'}:
             return Response({'error': '付款狀態已更新，請重新載入訂單後確認'}, status=status.HTTP_400_BAD_REQUEST)
         if payment is None:
@@ -4871,14 +4871,14 @@ def get_booked_slots(coach_instance):
     """獲取教練的已預約時段（保留向後相容）"""
     from .models import Reservation
 
-    reservations = Reservation.objects.filter(
+    reservations = Reservation.objects.live().filter(
         preferred_coach=coach_instance,
         status__in=['auto_assigned', 'manually_assigned', 'pending_coach_confirmation']
     ).prefetch_related('bookings')
 
     booked_slots = []
     for resv in reservations:
-        for booking in resv.bookings.all():
+        for booking in resv.bookings.live().all():
             booked_slots.append({
                 'date': booking.date,
                 'start_time': booking.start_time.strftime('%H:%M'),
@@ -5189,25 +5189,33 @@ class CancelFailedReservationsAPI(APIView):
 
         from .models import OrderLoyalty, ReservationGroup
         from .loyalty import release_unpaid_redemption
+        from .order_archive import ArchiveError, archive_failed_order
         try:
             tenant = resolve_tenant_client(client_code)
         except TenantResolutionError as exc:
             return Response({'code': 404, 'msg': str(exc)}, status=404)
         Client.objects.select_for_update().get(pk=tenant.pk)
-        groups = ReservationGroup.objects.select_for_update().filter(pk__in=ids, user=request.user, client=tenant)
+        groups = ReservationGroup.objects.live().select_for_update().filter(pk__in=ids, user=request.user, client=tenant)
 
         deleted_count = 0
         for g in groups:
             # 安全條件：必須所有 reservation 都是 auto_assignment_failed
-            statuses = list(g.reservations.values_list('status', flat=True))
-            if statuses and all(s == 'auto_assignment_failed' for s in statuses) and not g.payments.filter(status__in=('paid','pending','refunded')).exists():
+            statuses = list(g.reservations.live().values_list('status', flat=True))
+            if (statuses and all(s == 'auto_assignment_failed' for s in statuses) and not g.newebpay_form_issued
+                    and not g.payments.live().filter(status__in=('paid','pending','refunded')).exists()):
                 if OrderLoyalty.objects.filter(group=g).exists():
                     release_unpaid_redemption(g)
-                    g.reservations.update(status='deleted')
-                    g.payments.filter(status='unpaid').update(status='expired')
+                    g.reservations.live().update(status='deleted')
+                    g.payments.live().filter(status='unpaid').update(status='expired')
                 else:
-                    g.delete()
+                    try:
+                        archive_failed_order(tenant, request.user, g)
+                    except ArchiveError as exc:
+                        transaction.set_rollback(True)
+                        return Response({'code': 409, 'msg': str(exc)}, status=409)
                 deleted_count += 1
+        if deleted_count:
+            rebuild_discount_usage(tenant)
 
         return Response({
             'code': 200, 'msg': f'已取消 {deleted_count} 筆訂單',

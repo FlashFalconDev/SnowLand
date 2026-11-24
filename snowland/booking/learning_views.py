@@ -64,9 +64,9 @@ class LearnerProfileAPI(PrivateLearningAPI):
             return Response({'error': '不支援的學員操作'}, status=400)
         try:
             member_id = profile_id(request.data.get('member_id'))
-            place_query = MemberDetail.objects.filter(owned_places(request.user), pk=member_id, reservation__group__client=tenant)
+            place_query = MemberDetail.objects.live().filter(owned_places(request.user), pk=member_id, reservation__group__client=tenant)
             candidate = get_object_or_404(place_query)
-            reservation = get_object_or_404(Reservation.objects.select_for_update(), pk=candidate.reservation_id)
+            reservation = get_object_or_404(Reservation.objects.live().select_for_update(), pk=candidate.reservation_id)
             place = get_object_or_404(place_query.select_for_update())
             if reservation.status in {'completed', 'cancelled', 'deleted'} or place.evaluations.filter(completed_at__isnull=False).exists():
                 return Response({'error': '已結束的課程須請學校核對學員紀錄'}, status=409)

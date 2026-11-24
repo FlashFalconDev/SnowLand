@@ -49,19 +49,19 @@ def _snapshot_reservation_state(reservation, snapshots):
         'status': reservation.status,
         'bookings': [
             (booking.id, booking.is_scheduled)
-            for booking in reservation.bookings.all()
+            for booking in reservation.bookings.live().all()
         ],
     }
 
 
 def _restore_reservation_snapshots(snapshots):
     for reservation_id, snapshot in snapshots.items():
-        Reservation.objects.filter(id=reservation_id).update(
+        Reservation.objects.live().filter(id=reservation_id).update(
             preferred_coach_id=snapshot['preferred_coach_id'],
             status=snapshot['status'],
         )
         for booking_id, is_scheduled in snapshot['bookings']:
-            Booking.objects.filter(id=booking_id).update(is_scheduled=is_scheduled)
+            Booking.objects.live().filter(id=booking_id).update(is_scheduled=is_scheduled)
 
 
 def _remove_reservation_from_busy_map(reservation, coach_busy_map):
@@ -69,7 +69,7 @@ def _remove_reservation_from_busy_map(reservation, coach_busy_map):
     if not coach_id:
         return
     busy_slots = coach_busy_map.get(coach_id, [])
-    for booking in reservation.bookings.all():
+    for booking in reservation.bookings.live().all():
         if not booking.is_scheduled:
             continue
         slot = (booking.date, booking.start_time, booking.end_time)
@@ -85,12 +85,12 @@ def _find_movable_conflicts_for_preferred(reservation, exclude_ids):
         return []
 
     conflicts = Reservation.objects.none()
-    for booking in reservation.bookings.all():
-        conflicts = conflicts | Reservation.objects.filter(
+    for booking in reservation.bookings.live().all():
+        conflicts = conflicts | Reservation.objects.live().filter(
             preferred_coach=coach,
             is_preferred_coach=False,
             status__in=MOVABLE_ASSIGNED_STATUSES,
-            bookings__is_scheduled=True,
+            bookings__is_deleted=False, bookings__is_scheduled=True,
             bookings__date=booking.date,
             bookings__start_time__lt=booking.end_time,
             bookings__end_time__gt=booking.start_time,
@@ -132,14 +132,14 @@ def assign_coachs(reservations_to_assign=None):
     coach_busy_map = defaultdict(list)
     
     # --- 步驟 1: 建立基礎忙碌表，包含所有已確認且不可移動的預約 ---
-    existing_confirmed_reservations = Reservation.objects.filter(
+    existing_confirmed_reservations = Reservation.objects.live().filter(
         status__in=ASSIGNED_RESERVATION_STATUSES
     ).exclude(id__in=incoming_ids).select_related('preferred_coach').prefetch_related('bookings')
 
     for resv in existing_confirmed_reservations:
         if resv.preferred_coach:
             coach_id = resv.preferred_coach_id
-            for b in resv.bookings.all():
+            for b in resv.bookings.live().all():
                 if not b.is_scheduled:
                     continue
                 coach_busy_map[coach_id].append((b.date, b.start_time, b.end_time))
@@ -160,7 +160,7 @@ def assign_coachs(reservations_to_assign=None):
     else:
         # 處理所有需要自動排程的預約
         all_unspecified = list(
-            Reservation.objects.filter(is_preferred_coach=False, status='created')
+            Reservation.objects.live().filter(is_preferred_coach=False, status='created')
         )
     
     # 處理指定教練的預約 (在傳入的列表中)
@@ -174,7 +174,7 @@ def assign_coachs(reservations_to_assign=None):
                 # 這裡應該不會發生，因為 is_preferred_coach=True
                 continue
 
-            if not coach_can_cover_bookings(list(resv.bookings.all()),coach.id):
+            if not coach_can_cover_bookings(list(resv.bookings.live().all()),coach.id):
                 _restore_reservation_snapshots(state_snapshots)
                 return False,{'error':'指定教練不屬於此公司／校區、未開放此雪場，或上課日期已有核准請假','reservation_id':resv.pk}
 
@@ -217,7 +217,7 @@ def assign_coachs(reservations_to_assign=None):
                     _remove_reservation_from_busy_map(displaced, coach_busy_map)
             
             is_resv_conflict = False
-            for b in resv.bookings.all():
+            for b in resv.bookings.live().all():
                 if is_conflict(b.date, b.start_time, b.end_time, coach_busy_map[coach.id]):
                     error_msg = f"錯誤：指定教練的預約 {resv.id} 與教練 {coach.name} 現有行程衝突"
                     resv.status = 'auto_assignment_failed'
@@ -227,13 +227,13 @@ def assign_coachs(reservations_to_assign=None):
             
             # 如果沒有衝突，則將其加入忙碌表並更新狀態
             booking_ids = []
-            for b in resv.bookings.all():
+            for b in resv.bookings.live().all():
                 coach_busy_map[coach.id].append((b.date, b.start_time, b.end_time))
                 booking_ids.append(b.id)
             
             resv.status = _assignment_status_for_coach(coach, resv.status)
             resv.save()
-            Booking.objects.filter(id__in=booking_ids).update(is_scheduled=True)
+            Booking.objects.live().filter(id__in=booking_ids).update(is_scheduled=True)
             # print(f"成功鎖定指定教練預約 {resv.id} 給 {coach.name}")
 
     if displaced_reservations:
@@ -258,10 +258,10 @@ def assign_coachs(reservations_to_assign=None):
             automatic_only=True,
         )
         had_candidates=bool(fi)
-        fi=[coach for coach in fi if coach_can_cover_bookings(list(resv.bookings.all()),coach.pk)]
+        fi=[coach for coach in fi if coach_can_cover_bookings(list(resv.bookings.live().all()),coach.pk)]
         if (
             resv.id in displaced_reservations and
-            Payment.objects.filter(reservation_group=resv.group).exists()
+            Payment.objects.live().filter(reservation_group=resv.group).exists()
         ):
             fi = [coach for coach in fi if coach.availability_status == 'active']
         if not fi:
@@ -282,7 +282,7 @@ def assign_coachs(reservations_to_assign=None):
         
         # 重置狀態以便重新分配
         resv.preferred_coach = None
-        for b in resv.bookings.all():
+        for b in resv.bookings.live().all():
             b.is_scheduled = False
             b.save()
         resv.save()
@@ -303,7 +303,7 @@ def assign_coachs(reservations_to_assign=None):
         if reservations_to_assign is not None:
             affected_ids.update(resv.id for resv in reservations_to_assign)
         pending_ids = list(
-            Reservation.objects.filter(
+            Reservation.objects.live().filter(
                 id__in=affected_ids,
                 status='pending_coach_confirmation',
             ).values_list('id', flat=True)
@@ -325,7 +325,7 @@ def _bookings_signature(bookings_list):
 def _capacity_failure_report(resv, feasible_coaches, coach_busy_map, reason):
     resv.status = 'auto_assignment_failed'
     resv.save()
-    bookings_list = list(resv.bookings.all())
+    bookings_list = list(resv.bookings.live().all())
     conflict_dates = list(set(b.date for b in bookings_list))
     suggestions = _generate_suggestion_report(conflict_dates, feasible_coaches, coach_busy_map)
     return {
@@ -342,7 +342,7 @@ def _capacity_failure_report(resv, feasible_coaches, coach_busy_map, reason):
 def _precheck_batch_capacity(resv_list, coach_busy_map):
     groups = {}
     for resv, feasible_coaches in resv_list:
-        bookings_list = list(resv.bookings.all())
+        bookings_list = list(resv.bookings.live().all())
         candidate_coaches = [
             coach for coach in feasible_coaches
             if can_assign_all_bookings(bookings_list, coach.id, coach_busy_map)
@@ -619,7 +619,7 @@ def backtrack_assign(resv_list, idx, coach_busy_map):
         return True, {}
         
     (resv, feasible_coaches) = resv_list[idx]
-    bookings_list = list(resv.bookings.all())
+    bookings_list = list(resv.bookings.live().all())
     
     original_coach_id = resv.preferred_coach_id
     original_scheduled_status = [(b.id, b.is_scheduled) for b in bookings_list]
@@ -657,7 +657,7 @@ def backtrack_assign(resv_list, idx, coach_busy_map):
             resv.status = original_status
             resv.save()
             for (b_id, old_sch) in original_scheduled_status:
-                b = Booking.objects.get(id=b_id)
+                b = Booking.objects.live().get(id=b_id)
                 b.is_scheduled = old_sch
                 b.save()
             
@@ -846,7 +846,7 @@ def check_availability_and_get_suggestions(courses):
 
     # 建立所有潛在教練在所有請求日期的忙碌時間表
     coach_busy_map = defaultdict(list)
-    existing_bookings = Booking.objects.filter(
+    existing_bookings = Booking.objects.live().filter(
         reservation__preferred_coach__in=list(all_potential_coaches),
         date__in=list(all_requested_dates),
         is_scheduled=True,
@@ -945,7 +945,7 @@ def reassign_single_reservation(reservation_id):
     print(f"\n=== 開始單個預約重新排課：Reservation ID {reservation_id} ===")
     
     try:
-        reservation = Reservation.objects.get(id=reservation_id)
+        reservation = Reservation.objects.live().get(id=reservation_id)
     except Reservation.DoesNotExist:
         print(f"錯誤：預約 {reservation_id} 不存在")
         return False
@@ -956,7 +956,7 @@ def reassign_single_reservation(reservation_id):
     coach_busy_map = {inst.id: [] for inst in Coach.objects.all()}
     
     # 排除當前預約，查詢其他已確認的預約來建立忙碌表
-    other_confirmed_reservations = Reservation.objects.exclude(id=reservation_id).filter(
+    other_confirmed_reservations = Reservation.objects.live().exclude(id=reservation_id).filter(
         models.Q(is_preferred_coach=True) | models.Q(status__in=ASSIGNED_RESERVATION_STATUSES)
     ).exclude(status__in=['cancelled', 'deleted'])
     
@@ -967,7 +967,7 @@ def reassign_single_reservation(reservation_id):
             continue
         inst_id = other_resv.preferred_coach_id
         
-        for booking in other_resv.bookings.all():
+        for booking in other_resv.bookings.live().all():
             if booking.is_scheduled:
                 coach_busy_map[inst_id].append((booking.date, booking.start_time, booking.end_time))
     
@@ -993,7 +993,7 @@ def reassign_single_reservation(reservation_id):
         reservation.save()
         
         # 清除 booking 的排程狀態
-        for booking in reservation.bookings.all():
+        for booking in reservation.bookings.live().all():
             booking.is_scheduled = False
             booking.save()
         
@@ -1004,17 +1004,17 @@ def reassign_single_reservation(reservation_id):
     # 3. 備份當前狀態
     original_coach_id = reservation.preferred_coach_id
     original_status = reservation.status
-    original_bookings_scheduled = [(b.id, b.is_scheduled) for b in reservation.bookings.all()]
+    original_bookings_scheduled = [(b.id, b.is_scheduled) for b in reservation.bookings.live().all()]
     
     # 4. 清除當前預約的教練和排程狀態
     reservation.preferred_coach = None
     reservation.save()
-    for booking in reservation.bookings.all():
+    for booking in reservation.bookings.live().all():
         booking.is_scheduled = False
         booking.save()
     
     # 5. 嘗試為這個預約分配教練
-    bookings_list = list(reservation.bookings.all())
+    bookings_list = list(reservation.bookings.live().all())
     
     # 根據接課狀態、雪場優先級和教練負載排序
     def coach_sort_key(coach):
@@ -1069,7 +1069,7 @@ def reassign_single_reservation(reservation_id):
     
     # 恢復 booking 狀態
     for booking_id, was_scheduled in original_bookings_scheduled:
-        booking = Booking.objects.get(id=booking_id)
+        booking = Booking.objects.live().get(id=booking_id)
         booking.is_scheduled = was_scheduled
         booking.save()
     

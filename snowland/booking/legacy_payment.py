@@ -24,7 +24,7 @@ def process_legacy_payment(request):
         group_id=serializers.IntegerField(min_value=1,max_value=2**63-1).run_validation(request.data.get('reservation_group_pk'))
     except serializers.ValidationError:
         return JsonResponse({'error':'請提供正確的訂單編號'},status=400)
-    group=ReservationGroup.objects.select_related('client').filter(pk=group_id).first()
+    group=ReservationGroup.objects.live().select_related('client').filter(pk=group_id).first()
     if not group or not group.client_id or not can_access_payment(group,request.user,request.data.get('access_token','')):
         return JsonResponse({'error':'找不到預約群組'},status=404)
     from .api_views import ProcessPaymentAPI
