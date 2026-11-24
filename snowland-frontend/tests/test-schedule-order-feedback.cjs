@@ -29,11 +29,12 @@ assert.match(renderToStaticMarkup(ctx.exports.documentReview()),/改期須重新
 ctx.rescheduleDate='2026-10-29'
 assert.equal(renderToStaticMarkup(ctx.exports.documentReview()),'','A time-only change must not claim date-based invalidation')
 run('exports.preview=()=> <>{'+statusGuard.getText(schedule)+'}{'+dataGuard.getText(schedule)+'}</>')
-for(const state of ['loading','error','cached-error','success','closed']){
+for(const state of ['loading','error','cached-error','cached-missing','success','closed']){
  ctx.selectedOrderId=state==='closed'?null:213
  ctx.isOrderLoading=state==='loading'
- ctx.orderError=state.includes('error')?{response:{status:404}}:null
- ctx.selectedOrder=['success','cached-error','closed'].includes(state)?{id:213}:null
+ ctx.orderError=state==='cached-error'?{response:{status:403}}:
+   ['error','cached-missing'].includes(state)?{response:{status:404}}:null
+ ctx.selectedOrder=['success','cached-error','cached-missing','closed'].includes(state)?{id:213}:null
  const tree=ctx.exports.preview(),html=renderToStaticMarkup(tree)
  if(state==='loading'){assert.ok(html.includes('role="dialog"'));assert.ok(html.includes('載入訂單明細中'));assert.ok(html.includes('role="status"'))}
  if(state.includes('error')){assert.ok(html.includes('role="alert"'));assert.ok(html.includes('重新載入明細'));assert.ok(!html.includes('訂單 API 路徑不存在'))}
@@ -41,6 +42,7 @@ for(const state of ['loading','error','cached-error','success','closed']){
    const wrapper=React.Children.toArray(tree.props.children).find(child=>child.type==='div')
    assert.equal(wrapper.props['aria-hidden'],true);assert.equal(wrapper.props.className,'invisible')
  }
+ if(state==='cached-missing'){assert.ok(html.includes('role="alert"'));assert.ok(!html.includes('data-order="private"'))}
  if(state==='success'){assert.ok(html.includes('data-order="private"'));assert.ok(!html.includes('role="dialog"'))}
  if(state==='closed')assert.equal(html,'')
 }
@@ -87,6 +89,8 @@ ctx.workflow=undefined;ctx.viewingId=213;ctx.viewing={id:213};ctx.viewingError={
 const hidden=ctx.exports.viewing(),html=renderToStaticMarkup(hidden)
 assert.ok(html.includes('目前沒有權限'));assert.ok(html.includes('重新載入明細'))
 assert.equal(React.Children.toArray(hidden.props.children).find(node=>node.type==='div').props['aria-hidden'],true)
+ctx.viewingError={response:{status:404}}
+assert.ok(!renderToStaticMarkup(ctx.exports.viewing()).includes('data-order="private"'))
 ctx.viewingId=null;assert.equal(renderToStaticMarkup(ctx.exports.viewing()),'')
 run('exports.viewingOptions='+viewingQuery.getText(orders))
 assert.equal(ctx.exports.viewingOptions.retry,false);assert.equal(ctx.exports.viewingOptions.gcTime,0);assert.equal(ctx.exports.viewingOptions.staleTime,0)

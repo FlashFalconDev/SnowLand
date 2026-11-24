@@ -884,7 +884,7 @@ export default function SchedulingPage() {
           onClose={() => setSelectedOrderId(null)}
         />
       )}
-      {selectedOrderId !== null && selectedOrder && (
+      {selectedOrderId !== null && selectedOrder && (orderError as { response?: { status?: number } } | null)?.response?.status !== 404 && (
         <div className={isOrderLoading || orderError ? 'invisible' : undefined} aria-hidden={Boolean(isOrderLoading || orderError)}>
           <OrderDetailDrawer
             order={selectedOrder}
