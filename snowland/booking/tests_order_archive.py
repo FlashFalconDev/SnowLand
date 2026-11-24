@@ -1,7 +1,7 @@
 import json
 from datetime import date, time, timedelta
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from django.contrib.auth.models import Permission, User
@@ -10,6 +10,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
+from django.db.models.signals import post_delete
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
@@ -38,6 +39,7 @@ from .models import (
 )
 from .operations import calculate_refund
 from .order_archive import SCOPES, build_archive_plan
+from .payment_access import payment_access_token
 from .tasks import expire_unpaid_payment
 
 
@@ -49,12 +51,15 @@ class OrderArchiveTests(TestCase):
         cls.actor = User.objects.create_superuser('archive-platform')
         cls.staff = User.objects.create_user('archive-hq', is_staff=True)
         cls.owner = User.objects.create_user('archive-owner')
+        cls.coach_user = User.objects.create_user('archive-coach')
         TenantStaffMembership.objects.create(user=cls.staff, client=cls.tenant, is_manager=True,
             role='hq_admin', all_campuses=True, admin_permissions=['orders'])
         cls.staff.user_permissions.add(Permission.objects.get(codename='view_reservationgroup'))
         cls.campus = Campus.objects.create(client=cls.tenant, name='Archive campus', code='archive')
         cls.resort = Resorts.objects.create(client=cls.tenant, name='archive-resort')
-        cls.coach = Coach.objects.create(client=cls.tenant, name='Archive coach')
+        cls.coach = Coach.objects.create(client=cls.tenant, user=cls.coach_user, name='Archive coach')
+        cls.coach.campuses.add(cls.campus)
+        TenantStaffMembership.objects.create(user=cls.coach_user, client=cls.tenant, role='coach', is_coach=True)
         category = CourseCategory.objects.create(client=cls.tenant, name='Archive course')
         course_type = CourseType.objects.create(category=category, name='Private lesson')
         template = CourseTemplate.objects.create(course_type=course_type, name='Private lesson', duration_hours=2)
@@ -131,9 +136,14 @@ class OrderArchiveTests(TestCase):
         self.assert_live(self.group, True)
         cache_key = f'course_data_optimized_v2_{self.tenant.internal_code}'
         cache.set(cache_key, 'old')
-        with self.captureOnCommitCallbacks(execute=True), patch('booking.signals.delete_private_course_file') as delete_file:
-            output = self.apply()
-        delete_file.assert_not_called()
+        deleted = Mock()
+        post_delete.connect(deleted)
+        try:
+            with self.captureOnCommitCallbacks(execute=True):
+                output = self.apply()
+        finally:
+            post_delete.disconnect(deleted)
+        deleted.assert_not_called()
         self.assertIsNone(cache.get(cache_key))
         batch = TenantOrderArchiveBatch.objects.get(pk=output.split('batch=')[1].strip())
         for scope in SCOPES:
@@ -237,6 +247,218 @@ class OrderArchiveTests(TestCase):
         self.assertEqual(self.client.post(delete_url, {'post': 'yes'}).status_code, 403)
         with self.assertRaises(ProtectedError):
             ReservationGroup.all_objects.get(pk=self.group.pk).delete()
+
+    def test_platform_can_filter_and_read_each_archived_model(self):
+        ReservationGroup.objects.filter(pk=self.group.pk).update(line_group_qr='private/audit-qr.png')
+        PayrollStatement.objects.filter(pk=self.payroll.pk).update(signature_file='private/audit-signature.png')
+        VehicleTrip.objects.filter(pk=self.trip.pk).update(departure_photo='private/audit-departure.png',
+                                                           return_photo='private/audit-return.png')
+        file_names = {
+            'booking.ReservationGroup': ['audit-qr.png'],
+            'Coach.PayrollStatement': ['audit-signature.png'],
+            'Coach.VehicleTrip': ['audit-departure.png', 'audit-return.png'],
+            'Coach.VehicleExpense': ['test.png'],
+        }
+        self.apply()
+        batch = TenantOrderArchiveBatch.objects.get()
+        self.client.force_login(self.actor)
+        for scope in SCOPES:
+            meta = scope.model._meta
+            admin_name = f'admin:{meta.app_label}_{meta.model_name}'
+            row_id = batch.targets[scope.label][0]
+            listing = reverse(f'{admin_name}_changelist')
+            detail = reverse(f'{admin_name}_change', args=[row_id])
+            delete = reverse(f'{admin_name}_delete', args=[row_id])
+            with self.subTest(model=scope.label):
+                self.assertNotContains(self.client.get(listing), detail)
+                self.assertContains(self.client.get(listing, {'archive': 'deleted'}), detail)
+                page = self.client.get(detail)
+                self.assertEqual(page.status_code, 200)
+                for name in file_names.get(scope.label, []):
+                    self.assertContains(page, f'<div class="readonly">{name}</div>', html=True)
+                self.assertEqual(self.client.post(detail, {}).status_code, 403)
+                self.assertEqual(self.client.post(delete, {'post': 'yes'}).status_code, 403)
+
+    def test_console_detail_actions_reject_archived_order_and_related_records(self):
+        api = APIClient()
+        api.force_authenticate(self.actor)
+        prefix = '/api/admin/archive-fixture/'
+        order = f'orders/{self.group.pk}/'
+        cancellation = CancellationRequest.objects.get(group=self.group)
+        readable = (
+            order, order + 'refund-preview/', order + 'amendment-options/', order + 'amendment-balances/',
+            f'cancellations/{cancellation.pk}/', f'notification-deliveries/{self.delivery.pk}/',
+            f'insurance-records/{self.member.pk}/', f'evaluations/{self.evaluation.pk}/',
+            f'evaluations/{self.evaluation.pk}/learner-profile/', f'payroll-statements/{self.payroll.pk}/',
+            f'staff-incentive-statements/{self.incentive.pk}/',
+        )
+        for route in readable:
+            with self.subTest(live=route):
+                self.assertEqual(api.get(prefix + route).status_code, 200)
+
+        self.apply()
+        archived_actions = (
+            ('patch', order), ('delete', order), ('get', order + 'card-payment/'),
+            ('get', order + 'payment-link/'), ('post', order + 'complete-course/'),
+            ('post', order + 'cancel/'), ('post', order + 'class-group-link/'),
+            ('delete', order + 'class-group-qr/'), ('post', order + 'amendment-quote/'),
+            ('post', order + 'amendment-balances/'),
+            ('post', f'payroll-statements/{self.payroll.pk}/document/'),
+            ('delete', f'staff-incentive-statements/{self.incentive.pk}/'),
+        )
+        for method, route in [*(('get', route) for route in readable), *archived_actions]:
+            with self.subTest(archived=route, method=method):
+                self.assertEqual(getattr(api, method)(prefix + route).status_code, 404)
+        amendment = api.post(prefix + order + 'amendment-confirm/', {
+            'quote_token': 'old-quote', 'request_key': str(uuid4()), 'reason': 'Fixture', 'confirmed': True,
+            'changes': [{'reservation_id': self.reservation.pk, 'courses': [{
+                'template_id': self.customer_class.template_id, 'date': str(self.day),
+                'start_time': '09:00', 'end_time': '11:00',
+            }]}],
+        }, format='json')
+        self.assertEqual(amendment.status_code, 404, amendment.data)
+
+    def test_member_and_guest_bookmarks_stop_working_after_archive(self):
+        self.customer_class.status = 'ready'
+        self.customer_class.save(update_fields=['status'])
+        member = APIClient()
+        member.force_authenticate(self.owner)
+        prefix = '/booking/archive-fixture/'
+        member_payment = {'reservation_group': self.group.pk}
+        self.assertEqual(member.get(prefix + 'api/payment-info/', member_payment).status_code, 200)
+        member_routes = (
+            f'api/member-amendments/{self.group.pk}/',
+            f'api/member-cancellations/{self.group.pk}/',
+        )
+        for route in member_routes:
+            with self.subTest(live=route):
+                self.assertEqual(member.get(prefix + route).status_code, 200)
+
+        guest = APIClient()
+        guest_group = ReservationGroup.objects.create(client=self.tenant, campus=self.campus)
+        Reservation.objects.create(group=guest_group, status='auto_assigned', course_fee=600)
+        Payment.objects.create(reservation_group=guest_group, status='unpaid')
+        guest_payment = {'reservation_group': guest_group.pk, 'access_token': payment_access_token(guest_group)}
+        for route in ('api/payment-info/', 'payment/'):
+            self.assertEqual(guest.get(prefix + route, guest_payment).status_code, 200)
+
+        self.apply()
+        for api, params in ((member, member_payment), (guest, guest_payment)):
+            for route in ('api/payment-info/', 'payment/'):
+                with self.subTest(archived=route, guest=api is guest):
+                    self.assertEqual(api.get(prefix + route, params).status_code, 404)
+            result = api.post(prefix + 'api/process-payment/', {
+                'reservation_group_id': params['reservation_group'], 'payment_type': 'bank_transfer',
+                'sender_account': '12345', 'access_token': params.get('access_token', ''),
+            }, format='json')
+            self.assertEqual(result.status_code, 404)
+        for route in member_routes:
+            self.assertEqual(member.get(prefix + route).status_code, 404)
+            self.assertEqual(member.post(prefix + route, {}, format='json').status_code, 404)
+
+    def test_coach_evaluation_and_payroll_hide_archive_while_special_files_remain_readable(self):
+        api = APIClient()
+        api.force_authenticate(self.coach_user)
+        prefix = '/api/admin/archive-fixture/coach/'
+        evaluation = f'{prefix}evaluations/{self.evaluation.pk}/'
+        payroll = f'{prefix}payroll/{self.payroll.pk}/'
+        album = f'{prefix}course-albums/{self.booking.pk}/'
+        self.assertEqual(api.get(evaluation).status_code, 200)
+        self.assertEqual(api.get(payroll).status_code, 200)
+        self.assertEqual(api.get(album).data['data']['assets'][0]['id'], self.album.pk)
+
+        self.apply()
+        self.assertEqual(api.get(evaluation).status_code, 404)
+        self.assertEqual(api.get(payroll).status_code, 404)
+        self.assertEqual(api.post(payroll + 'confirm/', {}, format='json').status_code, 404)
+        self.assertEqual(api.get(album).data['data']['assets'][0]['id'], self.album.pk)
+        with patch('API.payroll_documents.signature_response', return_value=HttpResponse('fixture')):
+            self.assertContains(api.get(payroll + 'signature-file/'), 'fixture')
+            api.force_authenticate(self.owner)
+            self.assertEqual(api.get(payroll + 'signature-file/').status_code, 403)
+        albums = api.get('/booking/archive-fixture/api/course-albums/')
+        self.assertEqual(albums.data['albums'][0]['members'][0]['id'], self.member.pk)
+
+    def test_legacy_member_detail_route_keeps_archived_rows_unchanged(self):
+        live_group = ReservationGroup.objects.create(client=self.other, user=self.owner)
+        live_reservation = Reservation.objects.create(group=live_group)
+        self.client.force_login(self.owner)
+        path = '/booking/api/member_detail/'
+        payload = {'user_id': self.owner.pk, 'members_data': [{'age_range': '19-24y'}]}
+        live = self.client.post(path, {**payload, 'reservation_pk': live_reservation.pk},
+                                content_type='application/json')
+        self.assertEqual(live.status_code, 200)
+        self.apply()
+        archived = self.client.post(path, {**payload, 'reservation_pk': self.reservation.pk},
+                                    content_type='application/json')
+        self.assertEqual(archived.status_code, 404)
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.status, 'completed')
+        self.assertEqual(self.reservation.course_fee, 900)
+        self.assertEqual(MemberDetail.all_objects.filter(reservation=self.reservation).count(), 2)
+
+    def test_order_list_export_and_vehicle_desk_show_only_active_records(self):
+        self.group.order_number = 'QA-ARCHIVED-ORDER'
+        self.group.save(update_fields=['order_number'])
+        self.apply()
+        live = ReservationGroup.objects.create(client=self.tenant, campus=self.campus, user=self.owner,
+                                               order_number='QA-LIVE-ORDER')
+        reservation = Reservation.objects.create(group=live, course_fee=300, status='completed')
+        Booking.objects.create(reservation=reservation, date=self.day, start_time=time(10), end_time=time(11))
+        Payment.objects.create(reservation_group=live, status='paid')
+        trip = VehicleTrip.objects.create(campus=self.campus, driver=self.coach, purpose='lesson',
+                                          starts_at=self.trip.starts_at, ends_at=self.trip.ends_at)
+        api = APIClient()
+        api.force_authenticate(self.staff)
+        prefix = '/api/admin/archive-fixture/'
+        orders = api.get(prefix + 'orders/').data['data']
+        self.assertEqual(orders['total'], 1)
+        self.assertContains(api.get(prefix + 'orders/'), live.order_number)
+        self.assertNotContains(api.get(prefix + 'orders/'), self.group.order_number)
+        api.force_authenticate(self.actor)
+        export = api.get(prefix + 'orders/export/', {'date_basis': 'lesson', 'start': self.day, 'end': self.day})
+        self.assertContains(export, live.order_number)
+        self.assertNotContains(export, self.group.order_number)
+        self.assertEqual([row['id'] for row in api.get(prefix + 'vehicles/').data['data']['trips']], [trip.pk])
+        result = api.post(prefix + 'vehicles/', {'action': 'approve', 'trip': self.trip.pk}, format='json')
+        self.assertEqual(result.status_code, 404, result.data)
+
+    def test_jobs_skip_archived_deliveries_evaluations_and_payroll(self):
+        from booking.management.commands.process_snowland_jobs import Command as JobsCommand
+
+        overdue = timezone.now() - timedelta(days=2)
+        PayrollStatement.objects.filter(pk=self.payroll.pk).update(
+            status='review', review_token=uuid4(), confirmation_deadline=overdue.date(), published_at=overdue,
+        )
+        manual_template = NotificationTemplate.objects.create(
+            client=self.tenant, name='Manual fixture', event='manual', channel='in_app', manual_key=uuid4(),
+        )
+        NotificationDelivery.objects.filter(pk=self.manual.pk).update(
+            template=manual_template, status='sent', sent_at=overdue,
+        )
+        with patch('booking.management.commands.process_snowland_jobs.send_mail', return_value=1) as send:
+            self.apply()
+            group = ReservationGroup.objects.create(client=self.tenant, campus=self.campus, user=self.owner)
+            reservation = Reservation.objects.create(group=group, status='completed')
+            booking = Booking.objects.create(reservation=reservation, date=self.day, start_time=time(9), end_time=time(11))
+            member = MemberDetail.objects.create(reservation=reservation, user=self.owner)
+            template = NotificationTemplate.objects.create(client=self.tenant, name='Live fixture',
+                                                          channel='email', event='payment_confirmed')
+            live = NotificationDelivery.objects.create(template=template, group=group,
+                                                       recipient='archive-fixture@example.test', scheduled_at=overdue)
+            self.assertEqual(JobsCommand()._deliver_due(self.delivery.pk, timezone.now(), dry_run=False), (0, 0))
+            output = StringIO()
+            call_command('process_snowland_jobs', stdout=output)
+        self.assertIn('evaluations=1', output.getvalue())
+        send.assert_called_once()
+        self.assertTrue(CourseEvaluation.objects.filter(booking=booking, member=member).exists())
+        self.assertEqual(CourseEvaluation.all_objects.filter(booking=self.booking).count(), 1)
+        live.refresh_from_db()
+        self.delivery.refresh_from_db()
+        self.manual.refresh_from_db()
+        self.payroll.refresh_from_db()
+        self.assertEqual((live.status, self.delivery.status, self.payroll.status), ('sent', 'scheduled', 'review'))
+        self.assertEqual((self.manual.status, self.manual.sent_at), ('sent', overdue))
 
     def test_active_relation_rollups_exclude_flagged_children_and_ancestors(self):
         self.assertEqual(self.customer_class.registered_students, 3)

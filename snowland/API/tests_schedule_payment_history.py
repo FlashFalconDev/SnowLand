@@ -50,3 +50,10 @@ class SchedulePaymentHistoryTests(TestCase):
     def test_no_payment_never_becomes_a_visible_scheduled_course(self):
         self.group.payments.all().delete()
         self.assert_views(False)
+
+    def test_archived_latest_payment_and_order_are_excluded_from_calendars(self):
+        Payment.all_objects.filter(pk=self.latest.pk).update(is_deleted=True)
+        self.assert_views(True)
+        self.group.is_deleted = True
+        self.group.save(update_fields=['is_deleted'])
+        self.assert_views(False)

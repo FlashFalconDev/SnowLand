@@ -607,7 +607,7 @@ def API(request, tunnel, Client_Info=None):
             reservation_pk = body.get("reservation_pk")
             members_data = body.get("members_data", [])
             user = get_object_or_404(User, pk=user_id)
-            resv = get_object_or_404(Reservation, pk=reservation_pk)
+            resv = get_object_or_404(Reservation.objects.live(), pk=reservation_pk)
 
             # 先刪除與 resv 關聯的所有 MemberDetail 對象
             MemberDetail.objects.live().filter(reservation=resv).delete()

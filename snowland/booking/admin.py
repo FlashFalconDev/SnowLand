@@ -1,5 +1,7 @@
 from django.contrib import admin
+from django.db.models import FileField
 
+from .media_files import PrivateCourseMediaStorage
 from .models import Reservation, ReservationGroup
 from .order_archive import SCOPES
 
@@ -19,10 +21,26 @@ class ArchiveVisibilityFilter(admin.SimpleListFilter):
         return queryset.live()
 
 
+def private_file_name(field):
+    @admin.display(description=field.verbose_name)
+    def display(obj):
+        name = getattr(obj, field.name).name
+        return name.rsplit('/', 1)[-1] if name else None
+
+    return display
+
+
 class ArchivedOrderAdmin(admin.ModelAdmin):
     list_display = ['pk', 'is_deleted', 'deleted_at']
     actions = None
     readonly_fields = ['is_deleted', 'deleted_at', 'deleted_by']
+
+    def __init__(self, model, admin_site):
+        super().__init__(model, admin_site)
+        self.private_file_displays = {
+            field.name: private_file_name(field) for field in model._meta.fields
+            if isinstance(field, FileField) and isinstance(field.storage, PrivateCourseMediaStorage)
+        }
 
     def get_queryset(self, request):
         if request.user.is_superuser:
@@ -43,10 +61,15 @@ class ArchivedOrderAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return not self.is_archived(obj) and super().has_change_permission(request, obj)
 
-    def get_readonly_fields(self, request, obj=None):
-        if self.is_archived(obj):
-            return [field.name for field in (*self.model._meta.fields, *self.model._meta.many_to_many)]
-        return super().get_readonly_fields(request, obj)
+    def get_fields(self, request, obj=None):
+        if obj is not None and not self.has_change_permission(request, obj):
+            # Django normally calls FileField.url to render read-only fields.
+            # Private storage serves files only through their authorized endpoints.
+            return [
+                self.private_file_displays.get(field.name, field.name)
+                for field in (*self.model._meta.fields, *self.model._meta.many_to_many)
+            ]
+        return super().get_fields(request, obj)
 
 
 class ReservationInline(admin.TabularInline):

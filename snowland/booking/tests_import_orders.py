@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 from openpyxl import Workbook
 
@@ -65,6 +66,17 @@ class ImportSnowLandOrdersTests(TestCase):
         call_command('import_snowland_orders', str(path), '--commit', stdout=output)
         self.assertIn('已存在略過 1 筆', output.getvalue())
         self.assertEqual(ReservationGroup.objects.count(), 1)
+
+    def test_import_rejects_an_archived_order_number(self):
+        directory, path = self.make_workbook()
+        self.addCleanup(directory.cleanup)
+        archived = ReservationGroup.all_objects.create(
+            client=self.client_record, order_number='270101001', is_deleted=True,
+        )
+        with self.assertRaisesMessage(CommandError, '匯入單號已封存'):
+            call_command('import_snowland_orders', str(path), '--commit', stdout=StringIO())
+        self.assertEqual(list(ReservationGroup.all_objects.values_list('pk', 'is_deleted')), [(archived.pk, True)])
+        self.assertFalse(Payment.all_objects.exists())
 
     def test_missing_email_is_reported_and_not_imported(self):
         directory, path = self.make_workbook(email='')

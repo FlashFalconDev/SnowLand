@@ -3839,7 +3839,7 @@ class MemberAmendmentsAPI(APIView):
         if not request.user.is_authenticated:return None,Response({'error':'請先登入'},status=401)
         try:tenant=resolve_tenant_client(client_code)
         except TenantResolutionError:return None,Response({'error':'找不到您的訂單'},status=404)
-        return get_object_or_404(ReservationGroup,pk=group_id,client=tenant,user=request.user),None
+        return get_object_or_404(ReservationGroup.objects.live(),pk=group_id,client=tenant,user=request.user),None
 
     def get(self,request,client_code,group_id):
         from .amendment_balances import group_balances
