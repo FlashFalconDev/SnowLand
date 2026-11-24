@@ -9,6 +9,7 @@ import uuid
 from Resorts.models import Resorts
 from Coursekit.models import CourseType
 from .media_files import PrivateCourseMediaStorage
+from snowland.soft_delete import SoftDeleteManager, SoftDeleteModel
 
 ABILITY_LEVEL_CHOICES = [
     ('no_exp', '等級 0'),
@@ -26,7 +27,9 @@ EQUIPMENT_CHOICES = [
         ('assistDuringCourse', '課程時間內協助'),
         ('purchaseAssistanceTime', '加購協助時間'),
     ]
-class ReservationGroup(models.Model):
+class ReservationGroup(SoftDeleteModel):
+    objects = SoftDeleteManager()
+
     newebpay_override = models.BooleanField(null=True, blank=True)
     newebpay_form_issued = models.BooleanField(default=False)
     newebpay_merchant = models.ForeignKey(
@@ -73,12 +76,15 @@ class ReservationGroup(models.Model):
             self.order_number = f"SL-{self.created_at:%Y%m%d}-{self.pk:06d}"
             type(self).objects.filter(pk=self.pk).update(order_number=self.order_number)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         verbose_name = '預約分組'
         verbose_name_plural = '2-0.預約分組'
+        indexes = [
+            models.Index(fields=['client', 'is_deleted', 'created_at'], name='sl_group_client_live_date'),
+        ]
 
 
-class SharedCourseClass(models.Model):
+class SharedCourseClass(SoftDeleteModel):
     """One lesson shared by separate customer orders at the same campus and resort."""
 
     OPENING_CHOICES = [('school', '學校開班'), ('customer', '客人發起')]
@@ -113,14 +119,20 @@ class SharedCourseClass(models.Model):
             self.save(update_fields=['status'])
         return self.status
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         constraints = [models.UniqueConstraint(
             fields=['client', 'campus', 'resort', 'template', 'date', 'start_time', 'end_time', 'ability_level', 'language'],
             name='unique_shared_course_class_slot',
         )]
+        indexes = [
+            models.Index(fields=['client', 'is_deleted', 'campus', 'date'], name='sl_class_client_live_date'),
+        ]
 
 
-class Reservation(models.Model):
+class Reservation(SoftDeleteModel):
+    objects = SoftDeleteManager()
+    soft_delete_parents = ('group', 'shared_course_class',)
+
     group = models.ForeignKey(
         'ReservationGroup',
         on_delete=models.CASCADE,
@@ -308,11 +320,21 @@ class Reservation(models.Model):
             coach_info = f"未指定教練: {coach_name}"
         return f"{self.pk} - 課程預約: {user_name} - {coach_info}"
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         verbose_name = '預約'
         verbose_name_plural = '2-1.預約列表'
+        indexes = [
+            models.Index(fields=['group', 'is_deleted', 'status'], name='sl_res_group_live_status'),
+        ]
 
-class Booking(models.Model):
+class Booking(SoftDeleteModel):
+    objects = SoftDeleteManager()
+    soft_delete_parents = (
+        'reservation',
+        'reservation__group',
+        'reservation__shared_course_class',
+    )
+
     fee_snapshot = models.JSONField(null=True, blank=True, verbose_name='堂次計價紀錄')
     course_template = models.ForeignKey(
         'Coursekit.CourseTemplate',on_delete=models.SET_NULL,null=True,blank=True,
@@ -340,9 +362,12 @@ class Booking(models.Model):
         coach_info = f"指定教練: {coach_name}" if self.reservation.is_preferred_coach else f"未指定教練: {coach_name}"
         return f"{self.date} {self.course_name} 預約者: {user_name} {coach_info}"
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         verbose_name = '預約課程'
         verbose_name_plural = '2-2.預約課程'
+        indexes = [
+            models.Index(fields=['reservation', 'is_deleted', 'date'], name='sl_booking_res_live_date'),
+        ]
 
 class LearnerProfile(models.Model):
     """A household-managed learner identity within one school."""
@@ -352,14 +377,19 @@ class LearnerProfile(models.Model):
     name = models.CharField(max_length=120)
 
 
-class ActiveMemberDetailManager(models.Manager):
+class ActiveMemberDetailManager(SoftDeleteManager):
     def get_queryset(self):
         return super().get_queryset().filter(is_active=True)
 
 
-class MemberDetail(models.Model):
+class MemberDetail(SoftDeleteModel):
+    soft_delete_parents = (
+        'reservation',
+        'reservation__group',
+        'reservation__shared_course_class',
+    )
+
     objects = ActiveMemberDetailManager()
-    all_objects = models.Manager()
     is_active = models.BooleanField(default=True,db_index=True,verbose_name='目前參課學員')
     archived_at = models.DateTimeField(null=True,blank=True,verbose_name='退出課程留底時間')
     """
@@ -513,18 +543,34 @@ class MemberDetail(models.Model):
         user_name = f"{self.user.last_name}{self.user.first_name}" if self.user else "未知使用者"
         return f"課程預約者: {user_name}, {coach_info},[學員]年齡: {self.age_range}, 單板程度: {self.snowboard_skills}, 雙板程度: {self.ski_skills}"
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         verbose_name = '學員程度表單'
         verbose_name_plural = '2-3.學員程度表單'
-        default_manager_name = 'objects'
-        base_manager_name = 'all_objects'
+        indexes = [
+            models.Index(fields=['reservation', 'is_deleted', 'is_active'], name='sl_member_res_live_active'),
+        ]
 
-class MemberCourseDocumentRevision(models.Model):
+class MemberCourseDocumentRevision(SoftDeleteModel):
+    objects = SoftDeleteManager()
+    soft_delete_parents = (
+        'member',
+        'member__reservation',
+        'member__reservation__group',
+        'member__reservation__shared_course_class',
+        'revision',
+        'revision__group',
+    )
+
     """Private course-change evidence; never included in public order snapshots."""
     member = models.ForeignKey(MemberDetail, on_delete=models.CASCADE, related_name='course_document_revisions')
     revision = models.ForeignKey('OrderRevision', on_delete=models.CASCADE, related_name='member_document_revisions')
     snapshot = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['member', 'is_deleted'], name='sl_document_member_live'),
+        ]
 
 
 class MemberWaiverSignature(models.Model):
@@ -543,7 +589,14 @@ class MemberWaiverSignature(models.Model):
     strokes = models.JSONField()
 
 
-class ParticipantInvitation(models.Model):
+class ParticipantInvitation(SoftDeleteModel):
+    soft_delete_parents = (
+        'member',
+        'member__reservation',
+        'member__reservation__group',
+        'member__reservation__shared_course_class',
+    )
+
     member = models.OneToOneField(MemberDetail, on_delete=models.CASCADE, related_name='invitation')
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     expires_at = models.DateTimeField()
@@ -552,8 +605,16 @@ class ParticipantInvitation(models.Model):
     accepted_at = models.DateTimeField(null=True, blank=True)
     binding_role = models.CharField(max_length=10, blank=True, default='', choices=[('self', '學員本人'), ('guardian', '家長／監護人')])
 
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['member', 'is_deleted'], name='sl_invite_member_live'),
+        ]
 
-class Payment(models.Model):
+
+class Payment(SoftDeleteModel):
+    objects = SoftDeleteManager()
+    soft_delete_parents = ('reservation_group',)
+
     STATUS_CHOICES = [
         ('unpaid', '未付款'),
         ('pending', '待確認付款'),
@@ -611,9 +672,13 @@ class Payment(models.Model):
     def __str__(self):
         return f"付款單#{self.pk} - 預約{self.reservation_group} - 狀態: {self.get_status_display()}"
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         verbose_name = '付款紀錄'
         verbose_name_plural = '2-4.付款紀錄'
+        indexes = [
+            models.Index(fields=['reservation_group', 'is_deleted', 'status'], name='sl_payment_group_live_status'),
+            models.Index(fields=['is_deleted', 'status', 'expires_at'], name='sl_payment_live_expiry'),
+        ]
 
 
 def referral_code_default():
@@ -669,7 +734,9 @@ class MemberLoyaltyPolicy(models.Model):
     rules = models.JSONField(default=dict)
 
 
-class OrderLoyalty(models.Model):
+class OrderLoyalty(SoftDeleteModel):
+    soft_delete_parents = ('group',)
+
     group = models.OneToOneField(ReservationGroup, on_delete=models.PROTECT, related_name='loyalty')
     account = models.ForeignKey(MemberLoyaltyAccount, on_delete=models.PROTECT, related_name='orders')
     policy_revision = models.PositiveIntegerField()
@@ -683,8 +750,15 @@ class OrderLoyalty(models.Model):
     referrer = models.ForeignKey(MemberLoyaltyAccount, null=True, on_delete=models.PROTECT, related_name='referred_orders')
     referral_earned = models.PositiveIntegerField(default=0)
 
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['account', 'is_deleted'], name='sl_order_loyalty_account_live'),
+        ]
 
-class MemberLoyaltyEntry(models.Model):
+
+class MemberLoyaltyEntry(SoftDeleteModel):
+    soft_delete_parents = ('order', 'order__group',)
+
     account = models.ForeignKey(MemberLoyaltyAccount, on_delete=models.PROTECT, related_name='entries')
     order = models.ForeignKey(OrderLoyalty, on_delete=models.PROTECT, related_name='entries')
     kind = models.CharField(max_length=24)
@@ -692,8 +766,15 @@ class MemberLoyaltyEntry(models.Model):
     rewards_delta = models.BigIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['account', 'is_deleted', 'created_at'], name='sl_loyalty_account_live_date'),
+        ]
 
-class OrderRevision(models.Model):
+
+class OrderRevision(SoftDeleteModel):
+    soft_delete_parents = ('group',)
+
     CHANGE_CHOICES = [('create', '建立'), ('modify', '修改'), ('add', '追加'), ('reduce', '追減'), ('cancel', '取消')]
     group = models.ForeignKey(ReservationGroup, on_delete=models.CASCADE, related_name='revisions', verbose_name='訂單')
     version = models.PositiveIntegerField(verbose_name='版本')
@@ -704,12 +785,17 @@ class OrderRevision(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='order_revisions')
     created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         ordering = ['group', '-version']
         unique_together = ('group', 'version')
+        indexes = [
+            models.Index(fields=['group', 'is_deleted', 'version'], name='sl_revision_group_live_ver'),
+        ]
 
 
-class OrderAmendment(models.Model):
+class OrderAmendment(SoftDeleteModel):
+    soft_delete_parents = ('group', 'revision', 'revision__group',)
+
     STATUS_CHOICES=[('included_in_order','併入原訂單付款'),('no_difference','無待收退差額'),('topup_due','待補款'),
         ('topup_reported','補款待核對'),('refund_account_due','待填退款帳戶'),('refund_due','待退款'),('settled','已結清'),('superseded','已由新版取代'),('cancelled','已併入取消結算')]
     group=models.ForeignKey(ReservationGroup,on_delete=models.CASCADE,related_name='amendments')
@@ -734,13 +820,23 @@ class OrderAmendment(models.Model):
     settled_at=models.DateTimeField(null=True,blank=True)
     settled_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='order_amendments_settled')
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         ordering=['-created_at','-id']
         verbose_name='訂單修改與差額'
         verbose_name_plural='訂單修改與差額'
+        indexes = [
+            models.Index(fields=['group', 'is_deleted', 'status'], name='sl_amend_group_live_status'),
+        ]
 
 
-class OrderAmendmentEvent(models.Model):
+class OrderAmendmentEvent(SoftDeleteModel):
+    soft_delete_parents = (
+        'amendment',
+        'amendment__group',
+        'amendment__revision',
+        'amendment__revision__group',
+    )
+
     amendment=models.ForeignKey(OrderAmendment,on_delete=models.CASCADE,related_name='events')
     request_key=models.UUIDField(unique=True)
     request_fingerprint=models.CharField(max_length=64)
@@ -751,12 +847,17 @@ class OrderAmendmentEvent(models.Model):
     actor=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,related_name='order_amendment_events')
     created_at=models.DateTimeField(default=timezone.now)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         ordering=['created_at','id']
         verbose_name='訂單差額處理紀錄'
+        indexes = [
+            models.Index(fields=['amendment', 'is_deleted'], name='sl_event_amend_live'),
+        ]
 
 
-class CancellationRequest(models.Model):
+class CancellationRequest(SoftDeleteModel):
+    soft_delete_parents = ('group',)
+
     STATUS_CHOICES = [('requested', '待處理'), ('approved', '已核准'), ('rejected', '已拒絕'), ('refunded', '已退款')]
     CALCULATION_CHOICES = [('auto', '依訂單日期'), ('rule', '指定退費方案'), ('manual', '特殊金額')]
     REASON_CHOICES = [('schedule', '行程變更'), ('health', '健康因素'), ('weather', '天候因素'), ('duplicate', '重複訂單'), ('other', '其他')]
@@ -785,6 +886,11 @@ class CancellationRequest(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['group', 'is_deleted', 'status'], name='sl_cancel_group_live_status'),
+        ]
+
 
 class NotificationTemplate(models.Model):
     manual_key = models.UUIDField(null=True, blank=True, unique=True, editable=False)
@@ -811,7 +917,9 @@ class NotificationTemplate(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class NotificationDelivery(models.Model):
+class NotificationDelivery(SoftDeleteModel):
+    soft_delete_parents = ('group',)
+
     STATUS_CHOICES = [('scheduled', '已排程'), ('sending', '發送中／結果待確認'), ('sent', '已發送'), ('failed', '發送失敗'), ('cancelled', '已取消')]
     template = models.ForeignKey(NotificationTemplate, on_delete=models.PROTECT, related_name='deliveries')
     group = models.ForeignKey(ReservationGroup, on_delete=models.CASCADE, null=True, blank=True, related_name='notification_deliveries')
@@ -823,8 +931,24 @@ class NotificationDelivery(models.Model):
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['is_deleted', 'status', 'scheduled_at'], name='sl_delivery_live_status_date'),
+        ]
 
-class CourseEvaluation(models.Model):
+
+class CourseEvaluation(SoftDeleteModel):
+    soft_delete_parents = (
+        'booking',
+        'booking__reservation',
+        'booking__reservation__group',
+        'booking__reservation__shared_course_class',
+        'member',
+        'member__reservation',
+        'member__reservation__group',
+        'member__reservation__shared_course_class',
+    )
+
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='evaluations')
     member = models.ForeignKey(MemberDetail, on_delete=models.CASCADE, related_name='evaluations')
     coach = models.ForeignKey('Coach.Coach', on_delete=models.SET_NULL, null=True, blank=True, related_name='course_evaluations')
@@ -837,8 +961,12 @@ class CourseEvaluation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         unique_together = ('booking', 'member')
+        indexes = [
+            models.Index(fields=['booking', 'is_deleted'], name='sl_eval_booking_live'),
+            models.Index(fields=['member', 'is_deleted'], name='sl_eval_member_live'),
+        ]
 
 
 class CourseMedia(models.Model):

@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 
 from booking.media_files import PrivateCourseMediaStorage
+from snowland.soft_delete import SoftDeleteManager, SoftDeleteModel
 
 
 class VehiclePolicy(models.Model):
@@ -24,7 +25,9 @@ class Vehicle(models.Model):
         constraints = [models.UniqueConstraint(fields=['campus', 'plate'], name='unique_vehicle_plate_per_campus')]
 
 
-class VehicleTrip(models.Model):
+class VehicleTrip(SoftDeleteModel):
+    objects = SoftDeleteManager()
+
     PURPOSES = [('lesson', '課程用車'), ('business', '其他公用'), ('shopping', '生活採買'), ('private', '私用')]
     STATUSES = [('pending', '待核准'), ('approved', '已排車'), ('driving', '用車中'),
                 ('returned', '待審核'), ('reviewed', '紀錄已審核'), ('settled', '費用已核准'), ('rejected', '未核准')]
@@ -55,14 +58,19 @@ class VehicleTrip(models.Model):
     amount_twd = models.PositiveBigIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         indexes = [
             models.Index(fields=['vehicle', 'status', 'starts_at'], name='vehicle_trip_schedule_idx'),
             models.Index(fields=['campus', 'purpose', 'starts_at'], name='vehicle_trip_purpose_idx'),
+            models.Index(fields=['campus', 'is_deleted', 'purpose', 'starts_at'], name='sl_trip_campus_live_purpose'),
+            models.Index(fields=['vehicle', 'is_deleted', 'status', 'starts_at'], name='sl_trip_vehicle_live_status'),
         ]
 
 
-class VehicleExpense(models.Model):
+class VehicleExpense(SoftDeleteModel):
+    objects = SoftDeleteManager()
+    soft_delete_parents = ('trip',)
+
     KINDS = [('fuel', '加油'), ('toll', '過路費'), ('other', '車輛雜支')]
     trip = models.ForeignKey(VehicleTrip, on_delete=models.CASCADE, related_name='expenses')
     kind = models.CharField(max_length=8, choices=KINDS)
@@ -70,8 +78,15 @@ class VehicleExpense(models.Model):
     note = models.CharField(max_length=200, blank=True)
     receipt = models.FileField(storage=PrivateCourseMediaStorage(), upload_to='vehicle-receipts', max_length=240, blank=True)
 
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['trip', 'is_deleted'], name='sl_expense_trip_live'),
+        ]
 
-class VehicleCharge(models.Model):
+
+class VehicleCharge(SoftDeleteModel):
+    soft_delete_parents = ('trip',)
+
     trip = models.ForeignKey(VehicleTrip, on_delete=models.PROTECT, related_name='charges')
     coach = models.ForeignKey('Coach.Coach', on_delete=models.PROTECT, related_name='vehicle_charges')
     amount_twd = models.PositiveBigIntegerField()
@@ -79,14 +94,23 @@ class VehicleCharge(models.Model):
     last_month = models.DateField()
     collected_twd = models.PositiveBigIntegerField(default=0)
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         constraints = [models.UniqueConstraint(fields=['trip', 'coach'], name='unique_vehicle_charge_per_coach')]
+        indexes = [
+            models.Index(fields=['coach', 'is_deleted', 'first_month'], name='sl_charge_coach_live_month'),
+        ]
 
 
-class VehicleDeduction(models.Model):
+class VehicleDeduction(SoftDeleteModel):
+    soft_delete_parents = ('statement', 'charge', 'charge__trip',)
+
     charge = models.ForeignKey(VehicleCharge, on_delete=models.PROTECT, related_name='deductions')
     statement = models.ForeignKey('Coach.PayrollStatement', on_delete=models.CASCADE, related_name='vehicle_deductions')
     amount_twd = models.PositiveBigIntegerField()
 
-    class Meta:
+    class Meta(SoftDeleteModel.Meta):
         constraints = [models.UniqueConstraint(fields=['charge', 'statement'], name='unique_vehicle_payroll_deduction')]
+        indexes = [
+            models.Index(fields=['statement', 'is_deleted'], name='sl_deduct_stmt_live'),
+            models.Index(fields=['charge', 'is_deleted'], name='sl_deduct_charge_live'),
+        ]
