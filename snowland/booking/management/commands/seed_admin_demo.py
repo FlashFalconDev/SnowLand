@@ -183,7 +183,7 @@ class Command(BaseCommand):
         ]
 
         for i, (resort, ct, level, ppl, coach, payment_status, fee) in enumerate(order_samples):
-            group, created = ReservationGroup.objects.get_or_create(
+            group, created = ReservationGroup.objects.live().get_or_create(
                 client=client, name=f'demo-order-{i+1}',
                 defaults={'user': demo_user},
             )

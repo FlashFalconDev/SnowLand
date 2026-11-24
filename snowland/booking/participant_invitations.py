@@ -20,7 +20,7 @@ def check_invitable_course(member):
         raise InvitationError('此學員名額已退出，無法重新綁定',404)
     if member.reservation.status in {'cancelled', 'deleted'}:
         raise InvitationError('此課程已取消，無法綁定學員')
-    payment = member.reservation.group.payments.order_by('-created_at').first()
+    payment = member.reservation.group.payments.live().order_by('-created_at').first()
     if not payment or payment.status != 'paid':
         raise InvitationError('訂單付款完成後才可邀請同行學員綁定')
 
@@ -38,7 +38,7 @@ def binding_status(member):
 
 @transaction.atomic
 def issue_invitation(tenant, organizer, member_id, *, revoke=False):
-    member = MemberDetail.objects.select_for_update().select_related('reservation__group').filter(
+    member = MemberDetail.objects.live().select_for_update().select_related('reservation__group').filter(
         pk=member_id, reservation__group__client=tenant, reservation__group__user=organizer,
     ).first()
     if not member:
@@ -75,7 +75,7 @@ def accept_invitation(tenant, user, token, role):
     if not initial:
         raise InvitationError('找不到邀請連結，可能已撤銷或重新產生', 404)
     # Both issue and accept lock the learner first, so a rotated/revoked invitation cannot race acceptance.
-    member = MemberDetail.objects.select_for_update().select_related('reservation__group').filter(pk=initial.member_id).first()
+    member = MemberDetail.objects.live().select_for_update().select_related('reservation__group').filter(pk=initial.member_id).first()
     if not member:
         raise InvitationError('找不到邀請連結，可能已撤銷或重新產生', 404)
     invitation = ParticipantInvitation.objects.select_for_update().filter(pk=initial.pk, token=token).first()

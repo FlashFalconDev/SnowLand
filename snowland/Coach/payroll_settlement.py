@@ -30,7 +30,7 @@ def rounded(value):
 def save_settlement(statement, data, user):
     # Vehicle approvals and payroll allocations share the tenant lock.
     Client.objects.select_for_update().get(pk=statement.coach.client_id)
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('僅草稿可設定稅金與發放幣別')
     if not isinstance(data, dict) or data.get('reviewed') is not True:

@@ -275,7 +275,7 @@ class Command(BaseCommand):
         for index, (order_number, name, campus_code, resort_code, customer_name, coach_name, status, payment_status, payment_method, day_offset, source, people) in enumerate(order_specs):
             customer = customers[customer_name]
             coach = coaches[coach_name]
-            group, _ = ReservationGroup.objects.update_or_create(
+            group, _ = ReservationGroup.objects.live().update_or_create(
                 client=client,
                 order_number=order_number,
                 defaults={
@@ -288,7 +288,7 @@ class Command(BaseCommand):
                     "line_group_url": "https://example.test/demo-line-group",
                 },
             )
-            ReservationGroup.objects.filter(pk=group.pk).update(created_at=now - timedelta(days=index))
+            ReservationGroup.objects.live().filter(pk=group.pk).update(created_at=now - timedelta(days=index))
             category_name = "雙板 Ski" if "雙板" in name else "單板 Snowboard"
             template_name = "半天上午" if "上午" in name else "半天下午" if "下午" in name else "全天課程"
             template = next(
@@ -299,7 +299,7 @@ class Command(BaseCommand):
             session = template.sessions.filter(is_active=True).order_by("start_time").first()
             if session is None:
                 raise CommandError(f"DEMO 課程缺少時段：{category_name}／{template_name}")
-            reservation, _ = Reservation.objects.update_or_create(
+            reservation, _ = Reservation.objects.live().update_or_create(
                 group=group,
                 defaults={
                     "resort": resorts[resort_code],
@@ -320,7 +320,7 @@ class Command(BaseCommand):
             # update_or_create(update_fields=...) does not include the totals
             # calculated by Reservation.save() unless they are saved explicitly.
             reservation.save()
-            booking = Booking.objects.filter(reservation=reservation).order_by("-id").first()
+            booking = Booking.objects.live().filter(reservation=reservation).order_by("-id").first()
             if booking is None:
                 booking = Booking(reservation=reservation)
             booking.date = today + timedelta(days=day_offset)
@@ -330,8 +330,8 @@ class Command(BaseCommand):
             booking.end_time = session.end_time
             booking.is_scheduled = status not in {"created", "manual_assignment_needed", "cancelled"}
             booking.save()
-            Booking.objects.filter(reservation=reservation).exclude(pk=booking.pk).delete()
-            payment, _ = Payment.objects.update_or_create(
+            Booking.objects.live().filter(reservation=reservation).exclude(pk=booking.pk).delete()
+            payment, _ = Payment.objects.live().update_or_create(
                 reservation_group=group,
                 defaults={
                     "user": customer,
@@ -342,7 +342,7 @@ class Command(BaseCommand):
                     "DataJSON": {"contact": {"email": customer.email, "name": customer.first_name}, "demo": True},
                 },
             )
-            member, _ = MemberDetail.objects.update_or_create(
+            member, _ = MemberDetail.objects.live().update_or_create(
                 reservation=reservation,
                 user=customer,
                 defaults={

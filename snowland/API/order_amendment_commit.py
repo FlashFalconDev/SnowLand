@@ -55,7 +55,7 @@ def _verify_quote(group,data,actor):
 
 def _participants(reservation,item):
     from booking.api_views import ABILITY_LEVEL_KEYS, normalize_student_level_counts
-    active=list(MemberDetail.objects.select_for_update().filter(reservation=reservation).order_by('pk'))
+    active=list(MemberDetail.objects.live().select_for_update().filter(reservation=reservation).order_by('pk'))
     provided=item['retained_member_ids']
     if provided is None:
         if item['number_of_people']<len(active):
@@ -113,19 +113,20 @@ def _assignment(reservation,item,busy,levels):
 @transaction.atomic
 def confirm_order_amendment(request,group_id,data,scope):
     Client.objects.select_for_update().get(pk=request.tenant.pk)
-    group=get_object_or_404(ReservationGroup.objects.select_for_update().select_related('client','user','campus'),
+    group=get_object_or_404(ReservationGroup.objects.live().select_for_update().select_related('client','user','campus'),
         pk=group_id,client=request.tenant,pk__in=scope.values('pk'))
     fingerprint=amendment_digest({'actor':request.user.pk,'changes':data['changes'],'reason':data['reason'],'reschedule':data['reschedule']})
-    existing=OrderAmendment.objects.filter(request_key=data['request_key']).first()
+    existing=OrderAmendment.all_objects.select_related('revision').filter(request_key=data['request_key']).first()
     if existing:
-        if existing.group_id!=group.pk or existing.created_by_id!=request.user.pk or existing.request_fingerprint!=fingerprint:
+        if (existing.is_deleted or existing.revision.is_deleted or existing.group_id!=group.pk
+                or existing.created_by_id!=request.user.pk or existing.request_fingerprint!=fingerprint):
             raise NotificationConflict('此修改識別碼已使用，請重新開啟修改視窗')
         return existing,True
-    reservations={row.pk:row for row in Reservation.objects.select_for_update().filter(group=group).select_related('group','resort','course_type','course_template').order_by('pk')}
-    list(Booking.objects.select_for_update().filter(reservation__group=group).order_by('pk'))
-    list(MemberDetail.objects.select_for_update().filter(reservation__group=group).order_by('pk'))
+    reservations={row.pk:row for row in Reservation.objects.live().select_for_update().filter(group=group).select_related('group','resort','course_type','course_template').order_by('pk')}
+    list(Booking.objects.live().select_for_update().filter(reservation__group=group).order_by('pk'))
+    list(MemberDetail.objects.live().select_for_update().filter(reservation__group=group).order_by('pk'))
     quote=_verify_quote(group,data,request.user)
-    previous=group.payments.order_by('-created_at','-pk').first()
+    previous=group.payments.live().order_by('-created_at','-pk').first()
     if previous and previous.status in {'pending','expired','refunded'}:
         raise NotificationConflict('請先核對待確認、逾期或已退款的付款狀態，再修改訂單')
     pending=list(group.amendments.select_for_update().filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
@@ -153,13 +154,13 @@ def confirm_order_amendment(request,group_id,data,scope):
     coach_ids.update(item['preferred_coach_id'] for item in quote['items'] if item['preferred_coach_id'])
     list(Coach.objects.select_for_update().filter(pk__in=coach_ids).order_by('pk'))
     busy=defaultdict(list)
-    for booking in Booking.objects.filter(is_scheduled=True,reservation__preferred_coach_id__in=coach_ids).exclude(
+    for booking in Booking.objects.live().filter(is_scheduled=True,reservation__preferred_coach_id__in=coach_ids).exclude(
             reservation__status__in=['deleted','cancelled']).exclude(reservation_id__in=changed_ids).select_related('reservation'):
         busy[booking.reservation.preferred_coach_id].append((booking.date,booking.start_time,booking.end_time))
     before=order_snapshot(group);plans=[];document_archives=[]
     for item in quote['items']:
         reservation=reservations[item['reservation_id']]
-        bookings=list(reservation.bookings.order_by('pk'))
+        bookings=list(reservation.bookings.live().order_by('pk'))
         old={booking.pk:booking for booking in bookings}
         active,keep,levels=_participants(reservation,item)
         if item['course_documents_changed']:
@@ -172,7 +173,7 @@ def confirm_order_amendment(request,group_id,data,scope):
     participants={};to_schedule=[]
     for reservation,item,old,active,keep,levels,(coach,next_status,scheduled) in plans:
         archived=[member.pk for member in active if member.pk not in keep]
-        MemberDetail.objects.filter(pk__in=archived).update(is_active=False,archived_at=timezone.now())
+        MemberDetail.objects.live().filter(pk__in=archived).update(is_active=False,archived_at=timezone.now())
         created=[MemberDetail.objects.create(reservation=reservation,user=None,filled_by='user',age_range='').pk
             for _ in range(item['number_of_people']-len(keep))]
         participants[str(reservation.pk)]={'retained_ids':sorted(keep),'archived_ids':archived,'created_ids':created}
@@ -194,7 +195,7 @@ def confirm_order_amendment(request,group_id,data,scope):
         reservation.course_fee=item['course_fee'];reservation.coach_fee=item['coach_fee'];reservation.language_fee=item['language_fee']
         reservation.equipment_rental_fee=item['equipment_fee'];reservation.discount_amount=item['discount_amount'];reservation.save()
         if item['removed_booking_ids']:
-            reservation.bookings.filter(pk__in=item['removed_booking_ids']).delete()
+            reservation.bookings.live().filter(pk__in=item['removed_booking_ids']).delete()
         for course in item['courses']:
             booking=old.get(course['booking_id']) or Booking(reservation=reservation,course_type=reservation.course_type.name)
             booking.date=course['date'];booking.start_time=course['start_time'];booking.end_time=course['end_time']
@@ -206,7 +207,7 @@ def confirm_order_amendment(request,group_id,data,scope):
         from booking.scheduler import assign_coachs
         ok,_=assign_coachs(reservations_to_assign=to_schedule)
         if not ok:raise NotificationConflict('新條件無法排入教練，已恢復原訂單；請調整後重新預覽')
-    group=ReservationGroup.objects.get(pk=group.pk)
+    group=ReservationGroup.objects.live().get(pk=group.pk)
     revision=record_order_revision(group,user=request.user,change_type='modify',reason=data['reason'],previous_total=quote['previous_total'])
     group.amendments.filter(pk__in=[row.pk for row in pending]).update(status='superseded',updated_at=timezone.now())
     try:

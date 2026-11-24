@@ -13,7 +13,7 @@ from .operations import get_operating_policy
 def expire_unpaid_payment(payment_id, now=None):
     """Recheck one candidate under the same tenant/order locks as payment writers."""
     now = now or timezone.now()
-    candidate = Payment.objects.select_related('reservation_group').filter(pk=payment_id).first()
+    candidate = Payment.objects.live().select_related('reservation_group').filter(pk=payment_id).first()
     if not candidate or candidate.status != 'unpaid':
         return 0, 0
     # Policy lookup is intentionally outside the mutation lock. A candidate is
@@ -22,13 +22,13 @@ def expire_unpaid_payment(payment_id, now=None):
     with transaction.atomic():
         if candidate.reservation_group.client_id:
             Client.objects.select_for_update().get(pk=candidate.reservation_group.client_id)
-        group = ReservationGroup.objects.select_for_update().filter(pk=candidate.reservation_group_id).first()
+        group = ReservationGroup.objects.live().select_for_update().filter(pk=candidate.reservation_group_id).first()
         if group is None:
             return 0, 0
-        payment = Payment.objects.select_for_update().filter(pk=payment_id, reservation_group=group).first()
+        payment = Payment.objects.live().select_for_update().filter(pk=payment_id, reservation_group=group).first()
         if payment is None or payment.status != 'unpaid':
             return 0, 0
-        active = group.reservations.exclude(status__in=['cancelled', 'deleted', 'completed'])
+        active = group.reservations.live().exclude(status__in=['cancelled', 'deleted', 'completed'])
         if active.exclude(status__in=['auto_assigned', 'manually_assigned', 'form_filled']).exists():
             return 0, 0
         deadline = payment.expires_at
@@ -37,13 +37,13 @@ def expire_unpaid_payment(payment_id, now=None):
             deadline = payment.created_at + timezone.timedelta(days=days)
         if deadline > now:
             return 0, 0
-        reservations = group.reservations.exclude(status__in=['cancelled', 'deleted', 'completed'])
+        reservations = group.reservations.live().exclude(status__in=['cancelled', 'deleted', 'completed'])
         shared_ids = list(reservations.exclude(shared_course_class__isnull=True).values_list('shared_course_class_id', flat=True).distinct())
         shared_classes = list(SharedCourseClass.objects.select_for_update().filter(pk__in=shared_ids).order_by('pk'))
         if any(shared.status == 'collecting' for shared in shared_classes):
             return 0, 0
         cancelled = 0
-        if not group.payments.filter(status__in=['paid', 'pending']).exists():
+        if not group.payments.live().filter(status__in=['paid', 'pending']).exists():
             cancelled = reservations.update(status='cancelled')
             from .loyalty import release_unpaid_redemption
             release_unpaid_redemption(group)
@@ -66,7 +66,7 @@ def auto_cancel_unpaid_reservations():
     """
     now = timezone.now()
 
-    payments = Payment.objects.filter(
+    payments = Payment.objects.live().filter(
         status='unpaid',
     ).filter(
         Q(expires_at__lte=now) | Q(expires_at__isnull=True),

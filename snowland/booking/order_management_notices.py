@@ -12,6 +12,8 @@ def prepare_management_notice(group, *, event, event_id, subject, instruction):
     """Record the staff-only receipt under the caller's order lock, then send on commit."""
     from API.order_email_notifications import deliver_order_email, mail_mode
 
+    if group.is_deleted:
+        return
     recipient = channel_recipient('email', group.client.order_management_email)
     if not recipient:
         return

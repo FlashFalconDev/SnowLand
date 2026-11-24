@@ -31,7 +31,7 @@ def build_document_snapshot(statement):
 
 @transaction.atomic
 def ensure_document(statement, required=True):
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if statement.status not in {'confirmed', 'paid'}:
         raise ValueError('確認薪資後才能產生報酬單')
     if statement.document_snapshot:
@@ -67,7 +67,7 @@ def save_signature(statement, user, upload, digest, signer_name, accepted):
     storage = statement.signature_file.storage
     try:
         with transaction.atomic():
-            statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+            statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
             if statement.coach.user_id != user.pk or statement.status not in {'confirmed', 'paid'}:
                 raise ValueError('只能簽署自己已確認的報酬單')
             if not statement.document_snapshot or not digest or digest != document_digest(statement.document_snapshot):

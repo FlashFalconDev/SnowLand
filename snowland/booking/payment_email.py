@@ -54,15 +54,15 @@ def send_payment_email(request):
     form = PaymentEmailInput(data=request.data)
     form.is_valid(raise_exception=True)
     data = form.validated_data
-    group = ReservationGroup.objects.select_related('client', 'campus', 'user').filter(
+    group = ReservationGroup.objects.live().select_related('client', 'campus', 'user').filter(
         pk=data['group_id'], user=request.user, client__is_active=True,
     ).first()
     if group is None:
         return JsonResponse({'message': '找不到您的訂單'}, status=404)
-    payment = group.payments.order_by('-created_at', '-pk').first()
+    payment = group.payments.live().order_by('-created_at', '-pk').first()
     from .api_views import get_group_payment_hold
     hold, _ = get_group_payment_hold(group)
-    payable = sum(reservation.payment_amount for reservation in group.reservations.exclude(status__in=['cancelled', 'deleted']))
+    payable = sum(reservation.payment_amount for reservation in group.reservations.live().exclude(status__in=['cancelled', 'deleted']))
     if hold or not payment or payment.status != 'unpaid' or payable <= 0:
         return JsonResponse({'message': hold or '這張訂單目前不需付款，請到會員訂單查看最新狀態'}, status=409)
     from API.order_email_notifications import sync_accounts, prepare_email, deliver_order_email

@@ -130,7 +130,7 @@ def _quote_item(group,reservation,change):
         coach=candidates.filter(coachresort__resort_id=reservation.resort_id).distinct().first()
         if not coach or language not in coach.languages:
             _fail('這位教練不符合校區、雪場、語言或開放指定條件')
-    existing={booking.pk:booking for booking in reservation.bookings.all()}
+    existing={booking.pk:booking for booking in reservation.bookings.live().all()}
     removed_ids=change.get('removed_booking_ids',[])
     ids=[course['booking_id'] for course in change['courses'] if course.get('booking_id') is not None]+removed_ids
     if len(set(ids))!=len(ids) or set(ids)!=set(existing):
@@ -213,7 +213,7 @@ def _quote_item(group,reservation,change):
     if discount>subtotal:_fail('原折抵金額超過修改後總價，請先核對並調整折抵金額')
     changed_documents=dates_changed or any(course['date']!=existing[course['booking_id']].date or course['template_id']!=(existing[course['booking_id']].course_template_id or reservation.course_template_id) for course in courses)
     retained=change.get('retained_member_ids')
-    reviewed_members=[member for member in reservation.members.all() if retained is None or member.pk in retained] if changed_documents else []
+    reviewed_members=[member for member in reservation.members.live().all() if retained is None or member.pk in retained] if changed_documents else []
     return {'reservation_id':reservation.pk,'number_of_people':people,'language':language,'equipment':equipment,
         'is_preferred_coach':specified,'preferred_coach_id':coach_id,'courses':courses,'removed_booking_ids':removed_ids,
         'course_documents_changed':changed_documents,'course_fee':course_fee,'coach_fee':coach_fee,
@@ -235,8 +235,8 @@ def amendment_editor_options(group):
     from Resorts.models import EquipmentAssistanceTimeSlot
     result=[]
     now=timezone.localtime()
-    for reservation in group.reservations.select_related('resort','course_type').prefetch_related('bookings','members'):
-        bookings=list(reservation.bookings.all())
+    for reservation in group.reservations.live().select_related('resort','course_type').prefetch_related('bookings','members'):
+        bookings=list(reservation.bookings.live().all())
         current_templates={booking.course_template_id or reservation.course_template_id for booking in bookings}
         templates=CourseTemplate.objects.filter(course_type__category__client=group.client,course_type_id=reservation.course_type_id).filter(
             Q(is_active=True)|Q(pk__in=current_templates)).filter(Q(resorts=reservation.resort)|Q(resorts__isnull=True)).distinct().prefetch_related('sessions')
@@ -250,7 +250,7 @@ def amendment_editor_options(group):
             'equipment_assistance_time_slot_id':reservation.equipment_assistance_time_slot_id,
             'is_preferred_coach':reservation.is_preferred_coach,'preferred_coach_id':reservation.preferred_coach_id if reservation.is_preferred_coach else None,
             'discount_amount':reservation.discount_amount,'ability_level_counts':reservation.ability_level_counts or {reservation.max_ability_level or 'no_exp':reservation.number_of_people},
-            'members':[{'id':member.pk,'name':member.display_name} for member in reservation.members.all()],
+            'members':[{'id':member.pk,'name':member.display_name} for member in reservation.members.live().all()],
             'courses':[{'booking_id':booking.pk,'can_remove':_can_remove_booking(booking,now),'template_id':booking.course_template_id or reservation.course_template_id,
                 'date':str(booking.date),'start_time':str(booking.start_time)[:5],'end_time':str(booking.end_time)[:5]} for booking in bookings],
             'templates':[{'id':template.pk,'name':template.name,'is_active':template.is_active,'duration_hours':template.duration_hours,
@@ -263,15 +263,15 @@ def amendment_editor_options(group):
 
 def amendment_state(group):
     return amendment_digest({'order':order_snapshot(group),
-        'members':list(MemberDetail.objects.filter(reservation__group=group).order_by('pk').values()),
-        'payments':list(group.payments.order_by('pk').values('pk','status','updated_at')),
+        'members':list(MemberDetail.objects.live().filter(reservation__group=group).order_by('pk').values()),
+        'payments':list(group.payments.live().order_by('pk').values('pk','status','updated_at')),
         'amendments':list(group.amendments.order_by('pk').values('pk','status','balance_amount','updated_at'))})
 
 
 def quote_order_amendment(group,data,actor):
     if group.cancellation_requests.filter(status__in=['requested','approved','refunded']).exists():
         raise NotificationConflict('訂單已有取消或退款流程，請先處理完成再修改')
-    reservations={reservation.pk:reservation for reservation in group.reservations.all()}
+    reservations={reservation.pk:reservation for reservation in group.reservations.live().all()}
     ids=[change['reservation_id'] for change in data['changes']]
     if len(set(ids))!=len(ids) or any(pk not in reservations for pk in ids):
         _fail('預約必須屬於這張訂單，且不可重複')

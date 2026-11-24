@@ -81,7 +81,7 @@ def initialize_order_currency(group, currency='TWD', *, expected_rate=None):
         if group.currency_snapshot['currency'] != currency:
             raise ValueError('訂單成立後不可變更付款幣別')
         return
-    base_amount = sum(group.reservations.exclude(status__in=['deleted', 'cancelled']).values_list('payment_amount', flat=True))
+    base_amount = sum(group.reservations.live().exclude(status__in=['deleted', 'cancelled']).values_list('payment_amount', flat=True))
     rate, bank = Decimal('1'), {}
     if foreign_currency(currency):
         config = PaymentCurrencySettings.objects.select_for_update().filter(client=group.client).first()
@@ -112,7 +112,7 @@ def initialize_order_currency(group, currency='TWD', *, expected_rate=None):
 def order_settlement(group, *, base_amount=None):
     """Current payable at the original rate; never consult today's exchange rate."""
     if base_amount is None:
-        base_amount = sum(group.reservations.exclude(status__in=['deleted', 'cancelled']).values_list('payment_amount',flat=True))
+        base_amount = sum(group.reservations.live().exclude(status__in=['deleted', 'cancelled']).values_list('payment_amount',flat=True))
     snapshot = group.currency_snapshot or {'currency':'TWD','base_currency':'TWD','rate':'1.00000000','locked_at':None,'bank_info':{}}
     return {**snapshot, 'base_amount':base_amount, 'amount':convert_twd_amount(base_amount,Decimal(snapshot['rate']),snapshot['currency'])}
 
@@ -124,7 +124,7 @@ def settlement_summary(group, *, base_amount=None):
 
 
 def received_settlement_summary(group):
-    payment=group.payments.order_by('-created_at','-pk').first()
+    payment=group.payments.live().order_by('-created_at','-pk').first()
     if not payment or payment.status!='paid' or not isinstance(payment.DataJSON,dict):
         return None
     snapshot=payment.DataJSON.get('settlement')

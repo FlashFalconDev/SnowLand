@@ -522,7 +522,7 @@ def all_course_info(request, Client_Info=None):
     date_search = request.GET.get('date')
     
     # 創建基本查詢集 - 查詢ReservationGroup並關聯相關資料
-    query = ReservationGroup.objects.select_related('user').prefetch_related(
+    query = ReservationGroup.objects.live().select_related('user').prefetch_related(
         'reservations',
         'reservations__preferred_coach',
         'reservations__bookings',
@@ -533,7 +533,7 @@ def all_course_info(request, Client_Info=None):
     # 只顯示至少有一個未取消預約的群組
     query = query.filter(
         Exists(
-            Reservation.objects.filter(
+            Reservation.objects.live().filter(
                 group=OuterRef('pk')
             ).exclude(status='deleted')
         )
@@ -583,14 +583,14 @@ def all_course_info(request, Client_Info=None):
             user_email = ''
         
         # 獲取付款資訊
-        latest_payment = group.payments.first()
+        latest_payment = group.payments.live().first()
         payment_status = latest_payment.status if latest_payment else 'unpaid'
         payment_status_display = latest_payment.get_status_display() if latest_payment else '未付款'
         payment_method = latest_payment.payment_method if latest_payment else ''
         payment_method_display = latest_payment.get_payment_method_display() if latest_payment else ''
         
         # 統計預約資訊
-        reservations = group.reservations.all()
+        reservations = group.reservations.live().all()
         total_reservations = reservations.count()
         total_people = sum(r.number_of_people for r in reservations)
         total_fee = sum(r.total_fee for r in reservations)
@@ -621,7 +621,7 @@ def all_course_info(request, Client_Info=None):
                 coaches.add(reservation.preferred_coach.name)
             
             # 收集預約日期
-            for booking in reservation.bookings.all():
+            for booking in reservation.bookings.live().all():
                 booking_dates.add(booking.date)
         
         # 生成狀態摘要
@@ -715,11 +715,11 @@ def all_course_permission(request, Client_Info=None):
             if not group_id:
                 return JsonResponse({'code': 400, 'msg': '缺少預約群組ID參數'})
 
-            group = ReservationGroup.objects.get(pk=group_id)
+            group = ReservationGroup.objects.live().get(pk=group_id)
             
             # 更新付款狀態
             if payment_status:
-                payment, created = Payment.objects.get_or_create(
+                payment, created = Payment.objects.live().get_or_create(
                     reservation_group=group,
                     defaults={'status': payment_status}
                 )
@@ -736,7 +736,7 @@ def all_course_permission(request, Client_Info=None):
                 
                 if reservation_id:
                     try:
-                        reservation = group.reservations.get(pk=reservation_id)
+                        reservation = group.reservations.live().get(pk=reservation_id)
                         old_coach_id = reservation.preferred_coach_id
                         
                         # 檢查教練是否有變更
@@ -787,7 +787,7 @@ def all_course_permission(request, Client_Info=None):
                         'reservation_id': reservation.id,
                         'old_coach_id': change['old_coach_id'],
                         'old_status': reservation.status,
-                        'old_bookings_scheduled': [(b.id, b.is_scheduled) for b in reservation.bookings.all()]
+                        'old_bookings_scheduled': [(b.id, b.is_scheduled) for b in reservation.bookings.live().all()]
                     })
                 
                 try:
@@ -822,7 +822,7 @@ def all_course_permission(request, Client_Info=None):
                         else:
                             # 排課失敗，恢復原始狀態
                             for backup in backup_data:
-                                reservation = Reservation.objects.get(pk=backup['reservation_id'])
+                                reservation = Reservation.objects.live().get(pk=backup['reservation_id'])
                                 
                                 # 恢復教練
                                 if backup['old_coach_id']:
@@ -837,7 +837,7 @@ def all_course_permission(request, Client_Info=None):
                                 
                                 # 恢復booking的排課狀態
                                 for booking_id, old_scheduled in backup['old_bookings_scheduled']:
-                                    booking = Booking.objects.get(pk=booking_id)
+                                    booking = Booking.objects.live().get(pk=booking_id)
                                     booking.is_scheduled = old_scheduled
                                     booking.save()
                             
@@ -850,7 +850,7 @@ def all_course_permission(request, Client_Info=None):
                         print('無法導入排課模組')
                         # 恢復原始狀態
                         for backup in backup_data:
-                            reservation = Reservation.objects.get(pk=backup['reservation_id'])
+                            reservation = Reservation.objects.live().get(pk=backup['reservation_id'])
                             if backup['old_coach_id']:
                                 old_coach = Coach.objects.get(pk=backup['old_coach_id'])
                                 reservation.preferred_coach = old_coach
@@ -867,7 +867,7 @@ def all_course_permission(request, Client_Info=None):
                     # 恢復原始狀態
                     try:
                         for backup in backup_data:
-                            reservation = Reservation.objects.get(pk=backup['reservation_id'])
+                            reservation = Reservation.objects.live().get(pk=backup['reservation_id'])
                             if backup['old_coach_id']:
                                 old_coach = Coach.objects.get(pk=backup['old_coach_id'])
                                 reservation.preferred_coach = old_coach
@@ -897,7 +897,7 @@ def all_course_permission(request, Client_Info=None):
         return JsonResponse({'code': 400, 'msg': '缺少預約群組ID參數'})
 
     try:
-        group = ReservationGroup.objects.select_related('user').prefetch_related(
+        group = ReservationGroup.objects.live().select_related('user').prefetch_related(
             'reservations',
             'reservations__preferred_coach',
             'reservations__bookings',
@@ -909,8 +909,8 @@ def all_course_permission(request, Client_Info=None):
         
         context = {
             'group': group,
-            'reservations': group.reservations.all(),
-            'latest_payment': group.payments.first(),
+            'reservations': group.reservations.live().all(),
+            'latest_payment': group.payments.live().first(),
             'status_choices': Reservation.STATUS_CHOICES,
             'payment_status_choices': Payment.STATUS_CHOICES,
             'coaches': coaches,
@@ -957,7 +957,7 @@ def coach_courses(request, Client_Info=None):
     date_search = request.GET.get('date')
     
     # 創建基本查詢集 - 查詢Reservation並過濾該教練的課程
-    query = Reservation.objects.select_related(
+    query = Reservation.objects.live().select_related(
         'group',
         'group__user',
         'preferred_coach'
@@ -1014,7 +1014,7 @@ def coach_courses(request, Client_Info=None):
             user_email = ''
         
         # 獲取課程時段資訊並計算課程堂數
-        bookings = reservation.bookings.all()
+        bookings = reservation.bookings.live().all()
         booking_dates = []
         booking_times = []
         
@@ -1115,7 +1115,7 @@ def reservation_detail(request, Client_Info=None):
 
     try:
         # 獲取預約詳細信息
-        reservation = Reservation.objects.select_related(
+        reservation = Reservation.objects.live().select_related(
             'group',
             'group__user',
             'preferred_coach'
@@ -1142,7 +1142,7 @@ def reservation_detail(request, Client_Info=None):
             user_phone = ''
         
         # 獲取預約時段信息
-        bookings = reservation.bookings.all().order_by('date', 'start_time')
+        bookings = reservation.bookings.live().all().order_by('date', 'start_time')
         booking_list = []
         for booking in bookings:
             booking_list.append({
@@ -1176,7 +1176,7 @@ def reservation_detail(request, Client_Info=None):
                 lesson_count += len(day_bookings)
 
         # 獲取付款信息
-        latest_payment = group.payments.first()
+        latest_payment = group.payments.live().first()
         payment_info = None
         current_user = Client_Info.get('user')
         control_user = UserProfile.objects.get(user=current_user)
@@ -1243,7 +1243,7 @@ def calendar_courses(request, Client_Info=None):
         last_day = date(year, month, cal.monthrange(year, month)[1])
         
         # 查詢該月所有有預約時段的Reservation
-        reservations = Reservation.objects.select_related(
+        reservations = Reservation.objects.live().select_related(
             'group',
             'group__user',
             'preferred_coach'
@@ -1278,11 +1278,11 @@ def calendar_courses(request, Client_Info=None):
                 user_name = '未知用戶'
             
             # 獲取付款狀態
-            latest_payment = group.payments.order_by('-created_at').first()
+            latest_payment = group.payments.live().order_by('-created_at').first()
             payment_status = latest_payment.status if latest_payment else 'unpaid'
             
             # 獲取該預約在這個月的所有時段
-            bookings = reservation.bookings.filter(
+            bookings = reservation.bookings.live().filter(
                 date__gte=first_day,
                 date__lte=last_day
             ).order_by('date', 'start_time')
@@ -1372,7 +1372,7 @@ def coach_calendar(request, Client_Info=None):
         last_day = date(year, month, cal.monthrange(year, month)[1])
         
         # 查詢該月該教練的所有預約時段
-        reservations = Reservation.objects.select_related(
+        reservations = Reservation.objects.live().select_related(
             'group',
             'group__user',
             'preferred_coach'
@@ -1404,7 +1404,7 @@ def coach_calendar(request, Client_Info=None):
                 user_name = '未知用戶'
             
             # 獲取該預約在這個月的所有時段
-            bookings = reservation.bookings.filter(
+            bookings = reservation.bookings.live().filter(
                 date__gte=first_day,
                 date__lte=last_day
             ).order_by('date', 'start_time')
@@ -1445,7 +1445,7 @@ def coach_calendar(request, Client_Info=None):
         # 計算課程堂數（按照智能算法）
         daily_bookings = {}
         for reservation in reservations:
-            bookings = reservation.bookings.filter(
+            bookings = reservation.bookings.live().filter(
                 date__gte=first_day,
                 date__lte=last_day
             )
@@ -1916,7 +1916,7 @@ def coach_delete(request, Client_Info=None):
             coach = Coach.objects.get(pk=coach_id)
             
             # 檢查是否有相關的預約記錄
-            reservations_count = Reservation.objects.filter(preferred_coach=coach).count()
+            reservations_count = Reservation.objects.live().filter(preferred_coach=coach).count()
             
             if reservations_count > 0:
                 return JsonResponse({
@@ -1948,10 +1948,10 @@ def course_delete(request, Client_Info=None):
             if not group_id:
                 return JsonResponse({'code': 400, 'msg': '缺少預約群組ID參數'})
             
-            group = ReservationGroup.objects.get(pk=group_id)
+            group = ReservationGroup.objects.live().get(pk=group_id)
             
             # 檢查預約群組是否已經被軟刪除（所有預約都是已取消狀態）
-            active_reservations = group.reservations.exclude(status='deleted')
+            active_reservations = group.reservations.live().exclude(status='deleted')
             if not active_reservations.exists():
                 return JsonResponse({'code': 400, 'msg': '該預約群組已經被刪除'})
             
@@ -2053,7 +2053,7 @@ def submit_leave(request, Client_Info=None):
         from booking.models import Reservation, Booking
         
         # 查找在請假期間有課程的預約
-        conflicting_reservations = Reservation.objects.filter(
+        conflicting_reservations = Reservation.objects.live().filter(
             bookings__date__gte=start_date,
             bookings__date__lte=end_date,
             preferred_coach=coach
@@ -2067,7 +2067,7 @@ def submit_leave(request, Client_Info=None):
             # 只有明確指定教練的預約才會阻止請假
             if reservation.is_preferred_coach and reservation.preferred_coach == coach:
                 # 獲取該預約在請假期間的具體課程時段
-                conflicting_bookings = reservation.bookings.filter(
+                conflicting_bookings = reservation.bookings.live().filter(
                     date__gte=start_date,
                     date__lte=end_date
                 )
@@ -2085,7 +2085,7 @@ def submit_leave(request, Client_Info=None):
                     })
             elif reservation.preferred_coach == coach and not reservation.is_preferred_coach:
                 # 非指定教練但被安排到該教練的課程會受影響
-                conflicting_bookings = reservation.bookings.filter(
+                conflicting_bookings = reservation.bookings.live().filter(
                     date__gte=start_date,
                     date__lte=end_date
                 )
@@ -2136,7 +2136,7 @@ def submit_leave(request, Client_Info=None):
             affected_info = []
             for reservation in affected_reservations:
                 user_name = reservation.group.user.get_full_name() if reservation.group.user else reservation.group.name
-                conflicting_bookings = reservation.bookings.filter(
+                conflicting_bookings = reservation.bookings.live().filter(
                     date__gte=start_date,
                     date__lte=end_date
                 )
@@ -2317,7 +2317,7 @@ def leave_review(request, Client_Info=None):
         print(f"   - 日期: {leave_request.start_date} 到 {leave_request.end_date}")
         print(f"   - 目前狀態: {leave_request.status} ({leave_request.get_status_display()})")
         print(f"   - 請假原因: {leave_request.reason[:50]}...")
-        print(f"   - 受影響預約數量: {leave_request.affected_reservations.count()}")
+        print(f"   - 受影響預約數量: {leave_request.affected_reservations.live().count()}")
         
         # 檢查狀態是否可以審核
         if leave_request.status != 'pending':
@@ -2332,7 +2332,7 @@ def leave_review(request, Client_Info=None):
         if action == 'approve':
             try:
                 with transaction.atomic():
-                    affected_reservations = leave_request.affected_reservations.all()
+                    affected_reservations = leave_request.affected_reservations.live().all()
                     
                     if not affected_reservations.exists():
                         print(f"✓ [LEAVE_REVIEW] 無受影響的預約課程，直接批准")
@@ -2348,7 +2348,7 @@ def leave_review(request, Client_Info=None):
                             reservation.status = 'created'  # 重置為待排課
                             reservation.preferred_coach = None
                             reservation.save()
-                            for booking in reservation.bookings.all():
+                            for booking in reservation.bookings.live().all():
                                 booking.is_scheduled = False
                                 booking.save()
                             
@@ -2443,7 +2443,7 @@ def coach_confirm_course(request, Client_Info=None):
             return JsonResponse({'success': False, 'message': '參數錯誤'})
         
         # 獲取預約
-        reservation = Reservation.objects.get(pk=reservation_id)
+        reservation = Reservation.objects.live().get(pk=reservation_id)
         
         # 檢查預約是否屬於該教練且狀態為等待確認
         if reservation.preferred_coach != coach:
@@ -2476,7 +2476,7 @@ def coach_confirm_course(request, Client_Info=None):
             reservation.save()
             
             # 3. 清除相關 booking 的排程狀態
-            for booking in reservation.bookings.all():
+            for booking in reservation.bookings.live().all():
                 booking.is_scheduled = False
                 booking.save()
             
@@ -2583,7 +2583,7 @@ def pending_confirmations(request, Client_Info=None):
         })
     
     # 查詢狀態為'pending_coach_confirmation'（等待教練確認）且指派給該教練的預約
-    pending_reservations = Reservation.objects.select_related(
+    pending_reservations = Reservation.objects.live().select_related(
         'group',
         'group__user',
         'preferred_coach'
@@ -2612,7 +2612,7 @@ def pending_confirmations(request, Client_Info=None):
             user_email = ''
         
         # 獲取課程時段資訊
-        bookings = reservation.bookings.all()
+        bookings = reservation.bookings.live().all()
         booking_dates = []
         booking_times = []
         
@@ -2673,7 +2673,7 @@ def send_email_form(request, Client_Info=None):
 
     # 舊表單模板已不存在；通過同一權限檢查後導向目前的訂單與寄信視窗。
     from urllib.parse import quote, urlencode
-    group = ReservationGroup.objects.select_related('client').get(pk=group_id)
+    group = ReservationGroup.objects.live().select_related('client').get(pk=group_id)
     return redirect(f'/{quote(group.client.internal_code, safe="")}/console/orders?{urlencode({"search": group.pk})}')
 
 def send_email(request, Client_Info=None):

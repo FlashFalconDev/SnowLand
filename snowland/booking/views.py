@@ -125,7 +125,7 @@ def payment(request, client_code):
     try:
         tenant = resolve_tenant_client(client_code)
         group_id = int(request.GET.get('reservation_group', ''))
-        group = ReservationGroup.objects.get(pk=group_id, client=tenant)
+        group = ReservationGroup.objects.live().get(pk=group_id, client=tenant)
     except (TenantResolutionError, ReservationGroup.DoesNotExist, ValueError, TypeError, OverflowError):
         raise Http404
     token = request.GET.get('access_token', '')
@@ -158,7 +158,7 @@ def payment(request, client_code):
         context['message'] = '此訂單已退款，請勿再次付款。'
     elif context['payment_status'] == 'unpaid' and context['total_amount'] <= 0:
         context.update(payment_status='zero_amount', message='此預約群組的總費用為0，無需付款。')
-    elif context['payment_status'] == 'unpaid' and group.reservations.exclude(
+    elif context['payment_status'] == 'unpaid' and group.reservations.live().exclude(
         status__in=['auto_assigned', 'manually_assigned', 'completed', 'form_filled', 'cancelled', 'deleted'],
     ).exists():
         context.update(payment_status='processing', message='您的預約正在處理中，確認排課前不需要付款。')
@@ -610,7 +610,7 @@ def API(request, tunnel, Client_Info=None):
             resv = get_object_or_404(Reservation, pk=reservation_pk)
 
             # 先刪除與 resv 關聯的所有 MemberDetail 對象
-            MemberDetail.objects.filter(reservation=resv).delete()
+            MemberDetail.objects.live().filter(reservation=resv).delete()
 
             created_list = []
             for md in members_data:
@@ -635,7 +635,7 @@ def API(request, tunnel, Client_Info=None):
             # 计算总课程费用
             season = "off"  # 或 "peak"，根据实际情况设置
             total_course_fee = 0
-            bookings = Booking.objects.filter(reservation=resv)
+            bookings = Booking.objects.live().filter(reservation=resv)
             # 使用集合来跟踪已经计算过的日期和课程类型组合
             calculated_courses = set()
             for booking in bookings:
@@ -724,17 +724,17 @@ def API(request, tunnel, Client_Info=None):
         return process_legacy_payment(request)
     elif tunnel == 'history_reservations':
         if request.method == 'GET':
-            reservations = Reservation.objects.filter(user=request.user)
+            reservations = Reservation.objects.live().filter(user=request.user)
             reservations_list = []
             for resv in reservations:
                 # 获取与预订相关的学生信息
-                students = MemberDetail.objects.filter(reservation=resv, filled_by='user').values(
+                students = MemberDetail.objects.live().filter(reservation=resv, filled_by='user').values(
                     'age_range', 'snowboard_skills', 'ski_skills'
                 )
-                students_coach = MemberDetail.objects.filter(reservation=resv, filled_by='coach').values(
+                students_coach = MemberDetail.objects.live().filter(reservation=resv, filled_by='coach').values(
                     'age_range', 'snowboard_skills', 'ski_skills'
                 )
-                bookings = Booking.objects.filter(reservation=resv)
+                bookings = Booking.objects.live().filter(reservation=resv)
                 sessions = []
                 # 格式化学生信息
                 formatted_students = [

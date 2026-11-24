@@ -142,10 +142,14 @@ class Command(BaseCommand):
 
         created = skipped = 0
         for key, rows in resolved.items():
-            if ReservationGroup.objects.filter(client=client, order_number=key).exists():
-                skipped += 1
-                continue
             with transaction.atomic():
+                Client.objects.select_for_update().get(pk=client.pk)
+                existing = ReservationGroup.all_objects.filter(client=client, order_number=key)
+                if existing.filter(is_deleted=True).exists():
+                    raise CommandError('匯入單號已封存，請先核對原批次及匯入範圍')
+                if existing.exists():
+                    skipped += 1
+                    continue
                 self._import_group(client, key, rows)
                 created += 1
         self.stdout.write(self.style.SUCCESS(f'完成：新增 {created} 筆，已存在略過 {skipped} 筆。'))
@@ -221,7 +225,7 @@ class Command(BaseCommand):
             user=user,
         )
         if isinstance(created_at, datetime):
-            ReservationGroup.objects.filter(pk=group.pk).update(created_at=timezone.make_aware(created_at) if timezone.is_naive(created_at) else created_at)
+            ReservationGroup.objects.live().filter(pk=group.pk).update(created_at=timezone.make_aware(created_at) if timezone.is_naive(created_at) else created_at)
 
         total_paid = 0
         payment_method = 'TT'

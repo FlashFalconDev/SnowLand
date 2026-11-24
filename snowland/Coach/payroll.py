@@ -55,7 +55,7 @@ def _rule_for(booking, discipline, *, coach=None):
 def calculate_payroll_statement(*, coach, campus, period_start, period_end):
     # Serialize creation/recalculation for this coach, including overlapping periods.
     coach = Coach.objects.select_for_update().get(pk=coach.pk)
-    overlap = PayrollStatement.objects.filter(
+    overlap = PayrollStatement.all_objects.filter(
         coach=coach, campus=campus,
         period_start__lte=period_end, period_end__gte=period_start,
     ).exclude(period_start=period_start, period_end=period_end).first()
@@ -64,16 +64,17 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
             f'此教練已有 {overlap.period_start}～{overlap.period_end} 的薪資單，'
             '結算期間不能重疊；請用相同期間重新計算，或選擇不重疊的日期'
         )
-    statement, _ = PayrollStatement.objects.get_or_create(
+    statement, _ = PayrollStatement.all_objects.select_for_update().get_or_create(
         coach=coach,
         campus=campus,
         period_start=period_start,
         period_end=period_end,
     )
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    if statement.is_deleted:
+        raise ValueError('此期間已有封存薪資單，須先由平台管理者還原該批次')
     if statement.status != 'draft':
         raise ValueError('已送交確認、已確認或已發放的薪資單不能重新計算')
-    bookings = list(Booking.objects.filter(
+    bookings = list(Booking.objects.live().filter(
         reservation__preferred_coach=coach,
         reservation__group__campus=campus,
         reservation__status='completed',
@@ -88,19 +89,20 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
             raise ValueError(f'{coach.name} 的薪資規則有不合法的介紹費百分比或裝備協助時數，請先編輯原規則再結算')
     # Referral ownership is independent of the teacher assigned to a lesson.
     # Resolve the referrer's rules before replacing any existing draft lines.
-    referral_bookings = Booking.objects.filter(
+    referral_bookings = Booking.objects.live().filter(
         reservation__group__client=coach.client,
         reservation__group__campus=campus,
         reservation__group__referral_user_id=coach.user_id,
         reservation__status='completed',
     ).annotate(referral_completion_date=Max('reservation__group__reservations__bookings__date',
-        filter=~Q(reservation__group__reservations__status__in=['cancelled', 'deleted']))).filter(
+        filter=Booking.live_filter('reservation__group__reservations__bookings')
+        & ~Q(reservation__group__reservations__status__in=['cancelled', 'deleted']))).filter(
         referral_completion_date__range=(period_start, period_end),
     ).select_related('reservation__course_type__category').order_by('date', 'start_time', 'pk') if coach.user_id else []
     referrals = []
     referred_reservations = set()
     for booking in referral_bookings:
-        if booking.reservation.group.reservations.exclude(status__in=['completed', 'cancelled', 'deleted']).exists():
+        if booking.reservation.group.reservations.live().exclude(status__in=['completed', 'cancelled', 'deleted']).exists():
             continue
         if booking.reservation_id in referred_reservations:
             continue
@@ -190,7 +192,7 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
 
 @transaction.atomic
 def add_payroll_adjustment(*, statement, description, amount):
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('僅草稿薪資單可新增手動項目')
     description, amount = _adjustment_values(description, amount)
@@ -224,7 +226,7 @@ def _adjustment_values(description, amount):
 
 @transaction.atomic
 def change_payroll_adjustment(*, statement, line_id, description='', amount=None, delete=False):
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('僅草稿薪資單可修改或刪除手動項目')
     line = statement.lines.filter(pk=line_id, line_type='adjustment').first()

@@ -13,7 +13,7 @@ from .vehicle_payroll import vehicle_deduction_plan
 @transaction.atomic
 def publish_statement(statement, deadline, expected_reviewed_at=None):
     Client.objects.select_for_update().get(pk=statement.coach.client_id)
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('只能送出草稿薪資單，請重新載入目前狀態')
     if deadline < timezone.localdate() or deadline <= statement.period_end:
@@ -56,7 +56,7 @@ def _finish(statement, now, user=None):
 
 @transaction.atomic
 def confirm_statement(statement, user, token):
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if not token or str(statement.review_token) != str(token):
         raise ValueError('薪資單版本已變更，請重新載入後再確認')
     if statement.coach.user_id != user.pk:
@@ -73,7 +73,7 @@ def confirm_statement(statement, user, token):
 
 @transaction.atomic
 def withdraw_statement(statement):
-    statement = PayrollStatement.objects.select_for_update().get(pk=statement.pk)
+    statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if statement.status != 'review':
         raise ValueError('只能撤回尚待確認的薪資單')
     if statement.confirmation_deadline < timezone.localdate():
@@ -88,7 +88,7 @@ def withdraw_statement(statement):
 
 def confirm_due_statements(now=None, dry_run=False):
     now = now or timezone.now()
-    ids = list(PayrollStatement.objects.filter(
+    ids = list(PayrollStatement.objects.live().filter(
         status='review', confirmation_deadline__lt=timezone.localdate(now),
         review_token__isnull=False, published_at__isnull=False, coach__client__is_active=True,
     ).values_list('pk', flat=True))
@@ -97,7 +97,7 @@ def confirm_due_statements(now=None, dry_run=False):
     count = 0
     for statement_id in ids:
         with transaction.atomic():
-            statement = PayrollStatement.objects.select_for_update().filter(pk=statement_id).first()
+            statement = PayrollStatement.objects.live().select_for_update().filter(pk=statement_id).first()
             if statement and statement.status == 'review' and statement.confirmation_deadline < timezone.localdate(now):
                 _finish(statement, now)
                 count += 1

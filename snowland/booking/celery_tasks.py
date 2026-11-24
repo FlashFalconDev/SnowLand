@@ -11,7 +11,8 @@ pip install celery redis
 並在 settings.py 中配置 Celery
 """
 from celery import shared_task
-from django.core.cache import cache
+from Client.models import Client
+from .course_cache import clear_course_data_cache
 from .tasks import auto_cancel_unpaid_reservations
 
 
@@ -37,8 +38,7 @@ def scheduled_clear_expired_cache():
     執行頻率：每天凌晨 3 點
     """
     try:
-        cache_key = 'course_data_optimized_v1'
-        cache.delete(cache_key)
+        clear_course_data_cache(Client.objects.values_list('internal_code', flat=True), legacy=True)
         return "快取清除成功"
     except Exception as e:
         return f"快取清除失敗: {str(e)}"

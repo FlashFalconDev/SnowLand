@@ -39,10 +39,10 @@ def coach_workload(*, tenant, campus_ids, start, end, resort, schedule_statuses,
     if start > end:
         return report
 
-    latest_payment = Payment.objects.filter(
+    latest_payment = Payment.objects.live().filter(
         reservation_group_id=OuterRef('reservation__group_id'),
     ).order_by('-created_at', '-pk').values('status')[:1]
-    lessons = Booking.objects.filter(
+    lessons = Booking.objects.live().filter(
         Q(is_scheduled=True) | Q(reservation__status='completed'),
         date__range=(start, end),
         reservation__group__client=tenant,

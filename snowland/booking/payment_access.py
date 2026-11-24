@@ -14,6 +14,8 @@ def payment_access_token(group):
 
 
 def can_access_payment(group, user, token=''):
+    if group.is_deleted:
+        return False
     if group.user_id:
         return group.user_id == getattr(user, 'id', None)
     if not token:

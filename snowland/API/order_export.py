@@ -23,7 +23,7 @@ def export_orders(queryset, params):
     if basis == 'created':
         queryset = queryset.filter(created_at__date__range=(start, end))
     else:
-        matching = Booking.objects.filter(
+        matching = Booking.objects.live().filter(
             reservation__group_id=OuterRef('pk'), date__range=(start, end),
         ).exclude(reservation__status__in=['cancelled', 'deleted'])
         queryset = queryset.filter(Exists(matching))
@@ -34,10 +34,10 @@ def export_orders(queryset, params):
         prefix = (group.order_number or str(group.pk), created, group.campus.name if group.campus else '')
         sessions = [
             (resort, lesson)
-            for reservation in group.reservations.all()
+            for reservation in group.reservations.live().all()
             if reservation.status not in ('cancelled', 'deleted')
             for resort in [reservation.resort.display_name if reservation.resort else '']
-            for lesson in reservation.bookings.all()
+            for lesson in reservation.bookings.live().all()
             if basis == 'created' or start <= lesson.date <= end
         ]
         if not sessions and basis == 'created':

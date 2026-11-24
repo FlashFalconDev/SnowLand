@@ -41,7 +41,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'✓ 已更新 {coaches_updated} 個教練'))
 
         # 更新所有沒有 client 的 ReservationGroup
-        groups_updated = ReservationGroup.objects.filter(client__isnull=True).update(client=client)
+        groups_updated = ReservationGroup.objects.live().filter(client__isnull=True).update(client=client)
         self.stdout.write(self.style.SUCCESS(f'✓ 已更新 {groups_updated} 個預約分組'))
 
         self.stdout.write(self.style.SUCCESS('\n✓✓✓ 資料遷移完成！✓✓✓'))

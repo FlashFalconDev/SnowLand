@@ -134,7 +134,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             'amount_yen': trip.amount_yen, 'amount_twd': trip.amount_twd,
             'expenses': [{'id': item.pk, 'kind': item.kind, 'amount_yen': item.amount_yen, 'note': item.note,
                           'reimbursable': trip.purpose != 'private' or item.kind == 'fuel',
-                          'receipt': photo_url(item.receipt, str(item.pk))} for item in trip.expenses.all()] if owner else [],
+                          'receipt': photo_url(item.receipt, str(item.pk))} for item in trip.expenses.live()] if owner else [],
             'charges': [{'id': charge.pk, 'coach': charge.coach.name, 'amount_twd': charge.amount_twd,
                          'balance': charge_balance(charge, include_drafts=False), 'first_month': charge.first_month,
                          'last_month': charge.last_month, 'manual_due': self.manual_due(charge)}
@@ -151,7 +151,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
         resorts = Resorts.objects.filter(client=self.tenant).prefetch_related('campuses')
         campus_ids = {campus.pk for campus in campuses}
         exempt = list(self.exempt_resorts(policy).values_list('pk', flat=True))
-        trips = self.trips().select_related('campus', 'driver', 'vehicle', 'resort').prefetch_related('participants', 'expenses', 'charges__coach')
+        trips = self.trips().live().select_related('campus', 'driver', 'vehicle', 'resort').prefetch_related('participants', 'charges__coach')
         start = serializers.DateField().run_validation(request.query_params['from']) if request.query_params.get('from') else None
         end = serializers.DateField().run_validation(request.query_params['to']) if request.query_params.get('to') else None
         if start and end and end < start:
@@ -163,7 +163,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
         demands = []
         if self.review and not self.personal:
             today = timezone.localdate(timezone=JAPAN_TIME)
-            bookings = Booking.objects.filter(
+            bookings = Booking.objects.live().filter(
                 reservation__group__campus__in=campuses, reservation__group__client=self.tenant,
                 reservation__resort__client=self.tenant, reservation__status__in=SCHEDULED_RESERVATION_STATUSES,
                 is_scheduled=True, date__range=(start or today, end or today + timedelta(days=30)),
@@ -205,8 +205,8 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             return self.save_settings(action, request.data)
         trip_id = serializers.IntegerField(min_value=1).run_validation(request.data.get('trip'))
         # Avoid SELECT FOR UPDATE on a DISTINCT result or on nullable joined tables.
-        trip = get_object_or_404(self.trips(), pk=trip_id)
-        trip = VehicleTrip.objects.select_for_update().get(pk=trip.pk)
+        trip = get_object_or_404(self.trips().live(), pk=trip_id)
+        trip = VehicleTrip.objects.live().select_for_update().get(pk=trip.pk)
         if self.personal:
             if trip.driver_id != self.coach.pk:
                 raise PermissionDenied('僅駕駛可登記及修正用車資料')
@@ -243,7 +243,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
         day = timezone.localdate(starts_at, JAPAN_TIME)
         monday = day - timedelta(days=day.weekday())
         start = datetime.combine(monday, time.min, JAPAN_TIME)
-        if VehicleTrip.objects.filter(campus__client=self.tenant, purpose='shopping',
+        if VehicleTrip.objects.live().filter(campus__client=self.tenant, purpose='shopping',
                                       starts_at__gte=start, starts_at__lt=start + timedelta(days=7)).exclude(
             Q(status='rejected') | Q(pk=trip_id)
         ).exists():
@@ -329,7 +329,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             status__in=['approved', 'driving'], starts_at__lt=trip.ends_at, ends_at__gt=trip.starts_at,
         ).exists():
             raise ValidationError('這輛車在所選時段已有安排，請先處理原用車紀錄或選擇其他車輛')
-        if trip.purpose != 'lesson' and VehicleTrip.objects.filter(
+        if trip.purpose != 'lesson' and VehicleTrip.objects.live().filter(
             Q(campus_id=vehicle.campus_id) | Q(campus__shared_vehicles=vehicle),
             campus__client=self.tenant, status='pending', purpose='lesson',
             starts_at__lt=trip.ends_at, ends_at__gt=trip.starts_at,
@@ -345,7 +345,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
         first, last = (timezone.localtime(value, JAPAN_TIME) for value in (trip.starts_at, trip.ends_at))
         campus_ids = Campus.objects.filter(Q(pk=vehicle.campus_id) | Q(shared_vehicles=vehicle), client=self.tenant)
         exempt = self.exempt_resorts(self.policy())
-        needs = Booking.objects.filter(
+        needs = Booking.objects.live().filter(
             reservation__group__client=self.tenant, reservation__group__campus__in=campus_ids,
             reservation__resort__client=self.tenant, reservation__status__in=SCHEDULED_RESERVATION_STATUSES,
             is_scheduled=True, date__range=(first.date(), last.date()),
@@ -354,7 +354,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
         ).distinct()
         for day, start_time, end_time, campus_id, resort_id in needs:
             start, end = (datetime.combine(day, value, JAPAN_TIME) for value in (start_time, end_time))
-            if start < last and end > first and not VehicleTrip.objects.filter(
+            if start < last and end > first and not VehicleTrip.objects.live().filter(
                 campus_id=campus_id, resort_id=resort_id, purpose='lesson',
                 status__in=['approved', 'driving', 'returned', 'reviewed', 'settled'],
                 starts_at__lte=start, ends_at__gte=end,
@@ -389,7 +389,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             km = number(request.data.get('km'), '里程', 999999999, 1)
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
-        if departure and VehicleTrip.objects.filter(vehicle=trip.vehicle, status='driving').exclude(pk=trip.pk).exists():
+        if departure and VehicleTrip.objects.live().filter(vehicle=trip.vehicle, status='driving').exclude(pk=trip.pk).exists():
             raise ValidationError('這輛車尚未歸還，無法出車')
         if not departure and km < trip.departure_km:
             raise ValidationError('歸還里程不得低於出發里程')
@@ -416,7 +416,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
                 trip.return_km, trip.status, trip.reviewed_by = km, 'returned', None
                 trip.returned_at = trip.returned_at or timezone.now()
                 if expenses is not None:
-                    trip.expenses.exclude(pk__in=[item.pk for item in expenses if item.pk]).delete()
+                    trip.expenses.live().exclude(pk__in=[item.pk for item in expenses if item.pk]).delete()
                     for item in expenses:
                         item.save()
             trip.save()
@@ -445,7 +445,7 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
         rows = serializers.JSONField(binary=True).run_validation(request.data['expenses'])
         if not isinstance(rows, list) or len(rows) > 20:
             raise ValidationError('每筆用車最多可登記 20 筆支出')
-        existing = {item.pk: item for item in trip.expenses.all()}
+        existing = {item.pk: item for item in trip.expenses.live()}
         expenses, receipts, replaced = [], [], []
         for index, row in enumerate(rows):
             if not isinstance(row, dict):

@@ -1,5 +1,6 @@
 """Authenticate gateway callbacks against the order's school, not a caller-selected user."""
 import json
+import logging
 import re
 from decimal import Decimal, InvalidOperation
 from hmac import compare_digest
@@ -13,6 +14,8 @@ from Client.tenant_settings import gateway_settings
 from booking.Newebpay import aes256_cbc_decrypt, sha256_hash
 from booking.models import NewebpayMerchant, Payment, ReservationGroup
 from booking.newebpay_settings import merchant_credentials, merchant_environment_allowed
+
+logger = logging.getLogger(__name__)
 
 
 @csrf_exempt
@@ -53,12 +56,15 @@ def call_back(request, tunnel):
         return HttpResponse('Invalid merchant',status=400)
     if payload.get('Status') != 'SUCCESS':
         return HttpResponse('Payment not successful',status=400)
-    group=ReservationGroup.objects.select_for_update().filter(pk=number,client=school).first()
+    group=ReservationGroup.all_objects.select_for_update().filter(pk=number,client=school).first()
     if not group:
         return HttpResponse('Order not found',status=404)
     if group.newebpay_merchant_id != (merchant.pk if merchant else None):
         return HttpResponse('Order merchant requires reconciliation', status=409)
-    payment=Payment.objects.select_for_update().filter(reservation_group=group).order_by('-created_at','-pk').first()
+    if group.is_deleted:
+        logger.warning('Authenticated payment callback for archived order %s requires reconciliation', group.pk)
+        return HttpResponse('Archived order requires reconciliation', status=409)
+    payment=Payment.objects.live().select_for_update().filter(reservation_group=group).order_by('-created_at','-pk').first()
     if not payment:
         return HttpResponse('Payment not found',status=404)
     # A genuine replay after payment/refund must not mutate status, ownership or metadata.
@@ -66,7 +72,7 @@ def call_back(request, tunnel):
         return HttpResponse('OK')
     if (group.currency_snapshot or {}).get('currency','TWD') != 'TWD':
         return HttpResponse('Currency requires reconciliation',status=409)
-    expected=group.reservations.exclude(status__in=['deleted','cancelled']).aggregate(total=Sum('payment_amount'))['total'] or 0
+    expected=group.reservations.live().exclude(status__in=['deleted','cancelled']).aggregate(total=Sum('payment_amount'))['total'] or 0
     if amount != Decimal(str(expected)):
         return HttpResponse('Amount requires reconciliation',status=409)
     if payment.status not in {'unpaid','pending'}:

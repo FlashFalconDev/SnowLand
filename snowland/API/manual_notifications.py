@@ -37,7 +37,7 @@ class ManualNotificationInput(serializers.Serializer):
 
 
 def scoped_groups(request):
-    groups = ReservationGroup.objects.filter(client=request.tenant)
+    groups = ReservationGroup.objects.live().filter(client=request.tenant)
     if not request.can_view_all_campuses or request.selected_campus_id is not None:
         groups = groups.filter(campus_id__in=request.campus_ids)
     return groups
@@ -45,7 +45,7 @@ def scoped_groups(request):
 
 def allowed_members(request):
     groups = scoped_groups(request)
-    members = MemberDetail.objects.filter(reservation__group__in=groups).exclude(reservation__status='deleted')
+    members = MemberDetail.objects.live().filter(reservation__group__in=groups).exclude(reservation__status='deleted')
     return User.objects.filter(is_active=True).filter(
         Q(pk__in=groups.values('user_id')) | Q(pk__in=members.values('user_id'))
         | Q(pk__in=members.values('guardian_id')),
@@ -97,7 +97,7 @@ def resolve_target(request, data):
             raise NotFound('找不到目前範圍內的訂單，請重新選擇')
         ids = {group.user_id} if group.user_id else set()
         if data['audience'] == 'participants':
-            for member in MemberDetail.objects.filter(reservation__group=group).exclude(reservation__status__in=['cancelled', 'deleted']):
+            for member in MemberDetail.objects.live().filter(reservation__group=group).exclude(reservation__status__in=['cancelled', 'deleted']):
                 ids.update([member.user_id, member.guardian_id])
         users = list(User.objects.filter(pk__in=ids - {None}, is_active=True).order_by('pk'))
         label = order_label(group)
