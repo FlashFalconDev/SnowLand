@@ -122,7 +122,11 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
         ('模組特定設定', {
             'fields': ('settings',),
             'classes': ('collapse',),
-            'description': '此客戶對該模組的特定配置（JSON 格式）'
+            'description': (
+                '此客戶對該模組的特定配置（JSON 格式）。在 booking 模組的設定加入 '
+                'learner_rename_policy，可填 disabled（停用）、unlinked_only（僅限未連結有效名額）'
+                '或 owner_all（所有本人學員檔案）。預設為 disabled。'
+            ),
         }),
         ('時間記錄', {
             'fields': ('created_at', 'updated_at'),
