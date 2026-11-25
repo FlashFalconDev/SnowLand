@@ -369,7 +369,7 @@ class CoachPreCourseSummaryTests(TestCase):
             pre_course_answers={'experience': {'kind': 'returning', 'recent': 'yes', 'finished': True}},
         )
         current = self.make_place(
-            learner=learner, age_range='PRIVATE_AGE', ski_skills=['PRIVATE_SKILL', '無經驗'],
+            learner=learner, age_range='PRIVATE_AG', ski_skills=['PRIVATE_SKILL', '無經驗'],
             insurance_data={'email': 'private@example.test', 'phone': 'PRIVATE_PHONE', 'id_number': 'PRIVATE_ID'},
             waiver_signature='PRIVATE_SIGNATURE',
             pre_course_answers={
