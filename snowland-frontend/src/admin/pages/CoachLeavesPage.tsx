@@ -98,7 +98,7 @@ export default function CoachLeavesPage() {
               <div className="flex flex-wrap items-start gap-3 sm:gap-4">
                 <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden flex-shrink-0">
                   {leave.coach_img ? (
-                    <img src={leave.coach_img} alt={leave.coach_name} className="w-full h-full object-cover" loading="lazy" />
+                    <img src={leave.coach_img} alt={leave.coach_name} className="w-full h-full coach-photo" loading="lazy" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-white font-medium" style={{ backgroundColor: PRIMARY }}>{leave.coach_name.charAt(0)}</div>
                   )}

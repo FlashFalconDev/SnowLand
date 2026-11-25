@@ -419,7 +419,7 @@ export default function CoachesPage() {
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden flex-shrink-0">
                             {coach.img ? (
-                              <img src={coach.img} alt={coach.name} className="w-full h-full object-cover" loading="lazy" />
+                              <img src={coach.img} alt={coach.name} className="w-full h-full coach-photo" loading="lazy" />
                             ) : (
                               <div
                                 className="w-full h-full flex items-center justify-center text-white text-sm font-medium"
