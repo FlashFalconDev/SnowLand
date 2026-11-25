@@ -45,7 +45,7 @@ from .models import (
 )
 from Control.views import login_required_control
 from .funcNewebpay import neweb_pay_request
-from .legal_documents import get_current_waiver, course_waiver_revision
+from .legal_documents import INSURANCE_NOTICE_LOCATION_KEY, get_current_insurance_notice, get_current_waiver, course_waiver_revision
 from .pre_course_questions import required_answers_complete, saved_section_answers, section_questions, validate_answers
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .coach_pre_course_summary import COACH_SUMMARY_LOCATION, experience_assessment_enabled
@@ -856,7 +856,9 @@ class SiteContentListAPI(APIView):
         except TenantResolutionError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
-        qs = SiteContent.objects.filter(client=client).exclude(location_key__in=(RUBRIC_LOCATION, COACH_SUMMARY_LOCATION))
+        qs = SiteContent.objects.filter(client=client).exclude(
+            location_key__in=(RUBRIC_LOCATION, COACH_SUMMARY_LOCATION, INSURANCE_NOTICE_LOCATION_KEY),
+        )
         content_type = (request.GET.get('content_type') or '').strip()
         location_key = (request.GET.get('location_key') or '').strip()
         tag = (request.GET.get('tag') or '').strip()
@@ -3251,6 +3253,7 @@ class MemberCenterAPI(APIView):
             'alumni_verified': loyalty.alumni_verified,
             'line_linked': bool(profile.line_user_id),
             'waiver_document': {key: value for key, value in waiver_document.items() if key != 'source_url'},
+            'insurance_notice': get_current_insurance_notice(tenant),
             'orders': orders,
             'participant_courses': list(participant_courses.values()),
             'pre_course_forms': pre_course_forms,

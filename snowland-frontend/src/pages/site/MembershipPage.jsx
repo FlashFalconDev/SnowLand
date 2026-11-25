@@ -295,7 +295,7 @@ function Orders({ data, onQuickRebook, onRefresh }) {
   return <div><h2 className="text-2xl font-semibold">{t("我的訂單")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("查看付款狀態、課程明細及快速再次預約。")}</p><div className="mt-7 space-y-4">{data.orders.length ? data.orders.map((order) => <OrderCard key={order.id} order={order} onQuickRebook={onQuickRebook} />) : <EmptyState title={t("目前沒有訂單")} action={<SiteLink to="/booking" className="mt-6 inline-flex rounded-full bg-[#2b5f8f] px-6 py-3 text-sm font-semibold text-white">{t("開始預約")}</SiteLink>} />}</div></div>;
 }
 
-function PreCourseForm({ form, waiverDocument, skillOptions, onSaved, previousForms = [] }) {
+function PreCourseForm({ form, waiverDocument, insuranceNotice, skillOptions, onSaved, previousForms = [] }) {
   const { t } = useSiteLocale();
   const [editing, setEditing] = useState(false);
   const savedDraft = () => ({
@@ -377,6 +377,12 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved, previousFo
           {previousForms.map(item => <option key={item.id} value={item.id}>{[item.insurance_data.full_name, item.insurance_data.nickname, item.order_number].filter(Boolean).join('｜')}</option>)}
         </select>
       </label>}
+      {insuranceNotice?.status === 'active' && !insuranceNotice.is_draft && insuranceNotice.body && (
+        <section className="min-w-0 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] p-4 [overflow-wrap:anywhere]">
+          <h6 className="font-semibold text-[#1e4e73]">{insuranceNotice.title}</h6>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-[#475569]">{insuranceNotice.body}</p>
+        </section>
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-sm font-semibold">{t("年齡區間")}<select value={draft.age_range} onChange={(event) => setDraft({ ...draft, age_range: event.target.value })} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2"><option value="">{t("請選擇年齡區間")}</option>{ageOptions.map((option) => <option key={option} value={option}>{ageLabel(option,t)}</option>)}</select></label>
         {[['full_name', '學員姓名（保險用）'], ['birth_date', '出生日期'], ['id_number', '身分證／護照號碼'], ['phone', '聯絡電話'], ['emergency_contact', '緊急聯絡人'], ['emergency_phone', '緊急聯絡電話']].map(([key, label]) => <label key={key} className="text-sm font-semibold">{t(label)}<input type={key === 'birth_date' ? 'date' : 'text'} max={key === 'birth_date' ? waiverDocument.reference_date : undefined} value={draft.insurance_data[key] || ''} onChange={(event) => updateInsurance(key, event.target.value)} className="mt-1 min-h-11 w-full rounded-sm border border-[#cbd5e1] px-3 py-2" /></label>)}
@@ -554,7 +560,7 @@ function ParticipantInvitation({ token, onAccepted }) {
   </section>;
 }
 
-function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions, onSaved, account }) {
+function Forms({ forms, orders, participantCourses, waiverDocument, insuranceNotice, skillOptions, onSaved, account }) {
   const { t } = useSiteLocale();
   const reservationId = Number(new URLSearchParams(useLocation().search).get('reservation'));
   const previousForms = forms.filter(form => form.insurance_data?.full_name);
@@ -608,7 +614,7 @@ function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions
               {rosterOrder && course.missing_students > 0 && <MissingStudents reservation={course} onSaved={onSaved} />}
               {courseForms.map(form => <div key={form.id}>
                 <LinkCourseLearner form={form} account={account} onSaved={onSaved} />
-                <PreCourseForm form={form} waiverDocument={waiverDocument} skillOptions={skillOptions} onSaved={onSaved} previousForms={previousForms.filter(item => item.order_id !== form.order_id)} />
+                <PreCourseForm form={form} waiverDocument={waiverDocument} insuranceNotice={insuranceNotice} skillOptions={skillOptions} onSaved={onSaved} previousForms={previousForms.filter(item => item.order_id !== form.order_id)} />
               </div>)}
             </section>;
           })}
@@ -786,7 +792,7 @@ function MemberSection({ section, data, onQuickRebook, onRefresh }) {
   const { t } = useSiteLocale();
   if (section === 'notifications') return <MemberNotifications />;
   if (section === 'orders') return <>{(data.orders.length > 0 || !data.participant_courses?.length) && <Orders data={data} onQuickRebook={onQuickRebook} onRefresh={onRefresh} />}{data.participant_courses?.length > 0 && <div className={data.orders.length ? 'mt-8' : ''}><ParticipantCourses courses={data.participant_courses} /></div>}</>;
-  if (section === 'forms') return <Forms forms={data.pre_course_forms} orders={data.orders} participantCourses={data.participant_courses} waiverDocument={data.waiver_document} skillOptions={data.skill_options} onSaved={onRefresh} account={data.member.email} />;
+  if (section === 'forms') return <Forms forms={data.pre_course_forms} orders={data.orders} participantCourses={data.participant_courses} waiverDocument={data.waiver_document} insuranceNotice={data.insurance_notice} skillOptions={data.skill_options} onSaved={onRefresh} account={data.member.email} />;
   if (section === 'journey') return <><Journey records={data.learning_records} onSaved={onRefresh} account={data.member.email} /><MemberCourseAlbums account={data.member.email} /></>;
   if (section === 'offers') return <div><h2 className="text-2xl font-semibold">{t("專屬優惠")}</h2><p className="mt-2 text-sm text-[#64748b]">{t("會員等級、點數與推薦碼集中在這裡。")}</p><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-sm bg-gradient-to-br from-[#1c3b5f] to-[#2b5f8f] p-6 text-white"><Gift /><p className="mt-8 text-sm text-white/70">{t("會員等級")}</p><p className="mt-1 text-2xl font-semibold">{data.level_label || t({ new: '新會員', alumni: '舊生', silver: '銀級', gold: '金級' }[data.level] || data.level)}</p><p className="mt-3 text-sm">{data.alumni_verified ? t("舊生身分已確認") : t("舊生身分尚未確認；如曾上課，請聯絡 SnowLand 核對。")}</p><p className="mt-5 text-sm">{t('目前點數：{count}',{count:data.points})}</p>{data.loyalty_enabled && <p className="mt-1 text-sm">{t('紅利餘額：{count} 點',{count:data.reward_balance || 0})}</p>}<p className="mt-1 text-sm text-white/80">{t('其中歷史補登：{count} 點',{count:data.previous_points || 0})}</p></div><div className="rounded-sm border border-[#dbe3ec] bg-white p-6"><p className="text-sm font-semibold text-[#64748b]">{t("我的推薦碼")}</p><p className="mt-4 break-all text-2xl font-semibold tracking-wider text-[#2b5f8f]">{data.referral_code}</p><p className="mt-4 text-sm leading-7 text-[#64748b]">{t("實際折扣與回饋以 SnowLand 已公布、啟用的活動為準；顯示推薦碼不代表已套用優惠。")}</p></div></div></div>;
   return <Overview data={data} />;

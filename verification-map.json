@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "features": [
+    {
+      "id": "pre-course-insurance-notice",
+      "name": "會員課前資料的保險說明",
+      "routes": {
+        "member": "/{client_code}/membership/pre-course-forms",
+        "console": "/{client_code}/console/cms/membership",
+        "memberApi": "/booking/{client_code}/api/member-center/",
+        "adminCurrentApi": "/api/admin/{client_code}/site-content/insurance-notice-current/",
+        "adminCrudApi": "/api/admin/{client_code}/site-content/"
+      },
+      "permission": "course_documents",
+      "locationKey": "membership.insurance-notice",
+      "testEnvironment": "Django snowland.test_settings 使用記憶體 SQLite。瀏覽器元件驗證使用合成資料，實際服務驗收須使用核准的本機測試環境與合成帳號。",
+      "checks": [
+        {
+          "id": "api-publication-and-tenant-scope",
+          "command": "cd snowland; python manage.py test API.tests_insurance_notice API.tests_waiver_content API.tests_console_permissions booking.tests_waiver_signatures booking.tests_participants --settings=snowland.test_settings",
+          "expected": "兩份公開文件可同時讀取。任一未公開時只回傳已公開的正文，SnowLand 聲明書 V0 相容行為保留。保險說明取租戶內最新公開頁面，只有具課前文件權限的編輯者可以管理。更新保險說明後原聲明書版本、簽署時間與快照仍有效。"
+        },
+        {
+          "id": "frontend-document-controls",
+          "command": "cd snowland-frontend; npm test",
+          "tests": ["tests/test-pre-course-insurance-notice.cjs", "tests/test-review-content-controls.cjs"],
+          "expected": "後台可分開編輯保險說明的標題、正文、狀態與法務確認。會員課前保險資料保留原欄位及題目，聲明書與簽名板各自照常顯示。"
+        },
+        {
+          "id": "browser-course-documents",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "以具課前文件權限的測試帳號開啟課前聲明書與表單，選擇保險說明並新增內容。",
+            "勾選法務確認並儲存草稿，確認只有後台可讀取草稿。取消勾選後選擇進行中並儲存。",
+            "以有課程的測試學員開啟課前資料，點選填寫／修改資料。確認保險說明和聲明書都可閱讀，各自保持完整，原保險欄位、題目與簽名板均可使用。",
+            "以不同視窗尺寸重複檢查，確認長文可換行、可捲動至聲明書，頁面無水平溢出。"
+          ],
+          "expected": "兩個入口與文件正文獨立，長文在桌機及手機均不遮擋表單。"
+        },
+        {
+          "id": "project-regressions",
+          "commands": ["cd snowland; python manage.py test --settings=snowland.test_settings", "cd snowland-frontend; npm run build", "git diff --check"],
+          "expected": "Django 全套測試、前端建置與差異格式檢查通過。"
+        }
+      ]
+    }
+  ]
+}
