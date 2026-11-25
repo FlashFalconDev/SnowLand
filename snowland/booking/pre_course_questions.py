@@ -1,6 +1,12 @@
 import re
 
 
+EXPERIENCE_KIND_CHOICES = {'new': '新生', 'returning': '舊生'}
+EXPERIENCE_RECENT_CHOICES = {'yes': '有經驗', 'no': '沒有經驗'}
+EXPERIENCE_BOARD_CHOICES = {'snowboard': '單板', 'ski': '雙板'}
+EXPERIENCE_AREAS = ('北海道', '湯澤地區', '白馬地區', '其他日本雪場', '日本以外')
+
+
 def validate_questions(questions):
     if not isinstance(questions, list) or len(questions) > 24:
         raise ValueError('課前表單最多可設定 24 題')
@@ -43,11 +49,11 @@ def validate_experience_assessment(value):
     kind, recent = value.get('kind', ''), value.get('recent', '')
     areas, boards = value.get('areas', []), value.get('boards', [])
     resort, notes, finished = value.get('resort', ''), value.get('notes', ''), value.get('finished', False)
-    if (kind not in ('', 'new', 'returning') or recent not in ('', 'yes', 'no')
+    if (kind not in ('', *EXPERIENCE_KIND_CHOICES) or recent not in ('', *EXPERIENCE_RECENT_CHOICES)
             or not isinstance(areas, list) or len(areas) > 5
-            or any(area not in ('北海道', '湯澤地區', '白馬地區', '其他日本雪場', '日本以外') for area in areas)
+            or any(area not in EXPERIENCE_AREAS for area in areas)
             or not isinstance(boards, list) or len(boards) > 2
-            or any(board not in ('snowboard', 'ski') for board in boards)
+            or any(not isinstance(board, str) or board not in EXPERIENCE_BOARD_CHOICES for board in boards)
             or not isinstance(resort, str) or len(resort) > 250 or not isinstance(notes, str) or len(notes) > 500
             or type(finished) is not bool):
         raise ValueError('程度自評格式不正確')

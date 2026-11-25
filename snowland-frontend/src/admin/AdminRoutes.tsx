@@ -17,6 +17,7 @@ import OrdersPage from './pages/OrdersPage'
 import CustomersPage from './pages/CustomersPage'
 import SchedulingPage from './pages/SchedulingPage'
 import VehiclePage from './pages/VehiclePage'
+import VehicleGuidePage from './pages/help/VehicleGuidePage'
 import CoachWorkloadPanel from './components/CoachWorkloadPanel'
 import CoachLeavesPage from './pages/CoachLeavesPage'
 import StaffPermissionsPage from './pages/StaffPermissionsPage'
@@ -35,7 +36,7 @@ import FrontendSupportPage from './pages/FrontendSupportPage'
 
 import type { ReactElement } from 'react'
 import type { SiteContentType } from './api/siteContent'
-import { consoleNavigation, type ConsolePath } from './consoleNavigation'
+import { consoleNavigation, vehicleGuidePage, type ConsolePath } from './consoleNavigation'
 
 const REVIEW_TYPES: SiteContentType[] = ['review']
 const MEDIA_TYPES: SiteContentType[] = ['media']
@@ -131,6 +132,9 @@ export default function AdminRoutes() {
             </>}
           </Route>
         )))}
+        <Route element={<RoleGuard page={vehicleGuidePage} />}>
+          <Route path={vehicleGuidePage.path} element={<VehicleGuidePage />} />
+        </Route>
         {Object.entries(legacyPaths).map(([path, destination]) => (
           <Route key={path} path={path} element={<LegacyConsoleRoute destination={destination} />} />
         ))}

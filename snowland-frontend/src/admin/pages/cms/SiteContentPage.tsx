@@ -34,10 +34,13 @@ import { toEditorSiteContent, toStoredSiteContent } from '../../utils/articleCon
 import {
   createSiteContent,
   deleteSiteContent,
+  fetchCoachSummarySettings,
   fetchSiteContents,
   fetchCurrentWaiver,
   fetchReviewContentGroups,
   updateSiteContent,
+  type CoachSummaryField,
+  type CoachSummarySettings,
   type SiteContentItem,
   type SiteContentStatus,
   type SiteContentType,
@@ -53,6 +56,81 @@ function contentErrorMessage(error: any, fallback: string): string {
 }
 const CMS_STRUCTURE_LOCATION_KEY = 'cms.structure'
 const inputClass = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15 dark:border-gray-700 dark:bg-gray-900 dark:text-white'
+
+type SummaryFieldEdit = Partial<Pick<CoachSummaryField, 'label' | 'visible'> & { order: number | '' }>
+
+function CoachSummarySettingsForm() {
+  const queryClient = useQueryClient()
+  const tenant = currentClientCode()
+  const queryKey = [...QUERY_KEY, 'coach-pre-course-summary', tenant]
+  const query = useQuery({ queryKey, queryFn: fetchCoachSummarySettings })
+  const [edits, setEdits] = useState<Record<string, SummaryFieldEdit>>({})
+  const settings = query.data
+  const fields = settings?.available_fields.map(option => ({
+    ...(settings.fields.find(field => field.key === option.key) ?? { ...option, visible: false }),
+    ...edits[option.key],
+  })) ?? []
+  const save = useMutation({
+    mutationFn: (fields: CoachSummaryField[]) => {
+      if (!settings) throw new Error('課前摘要設定尚未載入')
+      const metadata = { fields }
+      if (settings.id !== null) return updateSiteContent(settings.id, { metadata })
+      return createSiteContent({
+        ...makeEmptyForm(settings.location_key),
+        content_type: 'setting', title: '教練課前摘要', status: 'hidden', metadata,
+      })
+    },
+    onSuccess: (item, fields) => {
+      queryClient.setQueryData<CoachSummarySettings>(queryKey, current =>
+        current && { ...current, id: item.id, fields },
+      )
+      setEdits({})
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+      void queryClient.invalidateQueries({ queryKey: ['coach-learner-history', tenant] })
+    },
+    onError: () => { void query.refetch() },
+  })
+  const updateField = (key: string, patch: SummaryFieldEdit) => {
+    save.reset()
+    setEdits(current => ({ ...current, [key]: { ...current[key], ...patch } }))
+  }
+
+  return <section aria-label="教練課前摘要" className="mt-5 rounded-2xl bg-white p-4 dark:bg-[#172131]">
+    <h2 className="font-semibold">教練課前摘要</h2>
+    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">摘要僅顯示選項型答案。儲存設定後，會員可在課前資料填寫程度自評。</p>
+    {query.isPending && <p role="status" className="mt-3 text-sm">載入摘要設定中…</p>}
+    {query.isError && <p role="alert" className="mt-3 text-sm">摘要設定載入失敗。<button type="button" className="min-h-11 px-2 underline" onClick={() => void query.refetch()}>重試</button></p>}
+    {settings && <form className="mt-3 space-y-3" onSubmit={event => {
+      event.preventDefault()
+      save.mutate(fields.map(field => ({ ...field, order: Number(field.order) })))
+    }}>
+      <fieldset className="space-y-3" disabled={save.isPending}>
+        <legend className="sr-only">摘要欄位設定</legend>
+        {settings.available_fields.map((option, index) => {
+          const field = fields[index]
+          return <div key={option.key} className="grid items-end gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_7rem_auto]">
+            <span className="self-center text-sm font-medium">{option.label}</span>
+            <label className="text-sm">顯示標籤
+              <input className={inputClass + ' min-h-11'} aria-label={`${option.label}的顯示標籤`} required maxLength={settings.label_max_length} value={field.label}
+                onChange={event => updateField(option.key, { label: event.target.value })} />
+            </label>
+            <label className="text-sm">順序
+              <input className={inputClass + ' min-h-11'} aria-label={`${option.label}的顯示順序`} type="number" step={1} required value={field.order}
+                onChange={event => updateField(option.key, { order: event.target.value === '' ? '' : event.target.valueAsNumber })} />
+            </label>
+            <label className="flex min-h-11 items-center gap-2 text-sm">
+              <input aria-label={`顯示${option.label}`} type="checkbox" checked={field.visible} onChange={event => updateField(option.key, { visible: event.target.checked })} />
+              顯示
+            </label>
+          </div>
+        })}
+        <button type="submit" className="min-h-11 rounded-lg bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-60">{save.isPending ? '儲存中…' : '儲存摘要設定'}</button>
+      </fieldset>
+      {save.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{contentErrorMessage(save.error, '摘要設定儲存失敗')}</p>}
+      {save.isSuccess && <p role="status" className="text-sm text-green-700 dark:text-green-300">已儲存摘要設定</p>}
+    </form>}
+  </section>
+}
 
 type ContentGroup = string
 
@@ -780,6 +858,8 @@ export default function SiteContentPage({ initialGroup = 'homepage', contentType
           <Plus size={16} />{activeLocation?.key === 'guides.packing' && locationContents.length ? '編輯裝備原稿' : '新增內容'}
         </button>
       </div>
+
+      {section === 'course_documents' && <CoachSummarySettingsForm key={currentClientCode()} />}
 
       <div className="mt-5">
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">

@@ -12,23 +12,13 @@ import {
 } from '../api/extras'
 import { useNotification } from '../context'
 import { hasAdminPermission } from '../permissions'
+import { STAFF_ROLE_OPTIONS } from '../staffRoles'
 import { consoleNavigation } from '../consoleNavigation'
 import { fetchCampuses } from '../api/campuses'
 import { fetchAdminMe } from '../api/auth'
 import { useAdminDialog } from '../hooks/useAdminDialog'
 
 const PRIMARY = '#8b5cf6'
-const STAFF_ROLE_OPTIONS = [
-  ['hq_admin', '總部管理員'],
-  ['campus_principal', '校區校長'],
-  ['campus_manager', '校區主管'],
-  ['assistant', '行政小幫手'],
-  ['insurance', '保險人員'],
-  ['marketing', '行銷人員'],
-  ['web_editor', '網頁人員'],
-  ['photographer', '攝影人員'],
-  ['', '一般後台人員'],
-] as const
 
 export default function StaffPermissionsPage() {
   const [searchParams] = useSearchParams()

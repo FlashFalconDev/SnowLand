@@ -22,6 +22,7 @@ import { GlobalNotification } from '../components/GlobalNotification'
 import LoginPage from '@/pages/LoginPage'
 import { fetchAdminMe, type AdminMeResult } from '../api/auth'
 import { hasAdminPermission } from '../permissions'
+import { getSidebarRoleLabel } from '../staffRoles'
 import { canOpenConsolePage, consoleNavigation } from '../consoleNavigation'
 import { fetchNotificationDeliveries } from '../api/operations'
 
@@ -581,7 +582,7 @@ function AdminLayoutContent() {
                   {displayUser?.name || '管理員'}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  {displayUser?.email}
+                  {getSidebarRoleLabel(adminCheck?.user)}
                 </div>
               </div>
             </button>
