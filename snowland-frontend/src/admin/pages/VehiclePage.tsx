@@ -193,27 +193,50 @@ function TripCard({ trip, data, mode, submit, busy }: { trip: Trip; data: Desk; 
 }
 
 export default function VehiclePage({ mode }: { mode: Mode }) {
-  const path = mode === 'coach' ? '/coach/vehicles/' : '/vehicles/'
+  const isCoach = mode === 'coach'
+  const path = isCoach ? '/coach/vehicles/' : '/vehicles/'
   const [data, setData] = useState<Desk | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<{ text: string; source: 'load' | 'submit' } | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [revision, setRevision] = useState(0)
   const [range, setRange] = useState({ from: '', to: '' })
   const [seed, setSeed] = useState<Demand>()
   useEffect(() => {
-    const controller = new AbortController()
+    let activeController: AbortController | undefined
     const params = Object.fromEntries(Object.entries(range).filter(([, value]) => value))
-    adminApi.get(path, { params, signal: controller.signal }).then((result: unknown) => {
-      if (!controller.signal.aborted) setData((result as { data: Desk }).data)
-    }).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setError(errorText(cause))
-    })
-    return () => controller.abort()
-  }, [path, range, revision])
+    function load() {
+      activeController?.abort()
+      const controller = new AbortController()
+      activeController = controller
+      adminApi.get(path, { params, signal: controller.signal }).then((result: unknown) => {
+        if (!controller.signal.aborted) setData((result as { data: Desk }).data)
+      }).catch((cause: unknown) => {
+        if (!controller.signal.aborted) setError({ text: errorText(cause), source: 'load' })
+      })
+    }
+
+    load()
+    if (!isCoach) return () => activeController?.abort()
+
+    function refresh() {
+      setError(current => current?.source === 'load' ? null : current)
+      load()
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', refresh)
+    return () => {
+      activeController?.abort()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [isCoach, path, range, revision])
 
   async function submit(payload: object | FormData) {
-    setError('')
+    setError(null)
     setMessage('')
     setBusy(true)
     try {
@@ -222,7 +245,7 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
       setSeed(undefined)
       setRevision(value => value + 1)
     } catch (cause) {
-      setError(errorText(cause))
+      setError({ text: errorText(cause), source: 'submit' })
     } finally {
       setBusy(false)
     }
@@ -239,12 +262,18 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
         <BookOpen aria-hidden="true" size={16} /> 使用說明
       </Link>
     </header>
-    {error && <p role="alert" className="rounded border border-red-300 p-3 text-red-700 dark:text-red-300">{error}</p>}
+    {error && <p role="alert" className="rounded border border-red-300 p-3 text-red-700 dark:text-red-300">{error.text}</p>}
+    {isCoach && !data && error?.source === 'load' && <button type="button" className={button} onClick={() => {
+      setError(null)
+      setRevision(value => value + 1)
+    }}>重新載入</button>}
     {message && <p role="status" className="text-green-700 dark:text-green-300">{message}</p>}
     {!data && !error && <p role="status">載入用車資料中…</p>}
     {data && <>
-      {mode === 'coach' && !data.eligible && <p>需由校區設定有效的教練薪資規則才能提出借車申請。</p>}
-      {mode === 'coach' && data.eligible && <RequestForm key={'request-' + revision} data={data} staff={false} submit={submit} busy={busy}/>}
+      {isCoach && !data.eligible && <p>{data.campuses?.length
+        ? '請確認此教練有已啟用、且時薪大於 0 的計薪規則'
+        : '此教練沒有啟用中的所屬校區'}</p>}
+      {isCoach && data.eligible && <RequestForm key={'request-' + revision} data={data} staff={false} submit={submit} busy={busy}/>}
       {mode === 'finance' && <FinanceSettings key={revision} data={data} submit={submit} busy={busy}/>}
       {mode === 'review' && <>
         <section className={card}><h2 className="font-semibold">課程用車需求</h2>
@@ -261,7 +290,7 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
         <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
           event.preventDefault()
           const values = new FormData(event.currentTarget)
-          setError('')
+          setError(null)
           setRange({ from: String(values.get('from')), to: String(values.get('to')) })
         }}>
           <Field title="查詢起日"><input className={input} name="from" type="date"/></Field>
