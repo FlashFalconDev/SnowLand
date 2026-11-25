@@ -1,0 +1,7 @@
+name = "snowland-line-engineering-relay"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+RELAY_WEBHOOK_URL = "https://api2.cursor.sh/automations/webhook/11c049cc-2239-51d1-8a6b-1a7ac0b32017"
