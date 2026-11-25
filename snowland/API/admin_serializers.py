@@ -5,7 +5,7 @@ from Control.tenant_memberships import staff_profile, writable_staff_profile
 給管理員看的，不過濾欄位
 """
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from django.contrib.auth.models import User
 from django.conf import settings
 from django.db import transaction
@@ -30,6 +30,7 @@ from booking.models import (
 )
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.assessment import RUBRIC_LOCATION, TECHNICAL_KEY, school_rubric, technical_snapshot, validate_review
+from booking.coach_pre_course_summary import COACH_SUMMARY_LOCATION, summary_settings, validate_summary_fields
 from booking.marketing_source import display_marketing_source
 from .admin_permissions import user_has_admin_permission
 
@@ -280,6 +281,18 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'location_key': '條款文件不能移至其他位置'})
         if previous_location == 'membership.waiver' and location != previous_location:
             raise serializers.ValidationError({'location_key': '聲明書不能移至其他位置'})
+        if self.instance is not None and location != previous_location and COACH_SUMMARY_LOCATION in (location, previous_location):
+            raise serializers.ValidationError({'location_key': '不可變更課前摘要設定的位置'})
+        if location == COACH_SUMMARY_LOCATION:
+            if content_type != 'setting':
+                raise serializers.ValidationError({'content_type': '課前摘要請使用區塊設定內容類型'})
+            if self.instance is None or 'metadata' in attrs:
+                try:
+                    fields = metadata.get('fields') if isinstance(metadata, dict) else None
+                    attrs['metadata'] = {'fields': validate_summary_fields(fields)}
+                except ValueError as exc:
+                    raise serializers.ValidationError({'metadata': str(exc)})
+            attrs['status'] = 'hidden'
         if location in POLICY_PAGES.values():
             if content_type != 'page':
                 raise serializers.ValidationError({'content_type': '條款請使用頁面內容類型'})
@@ -399,20 +412,29 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         client = getattr(request, 'tenant', None) if request else None
         if validated_data.get('location_key') == 'membership.waiver':
-            from django.db import transaction
-            from Client.models import Client
             from booking.legal_documents import versioned_waiver_metadata
             validated_data['metadata'] = versioned_waiver_metadata(validated_data)
             with transaction.atomic():
                 Client.objects.select_for_update().get(pk=client.pk)
                 return SiteContent.objects.create(client=client, **validated_data)
+        if validated_data.get('location_key') == COACH_SUMMARY_LOCATION:
+            with transaction.atomic():
+                Client.objects.select_for_update().get(pk=client.pk)
+                if summary_settings(client.pk).exists():
+                    raise serializers.ValidationError({'location_key': '此租戶已有課前摘要設定，請重新載入後編輯'})
+                return SiteContent.objects.create(client=client, **validated_data)
         return SiteContent.objects.create(client=client, **validated_data)
 
     def update(self, instance, validated_data):
-        if validated_data.get('location_key', instance.location_key) != 'membership.waiver':
+        location = validated_data.get('location_key', instance.location_key)
+        if location == COACH_SUMMARY_LOCATION:
+            with transaction.atomic():
+                current = summary_settings(instance.client_id).select_for_update().filter(pk=instance.pk).first()
+                if current is None:
+                    raise NotFound('找不到此課前摘要設定')
+                return super().update(current, validated_data)
+        if location != 'membership.waiver':
             return super().update(instance, validated_data)
-        from django.db import transaction
-        from Client.models import Client
         from booking.legal_documents import versioned_waiver_metadata
         with transaction.atomic():
             # Match reminder publishing: client first, then the document row.

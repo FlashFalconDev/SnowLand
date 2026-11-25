@@ -10,11 +10,15 @@ from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
-from Client.models import Client
+from Client.models import Client, SiteContent
 from Coach.models import Coach
 from Control.models import TenantStaffMembership
 from booking import tests_participants as fixtures
-from booking.models import Booking, CourseAlbumAsset, CourseEvaluation, LearnerProfile, MemberDetail, Payment, Reservation, ReservationGroup
+from booking.coach_pre_course_summary import COACH_SUMMARY_LOCATION
+from booking.models import (
+    Booking, CourseAlbumAsset, CourseEvaluation, LearnerProfile, MemberDetail,
+    MemberWaiverSignature, Payment, Reservation, ReservationGroup,
+)
 
 
 PROFILES = '/booking/snowland/api/learner-profiles/'
@@ -166,6 +170,263 @@ class LearnerHistoryTests(TestCase):
         self.assertEqual(self.api.patch(path, {'profile_id': self.child_a}, format='json').status_code, 400)
         self.assertEqual(self.api.patch(path, {'profile_id': self.child_a, 'verified': True}, format='json').status_code, 200)
         self.assertEqual(MemberDetail.objects.get(pk=evaluation.member_id).learner_id, self.child_a)
+
+
+class CoachPreCourseSummaryTests(TestCase):
+    def setUp(self):
+        self.school = Client.objects.create(name='SnowLand', internal_code='snowland')
+        self.other_school = Client.objects.create(name='Other', internal_code='other')
+        self.owner = User.objects.create_user('qa-summary-member')
+        self.api = APIClient()
+        self.reservation = self.make_course(self.school)
+        self.coach = self.reservation.preferred_coach
+        self.path = f'{COACH}learner-history/{self.reservation.pk}/'
+        self.cms = '/api/admin/snowland/site-content/'
+
+    def make_course(self, school, coach=None):
+        if coach is None:
+            user = User.objects.create_user(f'qa-summary-coach-{school.internal_code}')
+            TenantStaffMembership.objects.create(client=school, user=user, is_coach=True)
+            coach = Coach.objects.create(client=school, user=user, name='QA coach')
+        group = ReservationGroup.objects.create(client=school, user=self.owner)
+        Payment.objects.create(reservation_group=group, status='pending', payment_method='TT')
+        reservation = Reservation.objects.create(
+            group=group, preferred_coach=coach, status='manually_assigned', number_of_people=7,
+        )
+        Booking.objects.create(
+            reservation=reservation, date=timezone.localdate(), start_time='09:00', end_time='12:00',
+        )
+        return reservation
+
+    def make_place(self, *, reservation=None, **values):
+        return MemberDetail.all_objects.create(**{
+            'reservation': reservation or self.reservation, 'user': self.owner, 'age_range': '', **values,
+        })
+
+    def authenticate_manager(self, school):
+        user = User.objects.create_user(f'qa-summary-manager-{school.internal_code}')
+        TenantStaffMembership.objects.create(client=school, user=user, is_manager=True, role='hq_admin')
+        self.api.force_authenticate(user)
+
+    def save_setting(self, fields, *, cms=None):
+        return self.api.post(cms or self.cms, {
+            'content_type': 'setting', 'location_key': COACH_SUMMARY_LOCATION,
+            'metadata': {'fields': fields},
+        }, format='json')
+
+    def summaries(self):
+        self.api.force_authenticate(self.coach.user)
+        response = self.api.get(self.path)
+        self.assertEqual(response.status_code, 200, response.data)
+        return {row['id']: row['pre_course_summary'] for row in response.data['data']}
+
+    def test_summary_uses_defaults_and_distinguishes_assessment_states(self):
+        completed = self.make_place(
+            age_range='25-35y', ski_skills=['雪場並腿轉彎'], snowboard_skills=['雪場S turn'],
+            pre_course_answers={'experience': {
+                'kind': 'returning', 'recent': 'yes', 'boards': ['ski', 'snowboard'], 'finished': True,
+            }},
+        )
+        no_experience = self.make_place(
+            snowboard_skills=['無經驗'],
+            pre_course_answers={'experience': {'kind': 'new', 'recent': 'no', 'finished': True}},
+        )
+        incomplete = self.make_place(pre_course_answers={'experience': {'kind': 'new', 'finished': False}})
+        empty = self.make_place(pre_course_answers={'experience': {
+            'kind': '', 'recent': '', 'boards': [], 'areas': [], 'notes': '', 'resort': '', 'finished': False,
+        }})
+        old_skills = self.make_place(ski_skills=['雪場綠線順滑'])
+        old_age = self.make_place(age_range='7-12y')
+        data = self.summaries()
+        for place, status, label in (
+            (completed, 'filled', '已填'), (no_experience, 'filled', '已填'),
+            (incomplete, 'incomplete', '未完成'), (empty, 'empty', '未填'),
+            (old_skills, 'incomplete', '未完成'), (old_age, 'incomplete', '未完成'),
+        ):
+            with self.subTest(place=place.pk):
+                self.assertEqual(data[place.pk]['status'], status)
+                self.assertEqual(data[place.pk]['status_label'], label)
+                self.assertEqual(data[place.pk]['items'][0]['value'], label)
+        self.assertEqual(data[completed.pk]['items'], [
+            {'key': 'status', 'label': '完成狀態', 'value': '已填', 'filled': True},
+            {'key': 'kind', 'label': '新／舊生', 'value': '舊生', 'filled': True},
+            {'key': 'recent', 'label': '近期經驗', 'value': '有經驗', 'filled': True},
+            {'key': 'boards', 'label': '板種', 'value': '單板、雙板', 'filled': True},
+            {'key': 'skills', 'label': '技能', 'value': '單板：雪場S turn；雙板：雪場並腿轉彎', 'filled': True},
+            {'key': 'age_range', 'label': '年齡', 'value': '成人25-35y', 'filled': True},
+        ])
+        self.assertEqual(data[no_experience.pk]['items'][2]['value'], '沒有經驗')
+        self.assertEqual(data[no_experience.pk]['items'][4]['value'], '單板：無經驗')
+        self.assertEqual(data[empty.pk]['empty_label'], '未填')
+        self.assertEqual(data[empty.pk]['items'][1], {
+            'key': 'kind', 'label': '新／舊生', 'value': None, 'filled': False,
+        })
+        self.assertEqual(data[old_skills.pk]['items'][4]['value'], '雙板：雪場綠線順滑')
+
+    def test_setting_changes_order_and_visibility_without_changing_waiver(self):
+        self.authenticate_manager(self.school)
+        current_url = self.cms + 'coach-pre-course-summary/'
+        defaults = self.api.get(current_url).data['data']
+        self.assertIsNone(defaults['id'])
+        self.assertEqual(defaults['available_fields'], defaults['fields'])
+        note_field, = (field for field in defaults['fields'] if field['key'] == 'notes')
+        self.assertFalse(note_field['visible'])
+        document = SiteContent.objects.create(
+            client=self.school, content_type='page', location_key='membership.waiver',
+            title='QA document', body='QA waiver', status='active', metadata={'version': 'QA version'},
+        )
+        place = self.make_place(
+            age_range='7-12y', waiver_signature='QA signer', waiver_document_version='QA version',
+            waiver_completed_at=timezone.now(),
+            pre_course_answers={'experience': {'kind': 'new', 'recent': 'no', 'finished': True}},
+        )
+        strokes = [[[20, 30], [70, 60], [120, 25]]]
+        signature = MemberWaiverSignature.objects.create(
+            member=place, signer=self.owner, signer_name='QA signer', signer_role='self',
+            signed_at=place.waiver_completed_at, document_version='QA version',
+            document_snapshot=document.body, strokes=strokes, media_consent='decline',
+        )
+        fields = [
+            {'key': 'status', 'label': '表單狀態', 'order': 8, 'visible': True},
+            {'key': 'recent', 'label': '滑雪經驗', 'order': 2, 'visible': True},
+            {'key': 'age_range', 'label': '年齡區間', 'order': 1, 'visible': False},
+        ]
+        before = self.api.get(self.cms + 'waiver-current/').data['data']
+        created = self.save_setting(defaults['fields'])
+        self.assertEqual(created.status_code, 201, created.data)
+        setting_id = created.data['data']['id']
+        updated = self.api.patch(f'{self.cms}{setting_id}/', {'metadata': {'fields': fields}}, format='json')
+        self.assertEqual(updated.status_code, 200, updated.data)
+        self.assertEqual(self.api.get(current_url).data['data']['fields'], [fields[2], fields[1], fields[0]])
+        self.assertEqual(self.api.get(self.cms + 'waiver-current/').data['data'], before)
+        document.refresh_from_db()
+        place.refresh_from_db()
+        signature.refresh_from_db()
+        self.assertEqual(document.metadata, {'version': 'QA version'})
+        self.assertEqual(place.waiver_completed_at, signature.signed_at)
+        self.assertEqual(place.waiver_document_version, signature.document_version)
+        self.assertEqual(signature.strokes, strokes)
+        self.assertEqual(signature.document_snapshot, document.body)
+        self.assertEqual(self.summaries()[place.pk]['items'], [
+            {'key': 'recent', 'label': '滑雪經驗', 'value': '沒有經驗', 'filled': True},
+            {'key': 'status', 'label': '表單狀態', 'value': '已填', 'filled': True},
+        ])
+
+    def test_settings_validate_types_keys_and_admin_permission(self):
+        valid = {'key': 'kind', 'label': '學員類型', 'order': 1, 'visible': True}
+        self.api.force_authenticate(self.coach.user)
+        url = self.cms + 'coach-pre-course-summary/'
+        self.assertEqual(self.api.get(url).status_code, 403)
+        self.assertEqual(self.save_setting([valid]).status_code, 403)
+        self.authenticate_manager(self.school)
+        for invalid in (
+            [{**valid, 'key': 'insurance'}], [{**valid, 'label': '　'}], [{**valid, 'label': '字' * 61}],
+            [{**valid, 'order': True}], [{**valid, 'order': '1'}], [{**valid, 'order': 1.5}],
+            [{**valid, 'visible': 1}], [valid, valid],
+        ):
+            with self.subTest(fields=invalid):
+                response = self.save_setting(invalid)
+                self.assertEqual(response.status_code, 400, response.data)
+        self.assertIsNone(self.api.get(url).data['data']['id'])
+        result = self.save_setting([valid])
+        self.assertEqual(result.status_code, 201, result.data)
+        setting_url = f"{self.cms}{result.data['data']['id']}/"
+        self.assertEqual(self.api.patch(setting_url, {
+            'metadata': {'fields': [{**valid, 'key': 'waiver'}]},
+        }, format='json').status_code, 400)
+        self.assertEqual(self.save_setting([valid]).status_code, 400)
+        self.authenticate_manager(self.other_school)
+        other_cms = self.cms.replace('/snowland/', '/other/')
+        self.assertIsNone(self.api.get(other_cms + 'coach-pre-course-summary/').data['data']['id'])
+        foreign_url = setting_url.replace('/snowland/', '/other/')
+        self.assertEqual(self.api.patch(foreign_url, {'metadata': {'fields': []}}, format='json').status_code, 404)
+
+    def test_history_limits_results_to_assigned_coach_and_active_places(self):
+        current = self.make_place()
+        self.make_place(is_active=False, pre_course_answers={'experience': {'finished': True}})
+        self.make_place(is_deleted=True, pre_course_answers={'experience': {'finished': True}})
+        self.assertEqual(set(self.summaries()), {current.pk})
+        unassigned = User.objects.create_user('qa-summary-unassigned')
+        TenantStaffMembership.objects.create(client=self.school, user=unassigned, is_coach=True)
+        Coach.objects.create(client=self.school, user=unassigned, name='Unassigned')
+        self.api.force_authenticate(unassigned)
+        self.assertEqual(self.api.get(self.path).status_code, 404)
+        other_course = self.make_course(self.other_school)
+        self.api.force_authenticate(other_course.preferred_coach.user)
+        self.assertEqual(self.api.get(self.path).status_code, 403)
+        self.assertEqual(self.api.get(self.path.replace('/snowland/', '/other/')).status_code, 404)
+
+    def test_summary_filters_private_and_unrecognized_values_and_other_orders(self):
+        self.authenticate_manager(self.school)
+        settings = self.api.get(self.cms + 'coach-pre-course-summary/').data['data']['fields']
+        for field in settings:
+            field['visible'] = True
+        self.assertEqual(self.save_setting(settings).status_code, 201)
+        learner = LearnerProfile.objects.create(client=self.school, owner=self.owner, name='QA learner')
+        old_reservation = self.make_course(self.school, self.coach)
+        self.make_place(
+            reservation=old_reservation, learner=learner, age_range='56y以上', ski_skills=['雪場黑線順滑'],
+            pre_course_answers={'experience': {'kind': 'returning', 'recent': 'yes', 'finished': True}},
+        )
+        current = self.make_place(
+            learner=learner, age_range='PRIVATE_AGE', ski_skills=['PRIVATE_SKILL', '無經驗'],
+            insurance_data={'email': 'private@example.test', 'phone': 'PRIVATE_PHONE', 'id_number': 'PRIVATE_ID'},
+            waiver_signature='PRIVATE_SIGNATURE',
+            pre_course_answers={
+                'experience': {'kind': 'new', 'boards': ['PRIVATE_BOARD'], 'notes': 'PRIVATE_NOTE', 'resort': 'PRIVATE_RESORT'},
+                'waiver': {'answers': {'PRIVATE_WAIVER': 'secret'}},
+                'insurance': {'answers': {'PRIVATE_INSURANCE': 'secret'}},
+            },
+        )
+        self.api.force_authenticate(self.coach.user)
+        response = self.api.get(self.path)
+        self.assertEqual(response.status_code, 200, response.data)
+        row, = response.data['data']
+        self.assertEqual(row['id'], current.pk)
+        summary = row['pre_course_summary']
+        self.assertEqual(summary['status'], 'incomplete')
+        self.assertEqual({field['key']: field['value'] for field in summary['items']}, {
+            'status': '未完成', 'kind': '新生', 'recent': None, 'boards': None,
+            'notes': None, 'skills': '雙板：無經驗', 'age_range': None,
+        })
+        for marker in ('PRIVATE_', 'private@example.test', 'waiver', 'insurance', '56y以上', '雪場黑線順滑'):
+            self.assertNotContains(response, marker)
+        public = self.api.get('/booking/snowland/api/site-content/', {'location_key': COACH_SUMMARY_LOCATION})
+        self.assertEqual(public.status_code, 200)
+        self.assertNotContains(public, COACH_SUMMARY_LOCATION)
+
+    def test_other_tenant_can_enable_member_assessment_by_saving_settings(self):
+        reservation = self.make_course(self.other_school)
+        place = self.make_place(reservation=reservation)
+        member_url = MEMBER.replace('/snowland/', '/other/')
+        self.api.force_authenticate(self.owner)
+        self.assertNotIn('experience_assessment', self.api.get(member_url).data['pre_course_forms'][0])
+        self.authenticate_manager(self.other_school)
+        fields = [{'key': 'recent', 'label': '其他學校的滑雪經驗', 'order': 1, 'visible': True}]
+        result = self.save_setting(fields, cms=self.cms.replace('/snowland/', '/other/'))
+        self.assertEqual(result.status_code, 201, result.data)
+        self.api.force_authenticate(self.owner)
+        form, = self.api.get(member_url).data['pre_course_forms']
+        self.assertEqual(form['experience_assessment'], {})
+        self.assertFalse(form['snowland_waiver_rules'])
+        submission = {
+            'action': 'update_pre_course_form', 'member_id': place.pk, 'age_range': '25-35y',
+            'experience_assessment': {'kind': 'new', 'recent': 'no', 'finished': True},
+        }
+        invalid = {**submission, 'experience_assessment': {'kind': 'unknown'}}
+        self.assertEqual(self.api.post(member_url, invalid, format='json').status_code, 400)
+        response = self.api.post(member_url, submission, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        form, = self.api.get(member_url).data['pre_course_forms']
+        self.assertTrue(form['experience_assessment']['finished'])
+        self.api.force_authenticate(reservation.preferred_coach.user)
+        response = self.api.get(f"/api/admin/other/coach/learner-history/{reservation.pk}/")
+        self.assertEqual(response.status_code, 200, response.data)
+        summary = response.data['data'][0]['pre_course_summary']
+        self.assertEqual(summary['status'], 'filled')
+        self.assertEqual(summary['items'], [
+            {'key': 'recent', 'label': '其他學校的滑雪經驗', 'value': '沒有經驗', 'filled': True},
+        ])
 
 
 class CourseAlbumTests(TestCase):

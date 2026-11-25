@@ -89,6 +89,26 @@ export async function fetchCurrentWaiver(): Promise<WaiverDocument> {
   return response.data
 }
 
+export interface CoachSummaryField {
+  key: string
+  label: string
+  order: number
+  visible: boolean
+}
+
+export interface CoachSummarySettings {
+  id: number | null
+  location_key: string
+  label_max_length: number
+  available_fields: CoachSummaryField[]
+  fields: CoachSummaryField[]
+}
+
+export async function fetchCoachSummarySettings(): Promise<CoachSummarySettings> {
+  const response = await adminApi.get('/site-content/coach-pre-course-summary/') as unknown as DetailResp<CoachSummarySettings>
+  return response.data
+}
+
 export async function fetchReviewContentGroups(): Promise<unknown[]> {
   const res = (await adminApi.get('/site-content/review-locations/')) as unknown as {data: {groups: unknown[]}}
   return res.data?.groups || []

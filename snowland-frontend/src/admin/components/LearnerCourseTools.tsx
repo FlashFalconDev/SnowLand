@@ -6,7 +6,16 @@ import adminApi from '../api/axios'
 type Detail<T> = { data: T }
 type Person = { id: number; name: string }
 type Technical = { discipline: string; level: number; scores: { title: string; rating: string }[]; next_steps: string[] }
-type History = Person & { records: { date: string; course_name: string; coach_notes: string; technical_assessment: Technical[]; learning_progress: Record<string, string> }[] }
+type PreCourseSummary = {
+  status: 'empty' | 'incomplete' | 'filled'
+  status_label: string
+  empty_label: string
+  items: { key: string; label: string; value: string | null; filled: boolean }[]
+}
+type History = Person & {
+  pre_course_summary?: PreCourseSummary
+  records: { date: string; course_name: string; coach_notes: string; technical_assessment: Technical[]; learning_progress: Record<string, string> }[]
+}
 type Asset = { id: number; type: 'photo' | 'video'; url: string; tagged_member_ids: number[] }
 type Album = { assets: Asset[]; members: Person[]; photo_limit_bytes: number; video_limit_bytes: number }
 type LinkOptions = { profiles: Person[]; current_id: number | null }
@@ -15,6 +24,19 @@ const fieldClass = 'min-h-11 max-w-full rounded border border-slate-300 bg-white
 
 async function get<T>(path: string) {
   return (await adminApi.get(path) as unknown as Detail<T>).data
+}
+
+function LearnerPreCourseSummary({ summary }: { summary: PreCourseSummary }) {
+  if (!summary.items.length) return null
+  return <section aria-label="課前自評摘要" className="mt-2 rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
+    <h4 className="font-semibold">課前自評摘要</h4>
+    <dl className="mt-2 grid gap-x-4 gap-y-2 sm:grid-cols-2">
+      {summary.items.map(item => <div key={item.key} className="min-w-0 break-words">
+        <dt className="text-xs text-slate-600 dark:text-slate-300">{item.label}</dt>
+        <dd>{item.filled ? item.value : summary.empty_label}</dd>
+      </div>)}
+    </dl>
+  </section>
 }
 
 export function CoachLearnerHistory({ reservationId }: { reservationId: number }) {
@@ -33,6 +55,7 @@ export function CoachLearnerHistory({ reservationId }: { reservationId: number }
       {query.isSuccess && !query.data.length && <p>本堂課尚無學員資料。</p>}
       {query.data?.map(learner => <article key={learner.id} className="rounded border border-gray-200 p-3 dark:border-gray-700">
         <h3 className="font-semibold">{learner.name}</h3>
+        {learner.pre_course_summary && <LearnerPreCourseSummary summary={learner.pre_course_summary} />}
         {!learner.records.length && <p className="mt-1 text-gray-500 dark:text-gray-300">尚無已連結的過往評量。</p>}
         {learner.records.map((record, index) => <div key={index} className="mt-2 border-t border-gray-200 pt-2 dark:border-gray-700">
           <p className="font-semibold">{record.date} · {record.course_name}</p>
