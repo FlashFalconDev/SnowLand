@@ -1,39 +1,33 @@
 # SnowLand LINE 工程訊息中繼
 
-Cloudflare Worker 接收 LINE Messaging API webhook，將群組內包含「工程」的文字訊息逐筆送到 Cursor Automation webhook。
+Cloudflare Worker 接收 LINE 群組訊息。含「工程」的文字會觸發一筆 Cursor Automation POST，附上該群組自台北當日午夜起的對話與附件資訊。
 
 ## 運作方式
 
-- 僅接受 POST，請求體上限為 1 MiB。使用 `LINE_CHANNEL_SECRET` 和原始位元組驗證 `X-Line-Signature`。
-- 驗簽成功立即回 HTTP 200，並透過 `ctx.waitUntil` 在背景篩選與轉發。LINE 驗證請求與不符合條件的事件不會轉發。
-- 每則符合條件的訊息送出一筆 JSON POST。若 LINE 未提供 `userId`，該欄位為 `null`。
-- 中繼目的地由 `wrangler.toml` 的 `RELAY_WEBHOOK_URL` 指定。Worker 只記錄轉發失敗狀態，且不使用 LINE access token。
+- LINE webhook 使用 POST。Worker 在 1 MiB 上限內以原始位元組驗證 `X-Line-Signature`，驗簽成功即回 HTTP 200。儲存與轉發透過 `ctx.waitUntil` 在背景執行。
+- KV 綁定 `CHAT_HISTORY` 保存群組文字與附件資訊。文字保留原文和連結，每筆記錄的 TTL 為 172800 秒（48 小時）。
+- 圖片、影片和檔案透過 LINE Content API 下載。符合大小上限的檔案存入私有 R2 綁定 `MEDIA_BUCKET`，預設單檔上限為 50 MiB。下載未成功時，KV 仍保存附件資訊和狀態。
+- 只有含「工程」的群組文字會觸發轉發。附件在轉發的 `context` 內提供短效 `downloadUrl`，預設有效一小時。Worker 的 `GET /media/...` 會驗證簽章與到期時間，再從私有 R2 讀取檔案。
+- 日誌只記固定訊息與 HTTP 狀態碼。轉發內容與接收端驗簽契約見 [LINE 工程訊息中繼整合說明](../../docs/line-engineering-relay.md)。
 
 ## 在本機執行離線測試
 
-在 `tools/line-engineering-relay/` 使用 Node.js 22 以上版本執行。測試使用 `node:test` 並模擬下游 HTTP 請求與 `ctx.waitUntil`。
+使用 Node.js 22 以上版本，在 `tools/line-engineering-relay/` 執行。測試以記憶體模擬 KV、R2 與 HTTP 呼叫。
 
 ```powershell
-npm install --offline --no-audit --no-fund --cache .npm-cache
 npm test
 ```
 
-## 部署到 Cloudflare
+## Cloudflare 設定與部署
 
-1. 在 `tools/line-engineering-relay/` 登入並部署 Worker。首次執行 `npx wrangler` 時，可能會提示下載 Wrangler。
-
-   ```powershell
-   npx wrangler login
-   npx wrangler deploy
-   ```
-
-2. 在同一目錄以互動提示輸入兩把密鑰。**`LINE_CHANNEL_SECRET` 由小陌本人輸入，不要貼在聊天或 commit 裡。** `RELAY_SIGNING_SECRET` 必須和接收端用來驗簽的密鑰相同。
+1. 確認 `wrangler.toml` 的 `CHAT_HISTORY` 指向已建立的 KV namespace。48 小時 TTL 由 Worker 寫入每筆記錄時設定。
+2. 在 Cloudflare Dashboard 啟用 R2 並建立 `snowland-line-relay-media` bucket，供 `MEDIA_BUCKET` 綁定。保持私有，關閉 `r2.dev` 且維持無公開網域。在 bucket 設定中為 `line-media/` 前綴建立物件生命週期規則，於建立後 2 天到期。
+3. 在 Worker 所在目錄於部署階段使用互動提示設定三個 Worker secrets。**`LINE_CHANNEL_SECRET` 與 `LINE_CHANNEL_ACCESS_TOKEN` 由小陌本人輸入。** `RELAY_SIGNING_SECRET` 須與接收端用於驗簽的密鑰相同。密鑰只透過互動提示輸入。
 
    ```powershell
    npx wrangler secret put LINE_CHANNEL_SECRET
+   npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
    npx wrangler secret put RELAY_SIGNING_SECRET
    ```
 
-3. 確認 LINE Messaging API 頻道的 Webhook URL 可供本中繼使用，再填入 Wrangler 顯示的 Worker HTTPS URL 並執行 LINE 的 **Verify**。若該頻道已有預約 webhook，請先確認切換後的流量安排。每個頻道設定一個 Webhook URL。[LINE Developers 設定說明](https://developers.line.biz/en/tips/2026/07/23/using-multiple-api-tools/)
-
-接收端驗簽契約見 [LINE 工程訊息中繼整合說明](../../docs/line-engineering-relay.md)。
+4. 在部署階段以 `npx wrangler deploy` 部署 Worker。在 LINE Developers 將 Wrangler 顯示的 Worker HTTPS URL 填為 Webhook URL，並執行 **Verify**。每個 LINE 頻道使用一個 Webhook URL。若該頻道已有預約 webhook，先確認切換後的流量安排。

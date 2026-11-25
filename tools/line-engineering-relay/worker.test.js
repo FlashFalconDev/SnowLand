@@ -18,6 +18,85 @@ const event = {
 };
 const BODY_LIMIT = 1024 * 1024;
 
+const WORKER_ORIGIN = "https://worker.example.invalid";
+const LINE_CONTENT_ROOT = "https://api-data.line.me/v2/bot/message/";
+const DAY = "2026-11-25";
+
+function memoryKV(t, { pageSize = 100, eventual = false } = {}) {
+  const values = new Map();
+  let visible = eventual ? new Map() : values;
+  return {
+    values,
+    publish() {
+      visible = new Map(values);
+    },
+    put: t.mock.fn(async (key, value, { expirationTtl }) => {
+      assert.equal(expirationTtl, 172800);
+      values.set(key, value);
+    }),
+    list: t.mock.fn(async ({ prefix, cursor, limit }) => {
+      const matching = [...visible.keys()].filter((key) => key.startsWith(prefix)).sort();
+      const start = Number(cursor ?? 0);
+      const end = start + Math.min(limit, pageSize);
+      return {
+        keys: matching.slice(start, end).map((name) => ({ name })),
+        list_complete: end >= matching.length,
+        cursor: end < matching.length ? String(end) : undefined,
+      };
+    }),
+    get: t.mock.fn(async (keys, type) => {
+      assert.equal(type, "json");
+      assert.ok(Array.isArray(keys) && keys.length <= 100);
+      return new Map(keys.map((key) => [key, JSON.parse(visible.get(key) ?? "null")]));
+    }),
+  };
+}
+
+function memoryR2(t) {
+  const objects = new Map();
+  return {
+    objects,
+    put: t.mock.fn(async (key, bytes, { httpMetadata, customMetadata }) => {
+      objects.set(key, { bytes: Buffer.from(bytes), httpMetadata, customMetadata });
+    }),
+    get: t.mock.fn(async (key) => {
+      const object = objects.get(key);
+      return object ? { ...object, body: new Response(object.bytes).body } : null;
+    }),
+  };
+}
+
+function groupMessage(id, at, message, groupId = event.source.groupId) {
+  return {
+    type: "message",
+    source: { ...event.source, groupId },
+    message: { type: "text", ...message, id },
+    timestamp: Date.parse(at),
+    webhookEventId: `event-${id}`,
+  };
+}
+
+function savedMessages(kv) {
+  return [...kv.values.values()].map((value) => JSON.parse(value));
+}
+
+function callsTo(fetch, url) {
+  return fetch.mock.calls.filter(({ arguments: [target] }) => target === url);
+}
+
+async function receive(events, bindings, ctx) {
+  const response = await worker.fetch(await signedPost(events), bindings, ctx);
+  assert.equal(response.status, 200);
+  await finishBackgroundWork(ctx);
+}
+
+function relayPayload(fetch) {
+  const calls = callsTo(fetch, env.RELAY_WEBHOOK_URL);
+  assert.equal(calls.length, 1);
+  return JSON.parse(calls[0].arguments[1].body);
+}
+
+
 async function sign(secret, bytes, encoding) {
   const key = await webcrypto.subtle.importKey(
     "raw",
@@ -46,6 +125,13 @@ async function signedPost(events) {
 }
 
 function mockRelay(t, respond = async () => new Response(null, { status: 204 })) {
+  return mockFetch(t, async (url, request) => {
+    assert.equal(url, env.RELAY_WEBHOOK_URL);
+    return respond(url, request);
+  });
+}
+
+function mockFetch(t, respond) {
   const fetch = t.mock.method(globalThis, "fetch", respond);
   const ctx = { waitUntil: t.mock.fn() };
   return { fetch, ctx };
@@ -65,14 +151,21 @@ test("acknowledges signed raw bytes while the relay is pending and signs the exa
   t.mock.method(Date, "now", () => signingTime);
 
   let completeDelivery;
+  let startDelivery;
   const delivery = new Promise((resolve) => { completeDelivery = resolve; });
-  const { fetch, ctx } = mockRelay(t, () => delivery);
+  const started = new Promise((resolve) => { startDelivery = resolve; });
+  const { fetch, ctx } = mockRelay(t, () => {
+    startDelivery();
+    return delivery;
+  });
+  const kv = memoryKV(t);
   const rawBody = `{\r\n  "events": [ ${JSON.stringify(event)} ]\r\n}\n`;
 
   try {
-    const response = await worker.fetch(post(rawBody, await lineSignature(rawBody)), env, ctx);
+    const response = await worker.fetch(post(rawBody, await lineSignature(rawBody)), { ...env, CHAT_HISTORY: kv }, ctx);
     assert.equal(response.status, 200);
     assert.equal(ctx.waitUntil.mock.callCount(), 1);
+    await started;
     assert.equal(fetch.mock.callCount(), 1);
 
     const [url, request] = fetch.mock.calls[0].arguments;
@@ -90,6 +183,20 @@ test("acknowledges signed raw bytes while the relay is pending and signs the exa
       timestampMs: event.timestamp,
       messageId: event.message.id,
       webhookEventId: event.webhookEventId,
+      taipeiDate: "2026-01-02",
+      contextStart: "2026-01-02T00:00:00+08:00",
+      truncated: false,
+      contextCount: 1,
+      context: [{
+        messageId: event.message.id,
+        webhookEventId: event.webhookEventId,
+        userId: event.source.userId,
+        timestamp: "2026-01-02T03:04:05.678Z",
+        timestampMs: event.timestamp,
+        type: "text",
+        text: event.message.text,
+        isTrigger: true,
+      }],
     });
 
     const match = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(headers.get("X-Relay-Signature"));
@@ -106,7 +213,9 @@ test("acknowledges signed raw bytes while the relay is pending and signs the exa
 test("rejects a matching-length signature for different raw bytes", async (t) => {
   const { fetch, ctx } = mockRelay(t);
   const body = JSON.stringify({ events: [event] });
-  const response = await worker.fetch(post(`${body}\n`, await lineSignature(body)), env, ctx);
+  const kv = memoryKV(t);
+  const response = await worker.fetch(post(`${body}\n`, await lineSignature(body)), { ...env, CHAT_HISTORY: kv }, ctx);
+  assert.equal(kv.put.mock.callCount(), 0);
   assert.equal(response.status, 401);
   assertNoRelay(fetch, ctx);
 });
@@ -120,7 +229,9 @@ test("rejects a malformed signature without throwing", async (t) => {
 
 test("rejects a missing signature", async (t) => {
   const { fetch, ctx } = mockRelay(t);
-  const response = await worker.fetch(post(JSON.stringify({ events: [event] })), env, ctx);
+  const kv = memoryKV(t);
+  const response = await worker.fetch(post(JSON.stringify({ events: [event] })), { ...env, CHAT_HISTORY: kv }, ctx);
+  assert.equal(kv.put.mock.callCount(), 0);
   assert.equal(response.status, 401);
   assertNoRelay(fetch, ctx);
 });
@@ -149,9 +260,11 @@ for (const [description, ignoredEvent] of [
 
 test("rejects non-POST requests", async (t) => {
   const { fetch, ctx } = mockRelay(t);
-  const response = await worker.fetch(new Request("https://worker.example.invalid/"), env, ctx);
-  assert.equal(response.status, 405);
-  assert.equal(response.headers.get("Allow"), "POST");
+  for (const [path, method] of [["/", "GET"], ["/other", "GET"], ["/media/key", "HEAD"], ["/media/key", "PUT"]]) {
+    const response = await worker.fetch(new Request(`${WORKER_ORIGIN}${path}`, { method }), env, ctx);
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get("Allow"), "POST");
+  }
   assertNoRelay(fetch, ctx);
 });
 
@@ -244,4 +357,334 @@ test("isolates relay failures and logs only the failure status", async (t) => {
     ["Relay delivery failed"],
     ["Relay returned HTTP status", 503],
   ]);
+});
+
+test("saves ordinary text verbatim in KV for 48 hours without contacting the routine", async (t) => {
+  const { fetch, ctx } = mockRelay(t);
+  const kv = memoryKV(t);
+  const note = groupMessage("msg/1..", `${DAY}T01:02:03.004Z`, {
+    text: "進度已更新\n  https://example.invalid/path?a=1&b=2  ",
+  }, "group/..甲");
+  const invalidEvents = [
+    { ...note, source: { type: "user", userId: "user-test" } },
+    { ...note, source: { type: "group", groupId: "" } },
+    { ...note, message: { ...note.message, id: "" } },
+    { ...note, timestamp: String(note.timestamp) },
+    { ...note, message: { type: "sticker", id: "ignored" } },
+  ];
+
+  await receive([note, ...invalidEvents], { ...env, CHAT_HISTORY: kv }, ctx);
+  assert.equal(fetch.mock.callCount(), 0);
+  assert.equal(kv.list.mock.callCount(), 0);
+  assert.equal(kv.put.mock.callCount(), 1);
+  const key = `msg:group____:${DAY}:${String(note.timestamp).padStart(15, "0")}:msg_1__`;
+  assert.deepEqual(JSON.parse(kv.values.get(key)), {
+    messageId: note.message.id,
+    webhookEventId: note.webhookEventId,
+    userId: note.source.userId,
+    timestamp: `${DAY}T01:02:03.004Z`,
+    timestampMs: note.timestamp,
+    type: "text",
+    text: note.message.text,
+  });
+});
+
+test("stores private media and relays prioritized same-day history across KV pages and an unseen batch", async (t) => {
+  const kv = memoryKV(t, { pageSize: 2, eventual: true });
+  const r2 = memoryR2(t);
+  const token = randomBytes(32).toString("hex");
+  const bindings = { ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2, LINE_CHANNEL_ACCESS_TOKEN: token };
+  const clock = Date.parse(`${DAY}T12:00:00Z`);
+  t.mock.method(Date, "now", () => clock);
+
+  const previousDay = groupMessage("previous", "2026-11-24T15:59:00Z", { text: "跨日以前" });
+  const note = groupMessage("a-note", "2026-11-24T16:00:00Z", { text: "留原文" });
+  const link = groupMessage("b-link", `${DAY}T01:00:00Z`, { text: "連結 https://example.invalid/doc?x=1" });
+  const image = groupMessage("photo/1", `${DAY}T01:00:00Z`, { type: "image" });
+  const video = groupMessage("video-2", `${DAY}T03:00:00Z`, { type: "video", duration: 6200 });
+  const file = groupMessage("file-3", `${DAY}T04:00:00Z`, { type: "file", fileName: "交付.pdf" });
+  const trigger = groupMessage("trigger", `${DAY}T05:00:00Z`, { text: "工程進度更新 ⛷️" });
+  const otherGroup = groupMessage("other", `${DAY}T02:00:00Z`, { text: "其他群組" }, "group-other");
+  const attachments = [
+    [image, Buffer.from([0x89, 0x50, 0x4e, 0x47]), "image/png", "photo_1"],
+    [video, Buffer.from("mp4 data"), "video/mp4", "video-2"],
+    [file, Buffer.from("%PDF data"), "application/pdf", "file-3"],
+  ];
+  const contentUrl = (id) => `${LINE_CONTENT_ROOT}${encodeURIComponent(id)}/content`;
+  const byUrl = new Map(attachments.map(([{ message }, bytes, contentType]) => [
+    contentUrl(message.id), { bytes, contentType },
+  ]));
+  const { fetch, ctx } = mockFetch(t, async (url, request) => {
+    if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    const { bytes, contentType } = byUrl.get(url);
+    assert.equal(request.method, "GET");
+    assert.equal(request.redirect, "manual");
+    assert.equal(new Headers(request.headers).get("Authorization"), `Bearer ${token}`);
+    return new Response(bytes, { headers: { "Content-Type": contentType, "Content-Length": String(bytes.length) } });
+  });
+
+  await receive([previousDay, image, link, note, otherGroup], bindings, ctx);
+  assert.equal(callsTo(fetch, env.RELAY_WEBHOOK_URL).length, 0);
+  kv.publish();
+
+  const updatedNote = { ...note, message: { ...note.message, text: "同一則更新的原文" } };
+  await receive([trigger, file, video, updatedNote], bindings, ctx);
+  const payload = relayPayload(fetch);
+  assert.equal(payload.taipeiDate, DAY);
+  assert.equal(payload.contextStart, `${DAY}T00:00:00+08:00`);
+  assert.equal(payload.truncated, false);
+  assert.equal(payload.contextCount, 6);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId),
+    [note, link, image, video, file, trigger].map(({ message }) => message.id));
+  assert.deepEqual(payload.context.filter(({ isTrigger }) => isTrigger).map(({ messageId }) => messageId), [trigger.message.id]);
+  assert.equal(payload.context[0].text, updatedNote.message.text);
+  assert.equal(payload.context[1].text, link.message.text);
+  assert.equal(kv.list.mock.callCount(), 2);
+  assert.deepEqual(kv.list.mock.calls.map(({ arguments: [options] }) => options.cursor), [undefined, "2"]);
+  assert.equal(r2.put.mock.callCount(), 3);
+  assert.equal(fetch.mock.callCount(), 4);
+
+  for (const [attachment, bytes, contentType, keyId] of attachments) {
+    const { message } = attachment;
+    const key = `line-media/${DAY}/${attachment.source.groupId}/${keyId}`;
+    assert.equal(callsTo(fetch, contentUrl(message.id)).length, 1);
+    assert.deepEqual(r2.objects.get(key), {
+      bytes,
+      httpMetadata: { contentType },
+      customMetadata: { messageId: message.id, mediaType: message.type, taipeiDate: DAY },
+    });
+    const metadata = { type: message.type, contentType, size: bytes.length, duration: message.duration ?? null, status: "stored" };
+    const saved = savedMessages(kv).find(({ messageId }) => messageId === message.id);
+    assert.deepEqual(saved.media, { ...metadata, r2Key: key });
+    assert.equal(saved.fileName, message.fileName ?? null);
+
+    const item = payload.context.find(({ messageId }) => messageId === message.id);
+    assert.deepEqual(item.media, metadata);
+    assert.equal(item.fileName, message.fileName);
+    const exp = Math.floor(clock / 1000) + 3600;
+    const sig = await sign(env.RELAY_SIGNING_SECRET, `media\n${key}\n${exp}`, "hex");
+    assert.equal(item.downloadUrl, `${WORKER_ORIGIN}/media/${encodeURIComponent(key)}?exp=${exp}&sig=${sig}`);
+    const response = await worker.fetch(new Request(item.downloadUrl), bindings, ctx);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Content-Type"), contentType);
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+  }
+
+  const [, sent] = callsTo(fetch, env.RELAY_WEBHOOK_URL)[0].arguments;
+  const [, tValue, signature] = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(sent.headers["X-Relay-Signature"]);
+  assert.equal(signature, await sign(env.RELAY_SIGNING_SECRET, `${tValue}.${sent.body}`, "hex"));
+});
+
+test("isolates context at midnight in Taipei even within one webhook", async (t) => {
+  const kv = memoryKV(t);
+  const { fetch, ctx } = mockRelay(t);
+  const yesterday = groupMessage("late", "2026-11-24T15:59:00Z", { text: "昨晚 23:59" });
+  const midnight = groupMessage("midnight", "2026-11-24T16:00:00Z", { text: "今天 00:00" });
+  const trigger = groupMessage("early", "2026-11-24T16:01:00Z", { text: "工程 00:01" });
+
+  await receive([yesterday, trigger, midnight], { ...env, CHAT_HISTORY: kv }, ctx);
+  const payload = relayPayload(fetch);
+  assert.equal(payload.taipeiDate, DAY);
+  assert.equal(payload.contextStart, `${DAY}T00:00:00+08:00`);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["midnight", "early"]);
+});
+
+test("rejects unsigned, expired, altered or malformed media requests before accessing R2", async (t) => {
+  const kv = memoryKV(t);
+  const r2 = memoryR2(t);
+  const bindings = { ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2 };
+  const { fetch, ctx } = mockRelay(t);
+  const exp = 1800000000;
+  t.mock.method(Date, "now", () => exp * 1000);
+  const key = "line-media/2026-11-25/group-test/image-1";
+  const sig = await sign(env.RELAY_SIGNING_SECRET, `media\n${key}\n${exp}`, "hex");
+  const oldSig = await sign(env.RELAY_SIGNING_SECRET, `media\n${key}\n${exp - 1}`, "hex");
+  const address = `${WORKER_ORIGIN}/media/${encodeURIComponent(key)}`;
+  const invalid = [
+    [`${WORKER_ORIGIN}/media/%XY`, 400],
+    [`${WORKER_ORIGIN}/media/${encodeURIComponent("other/prefix")}`, 400],
+    [`${WORKER_ORIGIN}/media/${encodeURIComponent("line-media/dir/../image")}`, 400],
+    [`${WORKER_ORIGIN}/media/${encodeURIComponent("line-media/a\\b")}`, 400],
+    [`${address}?exp=${exp}`, 403],
+    [`${address}?sig=${sig}`, 403],
+    [`${address}?exp=${exp - 1}&sig=${oldSig}`, 403],
+    [`${address}?exp=${exp}.5&sig=${sig}`, 403],
+    [`${address}?exp=${exp}%0A&sig=${sig}`, 403],
+    [`${address}?exp=${exp}&sig=${sig[0] === "0" ? "1" : "0"}${sig.slice(1)}`, 403],
+    [`${address}?exp=${exp}&sig=A${sig.slice(1)}`, 403],
+  ];
+  for (const [url, status] of invalid) {
+    const response = await worker.fetch(new Request(url), bindings, ctx);
+    assert.equal(response.status, status);
+  }
+  assert.equal(r2.get.mock.callCount(), 0);
+  assert.equal(kv.put.mock.callCount(), 0);
+  assertNoRelay(fetch, ctx);
+
+  const valid = new Request(`${address}?exp=${exp}&sig=${sig}`);
+  assert.equal((await worker.fetch(valid, bindings, ctx)).status, 404);
+  assert.equal(r2.get.mock.callCount(), 1);
+  assert.equal((await worker.fetch(valid, env, ctx)).status, 503);
+  assert.equal((await worker.fetch(valid, { MEDIA_BUCKET: r2 }, ctx)).status, 503);
+});
+
+for (const [fileType, declaredBytes] of [["video", 11], ["file", 1]]) {
+  test(`cancels a ${fileType} over the media size limit without writing to R2`, async (t) => {
+    const kv = memoryKV(t);
+    const r2 = memoryR2(t);
+    const cancel = t.mock.fn();
+    const content = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(6));
+        controller.enqueue(new Uint8Array(5));
+      },
+      cancel,
+    });
+    const media = groupMessage("large-media", `${DAY}T02:00:00Z`, { type: fileType });
+    const { fetch, ctx } = mockFetch(t, async (url) => {
+      assert.equal(url, `${LINE_CONTENT_ROOT}large-media/content`);
+      return new Response(content, { headers: { "Content-Length": String(declaredBytes) } });
+    });
+
+    await receive([media], {
+      ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2, MEDIA_MAX_BYTES: "10",
+      LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex"),
+    }, ctx);
+    assert.equal(cancel.mock.callCount(), 1);
+    assert.equal(fetch.mock.callCount(), 1);
+    assert.equal(r2.put.mock.callCount(), 0);
+    const [record] = savedMessages(kv);
+    assert.equal(record.media.status, "skipped_too_large");
+    assert.equal(record.media.r2Key, null);
+  });
+}
+
+test("returns 200 before a media write finishes", { timeout: 2000 }, async (t) => {
+  const kv = memoryKV(t);
+  const r2 = memoryR2(t);
+  let releaseWrite;
+  const pending = new Promise((resolve) => { releaseWrite = resolve; });
+  t.mock.method(r2, "put", () => pending);
+  const image = groupMessage("pending-image", `${DAY}T04:00:00Z`, { type: "image" });
+  const { ctx } = mockFetch(t, async (url) => {
+    assert.equal(url, `${LINE_CONTENT_ROOT}pending-image/content`);
+    return new Response("image");
+  });
+
+  try {
+    const response = await worker.fetch(await signedPost([image]), {
+      ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2, LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex"),
+    }, ctx);
+    assert.equal(response.status, 200);
+    assert.equal(ctx.waitUntil.mock.callCount(), 1);
+    assert.equal(kv.put.mock.callCount(), 0);
+  } finally {
+    releaseWrite();
+    await finishBackgroundWork(ctx);
+  }
+  assert.equal(savedMessages(kv)[0].media.status, "stored");
+});
+
+test("records missing media bindings without downloading or issuing a link", async (t) => {
+  const kv = memoryKV(t);
+  const r2 = memoryR2(t);
+  const { fetch, ctx } = mockRelay(t);
+  const noToken = groupMessage("no-token", `${DAY}T04:00:00Z`, { type: "image" });
+  const noBucket = groupMessage("no-bucket", `${DAY}T04:00:01Z`, { type: "image" });
+  const trigger = groupMessage("trigger", `${DAY}T04:00:02Z`, { text: "工程" });
+
+  await receive([noToken], { ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2 }, ctx);
+  await receive([noBucket], { ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex") }, ctx);
+  assert.equal(fetch.mock.callCount(), 0);
+  assert.equal(r2.put.mock.callCount(), 0);
+  assert.deepEqual(savedMessages(kv).map(({ media }) => media.status), ["skipped_missing_token", "skipped_no_bucket"]);
+
+  await receive([trigger], { ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2 }, ctx);
+  const payload = relayPayload(fetch);
+  assert.deepEqual(payload.context.slice(0, 2).map(({ media }) => media.status), ["skipped_missing_token", "skipped_no_bucket"]);
+  for (const item of payload.context.slice(0, 2)) {
+    assert.equal(Object.hasOwn(item, "downloadUrl"), false);
+    assert.equal(Object.hasOwn(item.media, "r2Key"), false);
+  }
+});
+
+test("enforces the UTF-8 payload limit while keeping the trigger and newest context", async (t) => {
+  const { fetch, ctx } = mockRelay(t);
+  const oldest = groupMessage("oldest", `${DAY}T01:00:00Z`, { text: "舊".repeat(160) });
+  const trigger = groupMessage("trigger", `${DAY}T02:00:00Z`, { text: "工程原因 ⛷️" });
+  const newest = groupMessage("newest", `${DAY}T03:00:00Z`, { text: "新".repeat(15) });
+  const batch = [oldest, trigger, newest];
+
+  await receive(batch, env, ctx);
+  const [, full] = fetch.mock.calls[0].arguments;
+  const limit = full.body.length;
+  assert.ok(Buffer.byteLength(full.body) > limit);
+  fetch.mock.resetCalls();
+
+  await receive(batch, { ...env, RELAY_MAX_PAYLOAD_BYTES: String(limit) }, ctx);
+  const payload = relayPayload(fetch);
+  assert.equal(payload.truncated, true);
+  assert.equal(payload.contextCount, 2);
+  assert.ok(Buffer.byteLength(fetch.mock.calls[0].arguments[1].body) <= limit);
+  assert.deepEqual(payload.context.map(({ messageId, isTrigger }) => [messageId, isTrigger]), [
+    ["trigger", true], ["newest", false],
+  ]);
+});
+
+test("skips an outbound payload when the trigger alone cannot fit", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const kv = memoryKV(t);
+  const { fetch, ctx } = mockRelay(t);
+  await receive([event], { ...env, CHAT_HISTORY: kv, RELAY_MAX_PAYLOAD_BYTES: "100" }, ctx);
+  assert.equal(savedMessages(kv).length, 1);
+  assert.equal(fetch.mock.callCount(), 0);
+  assert.deepEqual(warn.mock.calls.map(({ arguments: args }) => args), [["Relay payload exceeds size limit"]]);
+});
+
+test("marks partial history at the page cap and still includes the current trigger", async (t) => {
+  const kv = memoryKV(t, { pageSize: 1, eventual: true });
+  const { fetch, ctx } = mockRelay(t);
+  const notes = Array.from({ length: 21 }, (_, i) =>
+    groupMessage(`note-${i}`, `${DAY}T01:${String(i).padStart(2, "0")}:00Z`, { text: "待處理" }));
+  const bindings = { ...env, CHAT_HISTORY: kv };
+  await receive(notes, bindings, ctx);
+  kv.publish();
+
+  const trigger = groupMessage("trigger", `${DAY}T02:00:00Z`, { text: "工程" });
+  await receive([trigger], bindings, ctx);
+  const payload = relayPayload(fetch);
+  assert.equal(kv.list.mock.callCount(), 20);
+  assert.equal(payload.contextCount, 21);
+  assert.equal(payload.context.at(-1).messageId, trigger.message.id);
+  assert.equal(payload.truncated, true);
+});
+
+test("isolates media failures and logs only fixed text or HTTP status codes", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const log = t.mock.method(console, "log", () => {});
+  const error = t.mock.method(console, "error", () => {});
+  const kv = memoryKV(t);
+  const token = randomBytes(32).toString("hex");
+  const note = groupMessage("note", `${DAY}T04:00:00Z`, { text: "機密進度 https://example.invalid/private" });
+  const sensitive = [note.message.text, note.source.groupId, note.source.userId, token,
+    env.LINE_CHANNEL_SECRET, env.RELAY_SIGNING_SECRET].join(" ");
+  const { ctx } = mockFetch(t, async (url) => {
+    if (url.endsWith("/http-error/content")) return new Response(sensitive, { status: 302 });
+    if (url.endsWith("/r2-error/content")) return new Response(sensitive);
+    throw new Error(sensitive);
+  });
+  const media = ["http-error", "fetch-error", "r2-error"].map((id) =>
+    groupMessage(id, `${DAY}T05:00:00Z`, { type: "image" }));
+
+  await receive([note, ...media], {
+    ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: token,
+    MEDIA_BUCKET: { put: async () => { throw new Error(sensitive); } },
+  }, ctx);
+  assert.deepEqual(savedMessages(kv).slice(1).map(({ media }) => media.status),
+    ["download_failed", "download_failed", "storage_failed"]);
+  assert.deepEqual(warn.mock.calls.map(({ arguments: args }) => args), [["Media storage write failed"]]);
+  assert.equal(log.mock.callCount(), 0);
+  assert.equal(error.mock.callCount(), 0);
 });
