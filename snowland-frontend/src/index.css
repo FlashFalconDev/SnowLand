@@ -40,6 +40,11 @@ body {
   min-height: 100vh;
 }
 
+.coach-photo {
+  object-fit: cover;
+  object-position: center top;
+}
+
 /* Keep the Console header sticky to the page, not an unscrollable ancestor. */
 html:has(.admin-shell), body:has(.admin-shell), #root:has(.admin-shell) {
   overflow-x: clip;

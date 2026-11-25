@@ -56,7 +56,7 @@ export default function ImageUploadField({ id, name, value, onChange, upload, ma
   return <div className="space-y-2">
     <div className="flex items-center gap-3">
       <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 text-xs text-gray-400 dark:bg-gray-700">
-        {current && !broken ? <img key={current} src={current} alt="照片預覽" className="h-full w-full object-cover" onError={() => setBroken(true)} /> : '無預覽'}
+        {current && !broken ? <img key={current} src={current} alt="照片預覽" className="h-full w-full coach-photo" onError={() => setBroken(true)} /> : '無預覽'}
       </div>
       {upload && <div className="min-w-0 flex-1">
         <input ref={fileRef} type="file" accept={IMAGE_TYPES.join(',')} aria-label="選擇照片檔案" disabled={progress !== null} onChange={handleFile} className="block w-full text-sm text-gray-700 dark:text-gray-300" />

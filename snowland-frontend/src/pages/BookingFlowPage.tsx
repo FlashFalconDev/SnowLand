@@ -3252,7 +3252,7 @@ function Step2SkiConfiguration({
                       <img
                         src={coach.image}
                         alt={coach.name}
-                        className="w-full aspect-[5/4] object-cover mb-3 rounded-sm"
+                        className="w-full aspect-[5/4] coach-photo mb-3 rounded-sm"
                         loading="lazy"
                       />
                     )}
