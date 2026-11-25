@@ -20,6 +20,7 @@ import OrderExportForm from '../components/OrderExportForm'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
+import OrderCoachAvailability from '../components/OrderCoachAvailability'
 import { OrderCardPaymentPanel } from '../components/NewebpaySettingsPanel'
 import { settlementAmount } from '../../components/booking/SettlementSummary'
 import { formatPaymentValue, quoteJpyPreview } from '../../utils/settlementPreview'
@@ -873,7 +874,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
           </section>
 
           {order.reservations.map((r, idx) => {
-            const availableCoaches = r.available_coaches || []
+            const availableCoaches = r.candidate_status === 'error' ? [] : r.available_coaches ?? []
             const selectedCoachId = coachAssignments[r.id] ?? null
             const selectedCoachMissing = !!selectedCoachId && !availableCoaches.some((coach) => coach.id === selectedCoachId)
             const reservationStatusPill = getStatusPill(r.status)
@@ -924,7 +925,9 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                       <option value="">不指定（等待排課）</option>
                       {selectedCoachMissing && (
                         <option value={selectedCoachId} disabled>
-                          {selectedCoachId === r.preferred_coach_id ? `${r.preferred_coach || '原指派教練'}（目前不在可排清單）` : '所選教練已不可排，請重新選擇'}
+                          {selectedCoachId === r.preferred_coach_id
+                            ? `${r.preferred_coach || '原指派教練'}（${r.candidate_status === 'error' ? '目前指派' : '目前不在可排清單'}）`
+                            : '所選教練已不可排，請重新選擇'}
                         </option>
                       )}
                       {availableCoaches.map((coach) => (
@@ -944,6 +947,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                     </div>
                   )}
                 </div>
+                {canEditCourse && !isStudentSpecifiedCoach && <OrderCoachAvailability reservation={r} />}
                 <div className="flex justify-between"><span className="text-gray-500">語言</span><span className="text-gray-900 dark:text-white">{LANGUAGE_LABEL[r.language] || r.language || '未填寫'}</span></div>
                 {r.equipment_assistance_time_label && (
                   <div className="flex justify-between"><span className="text-gray-500">裝備協助時段</span><span className="text-gray-900 dark:text-white">{r.equipment_assistance_time_label}</span></div>

@@ -12,6 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 from datetime import timedelta
 from copy import deepcopy
+import logging
 from uuid import uuid4
 from Client.models import Client, SiteContent
 from Coach.models import (
@@ -33,6 +34,9 @@ from booking.assessment import RUBRIC_LOCATION, TECHNICAL_KEY, school_rubric, te
 from booking.coach_pre_course_summary import COACH_SUMMARY_LOCATION, summary_settings, validate_summary_fields
 from booking.marketing_source import display_marketing_source
 from .admin_permissions import user_has_admin_permission
+
+
+logger = logging.getLogger(__name__)
 
 
 class TenantRelationValidationMixin:
@@ -1824,8 +1828,9 @@ class OrderAdminSerializer(serializers.ModelSerializer):
 
     def get_reservations(self, obj):
         items = []
-        include_available_coaches = self.context.get('include_available_coaches', False)
+        candidate_coaches = self.context.get('candidate_coaches')
         for r in obj.reservations.live().all():
+            bookings = list(r.bookings.live().all())
             item = {
                 'id': r.id,
                 'resort': r.resort.display_name if r.resort else '',
@@ -1861,56 +1866,37 @@ class OrderAdminSerializer(serializers.ModelSerializer):
                         'start_time': b.start_time,
                         'end_time': b.end_time,
                         'course_name': b.course_name,
-                    } for b in r.bookings.live().all()
+                    } for b in bookings
                 ],
             }
-            if include_available_coaches:
-                item['available_coaches'] = self.get_available_coaches(r)
+            if candidate_coaches is not None:
+                item.update(self.get_coach_candidates(r, bookings, candidate_coaches))
             items.append(item)
         return items
 
-    def get_available_coaches(self, reservation):
+    def get_coach_candidates(self, reservation, bookings, coaches):
         try:
-            from collections import defaultdict
-            from booking.scheduler import get_manual_assignment_coaches, can_assign_all_bookings
+            from booking.scheduler import check_manual_assignment, manual_assignment_occupancy
 
-            bookings = list(reservation.bookings.live().all())
-            feasible_coaches = get_manual_assignment_coaches(reservation, bookings)
-
-            coach_busy_map = defaultdict(list)
-            busy_bookings = self.context.get('_coach_busy_bookings')
-            if busy_bookings is None:
-                busy_bookings = list(Booking.objects.live().filter(
-                    reservation__preferred_coach__isnull=False,
-                    reservation__status__in=[
-                        'auto_assigned',
-                        'manually_assigned',
-                        'pending_coach_confirmation',
-                        'completed',
-                    ],
-                    is_scheduled=True,
-                ).select_related('reservation'))
-                self.context['_coach_busy_bookings'] = busy_bookings
-
-            for booking in busy_bookings:
-                if booking.reservation_id == reservation.id:
-                    continue
-                coach_id = booking.reservation.preferred_coach_id
-                if coach_id:
-                    coach_busy_map[coach_id].append((booking.date, booking.start_time, booking.end_time))
-
-            return [
-                {
-                    'id': coach.id,
-                    'name': coach.name,
-                    'availability_status': coach.availability_status,
-                    'requires_confirmation': coach.availability_status == 'passive',
-                }
-                for coach in feasible_coaches
-                if can_assign_all_bookings(bookings, coach.id, coach_busy_map)
-            ]
-        except Exception:
-            return []
+            slots = [(booking.date, booking.start_time, booking.end_time) for booking in bookings]
+            busy = manual_assignment_occupancy([coach.pk for coach in coaches], {date for date, _, _ in slots})
+            available = []
+            unavailable = []
+            for candidate in check_manual_assignment(reservation, bookings, coaches, busy, slots=slots):
+                coach = candidate.coach
+                item = {'id': coach.pk, 'name': coach.name or f'教練 #{coach.pk}'}
+                if candidate.reason_codes:
+                    unavailable.append({**item, 'reason_codes': candidate.reason_codes})
+                else:
+                    available.append({
+                        **item,
+                        'availability_status': coach.availability_status,
+                        'requires_confirmation': coach.availability_status == 'passive',
+                    })
+            return {'candidate_status': 'ok', 'available_coaches': available, 'unavailable_coaches': unavailable}
+        except Exception as exc:
+            logger.warning('Coach candidates failed for reservation %s (%s)', reservation.pk, type(exc).__name__)
+            return {'candidate_status': 'error', 'available_coaches': None, 'unavailable_coaches': None}
 
     def get_payment_status(self, obj):
         p = obj.payments.live().last()

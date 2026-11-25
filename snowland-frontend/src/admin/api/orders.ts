@@ -26,6 +26,12 @@ export interface OrderAvailableCoach {
   requires_confirmation: boolean
 }
 
+export interface OrderUnavailableCoach {
+  id: number
+  name: string
+  reason_codes: string[]
+}
+
 export interface OrderReservation {
   id: number
   resort: string
@@ -43,7 +49,9 @@ export interface OrderReservation {
   number_of_people: number
   status: ReservationStatus
   total_fee: number
-  available_coaches?: OrderAvailableCoach[]
+  candidate_status?: 'ok' | 'error'
+  available_coaches?: OrderAvailableCoach[] | null
+  unavailable_coaches?: OrderUnavailableCoach[] | null
   bookings: OrderBooking[]
 }
 
