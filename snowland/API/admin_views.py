@@ -21,7 +21,6 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from datetime import timedelta, datetime, date, time
 from collections import defaultdict
-from types import SimpleNamespace
 
 from Client.models import Client, SiteContent
 from .payroll_security import PayrollCsrfMixin
@@ -359,6 +358,8 @@ SCHEDULED_RESERVATION_STATUSES = [
     'completed',
     'form_filled',
 ]
+
+BOOKING_EDIT_RESET_STATUSES = ('auto_assigned', 'manually_assigned', 'pending_coach_confirmation')
 
 COACH_VISIBLE_PAYMENT_STATUSES = ['pending', 'paid']
 
@@ -1910,9 +1911,15 @@ class OrderAdminViewSet(ModelViewSet):
         instance = self.get_object()
         from django.middleware.csrf import get_token
         get_token(request._request)  # Issue the same-origin token used by QR uploads/removal.
+        context = self.get_serializer_context()
+        if not self._is_campus_order_viewer():
+            coaches = Coach.objects.filter(client=instance.client_id)
+            if not request.can_view_all_campuses:
+                coaches = coaches.filter(campuses__id__in=_campus_ids(request)).distinct()
+            context['candidate_coaches'] = coaches.order_by('name', 'pk')
         serializer = self.get_serializer(
             instance,
-            context={**self.get_serializer_context(), 'include_available_coaches': True},
+            context=context,
         )
         return Response({'code': 200, 'msg': 'OK', 'data': serializer.data})
 
@@ -2198,29 +2205,29 @@ class OrderAdminViewSet(ModelViewSet):
                         'code': 400,
                         'msg': '此課程為客人指定教練，後台不可更換教練',
                     }, status=status.HTTP_400_BAD_REQUEST)
-                coach = None
+                coach_id = None
                 if new_coach_id not in (None, ''):
                     try:
                         coach_id = int(new_coach_id)
                     except (TypeError, ValueError):
                         return Response({'code': 400, 'msg': '教練編號格式錯誤'}, status=400)
-                    coaches = Coach.objects.filter(pk=coach_id, client=instance.client).exclude(
-                        availability_status='unavailable'
-                    )
-                    if instance.campus_id:
-                        coaches = coaches.filter(campuses__id=instance.campus_id)
-                    if r.resort_id:
-                        coaches = coaches.filter(coachresort__resort_id=r.resort_id)
-                    coach = coaches.distinct().first()
-                    if coach is None:
-                        return Response({'code': 400, 'msg': '這位教練不能接此校區或雪場的課程'}, status=400)
+                    if action == 'schedule':
+                        coaches = Coach.objects.filter(pk=coach_id, client=instance.client).exclude(
+                            availability_status='unavailable'
+                        )
+                        if instance.campus_id:
+                            coaches = coaches.filter(campuses__id=instance.campus_id)
+                        if r.resort_id:
+                            coaches = coaches.filter(coachresort__resort_id=r.resort_id)
+                        if not coaches.exists():
+                            return Response({'code': 400, 'msg': '這位教練不能接此校區或雪場的課程'}, status=400)
                 coach_changes.append({
                     'reservation': r,
                     'old_coach_id': old_coach_id,
                     'old_status': r.status,
                     'old_is_preferred_coach': r.is_preferred_coach,
                     'old_bookings_scheduled': [(b.id, b.is_scheduled) for b in r.bookings.live().all()],
-                    'new_coach_id': coach.id if coach else None,
+                    'new_coach_id': coach_id,
                 })
 
         def save_payment_status():
@@ -2256,43 +2263,54 @@ class OrderAdminViewSet(ModelViewSet):
                 return Response({'code': 200, 'msg': '沒有資料變更，未建立修改紀錄'})
             # Manual assignment must obey the same leave and conflict rules as scheduling.
             # Validate the whole batch before writing any course, payment or revision.
-            assigned = [change for change in coach_changes if change['new_coach_id']]
+            assigned = [change for change in coach_changes if change['new_coach_id'] is not None]
+            coaches_by_id = {}
             if assigned:
-                from booking.scheduler import can_assign_all_bookings, get_manual_assignment_coaches
+                from booking.scheduler import ManualAssignmentReason, check_manual_assignment, manual_assignment_occupancy
+
                 coach_ids = {change['new_coach_id'] for change in assigned}
-                list(Coach.objects.select_for_update().filter(pk__in=coach_ids).order_by('pk'))
+                coaches_by_id = Coach.objects.select_for_update().filter(
+                    pk__in=coach_ids, client=instance.client_id,
+                ).order_by('pk').in_bulk()
                 released = {change['reservation'].pk for change in coach_changes}
-                released.update(change['booking'].reservation_id for change in booking_changes
-                                if not change['booking'].reservation.is_preferred_coach)
-                busy = defaultdict(list)
-                occupied = Booking.objects.live().filter(is_scheduled=True, reservation__preferred_coach_id__in=coach_ids).exclude(
-                    reservation__status__in=['cancelled', 'deleted']).exclude(reservation_id__in=released).exclude(
-                    pk__in=[change['booking'].pk for change in booking_changes]).select_related('reservation')
-                for booking in occupied:
-                    busy[booking.reservation.preferred_coach_id].append((booking.date, booking.start_time, booking.end_time))
-                new_slots = {change['booking'].pk: change for change in booking_changes}
+                released.update(
+                    change['booking'].reservation_id for change in booking_changes
+                    if change['old_reservation_status'] in BOOKING_EDIT_RESET_STATUSES
+                    and not change['old_is_preferred_coach']
+                )
+                new_slots = {change['booking'].pk: (change['new_date'], change['new_start_time'], change['new_end_time'])
+                             for change in booking_changes}
+                proposed = []
                 for change in assigned:
-                    reservation, coach_id = change['reservation'], change['new_coach_id']
-                    bookings = list(reservation.bookings.live().all())
-                    if not bookings:
-                        return Response({'code': 400, 'msg': '這組課程沒有上課時段，不能指派教練'}, status=400)
-                    if coach_id not in {coach.pk for coach in get_manual_assignment_coaches(reservation, bookings)}:
-                        return Response({'code': 400, 'msg': '教練已不符合課程語言、學員程度、模板資格或可接課名單，請核對教練／課程設定並重新選擇；原訂單與付款未變更'}, status=400)
-                    for booking in bookings:
-                        update = new_slots.get(booking.pk)
-                        slot = SimpleNamespace(reservation=reservation,
-                            date=update['new_date'] if update else booking.date,
-                            start_time=update['new_start_time'] if update else booking.start_time,
-                            end_time=update['new_end_time'] if update else booking.end_time)
-                        if not can_assign_all_bookings([slot], coach_id, busy):
-                            return Response({'code': 400, 'msg': '這位教練在課程時段已有其他課程、核准請假，或已不符合校區／雪場條件；原訂單與付款未變更'}, status=400)
-                        busy[coach_id].append((slot.date, slot.start_time, slot.end_time))
+                    reservation = change['reservation']
+                    bookings = list(reservation.bookings.live())
+                    slots = [new_slots.get(b.pk, (b.date, b.start_time, b.end_time)) for b in bookings]
+                    proposed.append((reservation, change['new_coach_id'], bookings, slots))
+                busy = manual_assignment_occupancy(
+                    coaches_by_id, {date for _, _, _, slots in proposed for date, _, _ in slots},
+                    released_reservations=released, released_bookings=new_slots,
+                )
+                for reservation, coach_id, bookings, slots in proposed:
+                    coach = coaches_by_id.get(coach_id)
+                    if coach is None:
+                        reasons = [ManualAssignmentReason.TENANT_MISMATCH]
+                    else:
+                        candidate, = check_manual_assignment(reservation, bookings, [coach], busy, slots=slots)
+                        reasons = candidate.reason_codes
+                    if reasons:
+                        return Response({
+                            'code': 400,
+                            'msg': '這位教練無法安排此組課程，請重新載入訂單並查看不可選原因；原訂單與付款未變更',
+                            'reservation_id': reservation.pk,
+                            'reason_codes': reasons,
+                        }, status=400)
+                    busy[coach_id].extend((reservation.pk, slot) for slot in slots)
             self._apply_booking_changes(booking_changes)
             for c in coach_changes:
                 r = c['reservation']
                 new_coach_id = c['new_coach_id']
-                if new_coach_id:
-                    coach = Coach.objects.get(pk=new_coach_id)
+                if new_coach_id is not None:
+                    coach = coaches_by_id[new_coach_id]
                     r.preferred_coach = coach
                     r.is_preferred_coach = False
                     r.status = 'pending_coach_confirmation' if coach.availability_status == 'passive' else 'manually_assigned'
@@ -2419,7 +2437,7 @@ class OrderAdminViewSet(ModelViewSet):
             booking.end_time = c['new_end_time']
             booking.is_scheduled = False
             booking.save(update_fields=['date', 'start_time', 'end_time', 'is_scheduled'])
-            if reservation.status in ['auto_assigned', 'manually_assigned', 'pending_coach_confirmation']:
+            if reservation.status in BOOKING_EDIT_RESET_STATUSES:
                 reservation.status = 'created'
                 update_fields = ['status']
                 if not reservation.is_preferred_coach:
