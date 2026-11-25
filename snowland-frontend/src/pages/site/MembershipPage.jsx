@@ -336,9 +336,10 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved, previousFo
     const answer = draft.question_answers[question.key];
     return question.required && !(typeof answer === 'string' ? answer.trim() : answer?.length);
   });
-  const experienceIncomplete = Boolean(draft.experience_assessment && !draft.experience_assessment.finished);
+  const snowlandWaiverRules = form.snowland_waiver_rules ?? Boolean(form.experience_assessment);
+  const experienceIncomplete = Boolean(snowlandWaiverRules && !draft.experience_assessment?.finished);
   const needsNewSignature = !form.waiver_completed || !draft.waiver_signature || !!draft.waiver_signature_ink;
-  const guardianIdMissing = Boolean(draft.experience_assessment && requiresGuardian && !draft.insurance_data.guardian_id_number?.trim());
+  const guardianIdMissing = Boolean(snowlandWaiverRules && requiresGuardian && !draft.insurance_data.guardian_id_number?.trim());
   const signingDetailsIncomplete = needsNewSignature && (experienceIncomplete || guardianIdMissing);
   const updateAnswer = (key, value) => setDraft(current => ({
     ...current, ...resetSignature, question_answers: { ...current.question_answers, [key]: value },
@@ -392,7 +393,7 @@ function PreCourseForm({ form, waiverDocument, skillOptions, onSaved, previousFo
         <div className="mt-3 grid gap-4 md:grid-cols-2">{[['snowboard_skills', '單板經驗'], ['ski_skills', '雙板經驗']].map(([field, label]) => <fieldset key={field}><legend className="text-sm font-semibold">{t(label)}</legend><div className="mt-2 max-h-64 overflow-y-auto">{(skillOptions?.[field] || []).map(([value, text]) => <label key={value} className="flex min-h-11 items-center gap-2 py-2 text-sm"><input type="checkbox" checked={draft[field].includes(value)} onChange={() => toggleSkill(field, value)} />{t(text)}</label>)}</div></fieldset>)}</div>
       </details>}
       {experienceIncomplete && <p className="text-sm text-amber-800">{t('請先完成程度自評再簽署聲明書，沒有經驗也可以選「沒有」。')}</p>}
-      {draft.experience_assessment && <p className="text-sm text-[#64748b]">{t('SnowLand 未滿 14 歲學員不提供保險，仍須完成課前資料及聲明書。')}</p>}
+      {snowlandWaiverRules && <p className="text-sm text-[#64748b]">{t('SnowLand 未滿 14 歲學員不提供保險，仍須完成課前資料及聲明書。')}</p>}
       <PreCourseQuestions questions={questions.filter(question => question.section === 'insurance')} answers={draft.question_answers} onChange={updateAnswer} />
       {waiverDocument.version ? <div className="rounded-sm border border-[#dbe3ec] bg-[#f8fafc] p-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{waiverDocument.title}</p><span className="rounded-full bg-white px-3 py-1 text-xs text-[#64748b]">{t('版本 {version}',{version:waiverDocument.version})}{waiverDocument.is_draft ? t("｜法務確認中") : ''}</span></div>

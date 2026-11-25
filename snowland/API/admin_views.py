@@ -40,6 +40,9 @@ from booking.scheduling_metrics import (
     Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling, scheduling_metrics,
 )
 from booking.assessment import RUBRIC_LOCATION, school_rubric, validate_rubric
+from booking.coach_pre_course_summary import (
+    COACH_SUMMARY_LOCATION, MAX_LABEL_LENGTH, configured_summary_fields, default_summary_fields, summary_settings,
+)
 
 from .admin_serializers import (
     SiteContentAdminSerializer,
@@ -586,6 +589,20 @@ class SiteContentAdminViewSet(ModelViewSet):
         from booking.legal_documents import get_current_waiver
         return Response({'code':200,'data':get_current_waiver(request.tenant)})
 
+    @action(detail=False, methods=['get'], url_path='coach-pre-course-summary')
+    def coach_pre_course_summary(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'course_documents')
+        if denied is not None:
+            return denied
+        setting = summary_settings(request.tenant.pk).order_by('pk').first()
+        return Response({'code': 200, 'data': {
+            'id': setting.pk if setting else None,
+            'location_key': COACH_SUMMARY_LOCATION,
+            'label_max_length': MAX_LABEL_LENGTH,
+            'available_fields': default_summary_fields(),
+            'fields': configured_summary_fields(setting),
+        }})
+
     @action(detail=False, methods=['get'], url_path='join-schema')
     def join_schema(self, request, *args, **kwargs):
         denied = _require_admin_permission(request, 'site_about')
@@ -668,7 +685,8 @@ class SiteContentAdminViewSet(ModelViewSet):
             'homepage.reviews': 'site_reviews', 'photography.gallery': 'site_media',
             'homepage.offers': 'site_campaigns', 'site.tracking': 'site_tracking',
             'site.footer': 'site_home', 'cms.structure': 'site_structure', 'coach.profiles': 'site_coaches',
-            'membership.waiver': 'course_documents', 'news.offers': 'site_campaigns',
+            'membership.waiver': 'course_documents', COACH_SUMMARY_LOCATION: 'course_documents',
+            'news.offers': 'site_campaigns',
             'news.social': 'site_campaigns', 'news.instagram': 'site_campaigns',
             'news.facebook': 'site_campaigns',
         }

@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .assessment import learning_reports
+from .coach_pre_course_summary import configured_summary_fields, member_pre_course_summary, summary_settings
 from .models import CourseEvaluation, LearnerProfile, MemberDetail
 
 
@@ -83,6 +84,7 @@ def ended_sessions(now=None):
 
 def coach_history(reservation):
     places = list(reservation.members.live().select_related('learner', 'user').order_by('pk'))
+    summary_fields = configured_summary_fields(summary_settings(reservation.group.client_id).order_by('pk').first())
     profile_ids = {row.learner_id for row in places if row.learner_id and (
         row.learner.client_id == reservation.group.client_id and row.learner.owner_id == place_owner_id(row)
     )}
@@ -109,6 +111,7 @@ def coach_history(reservation):
     return [{
         'id': row.pk,
         'name': row.learner.name if row.learner_id in profile_ids else row.display_name,
+        'pre_course_summary': member_pre_course_summary(row, summary_fields),
         'records': history.get(row.learner_id, []) if row.learner_id in profile_ids else [],
     } for row in places]
 

@@ -48,6 +48,7 @@ from .funcNewebpay import neweb_pay_request
 from .legal_documents import get_current_waiver, course_waiver_revision
 from .pre_course_questions import required_answers_complete, saved_section_answers, section_questions, validate_answers
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
+from .coach_pre_course_summary import COACH_SUMMARY_LOCATION, experience_assessment_enabled
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
 from .discount_usage import rebuild_discount_usage, record_checkout_discount_usage
 from .media_files import course_media_url, private_file_response
@@ -855,7 +856,7 @@ class SiteContentListAPI(APIView):
         except TenantResolutionError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
-        qs = SiteContent.objects.filter(client=client).exclude(location_key=RUBRIC_LOCATION)
+        qs = SiteContent.objects.filter(client=client).exclude(location_key__in=(RUBRIC_LOCATION, COACH_SUMMARY_LOCATION))
         content_type = (request.GET.get('content_type') or '').strip()
         location_key = (request.GET.get('location_key') or '').strip()
         tag = (request.GET.get('tag') or '').strip()
@@ -3114,6 +3115,7 @@ class MemberCenterAPI(APIView):
             student_numbers[member_id] = student_counts[reservation_id]
         from .waiver_signatures import current_signature_strokes
         signature_strokes = current_signature_strokes(member_details)
+        experience_enabled = bool(member_details) and experience_assessment_enabled(tenant)
         pre_course_forms = [{
             'id': member.id,
             'reservation_id': member.reservation_id,
@@ -3132,8 +3134,10 @@ class MemberCenterAPI(APIView):
             'waiver_signature': member.waiver_signature,
             'waiver_signature_strokes': signature_strokes.get(member.pk, []),
             'waiver_document_version': member.waiver_document_version,
-            **({'experience_assessment': member.pre_course_answers.get('experience', {})}
-               if tenant.internal_code == 'snowland' else {}),
+            **({
+                'experience_assessment': member.pre_course_answers.get('experience', {}),
+                'snowland_waiver_rules': tenant.internal_code == 'snowland',
+            } if experience_enabled else {}),
             'question_answers': {
                 **saved_section_answers(member, waiver_document, 'insurance'),
                 **saved_section_answers(member, waiver_document, 'waiver'),
@@ -3413,7 +3417,7 @@ class MemberCenterAPI(APIView):
             existing_experience = member.pre_course_answers.get('experience')
             if existing_experience is not None:
                 answers_snapshot['experience'] = existing_experience
-            if tenant.internal_code == 'snowland' and 'experience_assessment' in request.data:
+            if 'experience_assessment' in request.data and experience_assessment_enabled(tenant):
                 from .pre_course_questions import validate_experience_assessment
                 try:
                     experience = validate_experience_assessment(request.data['experience_assessment'])
