@@ -4,7 +4,7 @@ import bookingApi from '@/api/axios'
 import { useSiteLocale } from '@/contexts/SiteLocale'
 import type { CartItem } from '@/types/booking'
 
-type Profile = { id: number; name: string }
+type Profile = { id: number; name: string; can_rename?: boolean }
 export type LearnerChoices = Record<string, Array<number | null>>
 
 export function useLearnerProfiles(client: string, account?: string | number) {
@@ -27,6 +27,7 @@ export function AddLearnerProfile({ queryKey }: { queryKey: unknown[] }) {
       cache.setQueryData<Profile[]>(queryKey, previous => [...(previous || []), profile])
       setName('')
       setMessage(t('已新增學員檔案'))
+      return cache.invalidateQueries({ queryKey, exact: true })
     },
   })
   return <div className="mt-3">

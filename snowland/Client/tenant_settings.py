@@ -12,6 +12,15 @@ def module_enabled(client, key):
     return row is None or (row.is_active and row.module.is_active)
 
 
+def learner_rename_policy(client):
+    """Read learner_rename_policy from this tenant's booking module settings."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    policy = config.get('learner_rename_policy') if isinstance(config, dict) else None
+    return policy if policy in ('unlinked_only', 'owner_all') else 'disabled'
+
+
 def gateway_settings(client):
     prefix=(client.payment_env_prefix or '').strip()
     if prefix:

@@ -587,7 +587,7 @@ function Forms({ forms, orders, participantCourses, waiverDocument, skillOptions
   }
   return <div>
     <h2 className="text-2xl font-semibold">{t("學員與課前資料")}</h2>
-    <ManageLearnerProfiles account={account} />
+    <ManageLearnerProfiles account={account} onSaved={onSaved} />
     <p className="mt-2 text-sm leading-7 text-[#64748b]">{t("依訂課人數逐位填寫年齡、保險與聲明書。您可以代填尚未綁定的同行學員；已綁定者請由本人或家長登入填寫。")}</p>
     {reservationId > 0 && <SiteLink to="/membership/pre-course-forms" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[#2b5f8f]">{t("查看全部課程的學員")}</SiteLink>}
     <div className="mt-7 space-y-6">
