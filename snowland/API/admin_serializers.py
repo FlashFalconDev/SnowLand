@@ -32,6 +32,7 @@ from booking.models import (
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.assessment import RUBRIC_LOCATION, TECHNICAL_KEY, school_rubric, technical_snapshot, validate_review
 from booking.coach_pre_course_summary import COACH_SUMMARY_LOCATION, summary_settings, validate_summary_fields
+from booking.legal_documents import INSURANCE_NOTICE_LOCATION_KEY, WAIVER_LOCATION_KEY, versioned_insurance_notice_metadata, versioned_waiver_metadata
 from booking.marketing_source import display_marketing_source
 from .admin_permissions import user_has_admin_permission
 
@@ -283,8 +284,10 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'location_key': '請到學習評量管理技術設定'})
         if previous_location in POLICY_PAGES.values() and location != previous_location:
             raise serializers.ValidationError({'location_key': '條款文件不能移至其他位置'})
-        if previous_location == 'membership.waiver' and location != previous_location:
+        if previous_location == WAIVER_LOCATION_KEY and location != previous_location:
             raise serializers.ValidationError({'location_key': '聲明書不能移至其他位置'})
+        if self.instance is not None and location != previous_location and INSURANCE_NOTICE_LOCATION_KEY in (location, previous_location):
+            raise serializers.ValidationError({'location_key': '不可變更保險說明的內容位置'})
         if self.instance is not None and location != previous_location and COACH_SUMMARY_LOCATION in (location, previous_location):
             raise serializers.ValidationError({'location_key': '不可變更課前摘要設定的位置'})
         if location == COACH_SUMMARY_LOCATION:
@@ -303,7 +306,13 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             for field in ('title', 'body'):
                 if not attrs.get(field, getattr(self.instance, field, '')).strip():
                     raise serializers.ValidationError({field: '請填寫完整條款內容'})
-        if location == 'membership.waiver':
+        if location == INSURANCE_NOTICE_LOCATION_KEY:
+            if content_type != 'page':
+                raise serializers.ValidationError({'content_type': '保險說明請使用頁面內容類型'})
+            for field in ('title', 'body'):
+                if not attrs.get(field, getattr(self.instance, field, '')).strip():
+                    raise serializers.ValidationError({field: '請填寫保險說明的標題及正文'})
+        if location == WAIVER_LOCATION_KEY:
             if content_type != 'page':
                 raise serializers.ValidationError({'content_type':'聲明書請使用頁面內容類型'})
             if not attrs.get('body', getattr(self.instance, 'body', '')).strip():
@@ -412,12 +421,22 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'end_at': '結束時間不能早於開始時間'})
         return attrs
 
+    @staticmethod
+    def _insurance_notice_metadata(attrs, instance=None):
+        metadata = versioned_insurance_notice_metadata(attrs, instance)
+        if 'is_draft' in metadata and not isinstance(metadata['is_draft'], bool):
+            raise serializers.ValidationError({'metadata': '法務確認中必須是勾選或取消勾選'})
+        if metadata.get('is_draft') and attrs.get('status', getattr(instance, 'status', 'draft')) == 'active':
+            raise serializers.ValidationError({'status': '請先取消法務確認中，再公開保險說明'})
+        return metadata
+
     def create(self, validated_data):
         request = self.context.get('request')
         client = getattr(request, 'tenant', None) if request else None
-        if validated_data.get('location_key') == 'membership.waiver':
-            from booking.legal_documents import versioned_waiver_metadata
-            validated_data['metadata'] = versioned_waiver_metadata(validated_data)
+        location = validated_data.get('location_key')
+        if location in (WAIVER_LOCATION_KEY, INSURANCE_NOTICE_LOCATION_KEY):
+            version_metadata = self._insurance_notice_metadata if location == INSURANCE_NOTICE_LOCATION_KEY else versioned_waiver_metadata
+            validated_data['metadata'] = version_metadata(validated_data)
             with transaction.atomic():
                 Client.objects.select_for_update().get(pk=client.pk)
                 return SiteContent.objects.create(client=client, **validated_data)
@@ -437,14 +456,16 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
                 if current is None:
                     raise NotFound('找不到此課前摘要設定')
                 return super().update(current, validated_data)
-        if location != 'membership.waiver':
+        if location not in (WAIVER_LOCATION_KEY, INSURANCE_NOTICE_LOCATION_KEY):
             return super().update(instance, validated_data)
-        from booking.legal_documents import versioned_waiver_metadata
         with transaction.atomic():
             # Match reminder publishing: client first, then the document row.
             Client.objects.select_for_update().get(pk=instance.client_id)
-            current = SiteContent.objects.select_for_update().get(pk=instance.pk)
-            validated_data['metadata'] = versioned_waiver_metadata(validated_data, current)
+            current = SiteContent.objects.select_for_update().filter(pk=instance.pk).first()
+            if current is None:
+                raise NotFound('找不到此課前文件')
+            version_metadata = self._insurance_notice_metadata if location == INSURANCE_NOTICE_LOCATION_KEY else versioned_waiver_metadata
+            validated_data['metadata'] = version_metadata(validated_data, current)
             return super().update(current, validated_data)
 
 

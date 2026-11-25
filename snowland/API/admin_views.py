@@ -39,6 +39,7 @@ from booking.scheduling_metrics import (
     Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling, scheduling_metrics,
 )
 from booking.assessment import RUBRIC_LOCATION, school_rubric, validate_rubric
+from booking.legal_documents import INSURANCE_NOTICE_LOCATION_KEY, WAIVER_LOCATION_KEY, get_current_insurance_notice
 from booking.coach_pre_course_summary import (
     COACH_SUMMARY_LOCATION, MAX_LABEL_LENGTH, configured_summary_fields, default_summary_fields, summary_settings,
 )
@@ -590,6 +591,13 @@ class SiteContentAdminViewSet(ModelViewSet):
         from booking.legal_documents import get_current_waiver
         return Response({'code':200,'data':get_current_waiver(request.tenant)})
 
+    @action(detail=False, methods=['get'], url_path='insurance-notice-current')
+    def insurance_notice_current(self, request, *args, **kwargs):
+        denied = _require_admin_permission(request, 'course_documents')
+        if denied is not None:
+            return denied
+        return Response({'code': 200, 'data': get_current_insurance_notice(request.tenant)})
+
     @action(detail=False, methods=['get'], url_path='coach-pre-course-summary')
     def coach_pre_course_summary(self, request, *args, **kwargs):
         denied = _require_admin_permission(request, 'course_documents')
@@ -686,7 +694,8 @@ class SiteContentAdminViewSet(ModelViewSet):
             'homepage.reviews': 'site_reviews', 'photography.gallery': 'site_media',
             'homepage.offers': 'site_campaigns', 'site.tracking': 'site_tracking',
             'site.footer': 'site_home', 'cms.structure': 'site_structure', 'coach.profiles': 'site_coaches',
-            'membership.waiver': 'course_documents', COACH_SUMMARY_LOCATION: 'course_documents',
+            WAIVER_LOCATION_KEY: 'course_documents', INSURANCE_NOTICE_LOCATION_KEY: 'course_documents',
+            COACH_SUMMARY_LOCATION: 'course_documents',
             'news.offers': 'site_campaigns',
             'news.social': 'site_campaigns', 'news.instagram': 'site_campaigns',
             'news.facebook': 'site_campaigns',
@@ -774,7 +783,7 @@ class SiteContentAdminViewSet(ModelViewSet):
 
     def perform_destroy(self, instance):
         self._require_content_write(instance.content_type, instance.location_key)
-        if instance.location_key == 'membership.waiver':
+        if instance.location_key in (WAIVER_LOCATION_KEY, INSURANCE_NOTICE_LOCATION_KEY):
             with transaction.atomic():
                 Client.objects.select_for_update().get(pk=instance.client_id)
                 return super().perform_destroy(instance)
