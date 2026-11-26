@@ -20,6 +20,7 @@ import OrderExportForm from '../components/OrderExportForm'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
+import OrderMarketingSource from '../components/OrderMarketingSource'
 import OrderCoachAvailability from '../components/OrderCoachAvailability'
 import { OrderCardPaymentPanel } from '../components/NewebpaySettingsPanel'
 import { settlementAmount } from '../../components/booking/SettlementSummary'
@@ -878,7 +879,13 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
 
           <section>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">訂單歸屬與歷程</h3>
-            <div className="rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-700"><div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">校區</span><b>{order.campus_name || '未設定'}</b></div><div className="mt-2 flex justify-between"><span className="text-gray-500 dark:text-gray-400">行銷來源</span><span>{order.marketing_source || '未填寫'}{order.marketing_source_detail ? ` · ${order.marketing_source_detail}` : ''}</span></div></div>
+            <div className="rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-700">
+              <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">校區</span><b>{order.campus_name || '未設定'}</b></div>
+              <div className="mt-2 flex justify-between gap-3"><span className="shrink-0 text-gray-500 dark:text-gray-400">原始來源</span><span className="min-w-0 break-words text-right">{order.marketing_source || '未填寫'}{order.marketing_source_detail ? ` · ${order.marketing_source_detail}` : ''}</span></div>
+              <OrderMarketingSource key={order.id}
+                orderId={order.id} source={order.marketing_source_override ?? null}
+                options={canEdit ? order.marketing_source_options : undefined} />
+            </div>
             <div className="mt-3 space-y-2">{order.revisions?.map(revision => <details key={revision.id} className="rounded-lg border border-gray-100 text-xs dark:border-gray-700">
               <summary className="min-h-11 cursor-pointer px-3 py-3 text-gray-900 dark:text-gray-100">
                 <span className="ml-1 break-words">第 {revision.version} 版 · {REVISION_LABEL[revision.change_type] || revision.change_type}{revision.reason ? ` · ${revision.change_type === 'cancel' ? (CANCELLATION_REASON_LABEL[revision.reason] || revision.reason) : revision.reason}` : ''}</span>

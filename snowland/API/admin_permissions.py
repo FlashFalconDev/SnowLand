@@ -3,7 +3,7 @@ ADMIN_PERMISSION_DEFINITIONS = [
     {'key': 'vehicle_review', 'label': '車輛排班與用車審核', 'group': '營運總覽', 'description': '核准借車並審核授權校區的用車紀錄'},
     {'key': 'vehicle_finance', 'label': '車輛費率與費用核准', 'group': '營運總覽', 'description': '設定車輛、費率與匯率，核准用車費用'},
     {'key': 'order_view', 'label': '訂單列表與明細', 'group': '訂單', 'description': '查看授權校區的訂單'},
-    {'key': 'order_edit', 'label': '修改與排課', 'group': '訂單', 'description': '修改課程、人數與教練，或完成課程'},
+    {'key': 'order_edit', 'label': '修改與排課', 'group': '訂單', 'description': '修改課程、人數與教練、完成課程或補登客人來源'},
     {'key': 'order_payments', 'label': '對帳與差額', 'group': '訂單', 'description': '核對收款及補退差額'},
     {'key': 'order_refunds', 'label': '取消與退款', 'group': '訂單', 'description': '處理取消申請及記錄退款'},
     {'key': 'booking_links', 'label': '代客訂課連結', 'group': '訂單', 'description': '建立與管理代客訂課連結'},

@@ -12,8 +12,10 @@ from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
+from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Sum, Count, Max, Q, Prefetch, OuterRef, Subquery
@@ -22,9 +24,10 @@ from django.shortcuts import get_object_or_404
 from datetime import timedelta, datetime, date, time
 from collections import defaultdict
 from zoneinfo import ZoneInfo
+import json
 
 from Client.models import Client, SiteContent
-from Client.tenant_settings import manual_payment_posting_date_mode
+from Client.tenant_settings import manual_payment_posting_date_mode, order_source_override_enabled
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
@@ -1937,7 +1940,50 @@ class OrderAdminViewSet(ModelViewSet):
         detail = serializer.data
         if not is_campus_viewer:
             detail['manual_payment_posting_date_mode'] = manual_payment_posting_date_mode(request.tenant)
+            detail['marketing_source_override'] = instance.marketing_source_override
+            if (
+                user_has_admin_permission(request.user, 'order_edit', request.tenant)
+                and order_source_override_enabled(request.tenant)
+            ):
+                detail['marketing_source_options'] = _get_booking_form_options(request.tenant)['referral_source_options']
         return Response({'code': 200, 'msg': 'OK', 'data': detail})
+
+    @action(detail=True, methods=['put'], url_path='marketing-source')
+    @transaction.atomic
+    def marketing_source(self, request, *args, **kwargs):
+        from rest_framework.authentication import SessionAuthentication
+
+        SessionAuthentication().enforce_csrf(request)
+        tenant = Client.objects.select_for_update().get(pk=request.tenant.pk)
+        scoped_orders = self.filter_queryset(self.get_queryset()).select_related(None).prefetch_related(None)
+        group = get_object_or_404(scoped_orders.select_for_update(), pk=kwargs['pk'])
+        self.check_object_permissions(request, group)
+        if not order_source_override_enabled(tenant):
+            raise PermissionDenied('此租戶已停用客人來源補登')
+        if not isinstance(request.data, dict) or set(request.data) != {'marketing_source_override'}:
+            return Response({'code': 400, 'msg': '請指定要儲存的客人來源'}, status=400)
+        value = request.data['marketing_source_override']
+        if value is not None and (
+            not isinstance(value, str)
+            or value not in _get_booking_form_options(tenant)['referral_source_options']
+        ):
+            return Response({'code': 400, 'msg': '請從此租戶的客人來源選項選擇'}, status=400)
+
+        old_value = group.marketing_source_override
+        if old_value != value:
+            group.marketing_source_override = value
+            group.save(update_fields=['marketing_source_override'])
+            LogEntry.objects.create(
+                user=request.user,
+                content_type=ContentType.objects.get_for_model(ReservationGroup),
+                object_id=str(group.pk),
+                object_repr=f'訂單 {group.order_number or group.pk}',
+                action_flag=CHANGE,
+                change_message=json.dumps({
+                    'field': 'marketing_source_override', 'old': old_value, 'new': value,
+                }, ensure_ascii=False),
+            )
+        return Response({'code': 200, 'msg': '客人來源已儲存', 'data': {'marketing_source_override': value}})
 
     @action(detail=False, methods=['get'], url_path='export')
     def export(self, request, *args, **kwargs):
@@ -4233,7 +4279,7 @@ def dashboard_stats(request, client_code):
     campus_summary = {}
     for g in groups:
         amount = revenue_by_group.get(g.pk, 0)
-        source = display_marketing_source(g.marketing_source)
+        source = display_marketing_source(g.marketing_source_override or g.marketing_source)
         marketing_sources.setdefault(source, {'name': source, 'orders': 0, 'revenue': 0})
         marketing_sources[source]['orders'] += 1
         marketing_sources[source]['revenue'] += amount

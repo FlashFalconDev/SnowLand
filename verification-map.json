@@ -112,6 +112,44 @@
           "expected": "橫幅入口與面板標題一致，桌機與手機可操作，取消中的差額仍暫停核對，會員回報後才可核對補款。"
         }
       ]
+    },
+    {
+      "id": "order-marketing-source-override",
+      "name": "訂單補登客人來源",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "edit": "/{client_code}/console/orders/edit",
+        "options": "/{client_code}/console/booking-form-settings",
+        "dashboard": "/{client_code}/console",
+        "sourceApi": "/api/admin/{client_code}/orders/{id}/marketing-source/",
+        "reportApi": "/api/admin/{client_code}/dashboard/"
+      },
+      "permission": "order_edit 在授權校區補登，booking_form_options 管理租戶選項，analytics 查看統計及匯出",
+      "testEnvironment": "使用 snowland.test_settings 的記憶體 SQLite 與合成租戶、訂單及帳號。",
+      "checks": [
+        {
+          "id": "api-source-scope-audit-and-report",
+          "command": "cd snowland; python manage.py test API.tests_order_marketing_source --settings=snowland.test_settings",
+          "expected": "拒絕無改單權限、跨校區、跨租戶及無效選項。更新與清除逐次留痕，原始來源、匯入標記與付款資料持續保存。營運總覽、CSV 與 Excel 優先按補登來源分組。"
+        },
+        {
+          "id": "frontend-source-controls",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-order-marketing-source.cjs"],
+          "expected": "顯示租戶選項，支援清除、唯讀、選項停用、儲存中及失敗狀態。儲存後更新訂單與營運總覽快取。"
+        },
+        {
+          "id": "browser-order-marketing-source",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "用具修改與排課權限的測試帳號開啟已付款導入訂單，確認訂單歸屬與歷程顯示原始來源。",
+            "從租戶選項選擇並儲存補登來源，確認重開後補登值及原始來源皆可見，營運總覽按補登值分組。",
+            "選擇沿用原始來源並儲存，確認報表恢復依原始來源分組。",
+            "關閉租戶補登設定或改用只有查看權限的帳號，確認已補登值以唯讀方式顯示。"
+          ],
+          "expected": "桌機與手機皆能操作下拉選單，來源文字在明細內可讀且無水平溢出。"
+        }
+      ]
     }
   ]
 }
