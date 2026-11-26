@@ -2,6 +2,15 @@ import type { MyCourse } from '../admin/api/extras'
 
 type StatsCourse = Pick<MyCourse, 'shared_class_id' | 'course_category' | 'course_type' | 'is_preferred_coach' | 'bookings'>
 
+export function getTaipeiMonthKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit',
+  }).formatToParts(date)
+  const year = parts.find(part => part.type === 'year')?.value
+  const month = parts.find(part => part.type === 'month')?.value
+  return `${year}-${month}`
+}
+
 function timeMinutes(value: string) {
   const [hour, minute] = value.split(':').map(Number)
   return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : 0

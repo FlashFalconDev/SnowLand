@@ -2,13 +2,13 @@
  * 教練我的所有課程
  * 顯示教練被指派的所有 Reservation，可篩選狀態與日期
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Calendar, MapPin, User, Loader2, AlertCircle, BookOpen } from 'lucide-react'
-import { fetchMyCourses } from '../../api/extras'
+import { fetchMyCourses, fetchMyCourseSummary, type CoursePayrollTotals } from '../../api/extras'
 import { formatAbilityLevel } from '@/utils/learningProgress'
-import { calculateCoachCourseStats } from '@/utils/coachCourseStats'
+import { calculateCoachCourseStats, getTaipeiMonthKey } from '@/utils/coachCourseStats'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 import { CoachLearnerHistory } from '../../components/LearnerCourseTools'
 
@@ -25,21 +25,50 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   form_filled: { label: '已填表單', cls: 'bg-blue-100 text-blue-700' },
 }
 
-function getMonthKey(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-}
-
 function getMonthRange(monthKey: string) {
-  const [year, month] = monthKey.split('-').map(Number)
-  const endDay = new Date(year, month, 0).getDate()
+  const month = Number(monthKey.slice(5))
+  const endDay = new Date(`${monthKey}-01T00:00:00Z`)
+  endDay.setUTCMonth(month, 0)
   return {
-    start: `${year}-${String(month).padStart(2, '0')}-01`,
-    end: `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`,
+    start: `${monthKey}-01`,
+    end: `${monthKey}-${String(endDay.getUTCDate()).padStart(2, '0')}`,
   }
 }
 
-function formatHours(value: number) {
-  return Number.isInteger(value) ? `${value}` : value.toFixed(1)
+const hoursFormat = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 2 })
+const amountFormat = new Intl.NumberFormat('zh-TW')
+
+function PayrollSummary({ label, totals }: { label: string; totals: CoursePayrollTotals }) {
+  const { photo } = totals.disciplines
+  const disciplines = [
+    { label: '單板', totals: totals.disciplines.snowboard },
+    { label: '雙板', totals: totals.disciplines.ski },
+  ]
+  if (photo.hours || photo.specified_count) disciplines.push({ label: '攝影', totals: photo })
+  return (
+    <section aria-label={label} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{label}</h3>
+      <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+        總計薪時數 <strong className="text-lg text-gray-900 dark:text-white">{hoursFormat.format(totals.total_hours)}</strong> 小時
+      </p>
+      <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-gray-200 pt-3 dark:border-gray-600">
+        {disciplines.map(({ label, totals }) => (
+          <div key={label}>
+            <dt className="text-sm font-medium text-gray-900 dark:text-white">{label}</dt>
+            <dd className="mt-1 text-sm text-gray-600 dark:text-gray-300">{hoursFormat.format(totals.hours)} 小時</dd>
+            <dd className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+              指定費 {totals.specified_count} 堂 · NT$ {amountFormat.format(totals.specified_amount)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {totals.unresolved_specified_count > 0 && (
+        <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+          {totals.unresolved_specified_count} 組的指定費缺少可用的計薪規則，請向行政確認。
+        </p>
+      )}
+    </section>
+  )
 }
 
 export default function MyCoursesPage() {
@@ -49,7 +78,7 @@ export default function MyCoursesPage() {
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '')
   const [dateFrom, setDateFrom] = useState(() => searchParams.get('date_from') || '')
   const [dateTo, setDateTo] = useState(() => searchParams.get('date_to') || '')
-  const [statsMonth, setStatsMonth] = useState(() => getMonthKey())
+  const [statsMonth, setStatsMonth] = useState(() => getTaipeiMonthKey())
 
   useEffect(() => {
     setStatusFilter(searchParams.get('status') || '')
@@ -62,10 +91,19 @@ export default function MyCoursesPage() {
     queryFn: () => fetchMyCourses({ status: statusFilter || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined }),
   })
 
-  const statsRange = useMemo(() => getMonthRange(statsMonth), [statsMonth])
-  const { data: statsItems = [] } = useQuery({
+  const summary = useQuery({
     queryKey: ['admin', 'my-course-monthly-stats', statsMonth],
-    queryFn: () => fetchMyCourses({ date_from: statsRange.start, date_to: statsRange.end }),
+    queryFn: () => fetchMyCourseSummary(statsMonth),
+    enabled: Boolean(statsMonth),
+  })
+  const scheduledStats = useQuery({
+    queryKey: ['admin', 'my-course-scheduled-stats', statsMonth],
+    queryFn: async () => {
+      const range = getMonthRange(statsMonth)
+      const courses = await fetchMyCourses({ date_from: range.start, date_to: range.end })
+      return calculateCoachCourseStats(courses, statsMonth)
+    },
+    enabled: summary.data?.mode === 'scheduled' && Boolean(statsMonth),
   })
 
   useEffect(() => {
@@ -76,7 +114,8 @@ export default function MyCoursesPage() {
     })
   }, [selectedReservationId, isLoading, items.length])
 
-  const monthlyStats = useMemo(() => calculateCoachCourseStats(statsItems, statsMonth), [statsItems, statsMonth])
+  const monthlyStats = scheduledStats.data
+  const payrollStats = summary.data?.mode === 'payroll' ? summary.data : null
 
   return (
     <div className="space-y-6">
@@ -90,7 +129,9 @@ export default function MyCoursesPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-semibold text-gray-900 dark:text-white">月份課程統計</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">依課程日期統計時數；同一團體班只計一次，不會按訂單數重複累計。指定時數為學生指定教練的課程。</p>
+            {payrollStats && (
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">依台北時間的上課日期與目前計薪規則統計，正式金額以薪資單為準。</p>
+            )}
           </div>
           <input
             type="month"
@@ -100,25 +141,38 @@ export default function MyCoursesPage() {
             className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:w-auto"
           />
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
-            <div className="text-xs text-gray-500 dark:text-gray-400">總課程時數</div>
-            <div className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{formatHours(monthlyStats.totalHours)} 小時</div>
-            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{monthlyStats.lessons} 個時段</div>
+        {!statsMonth ? (
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">請選擇統計月份。</p>
+        ) : summary.isError || scheduledStats.isError ? (
+          <p className="mt-4 text-sm text-red-600 dark:text-red-400" role="alert">月份課程統計載入失敗。</p>
+        ) : summary.isLoading || scheduledStats.isLoading ? (
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400" role="status">載入月份課程統計中…</p>
+        ) : payrollStats ? (
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <PayrollSummary label="已完課（實績）" totals={payrollStats.actual} />
+            <PayrollSummary label="未完課（預估）" totals={payrollStats.estimated} />
           </div>
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
-            <div className="text-xs text-gray-500 dark:text-gray-400">單板時數</div>
-            <div className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{formatHours(monthlyStats.snowboardHours)} 小時</div>
-          </div>
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
-            <div className="text-xs text-gray-500 dark:text-gray-400">雙板時數</div>
-            <div className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{formatHours(monthlyStats.skiHours)} 小時</div>
-          </div>
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
-            <div className="text-xs text-gray-500 dark:text-gray-400">指定教練時數</div>
-            <div className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{formatHours(monthlyStats.specifiedHours)} 小時</div>
-          </div>
-        </div>
+        ) : monthlyStats && (
+          <>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">依課程日期統計時數，同一團體班的同時段只計一次。指定時數為學生指定教練的課程。</p>
+            <dl className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {[
+                { label: '總課程時數', hours: monthlyStats.totalHours },
+                { label: '單板時數', hours: monthlyStats.snowboardHours },
+                { label: '雙板時數', hours: monthlyStats.skiHours },
+                { label: '指定教練時數', hours: monthlyStats.specifiedHours },
+              ].map(({ label, hours }) => (
+                <div key={label} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
+                  <dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt>
+                  <dd className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{Number.isInteger(hours) ? hours : hours.toFixed(1)} 小時</dd>
+                  {label === '總課程時數' && (
+                    <dd className="mt-1 text-xs text-gray-500 dark:text-gray-400">{monthlyStats.lessons} 個時段</dd>
+                  )}
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
       </div>
 
       {/* 篩選 */}

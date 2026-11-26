@@ -13,8 +13,10 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
 from rest_framework.fields import IntegerField
+from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -22,16 +24,23 @@ from django.db.models import Sum, Count, Max, Q, Prefetch, OuterRef, Subquery, V
 from django.db.models.functions import Coalesce, Concat
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from calendar import monthrange
 from datetime import timedelta, datetime, date, time
 from collections import defaultdict
 from zoneinfo import ZoneInfo
+import json
 
 from Client.models import Client, SiteContent
 from Client.tenant_settings import (
-    evaluation_date_filter_defaults, manual_payment_posting_date_mode, staff_booking_link_edit_enabled,
+    coach_course_payroll_summary_enabled,
+    evaluation_date_filter_defaults,
+    manual_payment_posting_date_mode,
+    order_source_override_enabled,
+    staff_booking_link_edit_enabled,
 )
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
+from Coach.course_summary import summarize_course_payroll
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
 from Resorts.models import Resorts, Campus, PaymentAccount, OperatingPolicy
 from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseSession, CoursePricing, SeasonSetting, DiscountCode
@@ -563,8 +572,8 @@ def _daily_coach_availability_summary(*, tenant, start_date, end_date, campus_id
     return summary
 
 
-def _coach_visible_window():
-    today = timezone.localdate()
+def _coach_visible_window(today=None):
+    today = today or timezone.localdate()
     return None, today + timedelta(days=10)
 
 
@@ -1943,7 +1952,50 @@ class OrderAdminViewSet(ModelViewSet):
         detail = serializer.data
         if not is_campus_viewer:
             detail['manual_payment_posting_date_mode'] = manual_payment_posting_date_mode(request.tenant)
+            detail['marketing_source_override'] = instance.marketing_source_override
+            if (
+                user_has_admin_permission(request.user, 'order_edit', request.tenant)
+                and order_source_override_enabled(request.tenant)
+            ):
+                detail['marketing_source_options'] = _get_booking_form_options(request.tenant)['referral_source_options']
         return Response({'code': 200, 'msg': 'OK', 'data': detail})
+
+    @action(detail=True, methods=['put'], url_path='marketing-source')
+    @transaction.atomic
+    def marketing_source(self, request, *args, **kwargs):
+        from rest_framework.authentication import SessionAuthentication
+
+        SessionAuthentication().enforce_csrf(request)
+        tenant = Client.objects.select_for_update().get(pk=request.tenant.pk)
+        scoped_orders = self.filter_queryset(self.get_queryset()).select_related(None).prefetch_related(None)
+        group = get_object_or_404(scoped_orders.select_for_update(), pk=kwargs['pk'])
+        self.check_object_permissions(request, group)
+        if not order_source_override_enabled(tenant):
+            raise PermissionDenied('此租戶已停用客人來源補登')
+        if not isinstance(request.data, dict) or set(request.data) != {'marketing_source_override'}:
+            return Response({'code': 400, 'msg': '請指定要儲存的客人來源'}, status=400)
+        value = request.data['marketing_source_override']
+        if value is not None and (
+            not isinstance(value, str)
+            or value not in _get_booking_form_options(tenant)['referral_source_options']
+        ):
+            return Response({'code': 400, 'msg': '請從此租戶的客人來源選項選擇'}, status=400)
+
+        old_value = group.marketing_source_override
+        if old_value != value:
+            group.marketing_source_override = value
+            group.save(update_fields=['marketing_source_override'])
+            LogEntry.objects.create(
+                user=request.user,
+                content_type=ContentType.objects.get_for_model(ReservationGroup),
+                object_id=str(group.pk),
+                object_repr=f'訂單 {group.order_number or group.pk}',
+                action_flag=CHANGE,
+                change_message=json.dumps({
+                    'field': 'marketing_source_override', 'old': old_value, 'new': value,
+                }, ensure_ascii=False),
+            )
+        return Response({'code': 200, 'msg': '客人來源已儲存', 'data': {'marketing_source_override': value}})
 
     @action(detail=False, methods=['get'], url_path='export')
     def export(self, request, *args, **kwargs):
@@ -4382,7 +4434,7 @@ def dashboard_stats(request, client_code):
     campus_summary = {}
     for g in groups:
         amount = revenue_by_group.get(g.pk, 0)
-        source = display_marketing_source(g.marketing_source)
+        source = display_marketing_source(g.marketing_source_override or g.marketing_source)
         marketing_sources.setdefault(source, {'name': source, 'orders': 0, 'revenue': 0})
         marketing_sources[source]['orders'] += 1
         marketing_sources[source]['revenue'] += amount
@@ -5012,6 +5064,36 @@ def coach_my_courses(request, client_code):
             'visibility_mode': 'full' if full_schedule_visible else 'recent_10_days',
         },
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsTenantCoach])
+def coach_my_course_summary(request, client_code):
+    coach = Coach.objects.filter(user=request.user, client=request.tenant).first()
+    if coach is None:
+        return Response({'code': 403, 'msg': '您不是教練'}, status=403)
+
+    today = timezone.localdate(timezone=ZoneInfo('Asia/Taipei'))
+    month = request.query_params.get('month', today.isoformat()[:7])
+    try:
+        first_day = date.fromisoformat(f'{month}-01')
+    except ValueError:
+        raise ValidationError({'month': '請使用 YYYY-MM 格式'})
+    last_day = first_day.replace(day=monthrange(first_day.year, first_day.month)[1])
+    data = {'month': first_day.isoformat()[:7], 'mode': 'scheduled'}
+    if coach_course_payroll_summary_enabled(request.tenant):
+        if not _coach_can_view_full_schedule(coach):
+            _, visible_end = _coach_visible_window(today)
+            last_day = min(last_day, visible_end)
+        bookings = Booking.objects.live().filter(
+            reservation__preferred_coach=coach,
+            reservation__group__client=request.tenant,
+            date__range=(first_day, last_day),
+        ).exclude(reservation__status__in=['deleted', 'cancelled']).select_related(
+            'reservation__course_type__category', 'reservation__course_template',
+        ).order_by('date', 'start_time')
+        data.update(mode='payroll', **summarize_course_payroll(bookings, coach=coach))
+    return Response({'code': 200, 'msg': 'OK', 'data': data})
 
 
 @api_view(['GET'])
