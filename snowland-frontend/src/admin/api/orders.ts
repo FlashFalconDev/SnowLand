@@ -96,6 +96,8 @@ export interface Order {
   campus_name?: string
   marketing_source?: string
   marketing_source_detail?: string
+  marketing_source_override?: string | null
+  marketing_source_options?: string[]
   line_group_url?: string
   line_group_qr_url?: string
   revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string; snapshot?: OrderRevisionSnapshot }[]
@@ -187,6 +189,12 @@ export async function fetchOrders(): Promise<Order[]> {
 export async function fetchOrder(id: number, workflow?: OrderWorkflow): Promise<Order> {
   const res = (await adminApi.get(`/orders/${id}/`, { params: { workflow } })) as any
   return res.data || res
+}
+
+export async function saveOrderMarketingSource(id: number, source: string | null): Promise<ActionResp> {
+  return (await adminApi.put(`/orders/${id}/marketing-source/`, {
+    marketing_source_override: source,
+  })) as unknown as ActionResp
 }
 
 export async function fetchGuestPaymentLink(id: number): Promise<{ path: string; valid_days: number }> {

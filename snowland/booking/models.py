@@ -55,6 +55,7 @@ class ReservationGroup(SoftDeleteModel):
     order_number = models.CharField(max_length=40, blank=True, default='', db_index=True, verbose_name='訂單編號')
     marketing_source = models.CharField(max_length=60, blank=True, default='', verbose_name='行銷來源')
     marketing_source_detail = models.CharField(max_length=200, blank=True, default='', verbose_name='行銷來源說明')
+    marketing_source_override = models.TextField(null=True, blank=True, editable=False, verbose_name='補登客人來源')
     referral_user = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='referred_reservation_groups', verbose_name='介紹人'
     )
