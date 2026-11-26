@@ -112,6 +112,69 @@
           "expected": "橫幅入口與面板標題一致，桌機與手機可操作，取消中的差額仍暫停核對，會員回報後才可核對補款。"
         }
       ]
+    },
+    {
+      "id": "shared-course-album-management",
+      "name": "共用課程相簿多檔上傳與刪除",
+      "routes": {
+        "coach": "/{client_code}/console/my/evaluations?booking={booking_id}",
+        "console": "/{client_code}/console/evaluations?booking={booking_id}",
+        "member": "/{client_code}/membership/my-skiing-journey",
+        "coachApi": "/api/admin/{client_code}/coach/course-albums/{booking_id}/",
+        "adminApi": "/api/admin/{client_code}/course-albums/{booking_id}/",
+        "memberApi": "/booking/{client_code}/api/course-albums/",
+        "fileApi": "/booking/{client_code}/api/course-album-files/{asset_id}/"
+      },
+      "permission": "同租戶現任授課教練可管理可見的已結束堂次相簿，預設只能刪除本人上傳的附件，租戶可關閉教練刪除。具 evaluations 權限的管理者依校區範圍讀取與刪除，行政角色唯讀，會員依堂次與學員關聯存取。",
+      "testEnvironment": "Django snowland.test_settings 使用記憶體 SQLite。前端元件測試及瀏覽器驗收使用合成堂次、學員及檔案。",
+      "checks": [
+        {
+          "id": "album-upload-and-delete-permissions",
+          "command": "cd snowland; python manage.py test booking.tests_course_album_management --settings=snowland.test_settings",
+          "expected": "依每檔驗證格式和容量，刪除遵守現任教練、上傳者、管理者、校區與租戶範圍。刪除成功後移除附件及標籤，儲存失敗時保留以供重試。"
+        },
+        {
+          "id": "frontend-album-controls",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-course-album-controls.cjs"],
+          "expected": "可多選並逐檔上傳，顯示各檔進度及失敗原因，且只重試失敗檔案。刪除按權限顯示並要求確認，成功後更新預覽。"
+        }
+      ]
+    },
+    {
+      "id": "admin-evaluation-date-filters",
+      "name": "後台學習評量依下單日期篩選與分組",
+      "routes": {
+        "console": "/{client_code}/console/evaluations",
+        "booking": "/{client_code}/console/evaluations?booking={booking_id}",
+        "adminApi": "/api/admin/{client_code}/evaluations/",
+        "coachApi": "/api/admin/{client_code}/coach/evaluations/"
+      },
+      "permission": "evaluations，沿用租戶、校區及行政只能查看評量和加入課程附件的權限。",
+      "testEnvironment": "後端以 snowland.test_settings 的記憶體 SQLite 與合成租戶測試。相簿連結可用較早訂單的合成堂次驗證。",
+      "checks": [
+        {
+          "id": "evaluation-date-search-scope-and-pages",
+          "command": "cd snowland; python manage.py test API.tests_evaluation_dates API.tests_assistant_evaluations API.tests_coach_evaluations --settings=snowland.test_settings",
+          "expected": "預設最近 30 個台北下單日，日期區間含首尾日，可切換上課日期。依日期倒序和穩定順序分頁，搜尋及總筆數皆依既有校區和租戶範圍。堂次連結可看歷史評量，租戶可調整預設或關閉篩選。"
+        },
+        {
+          "id": "frontend-evaluation-date-controls",
+          "commands": ["cd snowland-frontend; cmd /c npm test", "cd snowland-frontend; cmd /c npm run build"],
+          "tests": ["tests/test-evaluation-date-filters.cjs", "tests/test-evaluation-role-controls.cjs"],
+          "expected": "評量清單依日期分組、可調整區間及搜尋、切換條件回第一頁。卡片顯示下單日及上課日。教練原本的上課日篩選與填寫流程可用。"
+        },
+        {
+          "id": "browser-evaluation-date-filters",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "開啟後台學習評量，核對預設日期範圍、日期分組與卡片的下單日和上課日。",
+            "換到下一頁後，切換上課日期並調整區間，確認回第一頁。輸入訂單編號或學員姓名並套用篩選。",
+            "檢查無符合條件的提示，恢復預設。從評量卡片開啟課程相簿，並以較早訂單的堂次連結確認歷史評量仍可查看。"
+          ],
+          "expected": "每頁依所選日期顯示群組，搜尋與分頁可在桌機及手機操作，頁面無水平溢出。"
+        }
+      ]
     }
   ]
 }
