@@ -143,6 +143,28 @@ export async function fetchMyCourses(params?: { status?: string; date_from?: str
   return res.data?.list || []
 }
 
+interface CourseDisciplineTotals {
+  hours: number
+  specified_count: number
+  specified_amount: number
+}
+
+export interface CoursePayrollTotals {
+  total_hours: number
+  disciplines: Record<'snowboard' | 'ski' | 'photo', CourseDisciplineTotals>
+  unresolved_specified_count: number
+}
+
+type MyCourseSummary = { month: string } & (
+  { mode: 'scheduled' } |
+  { mode: 'payroll'; actual: CoursePayrollTotals; estimated: CoursePayrollTotals }
+)
+
+export async function fetchMyCourseSummary(month: string): Promise<MyCourseSummary> {
+  const res = await adminApi.get('/coach/my-courses/summary/', { params: { month } }) as unknown as { data: MyCourseSummary }
+  return res.data
+}
+
 // ==================== 教練我的月曆 ====================
 export interface MyCalendarBooking {
   id: number

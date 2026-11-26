@@ -9,6 +9,7 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const result = { exports: {} }
 new Function('exports', 'module', compiled)(result.exports, result)
 const stats = result.exports.calculateCoachCourseStats
+const { getTaipeiMonthKey } = result.exports
 const lesson = (bookingId, sharedId = null, changes = {}) => ({
   shared_class_id: sharedId, course_category: '單板 Snowboard', course_type: '一般課程',
   is_preferred_coach: false,
@@ -28,4 +29,7 @@ assert.equal(stats([], '2026-12').totalHours, 0)
 assert.equal(stats([{ ...lesson(1), course_category: '成人課程', course_type: '單板初級' }], '2026-12').snowboardHours, 4)
 assert.equal(stats([{ ...lesson(1), course_category: '兒童課程', course_type: '雙板初級' }], '2026-12').skiHours, 4)
 assert.equal(stats([{ ...lesson(1), course_category: '攝影課程', course_type: '一般攝影' }], '2026-12').skiHours, 0)
-console.log('Coach course stats: 13 shared/private/month/discipline cases PASS')
+assert.equal(getTaipeiMonthKey(new Date('2026-11-30T15:59:59Z')), '2026-11')
+assert.equal(getTaipeiMonthKey(new Date('2026-11-30T16:00:00Z')), '2026-12')
+assert.equal(getTaipeiMonthKey(new Date('2026-12-31T16:00:00Z')), '2027-01')
+console.log('Coach course stats: 16 legacy and Taipei month cases PASS')
