@@ -8,18 +8,28 @@ import { vehicleGuidePage } from '../consoleNavigation'
 type Option = { id: number; name: string }
 type Resort = Option & { exempt: boolean; campuses: number[] }
 type Vehicle = Option & { campus: number; plate: string; active: boolean; shared_campuses: number[] }
+type VehicleConflict = { trip: number; purpose: string; driver: string; starts_at: string; ends_at: string; can_revoke: boolean }
+type VehicleOption = { vehicle: number; conflicts: VehicleConflict[]; occupied_outside_scope: boolean }
 type Expense = { id?: number; draftKey?: string; kind: string; amount_yen: string | number; note: string; receipt?: string; reimbursable?: boolean }
 type Trip = {
   id: number; campus: number; campus_name: string; driver: string; vehicle_name: string; purpose: string; status: string
   starts_at: string; ends_at: string; resort: string; note: string; decision_note: string; owner: boolean; participants: string[]
+  revoked: boolean; can_revoke: boolean; vehicle_options?: VehicleOption[]
   departure_km: string | null; return_km: string | null; departure_photo: string | null; return_photo: string | null
   amount_yen: number; amount_twd: number; expenses: Expense[]
   charges: { id: number; coach: string; amount_twd: number; balance: number; manual_due: boolean }[]
 }
 type Demand = { date: string; reservation__group__campus_id: number; reservation__group__campus__name: string; reservation__resort_id: number; reservation__resort__display_name: string }
+type CalendarInterval = { starts_at: string; ends_at: string; resort?: string }
+type VehicleCalendar = {
+  from: string; to: string
+  vehicles: (Option & { plate: string; occupancy: CalendarInterval[] })[]
+}
 type Desk = {
   campuses: Option[]; settings_campuses: Option[]; coaches: (Option & { campuses: number[] })[]; resorts: Resort[]; vehicles: Vehicle[]
   trips: Trip[]; eligible: boolean; coach_id: number | null; demands: Demand[]
+  conflict_mode: 'manual_review' | 'block' | null
+  vehicle_calendar: VehicleCalendar | null
   policy: { yen_per_km: string; yen_per_twd: string; payroll_day: number } | null
 }
 type Submit = (payload: object | FormData) => void
@@ -49,6 +59,33 @@ function ids(form: FormData, name: string) {
 }
 
 const japanTime = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Tokyo', dateStyle: 'short', timeStyle: 'short' })
+
+function tripTime({ starts_at, ends_at }: { starts_at: string; ends_at: string }) {
+  return japanTime.format(new Date(starts_at)) + ' ～ ' + japanTime.format(new Date(ends_at)) + '（日本時間）'
+}
+
+function CoachVehicleCalendar({ calendar }: { calendar: VehicleCalendar }) {
+  return <section className={card} aria-labelledby="vehicle-calendar-title">
+    <div>
+      <h2 id="vehicle-calendar-title" className="text-lg font-semibold">車輛行事曆</h2>
+      <p className="text-sm text-gray-600 dark:text-gray-300">{calendar.from} ～ {calendar.to}（日本時間）</p>
+    </div>
+    {calendar.vehicles.length === 0 && <p className="text-sm">所屬校區目前沒有車輛。</p>}
+    <div className={grid}>
+      {calendar.vehicles.map(vehicle => <section key={vehicle.id} className="min-w-0 space-y-2 rounded-md border border-gray-200 p-3 dark:border-gray-600">
+        <h3 className="break-words font-medium">{vehicle.name} <span className="text-sm text-gray-600 dark:text-gray-300">{vehicle.plate}</span></h3>
+        {vehicle.occupancy.length === 0
+          ? <p className="text-sm text-gray-600 dark:text-gray-300">這段期間沒有可顯示的占用。</p>
+          : <ul className="divide-y divide-gray-200 text-sm dark:divide-gray-600">
+            {vehicle.occupancy.map((interval, index) => <li key={index} className="space-y-1 py-2">
+              <p className="break-words font-medium">{interval.resort || '占用時段'}</p>
+              <p className="text-gray-700 dark:text-gray-200">{tripTime(interval)}</p>
+            </li>)}
+          </ul>}
+      </section>)}
+    </div>
+  </section>
+}
 
 function RequestForm({ data, staff, submit, busy, seed }: { data: Desk; staff: boolean; submit: Submit; busy: boolean; seed?: Demand }) {
   const [campus, setCampus] = useState(seed?.reservation__group__campus_id || data.campuses[0]?.id)
@@ -154,16 +191,70 @@ function FinanceSettings({ data, busy, submit }: { data: Desk; busy: boolean; su
   </div>
 }
 
+function RevokePrivateTrip({ tripId, submit, busy }: { tripId: number; submit: Submit; busy: boolean }) {
+  return <details className="space-y-2">
+    <summary className="cursor-pointer text-sm font-medium underline">撤銷此私用</summary>
+    <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
+      event.preventDefault()
+      const note = String(new FormData(event.currentTarget).get('note') ?? '').trim()
+      if (!busy && note && [...note].length <= 500 && window.confirm(`確定撤銷私用行程 #${tripId}？車輛時段將立即釋放。`)) {
+        submit({ action: 'revoke', trip: tripId, note })
+      }
+    }}>
+      <Field title="撤銷原因（必填）"><textarea className={input} name="note" maxLength={500} required onChange={event => {
+        event.currentTarget.setCustomValidity(event.currentTarget.value.trim() ? '' : '請填寫撤銷原因')
+      }}/></Field>
+      <button className={button} disabled={busy}>確認撤銷</button>
+    </form>
+  </details>
+}
+
+function VehicleAssignment({ trip, vehicles, submit, busy }: { trip: Trip; vehicles: Vehicle[]; submit: Submit; busy: boolean }) {
+  const names = new Map(vehicles.map(vehicle => [vehicle.id, vehicle.name]))
+  const options = trip.vehicle_options ?? []
+  const occupied = options.filter(option => option.conflicts.length || option.occupied_outside_scope)
+  const available = options.filter(option => !option.conflicts.length && !option.occupied_outside_scope)
+  return <div className="space-y-2">
+    <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
+      event.preventDefault()
+      submit({ action: 'approve', trip: trip.id, vehicle: new FormData(event.currentTarget).get('vehicle') })
+    }}>
+      <Field title="安排車輛"><select className={input} name="vehicle" required>
+        <option value="">請選擇</option>
+        {available.map(option => <option key={option.vehicle} value={option.vehicle}>{names.get(option.vehicle)}（可用）</option>)}
+        {occupied.map(option => <option key={option.vehicle} value={option.vehicle} disabled>
+          {names.get(option.vehicle)}（已占用{option.conflicts.length > 0 && ' · ' + [...new Set(option.conflicts.map(item => purposes[item.purpose]))].join('、')}）
+        </option>)}
+      </select></Field>
+      <button className={button} disabled={busy || !available.length}>核准並排車</button>
+    </form>
+    {!available.length && <p className="text-sm">此時段沒有可用車輛。</p>}
+    {occupied.length > 0 && <ul className="space-y-2" aria-label="車輛占用明細">
+      {occupied.map(option => <li className="space-y-2 rounded border border-gray-200 p-2 text-sm dark:border-gray-600" key={option.vehicle}>
+        <p className="font-medium">{names.get(option.vehicle)} · 已占用</p>
+        {option.conflicts.map(conflict => <div className="space-y-1" key={conflict.trip}>
+          <p>#{conflict.trip} · {purposes[conflict.purpose]} · {conflict.driver} · {tripTime(conflict)}</p>
+          {conflict.can_revoke && <RevokePrivateTrip tripId={conflict.trip} submit={submit} busy={busy}/>}
+        </div>)}
+        {option.occupied_outside_scope && <p>此時段有其他校區的行程。</p>}
+      </li>)}
+    </ul>}
+  </div>
+}
+
 function TripCard({ trip, data, mode, submit, busy }: { trip: Trip; data: Desk; mode: Mode; submit: Submit; busy: boolean }) {
-  const vehicles = data.vehicles.filter(vehicle => vehicle.active && (vehicle.campus === trip.campus || vehicle.shared_campuses.includes(trip.campus)))
+  const approvedPrivate = trip.status === 'approved' && trip.purpose === 'private'
   const send = (action: string, extra: object = {}) => submit({ action, trip: trip.id, ...extra })
   return <article className={card} aria-label={'用車 #' + trip.id + ' ' + purposes[trip.purpose]}>
-    <h3 className="font-semibold">#{trip.id} {purposes[trip.purpose]} · {statuses[trip.status]}</h3>
+    <h3 className="font-semibold">#{trip.id} {purposes[trip.purpose]} · {trip.revoked ? '已撤銷' : statuses[trip.status]}</h3>
     <p className="text-sm">{[trip.campus_name, trip.driver, trip.vehicle_name, trip.resort].filter(Boolean).join(' · ')}</p>
-    <p className="text-sm">{japanTime.format(new Date(trip.starts_at))} ～ {japanTime.format(new Date(trip.ends_at))}（日本時間）</p>
+    <p className="text-sm">{tripTime(trip)}</p>
     {trip.participants.length > 0 && <p className="text-sm">同行 {trip.participants.join('、')}</p>}
     {trip.note && <p className="break-words text-sm">{trip.note}</p>}
-    {trip.decision_note && <p className="break-words text-sm">審核說明 {trip.decision_note}</p>}
+    {trip.revoked ? <div className="space-y-1 rounded border border-amber-300 p-2 text-sm">
+      <p className="font-medium">此私用已被主管撤銷</p>
+      <p className="break-words">撤銷原因 {trip.decision_note}</p>
+    </div> : trip.decision_note && <p className="break-words text-sm">審核說明 {trip.decision_note}</p>}
     {trip.departure_km != null && <div className="flex flex-wrap gap-3 text-sm">
       <span>出發 {trip.departure_km} km</span>{trip.departure_photo && <a className="underline" href={trip.departure_photo} target="_blank" rel="noreferrer">出發照片</a>}
       {trip.return_km != null && <span>歸還 {trip.return_km} km</span>}{trip.return_photo && <a className="underline" href={trip.return_photo} target="_blank" rel="noreferrer">歸還照片</a>}
@@ -179,11 +270,9 @@ function TripCard({ trip, data, mode, submit, busy }: { trip: Trip; data: Desk; 
     </div>)}
     {mode === 'coach' && trip.owner && ['approved', 'driving', 'returned', 'reviewed'].includes(trip.status) &&
       <TripRecordForm key={trip.status + '-' + trip.return_km} trip={trip} submit={submit} busy={busy}/>}
-    {mode === 'review' && trip.status === 'pending' && <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
-      event.preventDefault()
-      send('approve', { vehicle: new FormData(event.currentTarget).get('vehicle') })
-    }}><Field title="安排車輛"><select className={input} name="vehicle" required><option value="">請選擇</option><Options items={vehicles}/></select></Field><button className={button} disabled={busy}>核准並排車</button></form>}
-    {mode === 'review' && ['pending', 'approved'].includes(trip.status) && <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
+    {mode === 'review' && trip.status === 'pending' && <VehicleAssignment trip={trip} vehicles={data.vehicles} submit={submit} busy={busy}/>}
+    {mode === 'review' && trip.can_revoke && <RevokePrivateTrip tripId={trip.id} submit={submit} busy={busy}/>}
+    {mode === 'review' && (trip.status === 'pending' || (trip.status === 'approved' && !approvedPrivate)) && <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
       event.preventDefault()
       send('reject', { note: new FormData(event.currentTarget).get('note') })
     }}><Field title="未核准原因"><input className={input} name="note" maxLength={500} required/></Field><button className={button} disabled={busy}>不核准</button></form>}
@@ -202,6 +291,7 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
   const [revision, setRevision] = useState(0)
   const [range, setRange] = useState({ from: '', to: '' })
   const [seed, setSeed] = useState<Demand>()
+  const calendar = isCoach ? data?.vehicle_calendar : null
   useEffect(() => {
     let activeController: AbortController | undefined
     const params = Object.fromEntries(Object.entries(range).filter(([, value]) => value))
@@ -212,7 +302,11 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
       adminApi.get(path, { params, signal: controller.signal }).then((result: unknown) => {
         if (!controller.signal.aborted) setData((result as { data: Desk }).data)
       }).catch((cause: unknown) => {
-        if (!controller.signal.aborted) setError({ text: errorText(cause), source: 'load' })
+        if (controller.signal.aborted) return
+        setError({ text: errorText(cause), source: 'load' })
+        if (isCoach) {
+          setData(current => current?.vehicle_calendar ? { ...current, vehicle_calendar: null } : current)
+        }
       })
     }
 
@@ -276,6 +370,7 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
       {isCoach && data.eligible && <RequestForm key={'request-' + revision} data={data} staff={false} submit={submit} busy={busy}/>}
       {mode === 'finance' && <FinanceSettings key={revision} data={data} submit={submit} busy={busy}/>}
       {mode === 'review' && <>
+        {data.conflict_mode && <p className="text-sm">目前衝突模式 <code>{data.conflict_mode}</code></p>}
         <section className={card}><h2 className="font-semibold">課程用車需求</h2>
           {data.demands.length === 0 && <p className="text-sm">選取期間沒有需排車的課程。</p>}
           {data.demands.map(demand => <div className="flex flex-wrap items-center justify-between gap-2 text-sm" key={[demand.date, demand.reservation__group__campus_id, demand.reservation__resort_id].join('-')}>
@@ -285,18 +380,19 @@ export default function VehiclePage({ mode }: { mode: Mode }) {
         </section>
         <RequestForm key={[revision, seed?.date, seed?.reservation__resort_id, seed?.reservation__group__campus_id].join('-')} data={data} seed={seed} staff submit={submit} busy={busy}/>
       </>}
+      <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
+        event.preventDefault()
+        const values = new FormData(event.currentTarget)
+        setError(null)
+        setRange({ from: String(values.get('from')), to: String(values.get('to')) })
+      }}>
+        <Field title="查詢起日"><input className={input} name="from" type="date"/></Field>
+        <Field title="查詢迄日"><input className={input} name="to" type="date"/></Field>
+        <button className={button}>{calendar ? '查詢行事曆與用車紀錄' : '查詢用車紀錄'}</button>
+      </form>
+      {calendar && <CoachVehicleCalendar calendar={calendar}/>}
       <section className="space-y-3" aria-label="用車紀錄">
         <h2 className="text-lg font-semibold">用車紀錄</h2>
-        <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
-          event.preventDefault()
-          const values = new FormData(event.currentTarget)
-          setError(null)
-          setRange({ from: String(values.get('from')), to: String(values.get('to')) })
-        }}>
-          <Field title="查詢起日"><input className={input} name="from" type="date"/></Field>
-          <Field title="查詢迄日"><input className={input} name="to" type="date"/></Field>
-          <button className={button}>查詢用車紀錄</button>
-        </form>
         {data.trips.length === 0 && <p className="text-sm">目前沒有用車紀錄。</p>}
         {[...data.trips].sort((a, b) => mode === 'review' ? Number(b.status === 'pending' && b.purpose === 'lesson') - Number(a.status === 'pending' && a.purpose === 'lesson') : 0)
           .map(trip => <TripCard key={trip.id + '-' + revision} trip={trip} data={data} mode={mode} submit={submit} busy={busy}/>)}

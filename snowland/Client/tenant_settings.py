@@ -30,6 +30,27 @@ def manual_payment_posting_date_mode(client):
     return mode if mode in ('optional', 'required', 'disabled') else 'optional'
 
 
+def _vehicle_review_settings(client):
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='vehicle_review', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    return config if isinstance(config, dict) else {}
+
+
+def vehicle_conflict_mode(client):
+    mode = _vehicle_review_settings(client).get('vehicle_conflict_mode')
+    # TODO(vehicle_conflict_mode=auto_revoke): keep using manual_review until scheduling supports automatic revocation.
+    return mode if mode in ('manual_review', 'block') else 'manual_review'
+
+
+def vehicle_calendar_visible_to_coaches(client):
+    value = _vehicle_review_settings(client).get('vehicle_calendar_visible_to_coaches')
+    if isinstance(value, str):
+        return value.strip().lower() not in ('false', 'off', 'no', '0')
+    # JSON false and numeric zero both compare equal to zero.
+    return value != 0
+
+
 def gateway_settings(client):
     prefix=(client.payment_env_prefix or '').strip()
     if prefix:

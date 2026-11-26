@@ -129,6 +129,11 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
                 '入帳日期請編輯該租戶的 booking 設定列，在 JSON 中加入 '
                 '"manual_payment_posting_date_mode"，值可填 "optional"（選填，預設）、'
                 '"required"（必填）或 "disabled"（停用輸入，保留已存日期）。'
+                '在 vehicle_review 模組的設定加入 vehicle_conflict_mode，可填 manual_review（預設）、'
+                'block（同手動審核）或 auto_revoke（尚未實作，視同 manual_review）。'
+                '同一模組可加入 "vehicle_calendar_visible_to_coaches": false，關閉教練的車輛行事曆。'
+                '使用 JSON 布林值 true／false，缺少、空白或無效值皆預設開啟。'
+                '數字 0 與文字 false、off、no、0 也視為關閉。'
             ),
         }),
         ('時間記錄', {
