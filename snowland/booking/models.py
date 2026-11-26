@@ -53,7 +53,7 @@ class ReservationGroup(SoftDeleteModel):
         verbose_name='訂單校區',
     )
     order_number = models.CharField(max_length=40, blank=True, default='', db_index=True, verbose_name='訂單編號')
-    is_test = models.BooleanField(default=False, db_index=True, editable=False, verbose_name='測試訂單')
+    is_test = models.BooleanField(default=False, db_default=False, db_index=True, editable=False, verbose_name='測試訂單')
     test_marked_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, editable=False,
         related_name='marked_test_orders', verbose_name='測試標記人',
@@ -1038,7 +1038,7 @@ class StaffBookingLink(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='staff_booking_links')
     title = models.CharField(max_length=120, blank=True, default='')
     cart_snapshot = models.JSONField(default=list)
-    snapshot_version = models.PositiveIntegerField(default=0)
+    snapshot_version = models.PositiveIntegerField(default=0, db_default=0)
     quoted_total = models.PositiveIntegerField(null=True, blank=True)
     expires_at = models.DateTimeField()
     used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='used_staff_booking_links')
