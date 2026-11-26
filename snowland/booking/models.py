@@ -53,7 +53,7 @@ class ReservationGroup(SoftDeleteModel):
         verbose_name='訂單校區',
     )
     order_number = models.CharField(max_length=40, blank=True, default='', db_index=True, verbose_name='訂單編號')
-    is_test = models.BooleanField(default=False, db_index=True, editable=False, verbose_name='測試訂單')
+    is_test = models.BooleanField(default=False, db_default=False, db_index=True, editable=False, verbose_name='測試訂單')
     test_marked_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, editable=False,
         related_name='marked_test_orders', verbose_name='測試標記人',
@@ -1038,6 +1038,8 @@ class StaffBookingLink(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='staff_booking_links')
     title = models.CharField(max_length=120, blank=True, default='')
     cart_snapshot = models.JSONField(default=list)
+    snapshot_version = models.PositiveIntegerField(default=0, db_default=0)
+    quoted_total = models.PositiveIntegerField(null=True, blank=True)
     expires_at = models.DateTimeField()
     used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='used_staff_booking_links')
     used_at = models.DateTimeField(null=True, blank=True)
@@ -1045,8 +1047,15 @@ class StaffBookingLink(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property
+    def is_open(self):
+        return (
+            self.is_active and self.campus.is_active and self.campus.client_id == self.client_id
+            and not self.used_at and self.expires_at > timezone.now()
+        )
+
+    @property
     def is_available(self):
-        if not (self.is_active and self.campus.is_active and not self.used_at and self.expires_at > timezone.now()):
+        if not self.is_open:
             return False
         from .staff_link_snapshot import staff_cart_is_current
         return staff_cart_is_current(self)

@@ -2544,11 +2544,23 @@ class StaffBookingLinkAdminSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     url = serializers.SerializerMethodField()
     is_available = serializers.BooleanField(read_only=True)
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = StaffBookingLink
-        fields = ['id', 'token', 'campus', 'title', 'cart_snapshot', 'expires_at', 'used_by', 'used_at', 'is_active', 'is_available', 'created_by_name', 'url', 'created_at']
-        read_only_fields = ['id', 'token', 'used_by', 'used_at', 'created_by_name', 'url', 'created_at']
+        fields = ['id', 'token', 'campus', 'title', 'cart_snapshot', 'snapshot_version', 'quoted_total',
+                  'expires_at', 'used_by', 'used_at', 'is_active', 'is_available', 'can_edit',
+                  'created_by_name', 'url', 'created_at']
+        read_only_fields = ['id', 'token', 'snapshot_version', 'quoted_total', 'used_by', 'used_at',
+                            'created_by_name', 'url', 'created_at']
+
+    def get_can_edit(self, obj):
+        return self.context.get('staff_link_edit_enabled', False) and obj.is_open
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['cart_snapshot'] = public_staff_cart_snapshot(instance.cart_snapshot)
+        return data
 
     def get_url(self, obj):
         request = self.context.get('request')
@@ -2567,10 +2579,15 @@ class StaffBookingLinkAdminSerializer(serializers.ModelSerializer):
             raise PermissionDenied('不能為其他校區建立或修改訂課連結')
         return value
 
+    def validate_expires_at(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError('連結失效時間必須晚於現在')
+        return value
+
     def validate(self, attrs):
         snapshot = attrs.get('cart_snapshot', self.instance.cart_snapshot if self.instance else [])
         if not snapshot:
-            if self.instance is None:
+            if self.instance is None or 'cart_snapshot' in attrs:
                 raise serializers.ValidationError({'cart_snapshot': '請先為客人選好至少一堂課'})
             return attrs
         campus = attrs.get('campus', self.instance.campus if self.instance else None)

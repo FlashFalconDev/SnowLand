@@ -1,6 +1,6 @@
 import { currentClientCode } from '@/utils/tenant'
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import { BookingState, CartItem, EquipmentOption, Course, ReservationGroup } from '@/types/booking'
 
 interface BookingStore extends BookingState {
@@ -84,7 +84,7 @@ const extendedInitialState = {
   selectedResortName: null as string | null,
 }
 
-const createBookingStore = (clientCode: string) => create<BookingStore>()(
+const createBookingStore = (storageKey: string, staffDraft = false) => create<BookingStore>()(
   persist(
     (set, get) => ({
       ...extendedInitialState,
@@ -271,7 +271,8 @@ const createBookingStore = (clientCode: string) => create<BookingStore>()(
       resetAll: () => set({ ...extendedInitialState, cart: [], currentReservationGroup: null }),
     }),
     {
-      name: `booking-storage:${clientCode}`, // Never adopt an unscoped legacy cart.
+      name: storageKey,
+      ...(staffDraft ? { storage: createJSONStorage(() => sessionStorage) } : {}),
       partialize: (state) => ({
         cart: state.cart, // 只持久化購物車
       }),
@@ -282,7 +283,14 @@ const createBookingStore = (clientCode: string) => create<BookingStore>()(
 const schoolStores = new Map<string, ReturnType<typeof createBookingStore>>()
 export function getSchoolBookingStore(clientCode: string) {
   let store = schoolStores.get(clientCode)
-  if (!store) { store = createBookingStore(clientCode); schoolStores.set(clientCode, store) }
+  if (!store) { store = createBookingStore(`booking-storage:${clientCode}`); schoolStores.set(clientCode, store) }
+  return store
+}
+const staffDraftStores = new Map<string, ReturnType<typeof createBookingStore>>()
+export function getStaffBookingDraftStore(clientCode: string, editKey: string) {
+  const key = `staff-booking-draft:${clientCode}:${editKey}`
+  let store = staffDraftStores.get(key)
+  if (!store) { store = createBookingStore(key, true); staffDraftStores.set(key, store) }
   return store
 }
 function currentBookingStore() {

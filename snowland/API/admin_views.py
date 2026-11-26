@@ -36,6 +36,7 @@ from Client.tenant_settings import (
     evaluation_date_filter_defaults,
     manual_payment_posting_date_mode,
     order_source_override_enabled,
+    staff_booking_link_edit_enabled,
     test_order_marking_enabled,
 )
 from .payroll_security import PayrollCsrfMixin
@@ -51,6 +52,7 @@ from booking.models import (
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
 from booking.order_testing import exclude_test_orders, set_order_test_status
+from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.marketing_source import display_marketing_source
 from booking.scheduling_metrics import (
     Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling, scheduling_metrics,
@@ -3511,7 +3513,7 @@ class CanManageStaffBookingLinks(IsTenantManager):
     def has_permission(self, request, view):
         if super().has_permission(request, view):
             return True
-        if request.method not in ('GET', 'HEAD', 'OPTIONS', 'POST') or not IsTenantCoach().has_permission(request, view):
+        if request.method not in (*SAFE_METHODS, 'POST', 'PUT', 'PATCH') or not IsTenantCoach().has_permission(request, view):
             return False
         tenant = request.tenant
         if not _resolve_campus_scope(request, tenant):
@@ -3536,10 +3538,15 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
             not self.request.can_view_all_campuses or self.request.selected_campus_id
         ):
             qs = qs.filter(campus_id__in=_campus_ids(self.request))
+        if self.action in ('update', 'partial_update'):
+            qs = qs.select_related(None).select_for_update()
         return qs.order_by('-created_at')
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), 'request': self.request}
+        return {
+            **super().get_serializer_context(),
+            'staff_link_edit_enabled': staff_booking_link_edit_enabled(self.request.tenant),
+        }
 
     def perform_create(self, serializer):
         campus = serializer.validated_data['campus']
@@ -3547,11 +3554,63 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
             raise PermissionDenied('不能為其他校區建立訂課連結')
         serializer.save(client=self.request.tenant, created_by=self.request.user)
 
-    def perform_update(self, serializer):
-        campus = serializer.validated_data.get('campus', serializer.instance.campus)
-        if campus.client_id != self.request.tenant.id or (_campus_ids(self.request) and campus.id not in _campus_ids(self.request)):
-            raise PermissionDenied('不能將訂課連結改到其他校區')
-        serializer.save()
+    def _edit_serializer(self, request, link, *, partial=True):
+        serializer = self.get_serializer(link, data=request.data, partial=partial)
+        if not serializer.context['staff_link_edit_enabled']:
+            raise PermissionDenied('此學校未開放修改代客訂課連結')
+        if not link.is_open:
+            raise ValidationError({'msg': '這個代客訂課連結已使用或失效，無法修改'})
+        serializer.is_valid(raise_exception=True)
+        return serializer
+
+    def _version_matches(self, request, link, *, default=None):
+        version = request.data.get('snapshot_version', default)
+        return type(version) is int and version == link.snapshot_version
+
+    def _price_cart(self, link, serializer):
+        from booking.api_views import PriceCalculationError
+        from booking.staff_link_snapshot import staff_cart_price_preview
+        from booking.tenant_scope import require_open_booking_resorts
+
+        snapshot = serializer.validated_data['cart_snapshot']
+        try:
+            require_open_booking_resorts((item['resort'] for item in snapshot), client=link.client)
+            return staff_cart_price_preview(link, snapshot)
+        except (PriceCalculationError, ValueError, KeyError, TypeError) as exc:
+            raise ValidationError({'cart_snapshot': f'無法試算所選課程：{exc}'}) from exc
+
+    @action(detail=True, methods=['post'], url_path='preview')
+    @transaction.atomic
+    def preview(self, request, *args, **kwargs):
+        link = self.get_object()
+        if not self._version_matches(request, link, default=0):
+            return Response({'msg': '連結已更新，請重新開啟修改'}, status=409)
+        serializer = self._edit_serializer(request, link)
+        if 'cart_snapshot' not in serializer.validated_data:
+            raise ValidationError({'cart_snapshot': '請先為客人選好至少一堂課'})
+        _, preview = self._price_cart(link, serializer)
+        return Response(preview)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        link = self.get_object()
+        serializer = self._edit_serializer(request, link, partial=kwargs.pop('partial', False))
+        changes = {}
+        preview = None
+        if 'cart_snapshot' in serializer.validated_data:
+            snapshot, preview = self._price_cart(link, serializer)
+            if snapshot != public_staff_cart_snapshot(link.cart_snapshot):
+                if not self._version_matches(request, link):
+                    return Response({'msg': '連結已更新，請重新開啟修改'}, status=409)
+                changes['snapshot_version'] = link.snapshot_version + 1
+            else:
+                snapshot = link.cart_snapshot
+            expected = request.data.get('expected_quote')
+            if expected is not None and expected != {'subtotal': preview['subtotal'], 'total': preview['total']}:
+                return Response({'msg': '價格已變更，請重新試算後再儲存'}, status=409)
+            changes.update(cart_snapshot=snapshot, quoted_total=preview['total'])
+        serializer.save(**changes)
+        return Response({**serializer.data, 'price_preview': preview})
 
     def list(self, request, *args, **kwargs):
         return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())

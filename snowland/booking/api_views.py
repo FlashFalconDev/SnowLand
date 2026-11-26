@@ -642,7 +642,9 @@ def discount_rule_can_stack(rule, applied_discounts):
     return all(discount['can_combine'] for discount in applied_discounts)
 
 
-def calculate_cart_discount_summary(cart_data, tenant_client, user=None, contact_info=None, discount_code=''):
+def calculate_cart_discount_summary(
+    cart_data, tenant_client, user=None, contact_info=None, discount_code='', *, assume_returning_customer=False,
+):
     cart_items = []
     for item in cart_data:
         cart_items.append(compute_cart_item_pricing_authoritative(item))
@@ -654,7 +656,7 @@ def calculate_cart_discount_summary(cart_data, tenant_client, user=None, contact
     item_discount_amounts = [0 for _ in cart_items]
     applied_discounts = []
     manual_error = ''
-    is_new_customer = is_new_customer_for_discount(tenant_client, user, contact_info)
+    is_new_customer = not assume_returning_customer and is_new_customer_for_discount(tenant_client, user, contact_info)
     manual_code = normalize_discount_code(discount_code)
     course_basis, qualifying_codes = booking_discount_settings(tenant_client)
     has_qualifying_course_discount = False
@@ -2343,8 +2345,17 @@ class CreateReservationAPI(APIView):
             staff_link_token = request.data.get('staff_link')
             staff_link = None
             if staff_link_token:
-                staff_link = StaffBookingLink.objects.filter(token=staff_link_token, client=resolve_tenant_client(client_code)).first()
-                if not staff_link or not staff_link.is_available:
+                staff_link = StaffBookingLink.objects.select_for_update().filter(
+                    token=staff_link_token, client=resolve_tenant_client(client_code),
+                ).first()
+                if not staff_link or not staff_link.is_open:
+                    return Response({'code': 400, 'msg': '這個代客訂課連結已失效，請向工作人員索取新連結'}, status=400)
+                version = request.data.get('staff_link_version', 0)
+                if type(version) is not int or version != staff_link.snapshot_version:
+                    return Response({
+                        'code': 409, 'error': 'staff_link_updated', 'msg': '內容已更新，請重新確認金額',
+                    }, status=409)
+                if not staff_link.is_available:
                     return Response({'code': 400, 'msg': '這個代客訂課連結已失效，請向工作人員索取新連結'}, status=400)
                 if staff_link.cart_snapshot and cart_data != public_staff_cart_snapshot(staff_link.cart_snapshot):
                     return Response({'code': 400, 'msg': '代客訂課連結的課程內容已變更，請向工作人員索取新連結'}, status=400)
@@ -2967,7 +2978,9 @@ class StaffBookingLinkResolveAPI(APIView):
             'campus': {'id': link.campus_id, 'name': link.campus.name},
             'created_by': link.created_by.get_full_name() or link.created_by.username,
             'cart_snapshot': public_staff_cart_snapshot(link.cart_snapshot),
-        })
+            'snapshot_version': link.snapshot_version,
+            'quoted_total': link.quoted_total,
+        }, headers={'Cache-Control': 'no-store'})
 
 
 def paid_class_group_url(group):

@@ -114,6 +114,32 @@
       ]
     },
     {
+      "id": "staff-booking-link-edit",
+      "name": "代客訂課連結送出前可修改",
+      "routes": {
+        "console": "/{client_code}/console/booking-links",
+        "customer": "/{client_code}/booking?staff_link={token}",
+        "adminApi": "/api/admin/{client_code}/staff-booking-links/{id}/",
+        "resolveApi": "/booking/{client_code}/api/staff-booking-link/{token}/"
+      },
+      "permission": "連結仍有效且租戶啟用功能時，建立人及有權限的管理員可修改，修改受租戶與校區限制。",
+      "testEnvironment": "後端使用 snowland.test_settings 的記憶體 SQLite。前端測試使用合成資料。",
+      "checks": [
+        {
+          "id": "api-staff-booking-link-edit",
+          "command": "cd snowland; python manage.py test API.tests_staff_booking_link_edit --settings=snowland.test_settings",
+          "tests": ["snowland/API/tests_staff_booking_link_edit.py"],
+          "expected": "驗證編輯權限、試算金額及連結限用一次。課程快照內容變更才遞增版本，舊頁面須重新載入最新快照。"
+        },
+        {
+          "id": "frontend-staff-booking-link-edit",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-staff-booking-link-edit.cjs"],
+          "expected": "由後台載入原課程，顯示試算與差額後可儲存。客人沿用原連結，遇到舊快照時可重新載入。"
+        }
+      ]
+    },
+    {
       "id": "test-order-isolation",
       "name": "測試訂單標記與帳務統計排除",
       "routes": {

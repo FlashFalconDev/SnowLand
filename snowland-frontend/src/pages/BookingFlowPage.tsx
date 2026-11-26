@@ -53,7 +53,7 @@ import SchedulingFailedModal from '@/components/booking/SchedulingFailedModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import Toast, { ToastType } from '@/components/ui/Toast'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
-import { useBookingStore } from '@/store/bookingStore'
+import { getStaffBookingDraftStore, useBookingStore } from '@/store/bookingStore'
 import { useAuth } from '@/hooks/useAuth'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 import { fetchAdminMe } from '@/admin/api/auth'
@@ -74,6 +74,7 @@ import {
   superSchedule,
   cancelFailedReservations,
   type DiscountPreviewResponse,
+  type ResolvedStaffBookingLink,
 } from '@/api/booking'
 
 // ========== 類型 ==========
@@ -748,7 +749,11 @@ export default function BookingFlowPage() {
   const [searchParams] = useSearchParams()
   const requestedService = searchParams.get('service')
   const staffPreparing = searchParams.get('staff_prepare') === '1'
+  const staffEditKey = staffPreparing ? searchParams.get('staff_edit') : null
   const staffConsoleUrl = useSiteLink('/console/booking-links')
+  const staffReturnUrl = staffEditKey ? `${staffConsoleUrl}?staff_edit=${encodeURIComponent(staffEditKey)}` : staffConsoleUrl
+  const staffDraft = staffEditKey ? getStaffBookingDraftStore(clientCode, staffEditKey) : null
+  const useCart = staffDraft ?? useBookingStore
   const [staffOperator, setStaffOperator] = useState(false)
   const [staffOperatorLoading, setStaffOperatorLoading] = useState(staffPreparing)
   const staffPrepareMode = staffPreparing && staffOperator
@@ -764,7 +769,7 @@ export default function BookingFlowPage() {
 
   // ===== 流程狀態 =====
   const [currentStep, setCurrentStep] = useState<MainStep>(() =>
-    searchParams.get('resume_checkout') === '1' && useBookingStore.getState().cart.length > 0 ? 3 : 1,
+    (staffDraft || searchParams.get('resume_checkout') === '1') && useCart.getState().cart.length > 0 ? 3 : 1,
   )
   const [serviceType, setServiceType] = useState<ServiceType | ''>(
     requestedService === 'photo' || requestedService === 'ski' ? requestedService : ''
@@ -786,7 +791,7 @@ export default function BookingFlowPage() {
   const [loadingStepIndex, setLoadingStepIndex] = useState(0)
 
   // ===== Zustand store =====
-  const store = useBookingStore()
+  const store = useCart()
   const {
     cart, replaceCart, clearCart, removeFromCart, removeCourseFromGroup,
     selectedCourseCategory, selectedCourseCategoryName, selectedCourseType,
@@ -855,9 +860,11 @@ export default function BookingFlowPage() {
   const [messengerOptions, setMessengerOptions] = useState<SelectOption[]>(MESSENGER_OPTIONS)
   const [referralSourceOptions, setReferralSourceOptions] = useState<SelectOption[]>(REFERRAL_SOURCE_OPTIONS)
   const staffLinkToken = searchParams.get('staff_link') || ''
-  const [staffLinkInfo, setStaffLinkInfo] = useState<{ title: string; campus: { id: number; name: string }; created_by: string; cart_snapshot: CartItem[] } | null>(null)
+  const [staffLinkInfo, setStaffLinkInfo] = useState<ResolvedStaffBookingLink | null>(null)
   const [staffLinkStatus, setStaffLinkStatus] = useState<'none' | 'loading' | 'valid' | 'invalid'>(staffLinkToken ? 'loading' : 'none')
+  const [staffLinkReloadKey, setStaffLinkReloadKey] = useState(0)
   const staffSelectedCart = Boolean(staffLinkInfo?.cart_snapshot?.length)
+  const staffCampusId = staffLinkInfo?.campus.id ?? (staffEditKey ? cart[0]?.campusId : null)
   const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card'>('bank')
   const [acceptedPolicy, setAcceptedPolicy] = useState(false)
   const [policyAcceptance, setPolicyAcceptance] = useState<CheckoutPolicyAcceptance | null>(null)
@@ -971,7 +978,7 @@ export default function BookingFlowPage() {
       })
       .catch(() => { if (!cancelled) setStaffLinkStatus('invalid') })
     return () => { cancelled = true }
-  }, [staffLinkToken, replaceCart])
+  }, [staffLinkToken, replaceCart, staffLinkReloadKey])
 
   useEffect(() => {
     if (serviceType && resorts.length === 0) {
@@ -1252,8 +1259,8 @@ export default function BookingFlowPage() {
           equipment_rental_items: [],
           equipment_time_slots: [],
         }
-        if (staffLinkInfo?.campus?.id && Array.isArray(resolved.campuses)) {
-          return { ...resolved, campuses: resolved.campuses.filter((campus: any) => campus.id === staffLinkInfo.campus.id) }
+        if (staffCampusId && Array.isArray(resolved.campuses)) {
+          return { ...resolved, campuses: resolved.campuses.filter((campus: any) => campus.id === staffCampusId) }
         }
         return resolved
       })
@@ -1263,7 +1270,7 @@ export default function BookingFlowPage() {
         seen.add(key)
         return true
       })
-  }, [resorts, selectedCategoryResortNames, selectedCourseCategoryInfo, staffLinkInfo])
+  }, [resorts, selectedCategoryResortNames, selectedCourseCategoryInfo, staffCampusId])
 
   const handleSelectService = (type: ServiceType) => {
     if (serviceType === type) return
@@ -1519,6 +1526,7 @@ export default function BookingFlowPage() {
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
         if(currencyQuote.currency!=='TWD'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading))return false
+        if (staffLinkReloadKey > 0 && staffSelectedCart && (!discountPreview || isDiscountPreviewLoading)) return false
         if (hasUnconfirmedCartPrice(cart)) return false
         return cart.length > 0 && !!contactInfo.name.trim() && !!contactInfo.phone && !!contactInfo.messengerType && !!contactInfo.messengerId.trim() && (!!referralSourceValue || !!staffLinkInfo) && acceptedPolicy
       }
@@ -1535,7 +1543,7 @@ export default function BookingFlowPage() {
     selectedTemplateHasCoachRestriction,
     selectedCourseTemplate, selectedDate, selectedCourseDates, unavailableSelectedDates, selectedTimeSlot,
     equipmentOption, equipmentAssistanceTimeSlotId, equipmentTimeSlots,
-    cart, discountPreview,
+    cart, discountPreview, staffLinkReloadKey, staffSelectedCart,
     contactInfo.name, contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, referralSourceValue, staffLinkInfo, acceptedPolicy,
     submittedReservation, createdReservationIds, paymentMethod, senderAccount, currencyQuote.currency, currencyReady, jpyPreview, isDiscountPreviewLoading,
   ])
@@ -1986,6 +1994,7 @@ export default function BookingFlowPage() {
         discount_code: discountCode.trim() || undefined,
         ...loyaltyRequest,
         staff_link: staffLinkToken || undefined,
+        staff_link_version: staffLinkInfo?.snapshot_version,
       })
       if (response.code !== 200) {
         showToast(t('預約失敗：{message}',{message:t(response.msg || '未知錯誤')}), 'error')
@@ -2030,7 +2039,12 @@ export default function BookingFlowPage() {
       setLoadingDetail('預約已建立，正在準備付款資訊。')
       await loadPaymentForCreatedOrder(reservationGroupIds, accessTokens)
     } catch (e: any) {
-      if (e?.response?.status === 401) {
+      if (staffLinkToken && e?.response?.status === 409 && e.response.data?.error === 'staff_link_updated') {
+        setStaffLinkStatus('loading')
+        setLearnerChoices({})
+        setDiscountPreviewResult(null)
+        setStaffLinkReloadKey(key => key + 1)
+      } else if (e?.response?.status === 401) {
         const params = new URLSearchParams({ resume_checkout: '1' })
         if (staffLinkToken) params.set('staff_link', staffLinkToken)
         localStorage.setItem('pre_login_url', `${bookingUrl}?${params}`)
@@ -2390,7 +2404,7 @@ export default function BookingFlowPage() {
               </button>}
             </div>
 
-          {staffPrepareMode && <div className="mb-5 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] px-4 py-3 text-sm text-[#1e4e73]" role="status"><b>{t('代客選課模式')}</b> · {t('只準備課程，不會送出訂單或收款。選好後請回後台建立連結。')}</div>}
+          {staffPrepareMode && <div className="mb-5 rounded-sm border border-[#b6d6ec] bg-[#eaf4fb] px-4 py-3 text-sm text-[#1e4e73]" role="status"><b>{t('代客選課模式')}</b> · {t(staffEditKey ? '只準備課程，選好後請回後台試算並儲存修改。' : '只準備課程，不會送出訂單或收款。選好後請回後台建立連結。')}</div>}
 
             {/* Steps progress */}
             <div className="flex items-center justify-between">
@@ -2430,6 +2444,12 @@ export default function BookingFlowPage() {
 
           {/* Step Content */}
           {staffLinkInfo && <div className="mb-4 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>{t('工作人員協助訂課')}</b> · {staffLinkInfo.created_by} · {t('訂單固定歸屬「{campus}」',{campus:staffLinkInfo.campus.name})}{staffSelectedCart && <> · {t('課程已由工作人員選定，請確認資料後送出')}</>}</div>}
+          {staffLinkInfo && staffLinkReloadKey > 0 && !submittedReservation && createdReservationIds.length === 0 && (
+            <div role="alert" className="mb-4 rounded-sm border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {t('內容已更新，請重新確認金額')}
+              {!discountPreview && !isDiscountPreviewLoading && <button type="button" onClick={() => setPriceRetryKey(key => key + 1)} className="ml-3 min-h-11 font-semibold underline">{t('重新確認價格')}</button>}
+            </div>
+          )}
           {editingGroupId && currentStep === 2 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><p>{t("正在修改這組課程。原課程已保留，完成新設定後才會替換。")}</p><button type="button" onClick={() => { resetDraftSelection(); setCurrentStep(3); }} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 font-semibold">{t("取消修改，保留原課程")}</button></div>}
           <AnimatePresence mode="wait">
             <motion.div
@@ -2512,9 +2532,9 @@ export default function BookingFlowPage() {
               ) : currentStep === 3 && staffPrepareMode ? (
                 <section className="mx-auto max-w-2xl space-y-4 rounded-sm border border-[#dbe3ec] bg-white p-5 shadow-sm">
                   <h2 className="text-xl font-semibold text-[#1f2937]">{t('確認替客人選的課程')}</h2>
-                  <p className="text-sm text-[#64748b]">{t('這裡只準備課程，不會替客人送單或扣款。確認後回後台建立連結，客人登入後再填資料及付款。')}</p>
+                  <p className="text-sm text-[#64748b]">{t(staffEditKey ? '回後台試算金額並儲存，客人會在原連結看到更新後的課程。' : '這裡只準備課程，不會替客人送單或扣款。確認後回後台建立連結，客人登入後再填資料及付款。')}</p>
                   {cart.map(group => <div key={group.id} className="rounded-sm border border-[#e2e8f0] p-4 text-sm text-[#1f2937]"><b>{group.resortName} · {t('{count} 位學員',{count:group.peopleCount})}</b>{group.courses.map(course => <p key={`${course.courseTemplateId}-${course.date}-${course.timeSlotStart}`} className="mt-1 text-[#64748b]">{siteText?.(`template:${course.courseTemplateId}`, 'name', course.courseTemplateName) ?? course.courseTemplateName} · {course.date} {course.timeSlotStart}–{course.timeSlotEnd}</p>)}<p className="mt-2 font-semibold">{t('小計')} {formatCurrency(group.totalPrice)}</p><button type="button" onClick={() => handleEditCartGroup(group.id)} className="mt-2 min-h-11 text-sm font-semibold text-[#2b5f8f]">{t('修改這組課程')}</button></div>)}
-                  <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t("增加新組別課程")}</button><a href={staffConsoleUrl} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t('回後台建立連結')}</a></div>
+                  <div className="flex flex-wrap gap-3"><button type="button" onClick={handleAddCartGroup} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 text-sm font-semibold text-[#2b5f8f]">{t("增加新組別課程")}</button><a href={staffReturnUrl} className="inline-flex min-h-11 items-center rounded-full bg-[#2b5f8f] px-4 py-2 text-sm font-semibold text-white">{t(staffEditKey ? '回後台試算並儲存' : '回後台建立連結')}</a></div>
                 </section>
               ) : currentStep === 3 && (
                 <>
