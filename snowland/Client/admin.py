@@ -126,6 +126,11 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
                 '此客戶對該模組的特定配置（JSON 格式）。在 booking 模組的設定加入 '
                 'learner_rename_policy，可填 disabled（停用）、unlinked_only（僅限未連結有效名額）'
                 '或 owner_all（所有本人學員檔案）。預設為 disabled。'
+                '在 vehicle_review 模組的設定加入 vehicle_conflict_mode，可填 manual_review（預設）、'
+                'block（同手動審核）或 auto_revoke（尚未實作，視同 manual_review）。'
+                '同一模組可加入 "vehicle_calendar_visible_to_coaches": false，關閉教練的車輛行事曆。'
+                '使用 JSON 布林值 true／false，缺少、空白或無效值皆預設開啟。'
+                '數字 0 與文字 false、off、no、0 也視為關閉。'
             ),
         }),
         ('時間記錄', {
