@@ -98,6 +98,8 @@ export interface Order {
   campus_name?: string
   marketing_source?: string
   marketing_source_detail?: string
+  marketing_source_override?: string | null
+  marketing_source_options?: string[]
   line_group_url?: string
   line_group_qr_url?: string
   revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string; created_by_name?: string; snapshot?: OrderRevisionSnapshot }[]
@@ -197,6 +199,12 @@ export async function fetchOrder(id: number, workflow?: OrderWorkflow): Promise<
 
 export async function changeOrderTestStatus(id: number, isTest: boolean, reason: string): Promise<ActionResp> {
   return await adminApi.post(`/orders/${id}/test-status/`, { is_test: isTest, reason }) as unknown as ActionResp
+}
+
+export async function saveOrderMarketingSource(id: number, source: string | null): Promise<ActionResp> {
+  return (await adminApi.put(`/orders/${id}/marketing-source/`, {
+    marketing_source_override: source,
+  })) as unknown as ActionResp
 }
 
 export async function fetchGuestPaymentLink(id: number): Promise<{ path: string; valid_days: number }> {

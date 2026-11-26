@@ -224,3 +224,16 @@ class TestOrderTests(TestCase):
         self.assertEqual(self.mark(False).status_code, 200)
         rule.refresh_from_db()
         self.assertEqual(rule.used_count, 1)
+
+    def test_new_customer_phone_lookup_keeps_ignoring_soft_deleted_payments(self):
+        contact = {'phone': '0900000000'}
+        payment = Payment.objects.create(reservation_group=self.group, DataJSON={'contact': contact})
+        self.assertFalse(is_new_customer_for_discount(self.client_tenant, None, contact))
+
+        self.assertEqual(self.mark().status_code, 200)
+        self.assertTrue(is_new_customer_for_discount(self.client_tenant, None, contact))
+        self.assertEqual(self.mark(False).status_code, 200)
+
+        payment.is_deleted = True
+        payment.save(update_fields=['is_deleted'])
+        self.assertTrue(is_new_customer_for_discount(self.client_tenant, None, contact))

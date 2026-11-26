@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('booking', '0046_payment_bank_posted_date'),
+        ('booking', '0047_reservationgroup_marketing_source_override'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

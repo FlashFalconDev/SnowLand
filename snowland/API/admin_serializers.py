@@ -10,10 +10,12 @@ from django.contrib.auth.models import User
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from django.utils.functional import cached_property
 from datetime import timedelta
 from copy import deepcopy
 import logging
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 from Client.models import Client, SiteContent
 from Coach.models import (
     Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest, normalize_ability_levels,
@@ -2235,6 +2237,7 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
     member_name = serializers.SerializerMethodField()
     coach_name = serializers.CharField(source='coach.name', read_only=True, default='')
     course_date = serializers.DateField(source='booking.date', read_only=True)
+    order_date = serializers.SerializerMethodField()
     order_number = serializers.SerializerMethodField()
     course_name = serializers.SerializerMethodField()
     campus_name = serializers.SerializerMethodField()
@@ -2242,7 +2245,7 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CourseEvaluation
-        fields = ['id', 'booking', 'member', 'member_name', 'coach', 'coach_name', 'course_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'self_assessment', 'coach_assessment', 'skill_review', 'skill_snapshot', 'learning_progress', 'trail_names', 'available_trails', 'coach_notes', 'completed_at', 'media', 'new_media', 'created_at', 'updated_at', 'can_edit_assessment']
+        fields = ['id', 'booking', 'member', 'member_name', 'coach', 'coach_name', 'course_date', 'order_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'self_assessment', 'coach_assessment', 'skill_review', 'skill_snapshot', 'learning_progress', 'trail_names', 'available_trails', 'coach_notes', 'completed_at', 'media', 'new_media', 'created_at', 'updated_at', 'can_edit_assessment']
         read_only_fields = ['id', 'member_name', 'coach_name', 'course_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'media', 'created_at', 'updated_at']
 
     def validate_new_media(self, value):
@@ -2253,6 +2256,10 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
         return serializer.validated_data
 
     def get_can_edit_assessment(self, obj):
+        return self._can_edit_assessment
+
+    @cached_property
+    def _can_edit_assessment(self):
         request = self.context.get('request')
         if not request:
             return False
@@ -2300,6 +2307,9 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 
     def get_member_name(self, obj):
         return obj.member.display_name
+
+    def get_order_date(self, obj):
+        return timezone.localdate(obj.booking.reservation.group.created_at, ZoneInfo('Asia/Taipei')).isoformat()
 
     def get_order_number(self, obj):
         return obj.booking.reservation.group.order_number or f'訂單 #{obj.booking.reservation.group_id}'

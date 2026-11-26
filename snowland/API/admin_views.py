@@ -12,21 +12,35 @@ from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
+from rest_framework.fields import IntegerField
+from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Sum, Count, Max, Q, Prefetch, OuterRef, Subquery
+from django.db.models import Sum, Count, Max, Q, Prefetch, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce, Concat
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from calendar import monthrange
 from datetime import timedelta, datetime, date, time
 from collections import defaultdict
 from zoneinfo import ZoneInfo
+import json
 
 from Client.models import Client, SiteContent
-from Client.tenant_settings import manual_payment_posting_date_mode, test_order_marking_enabled
+from Client.tenant_settings import (
+    coach_course_payroll_summary_enabled,
+    evaluation_date_filter_defaults,
+    manual_payment_posting_date_mode,
+    order_source_override_enabled,
+    test_order_marking_enabled,
+)
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
+from Coach.course_summary import summarize_course_payroll
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
 from Resorts.models import Resorts, Campus, PaymentAccount, OperatingPolicy
 from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseSession, CoursePricing, SeasonSetting, DiscountCode
@@ -559,8 +573,8 @@ def _daily_coach_availability_summary(*, tenant, start_date, end_date, campus_id
     return summary
 
 
-def _coach_visible_window():
-    today = timezone.localdate()
+def _coach_visible_window(today=None):
+    today = today or timezone.localdate()
     return None, today + timedelta(days=10)
 
 
@@ -1945,6 +1959,12 @@ class OrderAdminViewSet(ModelViewSet):
                 _is_headquarters(request) and user_has_admin_permission(request.user, 'order_edit', request.tenant)
                 and test_order_marking_enabled(request.tenant)
             )
+            detail['marketing_source_override'] = instance.marketing_source_override
+            if (
+                user_has_admin_permission(request.user, 'order_edit', request.tenant)
+                and order_source_override_enabled(request.tenant)
+            ):
+                detail['marketing_source_options'] = _get_booking_form_options(request.tenant)['referral_source_options']
         return Response({'code': 200, 'msg': 'OK', 'data': detail})
 
     @action(detail=True, methods=['post'], url_path='test-status')
@@ -1971,6 +1991,43 @@ class OrderAdminViewSet(ModelViewSet):
             return Response({'code': 409, 'msg': str(exc)}, status=409)
         msg = '已標記為測試訂單' if group.is_test else '已取消測試標記'
         return Response({'code': 200, 'msg': msg, 'data': {'is_test': group.is_test}})
+
+    @action(detail=True, methods=['put'], url_path='marketing-source')
+    @transaction.atomic
+    def marketing_source(self, request, *args, **kwargs):
+        from rest_framework.authentication import SessionAuthentication
+
+        SessionAuthentication().enforce_csrf(request)
+        tenant = Client.objects.select_for_update().get(pk=request.tenant.pk)
+        scoped_orders = self.filter_queryset(self.get_queryset()).select_related(None).prefetch_related(None)
+        group = get_object_or_404(scoped_orders.select_for_update(), pk=kwargs['pk'])
+        self.check_object_permissions(request, group)
+        if not order_source_override_enabled(tenant):
+            raise PermissionDenied('此租戶已停用客人來源補登')
+        if not isinstance(request.data, dict) or set(request.data) != {'marketing_source_override'}:
+            return Response({'code': 400, 'msg': '請指定要儲存的客人來源'}, status=400)
+        value = request.data['marketing_source_override']
+        if value is not None and (
+            not isinstance(value, str)
+            or value not in _get_booking_form_options(tenant)['referral_source_options']
+        ):
+            return Response({'code': 400, 'msg': '請從此租戶的客人來源選項選擇'}, status=400)
+
+        old_value = group.marketing_source_override
+        if old_value != value:
+            group.marketing_source_override = value
+            group.save(update_fields=['marketing_source_override'])
+            LogEntry.objects.create(
+                user=request.user,
+                content_type=ContentType.objects.get_for_model(ReservationGroup),
+                object_id=str(group.pk),
+                object_repr=f'訂單 {group.order_number or group.pk}',
+                action_flag=CHANGE,
+                change_message=json.dumps({
+                    'field': 'marketing_source_override', 'old': old_value, 'new': value,
+                }, ensure_ascii=False),
+            )
+        return Response({'code': 200, 'msg': '客人來源已儲存', 'data': {'marketing_source_override': value}})
 
     @action(detail=False, methods=['get'], url_path='export')
     def export(self, request, *args, **kwargs):
@@ -2881,7 +2938,7 @@ class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
 
     def get_queryset(self):
         qs = CourseEvaluation.objects.filter(member__is_active=True,booking__reservation__group__client=self.request.tenant).select_related(
-            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'coach',
+            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'member__learner', 'coach',
         ).prefetch_related('media')
         if _campus_ids(self.request) and (
             not self.request.can_view_all_campuses or self.request.selected_campus_id is not None
@@ -2890,7 +2947,90 @@ class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
         return qs.order_by('-booking__date', '-id')
 
     def list(self, request, *args, **kwargs):
-        return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
+        qs = self.get_queryset()
+        params = request.query_params
+        booking = params.get('booking')
+        if booking:
+            try:
+                booking_id = IntegerField(min_value=1, max_value=2**63 - 1).run_validation(booking)
+            except ValidationError as exc:
+                raise ValidationError({'booking': exc.detail}) from exc
+            qs = qs.filter(booking_id=booking_id)
+
+        defaults = evaluation_date_filter_defaults(request.tenant)
+        if defaults is None:
+            return wrap_list(qs, self.get_serializer_class(), request, self.get_serializer_context())
+
+        date_filters = None
+        if not booking:
+            qs, date_filters = self._filter_by_date(qs, defaults)
+            search = (params.get('search') or '').strip()
+            if search:
+                qs = self._search_evaluations(qs, search)
+
+        try:
+            page_number = max(int(params.get('page', 1)), 1)
+        except ValueError:
+            page_number = 1
+        try:
+            page_size = min(max(int(params.get('page_size', 10)), 1), 100)
+        except ValueError:
+            page_size = 10
+        paginator = Paginator(qs, page_size)
+        page = paginator.get_page(page_number)
+        return Response({'code': 200, 'msg': 'OK', 'data': {
+            'list': self.get_serializer(page.object_list, many=True).data,
+            'total': paginator.count,
+            'page': page.number,
+            'page_size': page_size,
+            'total_pages': paginator.num_pages if paginator.count else 0,
+            'date_filters': date_filters,
+        }})
+
+    def _filter_by_date(self, qs, defaults):
+        default_field, default_days = defaults
+        date_field = self.request.query_params.get('date_field', default_field)
+        if date_field not in ('ordered', 'lesson'):
+            raise ValidationError({'date_field': '請選擇下單日期（ordered）或上課日期（lesson）'})
+
+        start, end = _query_date_bounds(self.request, 'date_from', 'date_to')
+        taipei = ZoneInfo('Asia/Taipei')
+        if start is None and end is None:
+            end = timezone.localdate(timezone=taipei)
+            start = end - timedelta(days=default_days - 1)
+
+        ordered_at = 'booking__reservation__group__created_at'
+        group_id = 'booking__reservation__group_id'
+        if date_field == 'ordered':
+            if start and start > date.min:
+                qs = qs.filter(**{f'{ordered_at}__gte': datetime.combine(start, time.min, tzinfo=taipei)})
+            if end and end < date.max:
+                exclusive_end = datetime.combine(end + timedelta(days=1), time.min, tzinfo=taipei)
+                qs = qs.filter(**{f'{ordered_at}__lt': exclusive_end})
+            qs = qs.order_by(f'-{ordered_at}', f'-{group_id}', '-booking__date', '-id')
+        else:
+            if start:
+                qs = qs.filter(booking__date__gte=start)
+            if end:
+                qs = qs.filter(booking__date__lte=end)
+            qs = qs.order_by('-booking__date', f'-{ordered_at}', f'-{group_id}', '-id')
+
+        return qs, {'date_field': date_field, 'date_from': start, 'date_to': end}
+
+    def _search_evaluations(self, qs, search):
+        qs = qs.alias(member_full_name=Concat('member__user__first_name', Value(' '), 'member__user__last_name'))
+        match = (
+            Q(booking__reservation__group__order_number__icontains=search)
+            | Q(member__insurance_data__full_name__icontains=search)
+            | Q(member__learner__name__icontains=search, member__learner__client=self.request.tenant,
+                member__learner__owner_id=Coalesce('member__guardian_id', 'member__user_id'))
+            | Q(member_full_name__icontains=search)
+            | Q(member__user__username__icontains=search, member__user__first_name='', member__user__last_name='')
+        )
+        fallback_order = search.removeprefix('訂單 ').removeprefix('#')
+        if fallback_order.isascii() and fallback_order.isdecimal() and len(fallback_order) <= 19:
+            match |= Q(booking__reservation__group__order_number='', booking__reservation__group_id=int(fallback_order))
+        return qs.filter(match)
 
     @action(detail=True, methods=['post'], url_path='media')
     def add_media(self, request, *args, **kwargs):
@@ -2918,8 +3058,11 @@ class CoachCourseEvaluationViewSet(CourseEvaluationAdminViewSet):
             booking__reservation__preferred_coach__user=self.request.user,
             coach__user=self.request.user, coach__client=self.request.tenant,
         ).select_related(
-            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'coach',
+            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'member__learner', 'coach',
         ).prefetch_related('media').order_by('-booking__date', '-id')
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
 
 
 class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateModelMixin, GenericViewSet):
@@ -4273,7 +4416,7 @@ def dashboard_stats(request, client_code):
     campus_summary = {}
     for g in groups:
         amount = revenue_by_group.get(g.pk, 0)
-        source = display_marketing_source(g.marketing_source)
+        source = display_marketing_source(g.marketing_source_override or g.marketing_source)
         marketing_sources.setdefault(source, {'name': source, 'orders': 0, 'revenue': 0})
         marketing_sources[source]['orders'] += 1
         marketing_sources[source]['revenue'] += amount
@@ -4903,6 +5046,36 @@ def coach_my_courses(request, client_code):
             'visibility_mode': 'full' if full_schedule_visible else 'recent_10_days',
         },
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsTenantCoach])
+def coach_my_course_summary(request, client_code):
+    coach = Coach.objects.filter(user=request.user, client=request.tenant).first()
+    if coach is None:
+        return Response({'code': 403, 'msg': '您不是教練'}, status=403)
+
+    today = timezone.localdate(timezone=ZoneInfo('Asia/Taipei'))
+    month = request.query_params.get('month', today.isoformat()[:7])
+    try:
+        first_day = date.fromisoformat(f'{month}-01')
+    except ValueError:
+        raise ValidationError({'month': '請使用 YYYY-MM 格式'})
+    last_day = first_day.replace(day=monthrange(first_day.year, first_day.month)[1])
+    data = {'month': first_day.isoformat()[:7], 'mode': 'scheduled'}
+    if coach_course_payroll_summary_enabled(request.tenant):
+        if not _coach_can_view_full_schedule(coach):
+            _, visible_end = _coach_visible_window(today)
+            last_day = min(last_day, visible_end)
+        bookings = Booking.objects.live().filter(
+            reservation__preferred_coach=coach,
+            reservation__group__client=request.tenant,
+            date__range=(first_day, last_day),
+        ).exclude(reservation__status__in=['deleted', 'cancelled']).select_related(
+            'reservation__course_type__category', 'reservation__course_template',
+        ).order_by('date', 'start_time')
+        data.update(mode='payroll', **summarize_course_payroll(bookings, coach=coach))
+    return Response({'code': 200, 'msg': 'OK', 'data': data})
 
 
 @api_view(['GET'])

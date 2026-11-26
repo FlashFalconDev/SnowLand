@@ -478,10 +478,11 @@ def is_new_customer_for_discount(tenant_client, user, contact_info):
 
     if phone:
         try:
-            if Payment.objects.live().filter(
-                reservation_group__in=groups,
+            payments = Payment.objects.live().filter(
+                reservation_group__client=tenant_client,
                 DataJSON__contact__phone=phone,
-            ).exists():
+            )
+            if exclude_test_orders(payments, 'reservation_group').exists():
                 return False
         except Exception:
             pass
