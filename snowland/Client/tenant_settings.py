@@ -38,6 +38,14 @@ def course_album_coach_delete_enabled(client):
     return not isinstance(config, dict) or config.get('course_album_coach_delete_enabled') is not False
 
 
+def coach_course_payroll_summary_enabled(client):
+    """Use payroll hours in My Courses unless the tenant opts out."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    return not isinstance(config, dict) or config.get('coach_course_payroll_summary_enabled') is not False
+
+
 def booking_discount_settings(client):
     """Read and validate the tenant's discount rules from its booking JSON."""
     config = ModuleSetting.objects.filter(

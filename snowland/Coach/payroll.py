@@ -8,7 +8,7 @@ from booking.models import Booking
 from .models import Coach, CoachPayRule, PayrollLine, PayrollStatement
 
 
-def _discipline_for(booking):
+def discipline_for(booking):
     category = getattr(getattr(booking.reservation.course_type, 'category', None), 'name', '')
     service_type = getattr(getattr(booking.reservation.course_type, 'category', None), 'service_type', '')
     text = f'{category} {booking.course_type} {booking.course_name}'.lower()
@@ -29,14 +29,14 @@ def _money(value):
     return int(Decimal(value).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
 
-def _payroll_hours(booking):
+def payroll_hours(booking):
     template = booking.reservation.course_template
     if template is not None and template.payroll_hours is not None:
         return template.payroll_hours
     return _hours(booking)
 
 
-def _rule_for(booking, discipline, *, coach=None):
+def pay_rule_for(booking, discipline, *, coach=None):
     coach = coach or booking.reservation.preferred_coach
     rules = CoachPayRule.objects.filter(
         coach=coach,
@@ -49,6 +49,19 @@ def _rule_for(booking, discipline, *, coach=None):
     if len(matches) > 1 and matches[0].effective_from == matches[1].effective_from:
         raise ValueError(f'{coach.name} 的同一工作類型及適用課程有多筆啟用薪資規則，請先停用不適用的規則再結算')
     return matches[0] if matches else None
+
+
+def payroll_course_key(booking):
+    shared_class_id = booking.reservation.shared_course_class_id
+    return ('class', shared_class_id) if shared_class_id else ('booking', booking.pk)
+
+
+def specified_payroll_fee(booking, rule, used_reservations):
+    reservation = booking.reservation
+    if reservation.pk in used_reservations or reservation.coach_fee <= 0 or not rule or rule.specified_fee <= 0:
+        return 0
+    used_reservations.add(reservation.pk)
+    return rule.specified_fee
 
 
 @transaction.atomic
@@ -81,8 +94,8 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
         date__range=(period_start, period_end),
     ).select_related('reservation__course_type__category', 'reservation__course_template', 'reservation__group').order_by('date', 'start_time'))
     for booking in bookings:
-        discipline = _discipline_for(booking)
-        rule = _rule_for(booking, discipline)
+        discipline = discipline_for(booking)
+        rule = pay_rule_for(booking, discipline)
         if not rule:
             raise ValueError(f'{coach.name} 的 {discipline} 課程尚未設定薪資規則（{booking.date}），請先設定時薪再結算')
         if not 0 <= rule.referral_percent <= 100 or rule.assistance_hour_factor < 0:
@@ -107,7 +120,7 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
         if booking.reservation_id in referred_reservations:
             continue
         referred_reservations.add(booking.reservation_id)
-        rule = _rule_for(booking, _discipline_for(booking), coach=coach)
+        rule = pay_rule_for(booking, discipline_for(booking), coach=coach)
         if not rule or not 0 <= rule.referral_percent <= 100:
             raise ValueError(f'{coach.name} 的介紹費比例尚未正確設定（{booking.date}），請先設定介紹教練的薪資規則再結算')
         if rule.referral_percent > 0:
@@ -119,15 +132,15 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
     used_allowance_rules = set()
     used_specified_reservations = set()
     used_assistance_reservations = set()
-    used_shared_classes = set()
+    used_courses = set()
     for booking in bookings:
-        discipline = _discipline_for(booking)
-        rule = _rule_for(booking, discipline)
-        hours = _payroll_hours(booking)
+        discipline = discipline_for(booking)
+        rule = pay_rule_for(booking, discipline)
+        hours = payroll_hours(booking)
         course_total = _money(hours * rule.hourly_rate)
         reservation = booking.reservation
-        shared_class_id = reservation.shared_course_class_id
-        if not shared_class_id or shared_class_id not in used_shared_classes:
+        course_key = payroll_course_key(booking)
+        if course_key not in used_courses:
             PayrollLine.objects.create(
                 statement=statement, booking=booking, line_type='course',
                 description=f'{booking.date} {booking.course_name} {discipline}',
@@ -137,16 +150,15 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
                           'payroll_hours_source': 'template' if reservation.course_template and reservation.course_template.payroll_hours is not None else 'schedule'},
             )
             totals['course'] += course_total
-            if shared_class_id:
-                used_shared_classes.add(shared_class_id)
-        if reservation.id not in used_specified_reservations and reservation.coach_fee > 0 and rule.specified_fee > 0:
+            used_courses.add(course_key)
+        specified_fee = specified_payroll_fee(booking, rule, used_specified_reservations)
+        if specified_fee:
             PayrollLine.objects.create(
                 statement=statement, booking=booking, line_type='specified', description='指定教練費',
-                quantity=1, unit_amount=rule.specified_fee, total_amount=rule.specified_fee,
+                quantity=1, unit_amount=specified_fee, total_amount=specified_fee,
                 metadata={'discipline': discipline},
             )
-            totals['specified'] += rule.specified_fee
-            used_specified_reservations.add(reservation.id)
+            totals['specified'] += specified_fee
 
         if reservation.id not in used_assistance_reservations and reservation.equipment_assistance_time_slot_id and rule.assistance_hour_factor > 0:
             assistance_pay = _money(rule.hourly_rate * rule.assistance_hour_factor)
@@ -173,7 +185,7 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
         PayrollLine.objects.create(
             statement=statement, booking=booking, line_type='referral', description='介紹訂單抽成',
             quantity=rule.referral_percent, unit_amount=referral_base, total_amount=commission,
-            metadata={'referral_user_id': coach.user_id, 'discipline': _discipline_for(booking)},
+            metadata={'referral_user_id': coach.user_id, 'discipline': discipline_for(booking)},
         )
         totals['referral'] += commission
 
