@@ -1682,7 +1682,7 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReservationGroup
-        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions']
+        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions', 'is_test']
         read_only_fields = fields
 
     def _visible_bookings(self, obj):
@@ -1772,7 +1772,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             'id', 'sn', 'order_number', 'name', 'user', 'user_name', 'user_email', 'booking_contact',
             'campus', 'campus_name', 'marketing_source', 'marketing_source_detail', 'line_group_url', 'line_group_qr_url',
             'reservations', 'total_fee', 'payment_status', 'payment_method',
-            'bank_account', 'bank_posted_date', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
+            'bank_account', 'bank_posted_date', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at', 'is_test',
         ]
         read_only_fields = fields
 
@@ -1799,6 +1799,8 @@ class OrderAdminSerializer(serializers.ModelSerializer):
                 'difference_amount': revision.difference_amount,
                 'reason': revision.reason,
                 'created_at': revision.created_at,
+                **({'created_by_name': revision.snapshot.get('test_actor_name', '')}
+                   if revision.change_type in ('mark_test', 'unmark_test') else {}),
                 **({'snapshot': revision.snapshot} if is_detail else {}),
             }
             for revision in revisions

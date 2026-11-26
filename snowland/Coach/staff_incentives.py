@@ -7,9 +7,11 @@ from django.db import transaction
 from django.db.models import Max, Q, Sum
 from django.utils import timezone
 
+from Client.models import Client
 from Resorts.models import Campus
 from booking.models import Booking, CancellationRequest, ReservationGroup
 from booking.operations import prefetch_order_activity
+from booking.order_testing import exclude_test_orders
 from .models import StaffIncentiveLine, StaffIncentiveRule, StaffIncentiveStatement
 
 
@@ -62,12 +64,13 @@ def calculate_staff_incentive(*, user, campus, month):
         raise ValueError('結算月份請使用每月1日')
     if month > timezone.localdate().replace(day=1):
         raise ValueError('不能計算未來月份的員工獎金')
+    Client.objects.select_for_update().get(pk=campus.client_id)
     user = User.objects.select_for_update().get(pk=user.pk)
     campus = Campus.objects.select_for_update().get(pk=campus.pk)
     if StaffIncentiveStatement.all_objects.filter(user=user, campus=campus, month=month, is_deleted=True).exists():
         raise ValueError('此月份已有封存員工獎金，須先由平台管理者還原該批次')
     rule = StaffIncentiveRule.objects.filter(user=user, campus=campus).first()
-    paid_sources = StaffIncentiveLine.objects.filter(
+    paid_sources = exclude_test_orders(StaffIncentiveLine.objects.all(), 'group').filter(
         statement__user=user, statement__campus=campus, statement__status='paid',
         statement__month__lt=month, line_type='earning',
     ).select_related('statement', 'group').order_by('pk')
@@ -96,7 +99,7 @@ def calculate_staff_incentive(*, user, campus, month):
     statement.campus_name = campus.name
     statement.revenue = statement.earned_amount = statement.refund_deduction = 0
     if rule and rule.is_active and user.is_active and campus.is_active:
-        groups = ReservationGroup.objects.live().filter(client_id=campus.client_id, campus=campus).annotate(
+        groups = exclude_test_orders(ReservationGroup.objects.live()).filter(client_id=campus.client_id, campus=campus).annotate(
             completion_date=Max('reservations__bookings__date',
                                 filter=Booking.live_filter('reservations__bookings') & ~Q(reservations__status='deleted')),
         ).filter(completion_date__gte=month, completion_date__lt=next_month).order_by('pk')
@@ -158,11 +161,14 @@ def calculate_staff_incentive(*, user, campus, month):
 
 @transaction.atomic
 def confirm_staff_incentive(statement, *, actor, expected_updated_at=None):
+    Client.objects.select_for_update().get(pk=statement.campus.client_id)
     statement = _lock_statement(statement, actor)
     if statement.status in ('confirmed', 'paid'):
         return statement
     if expected_updated_at is not None and statement.updated_at != expected_updated_at:
         raise ValueError('這張月結已被更新，請重新載入並核對最新金額後再確認')
+    if statement.lines.filter(group__is_test=True).exists():
+        raise ValueError('獎金草稿含測試訂單，請先重新計算員工獎金再確認')
     if _next_month(statement.month) > timezone.localdate():
         raise ValueError('請等結算月份結束後再確認')
     if not (statement.monthly_salary_amount or statement.adjustment or statement.lines.exists()):

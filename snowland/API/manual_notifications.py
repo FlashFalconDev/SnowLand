@@ -10,6 +10,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 
 from Client.models import Client
 from booking.models import MemberDetail, NotificationDelivery, NotificationTemplate, ReservationGroup
+from booking.order_testing import exclude_test_orders
 from .admin_permissions import user_has_admin_permission
 
 
@@ -37,7 +38,7 @@ class ManualNotificationInput(serializers.Serializer):
 
 
 def scoped_groups(request):
-    groups = ReservationGroup.objects.live().filter(client=request.tenant)
+    groups = exclude_test_orders(ReservationGroup.objects.live()).filter(client=request.tenant)
     if not request.can_view_all_campuses or request.selected_campus_id is not None:
         groups = groups.filter(campus_id__in=request.campus_ids)
     return groups

@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import UserProfile
 from Control.funcNav import get_nav_list
 from booking.models import ReservationGroup, Reservation, Payment, Booking
+from booking.order_testing import exclude_test_orders
 from Coach.models import Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest
 from Resorts.models import Resorts, ResortFee, EquipmentPricingTier, EquipmentAssistanceTimeSlot
 from Coursekit.models import CourseCategory, CourseType as CoursekitCourseType, CourseTemplate as CoursekitCourseTemplate, CourseSession, CoursePricing, CoursePricingTier, SeasonSetting as CoursekitSeasonSetting
@@ -522,7 +523,7 @@ def all_course_info(request, Client_Info=None):
     date_search = request.GET.get('date')
     
     # 創建基本查詢集 - 查詢ReservationGroup並關聯相關資料
-    query = ReservationGroup.objects.live().select_related('user').prefetch_related(
+    query = exclude_test_orders(ReservationGroup.objects.live()).select_related('user').prefetch_related(
         'reservations',
         'reservations__preferred_coach',
         'reservations__bookings',
@@ -719,13 +720,17 @@ def all_course_permission(request, Client_Info=None):
             
             # 更新付款狀態
             if payment_status:
-                payment, created = Payment.objects.live().get_or_create(
-                    reservation_group=group,
-                    defaults={'status': payment_status}
-                )
-                if not created:
-                    payment.status = payment_status
-                    payment.save()
+                with transaction.atomic():
+                    group = ReservationGroup.objects.live().select_for_update().get(pk=group.pk)
+                    if group.is_test:
+                        return JsonResponse({'code': 409, 'msg': '測試訂單不能變更正式付款紀錄'}, status=409)
+                    payment, created = Payment.objects.live().get_or_create(
+                        reservation_group=group,
+                        defaults={'status': payment_status}
+                    )
+                    if not created:
+                        payment.status = payment_status
+                        payment.save()
             
             # 處理預約更新
             coach_changes = []  # 記錄教練變更的預約

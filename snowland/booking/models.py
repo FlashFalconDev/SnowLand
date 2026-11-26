@@ -53,6 +53,12 @@ class ReservationGroup(SoftDeleteModel):
         verbose_name='訂單校區',
     )
     order_number = models.CharField(max_length=40, blank=True, default='', db_index=True, verbose_name='訂單編號')
+    is_test = models.BooleanField(default=False, db_index=True, editable=False, verbose_name='測試訂單')
+    test_marked_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, editable=False,
+        related_name='marked_test_orders', verbose_name='測試標記人',
+    )
+    test_marked_at = models.DateTimeField(null=True, blank=True, editable=False, verbose_name='測試標記時間')
     marketing_source = models.CharField(max_length=60, blank=True, default='', verbose_name='行銷來源')
     marketing_source_detail = models.CharField(max_length=200, blank=True, default='', verbose_name='行銷來源說明')
     referral_user = models.ForeignKey(
@@ -807,7 +813,10 @@ class TenantOrderArchiveBatch(models.Model):
 class OrderRevision(SoftDeleteModel):
     soft_delete_parents = ('group',)
 
-    CHANGE_CHOICES = [('create', '建立'), ('modify', '修改'), ('add', '追加'), ('reduce', '追減'), ('cancel', '取消')]
+    CHANGE_CHOICES = [
+        ('create', '建立'), ('modify', '修改'), ('add', '追加'), ('reduce', '追減'), ('cancel', '取消'),
+        ('mark_test', '標記測試訂單'), ('unmark_test', '取消測試標記'),
+    ]
     group = models.ForeignKey(ReservationGroup, on_delete=models.CASCADE, related_name='revisions', verbose_name='訂單')
     version = models.PositiveIntegerField(verbose_name='版本')
     change_type = models.CharField(max_length=20, choices=CHANGE_CHOICES, default='modify')

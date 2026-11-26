@@ -97,6 +97,8 @@ def group_has_pending_coach_confirmation(group):
 
 
 def get_group_payment_hold(group):
+    if group.is_test:
+        return '測試訂單不開放付款或匯款回報', 'test_order'
     if group.reservations.live().filter(shared_course_class__status='collecting').exists():
         return '團體班尚未成班，滿人後才會開放付款', 'collecting_class'
     if group.reservations.live().filter(status='pending_coach_confirmation').exists():
@@ -466,8 +468,10 @@ def compute_cart_item_pricing_authoritative(item):
 
 
 def is_new_customer_for_discount(tenant_client, user, contact_info):
+    from .order_testing import exclude_test_orders
+
     phone = (contact_info or {}).get('phone') or ''
-    groups = ReservationGroup.objects.live().filter(client=tenant_client)
+    groups = exclude_test_orders(ReservationGroup.objects.live()).filter(client=tenant_client)
 
     if user and groups.filter(user=user).exists():
         return False
@@ -475,7 +479,7 @@ def is_new_customer_for_discount(tenant_client, user, contact_info):
     if phone:
         try:
             if Payment.objects.live().filter(
-                reservation_group__client=tenant_client,
+                reservation_group__in=groups,
                 DataJSON__contact__phone=phone,
             ).exists():
                 return False
