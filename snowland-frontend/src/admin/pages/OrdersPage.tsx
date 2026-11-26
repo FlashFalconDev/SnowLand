@@ -591,9 +591,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
   const canEnterPostingDate = editing && canReconcile && !sharedPaymentHeld && paymentStatus === 'paid'
     && (postingDateMode === 'optional' || postingDateMode === 'required')
   const postingDateChanged = canEnterPostingDate && bankPostedDate !== (order.bank_posted_date ?? '')
+  const hasPaymentChanges = paymentStatus !== order.payment_status || postingDateChanged
+  const postingDateRequired = canEnterPostingDate && postingDateMode === 'required' && hasPaymentChanges
   const todayInTaipei = taipeiDate.format(new Date())
   let postingDateError = ''
-  if (canEnterPostingDate && postingDateMode === 'required' && !bankPostedDate) {
+  if (postingDateRequired && !bankPostedDate) {
     postingDateError = '核對為已付款時，請填寫入帳日期'
   } else if (canEnterPostingDate && bankPostedDate > todayInTaipei) {
     postingDateError = '入帳日期不可晚於今天（台北時間）'
@@ -754,7 +756,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
       }))
       return updateOrder(order.id, {
         action,
-        payment_status: paymentStatus !== order.payment_status || postingDateChanged ? paymentStatus : undefined,
+        payment_status: hasPaymentChanges ? paymentStatus : undefined,
         bank_posted_date: postingDateChanged ? bankPostedDate || null : undefined,
         payment_currency:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.currency:undefined,
         payment_received_amount:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.amount:undefined,
@@ -794,7 +796,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     !reservation.is_preferred_coach &&
     coachAssignments[reservation.id] !== (reservation.preferred_coach_id ?? null),
   )
-  const hasOrderChanges = hasBookingChanges || hasCoachChanges || paymentStatus !== order.payment_status || postingDateChanged
+  const hasOrderChanges = hasBookingChanges || hasCoachChanges || hasPaymentChanges
   const canScheduleUnassigned = order.reservations.some(reservation =>
     reservation.status === 'created' && !reservation.preferred_coach_id &&
     !reservation.shared_course_class_id && reservation.bookings.length > 0,
@@ -1037,12 +1039,12 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
               {canEnterPostingDate ? (
                 <div className="space-y-1">
                   <label className="flex flex-wrap items-center justify-between gap-2 text-gray-500 dark:text-gray-300">
-                    <span>入帳日期{postingDateMode === 'required' && '（必填）'}</span>
+                    <span>入帳日期{postingDateRequired && '（必填）'}</span>
                     <input
                       type="date"
                       value={bankPostedDate}
                       max={todayInTaipei}
-                      required={postingDateMode === 'required'}
+                      required={postingDateRequired}
                       disabled={saveMutation.isPending}
                       aria-invalid={Boolean(postingDateError)}
                       aria-describedby="order-bank-posted-date-help"
