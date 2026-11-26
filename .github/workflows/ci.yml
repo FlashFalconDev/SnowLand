@@ -67,6 +67,7 @@ jobs:
           DJANGO_SECRET_KEY: ci-dummy-secret-not-for-prod
 
   backend-mysql:
+    timeout-minutes: 30
     name: backend-mysql (MySQL 8.4)
     runs-on: ubuntu-latest
     defaults:
