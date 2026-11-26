@@ -91,7 +91,7 @@ class CourseAlbumManagementTests(TestCase):
         self.assertEqual(self.api.get(self.member_url).data['albums'][0]['assets'][0]['tagged_member_ids'], [self.member.pk])
         preview = self.api.get(uploaded['url'])
         self.assertEqual(preview.status_code, 200)
-        preview.close()
+        self.assertEqual(b''.join(preview.streaming_content), self.png)
         self.assertEqual(self.delete_asset(self.coach_url, asset.pk).status_code, 403)
 
         self.api.force_authenticate(self.coach.user)
@@ -225,7 +225,7 @@ class CourseAlbumManagementTests(TestCase):
                     self.assertEqual(result.data['data']['type'], 'video')
                     preview = self.api.get(result.data['data']['url'])
                     self.assertEqual(preview['Content-Type'], mime)
-                    preview.close()
+                    self.assertEqual(b''.join(preview.streaming_content), header)
                     oversized = self.post_file(name, header + b'0', mime)
                     self.assertEqual(oversized.status_code, 400, oversized.data)
                     self.assertIn(f'「{name}」：影片不可超過', oversized.data['msg'])

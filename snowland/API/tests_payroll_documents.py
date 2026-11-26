@@ -72,14 +72,13 @@ class PayrollDocumentTests(TestCase):
         self.assertEqual(image.status_code, 200)
         self.assertEqual(image['Cache-Control'], 'private, no-store')
         self.assertEqual(b''.join(image.streaming_content), png())
-        image.close()
         self.api.force_authenticate(self.user)
         self.assertEqual(self.api.get(url).status_code, 403)
         self.api.force_authenticate(self.hq)
         admin = self.api.get(self.admin_url).data
         admin_image = self.api.get(admin['signature_file_url'])
         self.assertEqual(admin_image.status_code, 200)
-        admin_image.close()
+        self.assertEqual(b''.join(admin_image.streaming_content), png())
 
     def test_invalid_file_consent_or_stale_document_never_saves_signature(self):
         self.confirm()
@@ -154,7 +153,7 @@ class PayrollDocumentTests(TestCase):
         image = self.api.get(url)
         self.assertEqual(image.status_code, 200, url)
         self.assertIn('/coach/payroll/', url)
-        image.close()
+        self.assertEqual(b''.join(image.streaming_content), png())
 
     def test_real_session_signature_requires_csrf_from_authorized_page(self):
         from django.test import Client as BrowserClient
