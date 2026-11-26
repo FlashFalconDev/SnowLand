@@ -1028,6 +1028,8 @@ class StaffBookingLink(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='staff_booking_links')
     title = models.CharField(max_length=120, blank=True, default='')
     cart_snapshot = models.JSONField(default=list)
+    snapshot_version = models.PositiveIntegerField(default=0)
+    quoted_total = models.PositiveIntegerField(null=True, blank=True)
     expires_at = models.DateTimeField()
     used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='used_staff_booking_links')
     used_at = models.DateTimeField(null=True, blank=True)
@@ -1035,8 +1037,15 @@ class StaffBookingLink(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property
+    def is_open(self):
+        return (
+            self.is_active and self.campus.is_active and self.campus.client_id == self.client_id
+            and not self.used_at and self.expires_at > timezone.now()
+        )
+
+    @property
     def is_available(self):
-        if not (self.is_active and self.campus.is_active and not self.used_at and self.expires_at > timezone.now()):
+        if not self.is_open:
             return False
         from .staff_link_snapshot import staff_cart_is_current
         return staff_cart_is_current(self)

@@ -1,4 +1,5 @@
 import adminApi from './axios'
+import type { CartItem } from '@/types/booking'
 import type { SkillEntries, SkillSnapshot } from './assessment'
 
 interface ListResponse<T> { data?: { list?: T[] } }
@@ -69,7 +70,20 @@ export async function uploadPayrollSignature(id: number, file: File, name: strin
 export interface StaffBookingLink {
   id: number; campus: number; title: string; url: string; expires_at: string
   is_active: boolean; is_available: boolean; created_by_name: string
+  can_edit: boolean; cart_snapshot: CartItem[]; snapshot_version: number
 }
+
+export interface StaffBookingPricePreview {
+  previous_subtotal: number | null
+  subtotal: number
+  subtotal_difference: number | null
+  discount_total: number
+  total: number
+  previous_total: number | null
+  total_difference: number | null
+}
+
+type StaffBookingLinkEdit = { cart_snapshot: CartItem[]; snapshot_version: number }
 
 export interface InsuranceRecord {
   can_remind: boolean
@@ -226,6 +240,16 @@ export async function payrollReviewAction(id: number, action: 'publish' | 'withd
 export async function createStaffBookingLink(data: { campus: number; title: string; expires_at: string; cart_snapshot?: unknown[] }) {
   const response = await adminApi.post('/staff-booking-links/', { ...data, cart_snapshot: data.cart_snapshot || [] })
   return (response as unknown as DetailResponse<StaffBookingLink>).data
+}
+
+export async function previewStaffBookingLink(id: number, data: StaffBookingLinkEdit): Promise<StaffBookingPricePreview> {
+  return await adminApi.post(`/staff-booking-links/${id}/preview/`, data) as unknown as StaffBookingPricePreview
+}
+
+export async function updateStaffBookingLink(id: number, data: StaffBookingLinkEdit, preview: StaffBookingPricePreview): Promise<StaffBookingLink> {
+  return await adminApi.patch(`/staff-booking-links/${id}/`, {
+    ...data, expected_quote: { subtotal: preview.subtotal, total: preview.total },
+  }) as unknown as StaffBookingLink
 }
 
 export async function completeInsuranceRecord(id: number, field: 'insurance' | 'waiver') {
