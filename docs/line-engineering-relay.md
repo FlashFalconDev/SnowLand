@@ -4,9 +4,9 @@ LINE 群組中含「工程」的文字會觸發一筆 Cursor Automation POST。W
 
 ## 儲存與設定
 
-- KV 綁定 `CHAT_HISTORY` 以群組和台北日期索引文字與附件資訊，記錄寫入後保留 48 小時。一般文字及其中的網址會原樣保存，圖片、影片和檔案的二進位內容存放於 R2。
-- 在 Cloudflare Dashboard 啟用 R2，建立私有 bucket `snowland-line-relay-media` 並綁定為 `MEDIA_BUCKET`。維持 `r2.dev` 與自訂公開網域停用，為 `line-media/` 設定 2 天的物件生命週期。單檔大小由 `MEDIA_MAX_BYTES` 設定，預設 52428800 位元組（50 MiB）。
-- Worker 需要三個 secrets。`LINE_CHANNEL_SECRET` 驗證 LINE webhook，`LINE_CHANNEL_ACCESS_TOKEN` 下載 LINE 媒體，`RELAY_SIGNING_SECRET` 簽署轉發內容與下載網址。前兩個值由小陌本人在互動提示中輸入。 [Worker 設定與測試步驟](../tools/line-engineering-relay/README.md)
+- KV 綁定 `CHAT_HISTORY` 以群組和台北日期索引文字與附件資訊，記錄寫入後保留 48 小時。文字及其中的網址會原樣保存。預設部署省略 R2 綁定，圖片、影片和檔案只記錄 KV metadata。
+- 啟用 R2 並建立私有 bucket `snowland-line-relay-media` 後，恢復 `MEDIA_BUCKET` 綁定並重新部署，即可儲存媒體檔。維持 `r2.dev` 與自訂公開網域停用，為 `line-media/` 設定 2 天的物件生命週期。單檔大小由 `MEDIA_MAX_BYTES` 設定，預設 52428800 位元組（50 MiB）。
+- `LINE_CHANNEL_SECRET` 驗證 LINE webhook，`RELAY_SIGNING_SECRET` 簽署轉發內容與下載網址。啟用媒體暫存時，另以 `LINE_CHANNEL_ACCESS_TOKEN` 下載 LINE 媒體。LINE secrets 由小陌本人在互動提示中輸入。 [Worker 設定與測試步驟](../tools/line-engineering-relay/README.md)
 
 ## 轉發格式
 
@@ -18,7 +18,7 @@ LINE 群組中含「工程」的文字會觸發一筆 Cursor Automation POST。W
 | --- | --- |
 | 共用 | `messageId`、`webhookEventId`、`userId`、`timestamp`、`timestampMs`、`type`、`isTrigger` |
 | 文字 | `text` 原文，含其中的連結 |
-| 附件 | 若有檔名則提供 `fileName`。 `media` 提供 `type`、`contentType`、`size`（位元組）、`duration`（沿用 LINE 毫秒值）及 `status`。成功儲存並且可簽章時，項目另帶 `downloadUrl`。 |
+| 附件 | 若有檔名則提供 `fileName`。 `media` 提供 `type`、`contentType`、`size`（位元組）、`duration`（沿用 LINE 毫秒值）及 `status`。成功儲存且 `MEDIA_BUCKET` 仍綁定時，項目另帶 `downloadUrl`。 |
 
 觸發訊息的 `isTrigger` 為 `true`。`contextCount` 為實際送出的項目數。KV 歷史最多讀取 20 頁、每頁 100 筆，讀取受限或失敗時標記 `truncated: true`。轉發 JSON 以 UTF-8 計算，預設上限 512 KiB。超過時依序移除最舊的非觸發項目並標記 `truncated: true`。若光是必要欄位與觸發項目便超出上限，Worker 跳過這次轉發。
 

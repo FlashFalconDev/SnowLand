@@ -186,15 +186,17 @@ async function readHistory(kv, prefix) {
   return { records, truncated: true };
 }
 
-function contextItem(record, triggerId, origin, exp, secret) {
+function contextItem(record, triggerId, origin, exp, env) {
   const { media, fileName, ...fields } = record;
   const item = { ...fields, isTrigger: record.messageId === triggerId };
   if (media) {
     const { r2Key, ...metadata } = media;
     if (fileName != null) item.fileName = fileName;
     item.media = metadata;
-    if (r2Key && secret) {
-      const sig = mediaSignature(secret, r2Key, exp);
+    if (r2Key && !env.MEDIA_BUCKET) {
+      item.media.status = "skipped_no_bucket";
+    } else if (r2Key && env.RELAY_SIGNING_SECRET) {
+      const sig = mediaSignature(env.RELAY_SIGNING_SECRET, r2Key, exp);
       item.downloadUrl = `${origin}${MEDIA_PATH}${encodeURIComponent(r2Key)}?exp=${exp}&sig=${sig}`;
     }
   }
@@ -237,7 +239,7 @@ async function forwardEvent(trigger, group, history, origin, env) {
     const context = [...history.records.values()]
       .sort((a, b) => a.timestampMs - b.timestampMs ||
         (a.messageId === b.messageId ? 0 : a.messageId < b.messageId ? -1 : 1))
-      .map((record) => contextItem(record, trigger.messageId, origin, exp, env.RELAY_SIGNING_SECRET));
+      .map((record) => contextItem(record, trigger.messageId, origin, exp, env));
 
     const body = relayBody({
       source: "line",

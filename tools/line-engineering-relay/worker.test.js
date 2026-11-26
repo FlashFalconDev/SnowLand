@@ -587,27 +587,102 @@ test("returns 200 before a media write finishes", { timeout: 2000 }, async (t) =
   assert.equal(savedMessages(kv)[0].media.status, "stored");
 });
 
-test("records missing media bindings without downloading or issuing a link", async (t) => {
+test("records a missing LINE token without downloading or issuing a link", async (t) => {
   const kv = memoryKV(t);
   const r2 = memoryR2(t);
   const { fetch, ctx } = mockRelay(t);
+  const bindings = { ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2 };
   const noToken = groupMessage("no-token", `${DAY}T04:00:00Z`, { type: "image" });
-  const noBucket = groupMessage("no-bucket", `${DAY}T04:00:01Z`, { type: "image" });
   const trigger = groupMessage("trigger", `${DAY}T04:00:02Z`, { text: "工程" });
 
-  await receive([noToken], { ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2 }, ctx);
-  await receive([noBucket], { ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex") }, ctx);
+  await receive([noToken], bindings, ctx);
   assert.equal(fetch.mock.callCount(), 0);
   assert.equal(r2.put.mock.callCount(), 0);
-  assert.deepEqual(savedMessages(kv).map(({ media }) => media.status), ["skipped_missing_token", "skipped_no_bucket"]);
+  assert.equal(savedMessages(kv)[0].media.status, "skipped_missing_token");
 
-  await receive([trigger], { ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: r2 }, ctx);
+  await receive([trigger], bindings, ctx);
+  const [item] = relayPayload(fetch).context;
+  assert.equal(item.media.status, "skipped_missing_token");
+  assert.equal(Object.hasOwn(item, "downloadUrl"), false);
+  assert.equal(Object.hasOwn(item.media, "r2Key"), false);
+});
+
+test("relays same-day text and links with media metadata when R2 is unbound", async (t) => {
+  const kv = memoryKV(t);
+  const { fetch, ctx } = mockRelay(t);
+  const bindings = { ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex") };
+  const yesterday = groupMessage("yesterday", "2026-11-24T15:59:59.999Z", { text: "昨天" });
+  const note = groupMessage("note", "2026-11-24T16:00:00Z", { text: "台北午夜的更新" });
+  const link = groupMessage("link", `${DAY}T01:00:00Z`, {
+    text: "參考連結\n  https://example.invalid/doc?x=%E6%96%87&y=2#part  ",
+  });
+  const image = groupMessage("image", `${DAY}T02:00:00Z`, { type: "image" });
+  const video = groupMessage("video", `${DAY}T03:00:00Z`, { type: "video", duration: 6200 });
+  const file = groupMessage("file", `${DAY}T04:00:00Z`, { type: "file", fileName: "交付.pdf" });
+  const trigger = groupMessage("trigger", `${DAY}T05:00:00Z`, { text: "工程更新" });
+
+  await receive([yesterday, note, link, image, video, file], bindings, ctx);
+  assert.equal(fetch.mock.callCount(), 0);
+  assert.equal(kv.put.mock.callCount(), 6);
+  const saved = savedMessages(kv);
+  assert.equal(saved[1].text, note.message.text);
+  assert.equal(saved[2].text, link.message.text);
+
+  await receive([trigger], bindings, ctx);
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.equal(savedMessages(kv).at(-1).text, trigger.message.text);
   const payload = relayPayload(fetch);
-  assert.deepEqual(payload.context.slice(0, 2).map(({ media }) => media.status), ["skipped_missing_token", "skipped_no_bucket"]);
-  for (const item of payload.context.slice(0, 2)) {
+  assert.equal(payload.contextStart, `${DAY}T00:00:00+08:00`);
+  assert.equal(payload.truncated, false);
+  assert.equal(payload.contextCount, 6);
+  assert.equal(payload.text, trigger.message.text);
+  assert.deepEqual(payload.context.map(({ messageId, isTrigger }) => [messageId, isTrigger]), [
+    ["note", false], ["link", false], ["image", false], ["video", false], ["file", false], ["trigger", true],
+  ]);
+  assert.deepEqual(payload.context.filter(({ type }) => type === "text").map(({ text }) => text),
+    [note.message.text, link.message.text, trigger.message.text]);
+
+  for (const { message } of [image, video, file]) {
+    const metadata = {
+      type: message.type, contentType: null, size: null, duration: message.duration ?? null, status: "skipped_no_bucket",
+    };
+    const record = saved.find(({ messageId }) => messageId === message.id);
+    const item = payload.context.find(({ messageId }) => messageId === message.id);
+    assert.deepEqual(record.media, { ...metadata, r2Key: null });
+    assert.equal(record.fileName, message.fileName ?? null);
+    assert.deepEqual(item.media, metadata);
+    assert.equal(item.fileName, message.fileName);
     assert.equal(Object.hasOwn(item, "downloadUrl"), false);
-    assert.equal(Object.hasOwn(item.media, "r2Key"), false);
   }
+});
+
+test("withholds a saved media link when R2 is no longer bound", async (t) => {
+  const kv = memoryKV(t);
+  const r2 = memoryR2(t);
+  const { fetch, ctx } = mockFetch(t, async (url) => {
+    if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    assert.equal(url, `${LINE_CONTENT_ROOT}stored-image/content`);
+    return new Response("image", { headers: { "Content-Type": "image/png" } });
+  });
+  const bindings = { ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex") };
+  const image = groupMessage("stored-image", `${DAY}T04:00:00Z`, { type: "image" });
+  const trigger = groupMessage("trigger", `${DAY}T04:00:01Z`, { text: "工程" });
+
+  await receive([image], { ...bindings, MEDIA_BUCKET: r2 }, ctx);
+  assert.equal(fetch.mock.callCount(), 1);
+  fetch.mock.resetCalls();
+  const [saved] = savedMessages(kv);
+  assert.equal(saved.media.status, "stored");
+
+  await receive([trigger], bindings, ctx);
+  assert.equal(fetch.mock.callCount(), 1);
+  const [item] = relayPayload(fetch).context;
+  assert.equal(item.messageId, image.message.id);
+  assert.deepEqual(item.media, {
+    type: "image", contentType: "image/png", size: 5, duration: null, status: "skipped_no_bucket",
+  });
+  assert.equal(Object.hasOwn(item, "downloadUrl"), false);
+  assert.deepEqual(savedMessages(kv)[0], saved);
 });
 
 test("enforces the UTF-8 payload limit while keeping the trigger and newest context", async (t) => {
