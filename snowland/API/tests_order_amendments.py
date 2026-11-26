@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from API import tests_campus_scope as fixtures
 from Coach.models import Coach, CoachResort
-from Coursekit.models import CourseCategory, CoursePricing, CourseTemplate, CourseType, SeasonSetting
+from Coursekit.models import CourseCategory, CoursePricing, CourseTemplate, CourseType, DiscountCode, SeasonSetting
 from Resorts.models import EquipmentAssistanceTimeSlot, EquipmentPricingTier, ResortFee
 from booking.models import Booking, CancellationRequest, MemberDetail, NotificationDelivery, OrderRevision, Payment, Reservation, ReservationGroup, SharedCourseClass
 
@@ -54,6 +54,33 @@ class OrderAmendmentQuoteTests(TestCase):
         self.assertEqual(response.status_code,200,getattr(response,'data',None))
         self.assertEqual(response.data['data']['difference_amount'],0)
         self.assertEqual(response.data['data']['new_total'],9500)
+
+    def test_paid_order_keeps_original_group_subtotal_discount_when_amended(self):
+        slot = EquipmentAssistanceTimeSlot.objects.create(resort=self.resort_a, label='歷史裝備協助')
+        self.reservation.coach_fee = 1000
+        self.reservation.equipment_rental_fee = 1200
+        self.reservation.equipment = 'purchaseAssistanceTime'
+        self.reservation.equipment_assistance_time_slot = slot
+        self.reservation.discount_code = 'SL2627EB'
+        self.reservation.discount_amount = 1220
+        self.reservation.save()
+        payment = Payment.objects.create(reservation_group=self.group, user=self.manager, status='paid')
+        DiscountCode.objects.create(
+            client=self.tenant, code='SL2627EB', apply_scope=DiscountCode.APPLY_SCOPE_SKI,
+            discount_type=DiscountCode.DISCOUNT_TYPE_PERCENT, discount_value=10,
+        )
+        data = self.draft(number_of_people=1, equipment='purchaseAssistanceTime')
+        data['changes'][0]['courses'][0].update(start_time='10:00', end_time='13:00')
+
+        response = self.api.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        quote = response.data['data']
+        self.assertEqual((quote['previous_total'], quote['new_total'], quote['difference_amount']), (10980, 10980, 0))
+        self.assertEqual(quote['items'][0]['discount_amount'], 1220)
+        self.reservation.refresh_from_db()
+        payment.refresh_from_db()
+        self.assertEqual((self.reservation.discount_amount, self.reservation.payment_amount, payment.status),
+                         (1220, 10980, 'paid'))
 
     def test_date_change_reprices_peak_and_full_day_uses_its_own_configured_price(self):
         peak=self.day+timedelta(days=1)

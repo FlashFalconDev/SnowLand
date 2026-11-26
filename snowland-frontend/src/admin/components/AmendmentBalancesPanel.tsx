@@ -1,12 +1,14 @@
-import {useEffect,useRef,useState} from 'react'
+import {useEffect,useId,useRef,useState} from 'react'
 import {useQuery,useQueryClient} from '@tanstack/react-query'
-import {fetchAmendmentBalances,processAmendmentBalance,type AmendmentBalance,type AmendmentBalanceAction} from '../api/orders'
+import {Link} from 'react-router-dom'
+import {fetchAmendmentBalances,processAmendmentBalance,type AmendmentBalance,type AmendmentBalanceAction,type Order} from '../api/orders'
 import {useNotification} from '../context'
 import AmendmentNoticeStatus from '../../components/AmendmentNoticeStatus'
+import { formatPaymentValue, type PaymentCurrency } from '../../utils/settlementPreview'
 
+const AMENDMENT_BALANCES_TITLE = '差額回報與核對'
 const labels:Record<string,string>={topup_due:'待補款',topup_reported:'補款待核對',refund_account_due:'待填退款帳戶',refund_due:'待退款',settled:'差額已結清',no_difference:'無待收退差額',included_in_order:'併入原單付款',superseded:'已由新版取代',cancelled:'已併入取消結算'}
 const button='min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-40 dark:border-gray-600'
-import { formatPaymentValue, type PaymentCurrency } from '../../utils/settlementPreview'
 
 const money=(value:number,currency?:PaymentCurrency)=>formatPaymentValue(Math.abs(value),currency)
 const errorText=(error:any)=>String(error?.response?.data?.detail||error?.response?.data?.note||error?.response?.data?.confirmed||error?.response?.data?.action||'無法確認核對結果，請保留視窗，用相同識別碼查詢／重試。')
@@ -33,21 +35,87 @@ function BalanceReviewDialog({orderId,row,action,onClose}:{orderId:number;row:Am
     {error&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800 dark:bg-red-950 dark:text-red-200">{error}</p>}</div>
     <footer className="flex flex-wrap justify-end gap-2 border-t border-gray-200 p-4 dark:border-gray-700"><button className={button} disabled={busy||uncertain} onClick={onClose}>取消</button><button className={`${button} border-purple-600 bg-purple-600 text-white`} disabled={busy||!note.trim()||(!rejecting&&!confirmed)} onClick={submit}>{busy?'處理中…':uncertain?'查詢／重試本次核對':rejecting?'確認退回':'確認核對並留底'}</button></footer></div></div>
 }
-export default function AmendmentBalancesPanel({orderId,cancellationStatus}:{orderId:number;cancellationStatus?:string}) {
-  const {data,isLoading,isFetching,error,refetch}=useQuery({queryKey:['admin','orders','amendment-balances',orderId],queryFn:()=>fetchAmendmentBalances(orderId),retry:false})
+export default function AmendmentBalancesPanel({ order, canReconcile, canRefund, paymentsHref, refundsHref }: {
+  order: Pick<Order, 'id' | 'amendment_balance' | 'cancellation'>
+  canReconcile: boolean
+  canRefund: boolean
+  paymentsHref?: string
+  refundsHref?: string
+}) {
+  const orderId = order.id
+  const balance = order.amendment_balance
+  const cancellationPaused = ['requested', 'approved'].includes(order.cancellation?.status ?? '')
+  const panelId = useId()
+  const panelRef = useRef<HTMLElement>(null)
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: ['admin', 'orders', 'amendment-balances', orderId],
+    queryFn: () => fetchAmendmentBalances(orderId),
+    enabled: canReconcile,
+    retry: false,
+  })
   const [review,setReview]=useState<{row:AmendmentBalance;action:AmendmentBalanceAction['action']}|null>(null)
-  if(['requested','approved'].includes(cancellationStatus||''))return <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">本單正在取消／退款流程，差額回報暫停核對；請在下方「取消與退款處理」核對實收款，不要分開重複退差額。</p>
-  if(isLoading)return <p role="status" className="text-sm text-gray-500 dark:text-gray-300">讀取差額核對紀錄…</p>
-  if(error)return <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-100">差額紀錄載入失敗，不能當成沒有待處理差額。<button className={`${button} ml-2`} onClick={()=>refetch()}>重試</button></div>
-  if(!data?.items.length)return null
-  return <section className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-gray-900 dark:text-white">差額回報與核對</h3><button className={button} disabled={isFetching} onClick={()=>refetch()}>{isFetching?'載入中…':'重新載入差額'}</button></div>{data.items.filter(row=>row.status!=='superseded').map(row=><article key={row.id} className="space-y-3 rounded-lg border border-gray-200 p-4 text-sm text-gray-800 dark:border-gray-600 dark:text-gray-100"><div className="flex flex-wrap justify-between gap-2"><strong>第 {row.version} 版 · {money(row.settlement?.balance_amount??row.balance_amount,row.settlement?.currency)}</strong><span>{labels[row.status]||row.status}</span></div>
-    {row.settlement&&<p className="text-xs leading-6 text-gray-500 dark:text-gray-300">台幣差額基準 {money(row.balance_amount)}；沿用原訂單匯率1 TWD＝{row.settlement.rate} {row.settlement.currency}，請核對原幣實收退金額。</p>}
-    <AmendmentNoticeStatus receipt={row.notification}/>
-    {row.topup_reference&&<p>會員回報帳號末五碼：{row.topup_reference}</p>}
-    {row.balance_amount<0&&row.refund_bank?.account_number&&<div className="space-y-1 break-all rounded-lg bg-gray-50 p-3 dark:bg-gray-900"><p>退款銀行：{row.refund_bank.bank_name}</p><p>退款帳號：{row.refund_bank.account_number}</p><p>戶名：{row.refund_bank.account_holder}</p></div>}
-    {row.refund_bank?.overseas_details&&<p className="whitespace-pre-wrap break-words text-sm">海外退款資料：{row.refund_bank.overseas_details}</p>}
-    {row.status==='topup_reported'&&<div className="flex flex-wrap gap-2"><button className={button} onClick={()=>setReview({row,action:'reject_topup'})}>退回重填</button><button className={`${button} border-purple-600 text-purple-700 dark:text-purple-300`} onClick={()=>setReview({row,action:'confirm_topup'})}>核對補款</button></div>}
-    {row.status==='refund_due'&&<button className={`${button} border-purple-600 text-purple-700 dark:text-purple-300`} onClick={()=>setReview({row,action:'confirm_refund'})}>記錄已於系統外退款</button>}
-    {row.events.length>0&&<details className="text-xs"><summary className="cursor-pointer py-2">查看處理紀錄（{row.events.length}）</summary><ul className="space-y-2">{row.events.map((event,index)=><li key={index} className="rounded bg-gray-50 p-2 leading-6 dark:bg-gray-900">{new Date(event.created_at).toLocaleString('zh-TW')} · {event.actor} · {labels[event.previous_status]} → {labels[event.status]}<p className="whitespace-pre-wrap break-words">{event.note||event.reference||'會員更新退款資料'}</p></li>)}</ul></details>}
-  </article>)}{review&&<BalanceReviewDialog orderId={orderId} row={review.row} action={review.action} onClose={()=>setReview(null)}/>}</section>
+  const rows = data?.items.filter(row => row.status !== 'superseded') ?? []
+  const showRecords = canReconcile && (cancellationPaused || isLoading || error || rows.length > 0)
+  if (!balance && !showRecords) return null
+
+  function focusPanel() {
+    const panel = panelRef.current
+    if (!panel) return
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    panel.focus({ preventScroll: true })
+    panel.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' })
+  }
+
+  let content
+  if (cancellationPaused) {
+    content = <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+      本單正在取消／退款流程，差額回報暫停核對，請勿分開重複退差額。{' '}
+      {canRefund && '請在此訂單的「取消與退款處理」區核對實收款。'}
+      {refundsHref && <Link className="font-semibold underline" to={refundsHref}>前往「取消與退款」核對實收款</Link>}
+      {!canRefund && !refundsHref && '請由具退款權限的人員核對實收款。'}
+    </p>
+  } else if (!canReconcile) {
+    content = <p className="text-sm text-gray-700 dark:text-gray-300">
+      {paymentsHref ? <Link className="font-semibold text-violet-700 underline dark:text-violet-300" to={paymentsHref}>前往「對帳與差額」處理此訂單</Link> : '請由具付款權限的人員在「對帳與差額」處理此訂單。'}
+    </p>
+  } else if (isLoading) {
+    content = <p role="status" className="text-sm text-gray-500 dark:text-gray-300">讀取差額核對紀錄…</p>
+  } else if (error) {
+    content = <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-100">差額紀錄載入失敗，不能當成沒有待處理差額。<button type="button" className={`${button} ml-2`} onClick={() => refetch()}>重試</button></div>
+  } else if (!rows.length) {
+    content = <p role="status" className="text-sm text-gray-500 dark:text-gray-300">目前沒有可顯示的差額紀錄，請重新載入差額再確認。</p>
+  } else {
+    content = rows.map(row => <article key={row.id} className="space-y-3 rounded-lg border border-gray-200 p-4 text-sm text-gray-800 dark:border-gray-600 dark:text-gray-100">
+      <div className="flex flex-wrap justify-between gap-2"><strong>第 {row.version} 版 · {money(row.settlement?.balance_amount??row.balance_amount,row.settlement?.currency)}</strong><span>{labels[row.status]||row.status}</span></div>
+      {row.settlement&&<p className="text-xs leading-6 text-gray-500 dark:text-gray-300">台幣差額基準 {money(row.balance_amount)}；沿用原訂單匯率1 TWD＝{row.settlement.rate} {row.settlement.currency}，請核對原幣實收退金額。</p>}
+      <AmendmentNoticeStatus receipt={row.notification}/>
+      {row.status==='topup_due'&&<p>會員回報補款後，即可在此核對實際入帳。</p>}
+      {row.topup_reference&&<p>會員回報帳號末五碼：{row.topup_reference}</p>}
+      {row.balance_amount<0&&row.refund_bank?.account_number&&<div className="space-y-1 break-all rounded-lg bg-gray-50 p-3 dark:bg-gray-900"><p>退款銀行：{row.refund_bank.bank_name}</p><p>退款帳號：{row.refund_bank.account_number}</p><p>戶名：{row.refund_bank.account_holder}</p></div>}
+      {row.refund_bank?.overseas_details&&<p className="whitespace-pre-wrap break-words text-sm">海外退款資料：{row.refund_bank.overseas_details}</p>}
+      {row.status==='topup_reported'&&<div className="flex flex-wrap gap-2"><button className={button} onClick={()=>setReview({row,action:'reject_topup'})}>退回重填</button><button className={`${button} border-purple-600 text-purple-700 dark:text-purple-300`} onClick={()=>setReview({row,action:'confirm_topup'})}>核對補款</button></div>}
+      {row.status==='refund_due'&&<button className={`${button} border-purple-600 text-purple-700 dark:text-purple-300`} onClick={()=>setReview({row,action:'confirm_refund'})}>記錄已於系統外退款</button>}
+      {row.events.length>0&&<details className="text-xs"><summary className="cursor-pointer py-2">查看處理紀錄（{row.events.length}）</summary><ul className="space-y-2">{row.events.map((event,index)=><li key={index} className="rounded bg-gray-50 p-2 leading-6 dark:bg-gray-900">{new Date(event.created_at).toLocaleString('zh-TW')} · {event.actor} · {labels[event.previous_status]} → {labels[event.status]}<p className="whitespace-pre-wrap break-words">{event.note||event.reference||'會員更新退款資料'}</p></li>)}</ul></details>}
+    </article>)
+  }
+
+  return <>
+    {balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+      <h3 className="font-semibold">訂單修改差額尚未結清</h3>
+      <p className="mt-2">{balance.amount > 0 ? '待補款' : '待退款'} {money(balance.settlement?.amount ?? balance.amount, balance.settlement?.currency)}</p>
+      <p className="mt-1 text-xs leading-6">{cancellationPaused ? '取消流程已暫停這筆差額。' : '訂單付款狀態僅反映原訂單。差額需另行核對才會結清。'}</p>
+      <button type="button" aria-controls={panelId} onClick={focusPanel} className={`${button} mt-2 border-amber-600 font-semibold hover:bg-amber-100 dark:border-amber-500 dark:hover:bg-amber-900`}>
+        {AMENDMENT_BALANCES_TITLE}
+      </button>
+    </section>}
+    <section ref={panelRef} id={panelId} aria-labelledby={`${panelId}-title`} tabIndex={-1}
+      className="scroll-mt-2 space-y-3 rounded-lg p-3 focus:outline focus:outline-2 focus:outline-violet-500">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id={`${panelId}-title`} className="text-sm font-semibold text-gray-900 dark:text-white">{AMENDMENT_BALANCES_TITLE}</h3>
+        {canReconcile && !cancellationPaused && !isLoading && !error && <button type="button" className={button} disabled={isFetching} onClick={() => refetch()}>{isFetching ? '載入中…' : '重新載入差額'}</button>}
+      </div>
+      {content}
+      {canReconcile && !cancellationPaused && review && <BalanceReviewDialog orderId={orderId} row={review.row} action={review.action} onClose={() => setReview(null)} />}
+    </section>
+  </>
 }
