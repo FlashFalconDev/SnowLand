@@ -21,6 +21,15 @@ def learner_rename_policy(client):
     return policy if policy in ('unlinked_only', 'owner_all') else 'disabled'
 
 
+def manual_payment_posting_date_mode(client):
+    """Read the tenant's booking JSON from Django Admin → 模組設定."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    mode = config.get('manual_payment_posting_date_mode') if isinstance(config, dict) else None
+    return mode if mode in ('optional', 'required', 'disabled') else 'optional'
+
+
 def _vehicle_review_settings(client):
     config = ModuleSetting.objects.filter(
         client=client, module__module_sid='vehicle_review', module__is_active=True, is_active=True,

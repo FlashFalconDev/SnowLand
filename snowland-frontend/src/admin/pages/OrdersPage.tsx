@@ -27,6 +27,9 @@ import { formatPaymentValue, quoteJpyPreview } from '../../utils/settlementPrevi
 import { useAdminDialog } from '../hooks/useAdminDialog'
 
 const PRIMARY = '#8b5cf6'
+const taipeiDate = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+})
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   created: { label: '已建立', cls: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' },
@@ -325,6 +328,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div className="min-w-0"><div className="text-xs text-gray-500 dark:text-gray-400">學員</div><div className="truncate font-medium text-gray-900 dark:text-white">{order.user_name}</div></div>
                     <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">{settlementAmount(order.settlement,order.total_fee || 0)}</div>{order.settlement&&order.settlement.currency!=='TWD'&&<div className="text-xs text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</div>
+                  {workflow === 'payments' && <div><div className="text-xs text-gray-500 dark:text-gray-400">入帳日期</div>{order.bank_posted_date}</div>}
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
@@ -388,6 +392,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                       </td>
                       <td className="px-5 py-3 hidden md:table-cell whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
+                        {workflow === 'payments' && order.bank_posted_date && <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">入帳日期 {order.bank_posted_date}</div>}
                         {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</div>}
                       </td>
                       <td className="px-5 py-2 text-right">
@@ -579,7 +584,22 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     return init
   })
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(order.payment_status)
+  const [bankPostedDate, setBankPostedDate] = useState(order.bank_posted_date ?? '')
   const [editing, setEditing] = useState(false)
+  const sharedPaymentHeld = order.reservations.some((r) => r.shared_course_class_id && r.shared_class_status === 'collecting')
+  const postingDateMode = order.manual_payment_posting_date_mode
+  const canEnterPostingDate = editing && canReconcile && !sharedPaymentHeld && paymentStatus === 'paid'
+    && (postingDateMode === 'optional' || postingDateMode === 'required')
+  const postingDateChanged = canEnterPostingDate && bankPostedDate !== (order.bank_posted_date ?? '')
+  const hasPaymentChanges = paymentStatus !== order.payment_status || postingDateChanged
+  const postingDateRequired = canEnterPostingDate && postingDateMode === 'required' && hasPaymentChanges
+  const todayInTaipei = taipeiDate.format(new Date())
+  let postingDateError = ''
+  if (postingDateRequired && !bankPostedDate) {
+    postingDateError = '核對為已付款時，請填寫入帳日期'
+  } else if (canEnterPostingDate && bankPostedDate > todayInTaipei) {
+    postingDateError = '入帳日期不可晚於今天（台北時間）'
+  }
   const [jpyReceiptConfirmed,setJpyReceiptConfirmed]=useState(false)
   const requiresJpyReceipt=paymentStatus==='paid'&&order.payment_status!=='paid'&&order.settlement&&order.settlement.currency!=='TWD'
   useEffect(()=>{setJpyReceiptConfirmed(false)},[order.id,order.payment_status,order.settlement?.amount,editing])
@@ -610,6 +630,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     setCoachAssignments(assignments)
     setBookingEdits(bookings)
     setPaymentStatus(order.payment_status)
+    setBankPostedDate(order.bank_posted_date ?? '')
   }
 
   const [emailOpen, setEmailOpen] = useState(false)
@@ -735,7 +756,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
       }))
       return updateOrder(order.id, {
         action,
-        payment_status: paymentStatus !== order.payment_status ? paymentStatus : undefined,
+        payment_status: hasPaymentChanges ? paymentStatus : undefined,
+        bank_posted_date: postingDateChanged ? bankPostedDate || null : undefined,
         payment_currency:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.currency:undefined,
         payment_received_amount:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.amount:undefined,
         reservation_updates: updates,
@@ -755,7 +777,6 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     onError: (e: any) => notify.error(e.response?.data?.msg || '更新失敗'),
   })
   const firstR = order.reservations[0]
-  const sharedPaymentHeld = order.reservations.some((r) => r.shared_course_class_id && r.shared_class_status === 'collecting')
   const statusPill = firstR ? getStatusPill(firstR.status) : { label: '無', cls: '' }
   const paymentPill = getPaymentPill(order.payment_status)
   const courseBookings = order.reservations.flatMap((r) => r.bookings)
@@ -775,7 +796,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     !reservation.is_preferred_coach &&
     coachAssignments[reservation.id] !== (reservation.preferred_coach_id ?? null),
   )
-  const hasOrderChanges = hasBookingChanges || hasCoachChanges || paymentStatus !== order.payment_status
+  const hasOrderChanges = hasBookingChanges || hasCoachChanges || hasPaymentChanges
   const canScheduleUnassigned = order.reservations.some(reservation =>
     reservation.status === 'created' && !reservation.preferred_coach_id &&
     !reservation.shared_course_class_id && reservation.bookings.length > 0,
@@ -1015,6 +1036,28 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                   <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
                 )}
               </div>
+              {canEnterPostingDate ? (
+                <div className="space-y-1">
+                  <label className="flex flex-wrap items-center justify-between gap-2 text-gray-500 dark:text-gray-300">
+                    <span>入帳日期{postingDateRequired && '（必填）'}</span>
+                    <input
+                      type="date"
+                      value={bankPostedDate}
+                      max={todayInTaipei}
+                      required={postingDateRequired}
+                      disabled={saveMutation.isPending}
+                      aria-invalid={Boolean(postingDateError)}
+                      aria-describedby="order-bank-posted-date-help"
+                      onChange={event => setBankPostedDate(event.target.value)}
+                      className="min-h-11 rounded border border-gray-200 bg-white px-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                    />
+                  </label>
+                  <p id="order-bank-posted-date-help" className="text-xs text-gray-500 dark:text-gray-300">請填寫銀行紀錄上的實際入帳日。</p>
+                  {postingDateError && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{postingDateError}</p>}
+                </div>
+              ) : (
+                <div className="flex justify-between"><span className="text-gray-500">入帳日期</span><span>{order.bank_posted_date}</span></div>
+              )}
               <div className="flex justify-between"><span className="text-gray-500">付款方式</span><span className="text-gray-900 dark:text-white">{PAYMENT_METHOD_LABEL[order.payment_method] || order.payment_method || '未設定'}</span></div>
               {order.payment_method === 'TT' && (
                 <div className="flex justify-between">
@@ -1066,7 +1109,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
               </button>
               <button
                 onClick={() => saveMutation.mutate('save')}
-                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
+                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking) || Boolean(postingDateError) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-[#8b5cf6] text-sm font-medium rounded-lg hover:bg-[#8b5cf6]/5 disabled:opacity-50 flex items-center gap-2"
                 style={{ color: PRIMARY }}
               >
@@ -1075,7 +1118,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
               </button>
               {canEdit && <button
                 onClick={() => saveMutation.mutate('schedule')}
-                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
+                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking) || Boolean(postingDateError) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 style={{ backgroundColor: PRIMARY }}
               >
