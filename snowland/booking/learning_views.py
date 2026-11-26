@@ -134,7 +134,7 @@ class MemberCourseAlbumsAPI(PrivateLearningAPI):
                 raise ValueError('請選擇認領或取消認領')
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
-        asset = get_object_or_404(CourseAlbumAsset.objects.select_related('booking'), pk=asset_id,
+        asset = get_object_or_404(CourseAlbumAsset.objects.select_for_update(), pk=asset_id,
                                   booking__in=member_album_bookings(tenant, request.user))
         place = get_object_or_404(MemberDetail.objects.select_for_update().filter(owned_places(request.user)),
                                    pk=member_id, reservation_id=asset.booking.reservation_id)
@@ -146,19 +146,23 @@ class MemberCourseAlbumsAPI(PrivateLearningAPI):
 
 
 class CourseAlbumFileAPI(PrivateLearningAPI):
+    permission_key = 'evaluations'
+
     def get(self, request, client_code, asset_id):
         tenant = tenant_for(client_code)
         asset = get_object_or_404(CourseAlbumAsset.objects.select_related('booking__reservation'),
                                   pk=asset_id, booking__reservation__group__client=tenant)
-        from API.admin_views import IsTenantCoach
+        from API.admin_views import IsTenantCoach, IsTenantManager
+        from API.learning_views import coach_album_bookings, manager_album_bookings
+
         booking = asset.booking
         allowed = member_album_bookings(tenant, request.user).filter(pk=booking.pk).exists()
         if not allowed:
-            from API.learning_views import coach_album_bookings
-
             allowed = IsTenantCoach().has_permission(request, self) and coach_album_bookings(request).filter(
                 pk=booking.pk,
             ).exists()
+        if not allowed and IsTenantManager().has_permission(request, self):
+            allowed = manager_album_bookings(request).filter(pk=booking.pk).exists()
         if not allowed:
             raise Http404
         try:

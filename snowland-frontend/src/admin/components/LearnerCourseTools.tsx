@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { currentClientCode } from '@/utils/tenant'
 import adminApi from '../api/axios'
 
@@ -16,8 +16,13 @@ type History = Person & {
   pre_course_summary?: PreCourseSummary
   records: { date: string; course_name: string; coach_notes: string; technical_assessment: Technical[]; learning_progress: Record<string, string> }[]
 }
-type Asset = { id: number; type: 'photo' | 'video'; url: string; tagged_member_ids: number[] }
+type Asset = { id: number; type: 'photo' | 'video'; url: string; tagged_member_ids: number[]; can_delete: boolean }
 type Album = { assets: Asset[]; members: Person[]; photo_limit_bytes: number; video_limit_bytes: number }
+type AlbumUpload = { file: File } & (
+  { status: 'ready' | 'uploaded' }
+  | { status: 'invalid' | 'failed'; error: string }
+  | { status: 'uploading'; progress: number | null }
+)
 type LinkOptions = { profiles: Person[]; current_id: number | null }
 const actionClass = 'min-h-11 rounded-lg border border-violet-300 px-3 text-sm font-semibold text-violet-700 disabled:opacity-50 dark:text-violet-200'
 const fieldClass = 'min-h-11 max-w-full rounded border border-slate-300 bg-white px-2 dark:border-gray-600 dark:bg-gray-800'
@@ -72,54 +77,149 @@ export function CoachLearnerHistory({ reservationId }: { reservationId: number }
   </div>
 }
 
-export function CoachCourseAlbum({ bookingId }: { bookingId: number }) {
-  const path = `/coach/course-albums/${bookingId}/`
-  const input = useRef<HTMLInputElement>(null)
-  const [file, setFile] = useState<File | null>(null)
-  const [message, setMessage] = useState('')
-  const query = useQuery({ queryKey: ['coach-course-album', currentClientCode(), bookingId], queryFn: () => get<Album>(path) })
-  const limit = file && query.data ? (file.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name) ? query.data.video_limit_bytes : query.data.photo_limit_bytes) : 0
-  const tooLarge = !!file && !!limit && file.size > limit
+const albumAccept = '.jpg,.jpeg,.png,.webp,.mp4,.mov,.webm,image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm'
+
+function albumUploadError(file: File, album: Album) {
+  const type = file.type.toLowerCase()
+  if (/\.(heic|heif)$/i.test(file.name) || /^image\/hei[cf]$/.test(type)) {
+    return 'HEIC 格式暫不支援，請先在手機「設定 → 相機 → 格式」改為「最相容」，或轉成 JPG 後再上傳'
+  }
+  if (!file.size) return '檔案是空的，請重新選擇。'
+  const photoName = /\.(jpe?g|png|webp)$/i.test(file.name)
+  const video = /\.(mp4|mov|webm)$/i.test(file.name) || (!photoName && /^video\/(mp4|quicktime|webm)$/.test(type))
+  if (!video && !photoName && !/^image\/(jpeg|png|webp)$/.test(type)) {
+    return '格式不支援。照片支援 JPEG、PNG、WebP，影片支援 MP4、MOV、WebM。'
+  }
+  const limit = video ? album.video_limit_bytes : album.photo_limit_bytes
+  if (file.size > limit) return `${video ? '影片' : '照片'}不可超過 ${(limit / 1048576).toLocaleString('zh-TW')} MB。`
+  return ''
+}
+
+function albumRequestError(error: unknown, fallback: string) {
+  const response = (error as { response?: { status?: number; data?: { msg?: unknown; detail?: unknown } } } | null)?.response
+  const message = response?.data?.msg || response?.data?.detail
+  if (typeof message === 'string') return message
+  return response?.status === 413 ? '檔案超過伺服器可接收的大小。' : fallback
+}
+
+export function CoachCourseAlbum({ bookingId, coachView = true }: { bookingId: number; coachView?: boolean }) {
+  const client = currentClientCode()
+  const path = `${coachView ? '/coach' : ''}/course-albums/${bookingId}/`
+  const queryKey = ['course-album', client, path]
+  const cache = useQueryClient()
+  const query = useQuery({ queryKey, queryFn: () => get<Album>(path) })
+  const [uploads, setUploads] = useState<AlbumUpload[]>([])
+  const uploadController = useRef<AbortController>()
+  useEffect(() => () => uploadController.current?.abort(), [client, path])
+  const updateUpload = (index: number, item: AlbumUpload) => setUploads(items =>
+    items.map((current, i) => i === index ? item : current))
+
   const upload = useMutation({
-    mutationFn: () => {
-      const body = new FormData()
-      body.append('file', file!)
-      return adminApi.post(path, body, { headers: { 'Content-Type': undefined }, timeout: 180000 })
+    mutationFn: async (status: 'ready' | 'failed') => {
+      const controller = new AbortController()
+      uploadController.current = controller
+      let uploaded = 0
+      for (const [index, item] of uploads.entries()) {
+        if (controller.signal.aborted) break
+        if (item.status !== status) continue
+        const file = item.file
+        updateUpload(index, { file, status: 'uploading', progress: null })
+        const body = new FormData()
+        body.append('file', file)
+        try {
+          await adminApi.post(path, body, {
+            headers: { 'Content-Type': undefined }, timeout: 180000, signal: controller.signal,
+            onUploadProgress: ({ loaded, total }) => {
+              if (!controller.signal.aborted && total) {
+                setUploads(items => items.map((current, i) => i === index && current.status === 'uploading'
+                  ? { ...current, progress: Math.min(100, Math.round(100 * loaded / total)) } : current))
+              }
+            },
+          })
+          if (controller.signal.aborted) break
+          updateUpload(index, { file, status: 'uploaded' })
+          uploaded++
+        } catch (error) {
+          if (controller.signal.aborted) break
+          const reason = albumRequestError(error, '上傳未完成，請檢查網路連線後重試。')
+          const prefix = `「${file.name}」：`
+          updateUpload(index, { file, status: 'failed', error: reason.startsWith(prefix) ? reason.slice(prefix.length) : reason })
+        }
+      }
+      if (!controller.signal.aborted && uploaded > 0) await query.refetch()
     },
-    onSuccess: async () => { setMessage('已上傳到共用相簿'); setFile(null); if (input.current) input.current.value = ''; await query.refetch() },
   })
   const tag = useMutation({
     mutationFn: (data: { asset_id: number; member_id: number; tagged: boolean }) => adminApi.patch(path, data),
     onSuccess: () => query.refetch(),
   })
+  const remove = useMutation({
+    mutationFn: (assetId: number) => adminApi.delete(path, { params: { asset_id: assetId } }),
+    onSuccess: async (_, assetId) => {
+      await cache.cancelQueries({ queryKey })
+      cache.setQueryData<Album>(queryKey, album => album && ({
+        ...album, assets: album.assets.filter(asset => asset.id !== assetId),
+      }))
+    },
+  })
+  const album = query.data
+  const busy = upload.isPending || tag.isPending || remove.isPending
   return <section className="mb-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700" aria-label="這堂課的共用相簿">
     <h3 className="font-semibold">這堂課的共用相簿</h3>
-    <p className="mt-1 text-sm text-gray-500 dark:text-gray-300">照片或影片只需上傳一次。同堂學員可查看，您也可以幫多人加上標籤。</p>
+    {coachView && <p className="mt-1 text-sm text-gray-500 dark:text-gray-300">照片或影片只需上傳一次。同堂學員可查看，您也可以幫多人加上標籤。</p>}
     {query.isPending && <p role="status" className="mt-2">載入相簿中…</p>}
-    {query.isError && <p role="alert" className="mt-2">無法開啟相簿，請確認這堂課已結束且仍由您授課。<button type="button" className={actionClass} onClick={() => void query.refetch()}>重新載入</button></p>}
-    {query.data && <>
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <label className="min-w-0 text-sm">選擇共用照片或影片<input type="file" ref={input} accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" disabled={upload.isPending}
-          className="mt-1 block min-h-11 max-w-full"
-          onChange={event => { setFile(event.target.files?.[0] || null); setMessage(''); upload.reset() }} /></label>
-        <button type="button" className={actionClass} disabled={!file || tooLarge || upload.isPending} onClick={() => upload.mutate()}>{upload.isPending ? '上傳中…' : '上傳到共用相簿'}</button>
-      </div>
-      {tooLarge && <p role="alert" className="text-sm text-red-700 dark:text-red-300">檔案超過 {Math.round(limit / 1048576)} MB。</p>}
-      {upload.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{(upload.error as { response?: { data?: { msg?: string } } }).response?.data?.msg || '上傳未完成，請再試一次。'}</p>}
-      {message && <p role="status" className="text-sm text-green-700 dark:text-green-300">{message}</p>}
+    {query.isError && <p role="alert" className="mt-2">{coachView ? '無法開啟相簿，請確認這堂課已結束且仍由您授課。' : '無法開啟相簿，請確認您有這堂課的評量權限。'}<button type="button" className={actionClass} onClick={() => void query.refetch()}>重新載入</button></p>}
+    {album && <>
+      {coachView && <>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="min-w-0 max-w-full text-sm">選擇共用照片或影片<input type="file" multiple accept={albumAccept} disabled={busy}
+            className="mt-1 block min-h-11 max-w-full"
+            onChange={event => {
+              const files = Array.from(event.currentTarget.files ?? [])
+              event.currentTarget.value = ''
+              setUploads(files.map(file => {
+                const error = albumUploadError(file, album)
+                return error ? { file, status: 'invalid', error } : { file, status: 'ready' }
+              }))
+            }} /></label>
+          <button type="button" className={actionClass} disabled={busy || !uploads.some(item => item.status === 'ready')} onClick={() => upload.mutate('ready')}>{upload.isPending ? '上傳中…' : '上傳到共用相簿'}</button>
+          {uploads.some(item => item.status === 'failed') && <button type="button" className={actionClass} disabled={busy} onClick={() => upload.mutate('failed')}>重試失敗檔案</button>}
+        </div>
+        {uploads.length > 0 && <ul aria-label="檔案上傳進度" className="mt-2 space-y-2 text-sm">
+          {uploads.map((item, index) => <li key={index} className="break-words rounded border border-gray-200 p-2 dark:border-gray-700">
+            <p className="font-medium">{item.file.name}</p>
+            {item.status === 'ready' && <p>等待上傳</p>}
+            {item.status === 'uploading' && <>
+              <progress max={100} value={item.progress ?? undefined} aria-label={`${item.file.name} 上傳進度`} className="w-full max-w-xs" />
+              <p>{item.progress === 100 ? '傳送完成，正在檢查與儲存' : item.progress === null ? '正在傳送…' : `已傳送 ${item.progress}%`}</p>
+            </>}
+            {item.status === 'uploaded' && <p role="status" className="text-green-700 dark:text-green-300">已上傳</p>}
+            {(item.status === 'invalid' || item.status === 'failed') && <p role="alert" className="text-red-700 dark:text-red-300">{item.error}</p>}
+          </li>)}
+        </ul>}
+      </>}
       {tag.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">標籤未儲存，請再試一次。</p>}
-      {!query.data.assets.length && <p className="mt-3 text-sm text-gray-500 dark:text-gray-300">相簿目前沒有附件。</p>}
+      {remove.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{albumRequestError(remove.error, '無法刪除相簿附件，請再試一次。')}</p>}
+      {remove.isSuccess && <p role="status" className="text-sm text-green-700 dark:text-green-300">已刪除相簿附件。</p>}
+      {!album.assets.length && <p className="mt-3 text-sm text-gray-500 dark:text-gray-300">相簿目前沒有附件。</p>}
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        {query.data.assets.map(asset => <div key={asset.id} className="min-w-0 rounded border border-gray-200 p-2 dark:border-gray-700">
+        {album.assets.map(asset => <div key={asset.id} className="min-w-0 rounded border border-gray-200 p-2 dark:border-gray-700">
+          {asset.can_delete && <div className="mb-2 flex justify-end">
+            <button type="button" aria-label={asset.type === 'video' ? '刪除相簿影片' : '刪除相簿照片'} disabled={busy}
+              className="min-h-11 rounded-lg border border-red-300 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 dark:text-red-300"
+              onClick={() => {
+                if (window.confirm(`確定刪除這${asset.type === 'video' ? '部影片' : '張照片'}？學員也會從共用相簿看不到此附件。`)) remove.mutate(asset.id)
+              }}>{remove.isPending && remove.variables === asset.id ? '刪除中…' : '刪除'}</button>
+          </div>}
           {asset.type === 'video' ? <video src={asset.url} controls preload="metadata" className="aspect-video w-full object-contain" /> :
             <img src={asset.url} alt="共用課程照片" loading="lazy" className="aspect-video w-full object-contain" />}
-          <div className="mt-2 flex flex-wrap gap-2">{query.data.members.map(person => {
+          {coachView && <div className="mt-2 flex flex-wrap gap-2">{album.members.map(person => {
             const tagged = asset.tagged_member_ids.includes(person.id)
-            return <button type="button" key={person.id} aria-pressed={tagged} disabled={tag.isPending} className={actionClass}
+            return <button type="button" key={person.id} aria-pressed={tagged} disabled={busy} className={actionClass}
               onClick={() => tag.mutate({ asset_id: asset.id, member_id: person.id, tagged: !tagged })}>
               {tagged ? '移除標籤：' : '加標籤：'}{person.name}
             </button>
-          })}</div>
+          })}</div>}
         </div>)}
       </div>
     </>}

@@ -2772,6 +2772,11 @@ class NotificationDeliveryAdminViewSet(ReadOnlyModelViewSet):
         return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
 
 
+def evaluation_is_readonly_assistant(request):
+    profile = staff_profile(request.user, request.tenant)
+    return bool(not request.user.is_superuser and profile and profile.role == 'assistant')
+
+
 class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
     serializer_class = CourseEvaluationAdminSerializer
     permission_classes = [IsTenantManager]
@@ -2807,9 +2812,7 @@ class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
         return super().update(request, *args, **kwargs)
 
     def _is_readonly_assistant(self):
-        profile = staff_profile(self.request.user, getattr(self.request, 'tenant', None))
-        return bool(not self.request.user.is_superuser and profile and profile.role == 'assistant'
-                    and not getattr(self, 'coach_scoped', False))
+        return not getattr(self, 'coach_scoped', False) and evaluation_is_readonly_assistant(self.request)
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
