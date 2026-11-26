@@ -74,7 +74,7 @@ class AssistantEvaluationTests(TestCase):
             learner.force_authenticate(self.learner)
             photo = learner.get(response.data['data']['url'])
             self.assertEqual(photo.status_code, 200)
-            photo.close()
+            self.assertEqual(b''.join(photo.streaming_content), output.getvalue())
 
     def test_dual_role_assistant_can_edit_only_when_acting_as_assigned_coach(self):
         self.profile.is_coach = True
