@@ -71,6 +71,10 @@ for (const [vehiclePath, anchor, user] of [
   }
   assert.match(guide, /<h3[^>]*>出車、還車與支出<\/h3>/)
   assert.match(guide, /<h3[^>]*>費用核准、薪扣與人工收款<\/h3>/)
+  assert.match(guide, /撤銷此私用/)
+  assert.match(guide, /<code>auto_revoke<\/code> 尚未實作/)
+  assert.match(guide, /私用只顯示占用時段/)
+  assert.match(guide, /vehicle_calendar_visible_to_coaches.*false/)
 }
 
 const images = [...render(guidePath, finance).matchAll(/<img src="(\/vehicle-guide\/[^"]+\.webp)"/g)]
