@@ -43,6 +43,44 @@
           "expected": "Django 全套測試、前端建置與差異格式檢查通過。"
         }
       ]
+    },
+    {
+      "id": "manual-payment-bank-posted-date",
+      "name": "已付款核對的銀行入帳日期",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "reconciliation": "/{client_code}/console/orders/payments",
+        "export": "/{client_code}/console/orders/export",
+        "ordersApi": "/api/admin/{client_code}/orders/",
+        "detailApi": "/api/admin/{client_code}/orders/{id}/",
+        "exportApi": "/api/admin/{client_code}/orders/export/"
+      },
+      "permission": "order_payments, order_export",
+      "testEnvironment": "使用 snowland.test_settings 的記憶體 SQLite 與合成租戶。實際畫面驗收使用隔離的本機服務及測試帳號。",
+      "checks": [
+        {
+          "id": "api-modes-and-export",
+          "command": "cd snowland; python manage.py test API.tests_order_bank_posted_date API.tests_order_payment_history_updates API.tests_order_feedback API.tests_customer_journey --settings=snowland.test_settings",
+          "expected": "三種模式依租戶套用，拒絕格式錯誤與台北時間未來日。台幣與外幣可核對、舊已付款單可補填，匯出遵循既有權限，舊單未填日期維持空白。"
+        },
+        {
+          "id": "frontend-posting-date",
+          "commands": ["cd snowland-frontend; cmd /c npm test", "cd snowland-frontend; cmd /c npm run build"],
+          "tests": ["tests/test-order-bank-posted-date.cjs"],
+          "expected": "已付款可依 API 模式編輯入帳日期，必填缺日期及未來日期皆阻擋儲存，停用時仍可查已存日期。"
+        },
+        {
+          "id": "browser-reconciliation",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "在必填租戶開啟待確認付款的測試訂單，編輯付款狀態並選已付款。",
+            "確認缺日期時顯示提示且無法儲存，填入合法日期後按只儲存。",
+            "確認對帳列表與訂單明細均顯示已存日期，並核對有權限匯出的 CSV 欄位。",
+            "將測試租戶改為停用輸入，確認已存日期在明細唯讀顯示。"
+          ],
+          "expected": "入帳日期和付款狀態一起儲存，在桌機與手機可讀，頁面無水平溢出。"
+        }
+      ]
     }
   ]
 }

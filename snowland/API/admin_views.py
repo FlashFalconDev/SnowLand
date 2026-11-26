@@ -21,8 +21,10 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from datetime import timedelta, datetime, date, time
 from collections import defaultdict
+from zoneinfo import ZoneInfo
 
 from Client.models import Client, SiteContent
+from Client.tenant_settings import manual_payment_posting_date_mode
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
@@ -1837,7 +1839,8 @@ class OrderAdminViewSet(ModelViewSet):
                     'equipment_assistance_time_slot',
                 ).prefetch_related('bookings', 'members', 'rejected_coaches'),
             ),
-            'payments',
+            Prefetch('payments', queryset=Payment.objects.live().order_by('-created_at', '-pk'),
+                     to_attr='payments_by_recency'),
         )
 
         # 伺服端搜尋與過濾(分頁後前端只看得到當前頁,所以搜尋一定要在後端做)
@@ -1921,7 +1924,8 @@ class OrderAdminViewSet(ModelViewSet):
         from django.middleware.csrf import get_token
         get_token(request._request)  # Issue the same-origin token used by QR uploads/removal.
         context = self.get_serializer_context()
-        if not self._is_campus_order_viewer():
+        is_campus_viewer = self._is_campus_order_viewer()
+        if not is_campus_viewer:
             coaches = Coach.objects.filter(client=instance.client_id)
             if not request.can_view_all_campuses:
                 coaches = coaches.filter(campuses__id__in=_campus_ids(request)).distinct()
@@ -1930,7 +1934,10 @@ class OrderAdminViewSet(ModelViewSet):
             instance,
             context=context,
         )
-        return Response({'code': 200, 'msg': 'OK', 'data': serializer.data})
+        detail = serializer.data
+        if not is_campus_viewer:
+            detail['manual_payment_posting_date_mode'] = manual_payment_posting_date_mode(request.tenant)
+        return Response({'code': 200, 'msg': 'OK', 'data': detail})
 
     @action(detail=False, methods=['get'], url_path='export')
     def export(self, request, *args, **kwargs):
@@ -2076,6 +2083,7 @@ class OrderAdminViewSet(ModelViewSet):
         Body: {
             "action": "save" | "schedule",  // save=只儲存, schedule=儲存後觸發 AI 排課
             "payment_status": "paid" | "pending" | "unpaid" | ...,  (optional)
+            "bank_posted_date": "YYYY-MM-DD" | null,  // only with payment_status=paid
             "reservation_updates": [
                 {"reservation_id": 1, "coach_id": 5},   // null 表示移除教練
                 {"reservation_id": 2, "coach_id": null},
@@ -2089,10 +2097,11 @@ class OrderAdminViewSet(ModelViewSet):
         data = request.data
         action = data.get('action', 'save')
         payment_status = data.get('payment_status')
+        posting_date_supplied = 'bank_posted_date' in data
         reservation_updates = data.get('reservation_updates', []) or []
         booking_updates = data.get('booking_updates', []) or []
         permissions = set(get_user_admin_permissions(request.user, request.tenant))
-        if payment_status and 'order_payments' not in permissions:
+        if (payment_status or posting_date_supplied) and 'order_payments' not in permissions:
             raise PermissionDenied('需要對帳與差額權限')
         if payment_status == 'refunded' and 'order_refunds' not in permissions:
             raise PermissionDenied('需要取消與退款權限')
@@ -2103,6 +2112,32 @@ class OrderAdminViewSet(ModelViewSet):
             return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
         if payment_status and payment_status not in dict(Payment.STATUS_CHOICES):
             return Response({'code': 400, 'msg': '無效的付款狀態'}, status=400)
+        if posting_date_supplied and payment_status != 'paid':
+            return Response({'code': 400, 'msg': '請將付款狀態設為已付款，才能儲存入帳日期'}, status=400)
+
+        payment = None
+        if payment_status:
+            # A group may retain historical attempts. Lock and validate the same record we update.
+            payment = instance.payments.live().select_for_update().order_by('-created_at', '-pk').first()
+        was_paid = bool(payment and payment.status == 'paid')
+        bank_posted_date = payment.bank_posted_date if payment else None
+        if payment_status == 'paid':
+            mode = manual_payment_posting_date_mode(request.tenant)
+            if posting_date_supplied:
+                if mode == 'disabled':
+                    return Response({'code': 400, 'msg': '此租戶已停用入帳日期輸入'}, status=400)
+                value = data['bank_posted_date']
+                try:
+                    bank_posted_date = None if value is None or value == '' else date.fromisoformat(value)
+                    if bank_posted_date and bank_posted_date.isoformat() != value:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    return Response({'code': 400, 'msg': '請輸入有效的入帳日期（YYYY-MM-DD）'}, status=400)
+                if bank_posted_date and bank_posted_date > timezone.localdate(timezone=ZoneInfo('Asia/Taipei')):
+                    return Response({'code': 400, 'msg': '入帳日期不可晚於今天（台北時間）'}, status=400)
+            if mode == 'required' and bank_posted_date is None:
+                return Response({'code': 400, 'msg': '核對為已付款時，請填寫入帳日期'}, status=400)
+
         if payment_status:
             from booking.models import OrderLoyalty
             loyalty = OrderLoyalty.objects.filter(group=instance).first()
@@ -2114,8 +2149,7 @@ class OrderAdminViewSet(ModelViewSet):
         foreign_receipt = None
         from booking.currency import foreign_currency
         if payment_status == 'paid' and foreign_currency((instance.currency_snapshot or {}).get('currency')):
-            prior_payment=instance.payments.live().select_for_update().order_by('-created_at','-pk').first()
-            if not prior_payment or prior_payment.status != 'paid':
+            if not was_paid:
                 from booking.currency import order_settlement
                 expected=order_settlement(instance)
                 if data.get('payment_currency') != expected['currency'] or type(data.get('payment_received_amount')) is not int or data['payment_received_amount'] != expected['amount']:
@@ -2242,24 +2276,17 @@ class OrderAdminViewSet(ModelViewSet):
         def save_payment_status():
             if not payment_status:
                 return
-            # A group may retain multiple historical payment attempts.
-            payment = (Payment.objects.live().select_for_update()
-                       .filter(reservation_group=instance)
-                       .order_by('-created_at', '-pk').first())
-            if payment is None:
-                payment = Payment.objects.create(
-                    reservation_group=instance,
-                    status=payment_status,
-                    user=instance.user,
-                )
-            payment.status = payment_status
+            current = payment if payment is not None else Payment(reservation_group=instance, user=instance.user)
+            current.status = payment_status
+            if posting_date_supplied:
+                current.bank_posted_date = bank_posted_date
             if foreign_receipt is not None:
-                payload=payment.DataJSON if isinstance(payment.DataJSON,dict) else {}
+                payload=current.DataJSON if isinstance(current.DataJSON,dict) else {}
                 confirmations=list(payload.get('settlement_confirmations',[]))
                 confirmations.append(foreign_receipt)
-                payment.DataJSON={**payload,'settlement':foreign_receipt,'settlement_confirmations':confirmations}
-            payment.save()
-            if payment_status == 'paid':
+                current.DataJSON={**payload,'settlement':foreign_receipt,'settlement_confirmations':confirmations}
+            current.save()
+            if payment_status == 'paid' and not (was_paid and posting_date_supplied):
                 from booking.currency import settlement_summary
                 from booking.loyalty import sync_order_loyalty
                 sync_order_loyalty(instance, confirmed_base=settlement_summary(instance)['base_amount'])

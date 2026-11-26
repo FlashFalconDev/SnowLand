@@ -70,6 +70,11 @@ class ReservationGroup(SoftDeleteModel):
     def __str__(self):
         return self.name or self.order_number or f"ReservationGroup #{self.pk}"
 
+    def latest_live_payment(self):
+        if hasattr(self, 'payments_by_recency'):
+            return next(iter(self.payments_by_recency), None)
+        return self.payments.live().order_by('-created_at', '-pk').first()
+
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         if not self.order_number:
@@ -665,6 +670,7 @@ class Payment(SoftDeleteModel):
         related_name='payments', verbose_name='收款帳戶'
     )
     expires_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name='付款保留到期時間')
+    bank_posted_date = models.DateField(null=True, blank=True, verbose_name='入帳日期')
     DataJSON = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='建立時間')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新時間')

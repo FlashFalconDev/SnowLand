@@ -126,6 +126,9 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
                 '此客戶對該模組的特定配置（JSON 格式）。在 booking 模組的設定加入 '
                 'learner_rename_policy，可填 disabled（停用）、unlinked_only（僅限未連結有效名額）'
                 '或 owner_all（所有本人學員檔案）。預設為 disabled。'
+                '入帳日期請編輯該租戶的 booking 設定列，在 JSON 中加入 '
+                '"manual_payment_posting_date_mode"，值可填 "optional"（選填，預設）、'
+                '"required"（必填）或 "disabled"（停用輸入，保留已存日期）。'
             ),
         }),
         ('時間記錄', {

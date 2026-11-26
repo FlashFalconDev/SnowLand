@@ -1753,6 +1753,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     payment_status = serializers.SerializerMethodField()
     payment_method = serializers.SerializerMethodField()
     bank_account = serializers.SerializerMethodField()
+    bank_posted_date = serializers.DateField(source='latest_live_payment.bank_posted_date', read_only=True, allow_null=True)
     total_fee = serializers.SerializerMethodField()
     sn = serializers.SerializerMethodField()
     campus_name = serializers.CharField(source='campus.name', read_only=True, default='')
@@ -1771,7 +1772,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             'id', 'sn', 'order_number', 'name', 'user', 'user_name', 'user_email', 'booking_contact',
             'campus', 'campus_name', 'marketing_source', 'marketing_source_detail', 'line_group_url', 'line_group_qr_url',
             'reservations', 'total_fee', 'payment_status', 'payment_method',
-            'bank_account', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
+            'bank_account', 'bank_posted_date', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
         ]
         read_only_fields = fields
 
@@ -1920,15 +1921,15 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             return {'candidate_status': 'error', 'available_coaches': None, 'unavailable_coaches': None}
 
     def get_payment_status(self, obj):
-        p = obj.payments.live().last()
+        p = obj.latest_live_payment()
         return p.status if p else 'unpaid'
 
     def get_payment_method(self, obj):
-        p = obj.payments.live().last()
+        p = obj.latest_live_payment()
         return p.payment_method if p else 'TT'
 
     def get_bank_account(self, obj):
-        p = obj.payments.live().last()
+        p = obj.latest_live_payment()
         return p.bank_account if p else ''
 
     def get_total_fee(self, obj):

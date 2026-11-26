@@ -9,6 +9,7 @@ export type ReservationStatus =
   | 'pending_coach_confirmation' | 'completed' | 'auto_assignment_failed'
   | 'manual_assignment_needed' | 'form_filled' | 'deleted'
 export type PaymentStatus = 'unpaid' | 'pending' | 'paid' | 'expired' | 'refunded'
+export type ManualPaymentPostingDateMode = 'optional' | 'required' | 'disabled'
 
 export interface OrderBooking {
   id: number
@@ -87,6 +88,8 @@ export interface Order {
   amendment_balance?: { amount: number; statuses: string[];settlement?:{currency:ForeignPaymentCurrency;amount:number} } | null
   payment_method: string
   bank_account?: string | null
+  bank_posted_date?: string | null
+  manual_payment_posting_date_mode?: ManualPaymentPostingDateMode
   created_at: string
   order_number?: string
   campus?: number | null
@@ -203,6 +206,7 @@ export async function updateOrder(
   payload: {
     action: 'save' | 'schedule'
     payment_status?: PaymentStatus
+    bank_posted_date?: string | null
     payment_currency?: PaymentCurrency
     payment_received_amount?: number
     reservation_updates?: { reservation_id: number; coach_id: number | null }[]
