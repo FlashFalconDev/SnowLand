@@ -556,7 +556,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
   const [amending, setAmending] = useState(false)
   const { data: noticeAdmin } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const canEdit = !readOnly && (!workflow || workflow === 'edit') && hasAdminPermission(noticeAdmin?.user, 'order_edit')
-  const canReconcile = !readOnly && (!workflow || workflow === 'payments') && hasAdminPermission(noticeAdmin?.user, 'order_payments')
+  const mayReconcile = hasAdminPermission(noticeAdmin?.user, 'order_payments')
+  const canReconcile = !readOnly && (!workflow || workflow === 'payments') && mayReconcile
   const mayRefund = hasAdminPermission(noticeAdmin?.user, 'order_refunds')
   const canRefund = !readOnly && (!workflow || workflow === 'refunds') && mayRefund
   const canNotify = !readOnly && !workflow && hasAdminPermission(noticeAdmin?.user, 'notifications') && hasAdminPermission(noticeAdmin?.user, 'order_view')
@@ -847,8 +848,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
           </div>
-          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
-          {canReconcile&&<AmendmentBalancesPanel orderId={order.id} cancellationStatus={order.cancellation?.status}/>}
+          {(order.amendment_balance || canReconcile) && <AmendmentBalancesPanel key={order.id} order={order}
+            canReconcile={canReconcile} canRefund={canRefund}
+            paymentsHref={mayReconcile && !canReconcile ? `/${currentClientCode()}/console/orders/payments?search=${encodeURIComponent(order.sn)}` : undefined}
+            refundsHref={mayRefund && !canRefund ? `/${currentClientCode()}/console/orders/refunds?search=${encodeURIComponent(order.sn)}` : undefined}
+          />}
 
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><User size={14} style={{ color: PRIMARY }} />訂單聯絡資料</h3>

@@ -67,7 +67,7 @@
           "id": "frontend-posting-date",
           "commands": ["cd snowland-frontend; cmd /c npm test", "cd snowland-frontend; cmd /c npm run build"],
           "tests": ["tests/test-order-bank-posted-date.cjs"],
-          "expected": "已付款可依 API 模式編輯入帳日期，必填缺日期及未來日期皆阻擋儲存，停用時仍可查已存日期。"
+          "expected": "已付款可依 API 模式編輯入帳日期，必填缺日期及未來日期皆依既有規則阻擋付款變更，停用時仍可查已存日期。缺入帳日期的舊已付款單仍可儲存非付款編輯。"
         },
         {
           "id": "browser-reconciliation",
@@ -79,6 +79,37 @@
             "將測試租戶改為停用輸入，確認已存日期在明細唯讀顯示。"
           ],
           "expected": "入帳日期和付款狀態一起儲存，在桌機與手機可讀，頁面無水平溢出。"
+        }
+      ]
+    },
+    {
+      "id": "order-amendment-balance-entry",
+      "name": "訂單修改差額回報與核對入口",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "edit": "/{client_code}/console/orders/edit",
+        "payments": "/{client_code}/console/orders/payments",
+        "refunds": "/{client_code}/console/orders/refunds",
+        "scheduling": "/{client_code}/console/scheduling"
+      },
+      "permission": "order_payments 核對差額，order_refunds 核對取消實收款",
+      "testEnvironment": "瀏覽器使用合成訂單與權限回應。後端回歸使用 snowland.test_settings 的記憶體 SQLite。",
+      "checks": [
+        {
+          "id": "frontend-balance-entry",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-amendment-balance-entry.cjs", "tests/test-amendment-balance-controls.cjs", "tests/test-order-bank-posted-date.cjs"],
+          "expected": "待結差額橫幅與面板同時出現，入口可捲動並聚焦同名面板。無待結差額時隱藏入口，舊差額紀錄仍可查。讀取中、失敗、空清單和取消中皆保留面板。核對權限與入帳日期編輯規則照常。"
+        },
+        {
+          "id": "browser-balance-entry",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "在對帳與差額開啟有待結差額的訂單，使用滑鼠或鍵盤啟用「差額回報與核對」，確認區塊捲到可見位置並取得焦點。",
+            "在修改與排課、取消與退款或排課月曆開啟訂單明細，確認入口可定位。具付款權限但目前流程無法核對時，可前往依該單號篩選的對帳與差額頁。缺付款權限時顯示處理提示。",
+            "檢查取消中、等待會員回報、已回報、差額紀錄讀取中或失敗、空清單，以及無待結差額的訂單。"
+          ],
+          "expected": "橫幅入口與面板標題一致，桌機與手機可操作，取消中的差額仍暫停核對，會員回報後才可核對補款。"
         }
       ]
     }
