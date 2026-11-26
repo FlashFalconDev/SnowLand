@@ -5,6 +5,7 @@ from django.db.models import Sum
 from Client.models import ClientMemberProfile
 
 from .models import MemberLoyaltyAccount, MemberLoyaltyEntry, MemberLoyaltyPolicy, OrderLoyalty, Reservation, ReservationGroup
+from .order_testing import exclude_test_orders
 
 
 DEFAULT_RULES = {
@@ -36,7 +37,7 @@ def rebuild_loyalty_account(account):
     """Reconcile a locked account from its reviewed baseline and active ledger."""
     before = (account.points, account.reward_balance, account.opening_points, account.opening_rewards)
     entries = MemberLoyaltyEntry.all_objects.filter(account=account, order__group__client_id=account.client_id)
-    totals = entries.live().aggregate(points=Sum('points_delta'), rewards=Sum('rewards_delta'))
+    totals = exclude_test_orders(entries.live(), 'order__group').aggregate(points=Sum('points_delta'), rewards=Sum('rewards_delta'))
     if account.opening_points is None or account.opening_rewards is None:
         original = entries.aggregate(points=Sum('points_delta'), rewards=Sum('rewards_delta'))
         account.opening_points = account.points - account.previous_points - (original['points'] or 0)
@@ -65,7 +66,7 @@ def add_entry(order, account, kind, *, points=0, rewards=0):
 
 
 def start_order_loyalty(group, revision, rules, *, spent=0, discount=0, referrer_user_id=None):
-    if not rules['enabled']:
+    if group.is_test or not rules['enabled']:
         return None
     account, _ = MemberLoyaltyAccount.objects.select_for_update().get_or_create(client_id=group.client_id, user_id=group.user_id)
     referrer = None
@@ -104,7 +105,7 @@ def checkout_rewards(tenant, user, summary, requested, referral_code):
     if code:
         if not (rules['referrer_rewards'] or rules['new_member_rewards']):
             raise ValueError('此學校尚未開放推薦活動')
-        prior = ReservationGroup.objects.live().filter(client=tenant, user=user)
+        prior = exclude_test_orders(ReservationGroup.objects.live()).filter(client=tenant, user=user)
         if (prior.filter(payments__is_deleted=False, payments__status__in=('paid', 'pending', 'refunded')).exists()
                 or Reservation.objects.live().filter(group__in=prior).exclude(status__in=('cancelled', 'deleted')).exists()):
             raise ValueError('推薦碼限本校首次訂課使用')
@@ -132,6 +133,8 @@ def checkout_rewards(tenant, user, summary, requested, referral_code):
 
 def sync_order_loyalty(group, *, confirmed_base=None, refund=None, actual_received_amount=None):
     """Reconcile one order under its caller's order lock and transaction."""
+    if group.is_test:
+        return
     order = OrderLoyalty.objects.select_for_update().filter(group=group).first()
     if order is None:
         return

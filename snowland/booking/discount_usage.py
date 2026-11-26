@@ -5,6 +5,7 @@ from django.db.models import Count, Q
 from Coursekit.models import DiscountCode
 
 from .models import OrderDiscountUsage, Reservation
+from .order_testing import exclude_test_orders
 
 
 def rebuild_discount_usage(tenant, rule_ids=None):
@@ -23,7 +24,7 @@ def rebuild_discount_usage(tenant, rule_ids=None):
     # Historical counters only identify checkout totals. The original cart
     # boundaries cannot be reconstructed from individual reservation rows.
     legacy_is_archived = legacy.exists() and not legacy.live().exclude(status='deleted').exists()
-    uses = OrderDiscountUsage.objects.filter(
+    uses = exclude_test_orders(OrderDiscountUsage.objects.all(), 'reservation__group').filter(
         Reservation.live_filter('reservation'),
         reservation__group__client=tenant, rule_id__in=[rule.pk for rule in rules],
     ).exclude(reservation__status='deleted')

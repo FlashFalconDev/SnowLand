@@ -1,11 +1,14 @@
 from decimal import Decimal
 
+from booking.order_testing import exclude_test_orders
+
 from .models import CoachPayRule
 from .payroll import discipline_for, pay_rule_for, payroll_course_key, payroll_hours, specified_payroll_fee
 
 
 def summarize_course_payroll(bookings, *, coach):
-    """Summarize the coach's visible lessons without creating or reading a payroll statement."""
+    """Summarize the coach's visible booking queryset without reading or creating a payroll statement."""
+    bookings = exclude_test_orders(bookings, 'reservation__group')
     summary = {
         period: {
             'total_hours': Decimal(0),

@@ -36,6 +36,7 @@ from Client.tenant_settings import (
     evaluation_date_filter_defaults,
     manual_payment_posting_date_mode,
     order_source_override_enabled,
+    test_order_marking_enabled,
 )
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
@@ -49,6 +50,7 @@ from booking.models import (
     StaffBookingLink,
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
+from booking.order_testing import exclude_test_orders, set_order_test_status
 from booking.marketing_source import display_marketing_source
 from booking.scheduling_metrics import (
     Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling, scheduling_metrics,
@@ -273,15 +275,16 @@ def _campus_ids(request):
     return getattr(request, 'campus_ids', [])
 
 
-def _require_headquarters(request):
+def _is_headquarters(request):
     if request.user.is_superuser:
-        return
-    try:
-        if request.can_view_all_campuses and staff_profile(request.user, request.tenant).role == 'hq_admin':
-            return
-    except Exception:
-        pass
-    raise PermissionDenied('只有總部管理員可以變更校區架構')
+        return True
+    profile = staff_profile(request.user, request.tenant)
+    return bool(getattr(request, 'can_view_all_campuses', False) and profile and profile.role == 'hq_admin')
+
+
+def _require_headquarters(request):
+    if not _is_headquarters(request):
+        raise PermissionDenied('只有總部管理員可以變更校區架構')
 
 
 def _parse_date_query(value):
@@ -1828,6 +1831,8 @@ class OrderAdminViewSet(ModelViewSet):
         if not tenant:
             return ReservationGroup.objects.none()
         qs = ReservationGroup.objects.live().filter(client=tenant)
+        if self.action == 'list' and self.request.query_params.get('include_test') != '1':
+            qs = exclude_test_orders(qs)
         # Headquarters' "all campuses" order history includes disabled campuses.
         # New orders and campus staff access still use active-campus scope.
         all_headquarters_history = (
@@ -1950,6 +1955,10 @@ class OrderAdminViewSet(ModelViewSet):
         detail = serializer.data
         if not is_campus_viewer:
             detail['manual_payment_posting_date_mode'] = manual_payment_posting_date_mode(request.tenant)
+            detail['can_mark_test'] = (
+                _is_headquarters(request) and user_has_admin_permission(request.user, 'order_edit', request.tenant)
+                and test_order_marking_enabled(request.tenant)
+            )
             detail['marketing_source_override'] = instance.marketing_source_override
             if (
                 user_has_admin_permission(request.user, 'order_edit', request.tenant)
@@ -1957,6 +1966,31 @@ class OrderAdminViewSet(ModelViewSet):
             ):
                 detail['marketing_source_options'] = _get_booking_form_options(request.tenant)['referral_source_options']
         return Response({'code': 200, 'msg': 'OK', 'data': detail})
+
+    @action(detail=True, methods=['post'], url_path='test-status')
+    @transaction.atomic
+    def test_status(self, request, *args, **kwargs):
+        from rest_framework.authentication import SessionAuthentication
+
+        SessionAuthentication().enforce_csrf(request)
+        if not _is_headquarters(request):
+            raise PermissionDenied('只有具修改與排課權限的總部管理員可以變更測試標記')
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        if not test_order_marking_enabled(request.tenant):
+            raise PermissionDenied('此學校已停用測試訂單標記')
+        data = request.data
+        if (not isinstance(data, dict) or set(data) != {'is_test', 'reason'}
+                or type(data['is_test']) is not bool or not isinstance(data['reason'], str)
+                or not 1 <= len(data['reason'].strip()) <= 1000):
+            raise ValidationError({'msg': '請指定測試狀態，並填寫 1 至 1000 字的原因'})
+        scoped = self.get_object()
+        group = get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk=scoped.pk, client=request.tenant)
+        try:
+            set_order_test_status(group, is_test=data['is_test'], actor=request.user, reason=data['reason'].strip())
+        except ValueError as exc:
+            return Response({'code': 409, 'msg': str(exc)}, status=409)
+        msg = '已標記為測試訂單' if group.is_test else '已取消測試標記'
+        return Response({'code': 200, 'msg': msg, 'data': {'is_test': group.is_test}})
 
     @action(detail=True, methods=['put'], url_path='marketing-source')
     @transaction.atomic
@@ -2168,6 +2202,8 @@ class OrderAdminViewSet(ModelViewSet):
             return Response({'code': 400, 'msg': '不支援的訂單操作'}, status=400)
         if payment_status and payment_status not in dict(Payment.STATUS_CHOICES):
             return Response({'code': 400, 'msg': '無效的付款狀態'}, status=400)
+        if instance.is_test and (payment_status or posting_date_supplied):
+            return Response({'code': 409, 'msg': '測試訂單不能變更正式付款紀錄'}, status=409)
         if posting_date_supplied and payment_status != 'paid':
             return Response({'code': 400, 'msg': '請將付款狀態設為已付款，才能儲存入帳日期'}, status=400)
 
@@ -2593,7 +2629,8 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         return CancellationRequestSummarySerializer if self._summary_only() else CancellationRequestAdminSerializer
 
     def get_queryset(self):
-        qs = CancellationRequest.objects.filter(group__client=self.request.tenant).select_related('group', 'reviewed_by')
+        qs = exclude_test_orders(CancellationRequest.objects.filter(group__client=self.request.tenant), 'group')
+        qs = qs.select_related('group', 'reviewed_by')
         if (
             not self.request.can_view_all_campuses or self.request.selected_campus_id is not None
         ):
@@ -2614,6 +2651,8 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         cancellation = self.get_object()
         # Re-read under locks; a concurrent review or campus move invalidates the initial object.
         group = get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk=cancellation.group_id)
+        if group.is_test:
+            return Response({'code': 409, 'msg': '測試訂單不能進行正式退款核對'}, status=409)
         cancellation = get_object_or_404(CancellationRequest.objects.select_for_update(), pk=cancellation.pk, group=group)
         scoped = not request.can_view_all_campuses or request.selected_campus_id is not None
         if group.client_id != request.tenant.pk or (scoped and group.campus_id not in _campus_ids(request)):
@@ -3045,7 +3084,9 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
         return self.serializer_class
 
     def get_queryset(self):
-        qs = MemberDetail.objects.live().filter(reservation__group__client=self.request.tenant).select_related(
+        qs = exclude_test_orders(MemberDetail.objects.live(), 'reservation__group').filter(
+            reservation__group__client=self.request.tenant,
+        ).select_related(
             'user', 'guardian', 'reservation__group__campus', 'reservation__group__client'
         ).prefetch_related('reservation__bookings')
         if _campus_ids(self.request) and (
@@ -3538,7 +3579,7 @@ def customers_list(request, client_code):
     tenant = request.tenant
 
     # 找出所有曾在此 client 預約過的 user
-    scoped_groups = ReservationGroup.objects.live().filter(client=tenant)
+    scoped_groups = exclude_test_orders(ReservationGroup.objects.live().filter(client=tenant))
     if _campus_ids(request) and (
         not request.can_view_all_campuses or request.selected_campus_id is not None
     ):
@@ -4285,7 +4326,7 @@ def dashboard_stats(request, client_code):
         except (ValueError, OverflowError):
             return Response({'code': 400, 'msg': '請填寫有效的開始與結束日期，結束日期不得早於開始日期'}, status=400)
 
-    groups = ReservationGroup.objects.live().filter(client=tenant)
+    groups = exclude_test_orders(ReservationGroup.objects.live().filter(client=tenant))
     if date_basis == 'created':
         groups = groups.filter(created_at__gte=start, created_at__lt=end)
     else:
@@ -4300,7 +4341,7 @@ def dashboard_stats(request, client_code):
 
     accessible_resorts = Resorts.objects.filter(client=tenant)
     if not request.can_view_all_campuses or request.selected_campus_id is not None:
-        history = Reservation.objects.live().filter(group__client=tenant, group__campus_id__in=campus_ids).values('resort_id')
+        history = exclude_test_orders(Reservation.objects.live(), 'group').filter(group__client=tenant, group__campus_id__in=campus_ids).values('resort_id')
         accessible_resorts = accessible_resorts.filter(Q(campuses__id__in=campus_ids) | Q(pk__in=history)).distinct()
     resort_options = list(accessible_resorts.order_by('id').values('id', 'display_name'))
     resort_names = {item['id']: item['display_name'] for item in resort_options}
@@ -4492,7 +4533,7 @@ def staff_list(request, client_code):
     users = list(users)
     user_ids = [u.id for u in users]
     reservation_counts = dict(
-        ReservationGroup.objects.live().filter(client=request.tenant, user_id__in=user_ids)
+        exclude_test_orders(ReservationGroup.objects.live()).filter(client=request.tenant, user_id__in=user_ids)
         .values('user_id')
         .annotate(count=Count('id'))
         .values_list('user_id', 'count')
@@ -4928,7 +4969,7 @@ def coach_my_courses(request, client_code):
 
     full_schedule_visible = _coach_can_view_full_schedule(coach)
     visible_start, visible_end = _coach_visible_window()
-    qs = Reservation.objects.live().filter(
+    qs = exclude_test_orders(Reservation.objects.live(), 'group').filter(
         preferred_coach=coach,
         group__client=request.tenant,
     ).exclude(status__in=['deleted', 'cancelled']).select_related(

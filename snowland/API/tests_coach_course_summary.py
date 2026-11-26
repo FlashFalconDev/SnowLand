@@ -124,6 +124,26 @@ class CoachCourseSummaryTests(TestCase):
         self.assert_discipline(summary['actual'], 'snowboard', hours=15, count=3, amount=1200)
         self.assert_discipline(summary['estimated'], 'snowboard', hours=0, count=1, amount=400)
 
+    def test_test_orders_are_excluded_from_coach_payroll_summary(self):
+        for discipline in ('ski', 'snowboard'):
+            CoachPayRule.objects.create(
+                coach=self.coach, discipline=discipline, hourly_rate=1000, specified_fee=400,
+            )
+        test_group = ReservationGroup.objects.create(
+            client=self.client_tenant, campus=self.campus, user=self.user, is_test=True,
+        )
+        self.add_lesson(date(2026, 12, 8), template=self.half_day, coach_fee=100, group=test_group)
+        self.add_lesson(
+            date(2026, 12, 9), template=self.full_day, status='manually_assigned', coach_fee=100, group=test_group,
+        )
+
+        summary = self.summary(month='2026-12')
+        self.assertEqual(summary['actual']['total_hours'], 10)
+        self.assert_discipline(summary['actual'], 'snowboard', hours=10, count=1, amount=400)
+        self.assert_discipline(summary['actual'], 'ski', hours=0, count=0, amount=0)
+        self.assertEqual(summary['estimated']['total_hours'], 0)
+        self.assert_discipline(summary['estimated'], 'snowboard', hours=0, count=0, amount=0)
+
     def test_month_boundary_and_visible_window_use_taipei_dates(self):
         self.add_lesson(date(2026, 11, 30), template=self.half_day)
         self.add_lesson(date(2026, 12, 11), template=self.half_day, status='manually_assigned')

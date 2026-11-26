@@ -5,10 +5,14 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from booking.models import Booking
+from booking.order_testing import exclude_test_orders
 from .dashboard_reports import csv_report
 
 
 def export_orders(queryset, params):
+    include_test = params.get('include_test') == '1'
+    if not include_test:
+        queryset = exclude_test_orders(queryset)
     basis = params.get('date_basis', 'created')
     direction = params.get('sort', 'asc')
     if basis not in ('created', 'lesson') or direction not in ('asc', 'desc'):
@@ -34,6 +38,7 @@ def export_orders(queryset, params):
         prefix = (group.order_number or str(group.pk), created, group.campus.name if group.campus else '')
         payment = group.latest_live_payment()
         posted_date = payment.bank_posted_date.isoformat() if payment and payment.bank_posted_date else ''
+        test_column = ('是' if group.is_test else '否',) if include_test else ()
         sessions = [
             (resort, lesson)
             for reservation in group.reservations.live().all()
@@ -43,14 +48,16 @@ def export_orders(queryset, params):
             if basis == 'created' or start <= lesson.date <= end
         ]
         if not sessions and basis == 'created':
-            rows.append((*prefix, '', '', '', '', '', posted_date))
+            rows.append((*prefix, '', '', '', '', '', posted_date, *test_column))
         for resort, lesson in sessions:
             rows.append((*prefix, lesson.date.isoformat(), lesson.start_time.isoformat(timespec='minutes'),
-                         lesson.end_time.isoformat(timespec='minutes'), resort, lesson.course_name, posted_date))
+                         lesson.end_time.isoformat(timespec='minutes'), resort, lesson.course_name, posted_date, *test_column))
         if len(rows) > 20000:
             raise ValidationError({'msg': '匯出超過 20,000 列，請縮小日期區間'})
 
     sort_columns = (1, 3, 4, 0) if basis == 'created' else (3, 4, 1, 0)
     rows.sort(key=lambda row: tuple(row[column] for column in sort_columns), reverse=direction == 'desc')
     header = ('訂單編號', '下單時間', '校區', '上課日期', '開始時間', '結束時間', '雪場', '課程', '入帳日期')
+    if include_test:
+        header += ('測試訂單',)
     return csv_report([header, *rows], f'SnowLand-orders-{start}-{end}.csv')

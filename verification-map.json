@@ -114,6 +114,46 @@
       ]
     },
     {
+      "id": "test-order-isolation",
+      "name": "測試訂單標記與帳務統計排除",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "edit": "/{client_code}/console/orders/edit",
+        "payments": "/{client_code}/console/orders/payments",
+        "refunds": "/{client_code}/console/orders/refunds",
+        "export": "/{client_code}/console/orders/export",
+        "markApi": "/api/admin/{client_code}/orders/{id}/test-status/",
+        "exportApi": "/api/admin/{client_code}/orders/export/",
+        "dashboardApi": "/api/admin/{client_code}/dashboard/"
+      },
+      "permission": "總部管理員及 order_edit 可標記。查詢及匯出沿用既有訂單、租戶與校區權限。",
+      "testEnvironment": "後端使用 snowland.test_settings 的記憶體 SQLite。瀏覽器使用合成訂單與權限回應。",
+      "checks": [
+        {
+          "id": "api-marking-and-accounting-isolation",
+          "command": "cd snowland; python manage.py test API.tests_test_orders --settings=snowland.test_settings",
+          "expected": "交易或已送出的薪獎阻擋標記。標記及取消均留稽核，並改變訂單、營運統計、報表、教練薪獎、行政月結及紅利的計入結果。訂單 CSV 預設排除，可指定含測試訂單。跨租戶無法操作。"
+        },
+        {
+          "id": "frontend-test-order-requests",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-order-test-status.cjs"],
+          "expected": "預設查詢排除，勾選才送出顯示或匯出的條件。標記與取消送出布林值及原因，校區查詢保留既有權限範圍。"
+        },
+        {
+          "id": "browser-test-order-controls",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "在訂單管理確認預設隱藏測試單，勾選顯示後核對測試標籤。",
+            "以總部帳號開啟未付款訂單，確認原因空白時不能送出。標記後核對標籤及歷程，再填原因取消測試標記。",
+            "嘗試標記已核款訂單，確認顯示更正流程提示。以唯讀權限確認看不到標記操作。",
+            "在訂單匯出確認含測試訂單預設關閉，勾選後檢查 CSV 有測試訂單欄。"
+          ],
+          "expected": "桌機與手機可讀取標籤、原因、操作錯誤及匯出設定，畫面無水平溢出。"
+        }
+      ]
+    },
+    {
       "id": "order-marketing-source-override",
       "name": "訂單補登客人來源",
       "routes": {

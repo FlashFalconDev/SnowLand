@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.db.models import FileField
 
@@ -96,6 +97,20 @@ class PlatformArchiveAdmin(ArchivedOrderAdmin):
         return False
 
 
+class PaymentAdminForm(forms.ModelForm):
+    def clean_reservation_group(self):
+        group = self.cleaned_data['reservation_group']
+        group_ids = {group.pk, self.instance.reservation_group_id} - {None}
+        locked_groups = ReservationGroup.objects.select_for_update().filter(pk__in=group_ids).order_by('pk')
+        if any(row.is_test for row in locked_groups):
+            raise forms.ValidationError('測試訂單不能變更正式付款紀錄')
+        return group
+
+
+class PaymentArchiveAdmin(ArchivedOrderAdmin):
+    form = PaymentAdminForm
+
+
 @admin.register(ReservationGroup)
 class ReservationGroupAdmin(ArchivedOrderAdmin):
     list_display = ['id', 'name', 'user', 'created_at', 'is_deleted', 'deleted_at']
@@ -112,6 +127,8 @@ class ReservationGroupAdmin(ArchivedOrderAdmin):
 for scope in SCOPES:
     if scope.model is not ReservationGroup:
         admin_class = ArchivedOrderAdmin if scope.model._meta.model_name in {
-            'reservation', 'booking', 'memberdetail', 'payment',
+            'reservation', 'booking', 'memberdetail',
         } else PlatformArchiveAdmin
+        if scope.model._meta.model_name == 'payment':
+            admin_class = PaymentArchiveAdmin
         admin.site.register(scope.model, admin_class)
