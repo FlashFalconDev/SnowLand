@@ -10,6 +10,13 @@ from PIL import Image, UnidentifiedImageError
 from storages.backends.s3 import S3Storage
 
 
+HEIC_UPLOAD_ERROR = 'HEIC 格式暫不支援，請先在手機「設定 → 相機 → 格式」改為「最相容」，或轉成 JPG 後再上傳'
+ALBUM_FORMAT_ERROR = '檔案內容無效或格式不支援。照片支援 JPEG、PNG、WebP，影片支援 MP4、MOV、WebM'
+HEIC_BRANDS = {b'heic', b'heix', b'hevc', b'hevx', b'heim', b'heis', b'hevm', b'hevs', b'mif1', b'msf1'}
+MP4_BRANDS = {b'isom', b'mp41', b'mp42', b'avc1', b'dash', b'M4V ', b'MSNV', b'hvc1', b'hev1', b'F4V '}
+MP4_BRANDS.update(f'iso{version}'.encode() for version in range(1, 10))
+
+
 class _LocalPrivateCourseMediaStorage(FileSystemStorage):
     @property
     def base_location(self):
@@ -50,12 +57,40 @@ def course_media_url(media):
     })
 
 
-def validate_course_upload(upload):
+def album_video_extension(upload):
+    name_extension = os.path.splitext(upload.name)[1].lower()
+    content_type = (upload.content_type or '').lower()
+    if name_extension in {'.heic', '.heif'} or content_type in {'image/heic', 'image/heif'}:
+        raise ValueError(HEIC_UPLOAD_ERROR)
+    header = upload.read(4096)
+    upload.seek(0)
+    if len(header) >= 16 and header[4:8] == b'ftyp':
+        box_size = int.from_bytes(header[:4], 'big')
+        if box_size < 16 or box_size % 4 or box_size > len(header):
+            raise ValueError(ALBUM_FORMAT_ERROR)
+        brands = {header[8:12], *(header[i:i + 4] for i in range(16, box_size, 4))}
+        if brands & HEIC_BRANDS:
+            raise ValueError(HEIC_UPLOAD_ERROR)
+        if b'qt  ' in brands:
+            return '.mov'
+        if brands & MP4_BRANDS:
+            return '.mp4'
+        raise ValueError(ALBUM_FORMAT_ERROR)
+    if header.startswith(b'\x1aE\xdf\xa3'):
+        if b'\x42\x82\x84webm' not in header:
+            raise ValueError(ALBUM_FORMAT_ERROR)
+        return '.webm'
+    return None
+
+
+def validate_course_upload(upload, *, album=False):
+    video_ext = album_video_extension(upload) if album and upload else None
     if not upload or not upload.size:
         raise ValueError('請選擇要上傳的照片或影片')
-    header = upload.read(32)
-    upload.seek(0)
-    video_ext = '.mp4' if len(header) >= 12 and header[4:8] == b'ftyp' else '.webm' if header.startswith(b'\x1aE\xdf\xa3') else None
+    if not album:
+        header = upload.read(32)
+        upload.seek(0)
+        video_ext = '.mp4' if len(header) >= 12 and header[4:8] == b'ftyp' else '.webm' if header.startswith(b'\x1aE\xdf\xa3') else None
     if video_ext:
         limit = getattr(settings, 'COURSE_MEDIA_MAX_VIDEO_BYTES', 100 * 1024 * 1024)
         if upload.size > limit:
@@ -68,10 +103,10 @@ def validate_course_upload(upload):
         image = Image.open(upload)
         extension = {'JPEG': '.jpg', 'PNG': '.png', 'WEBP': '.webp'}.get(image.format)
         if not extension:
-            raise ValueError('照片僅支援 JPEG、PNG、WebP；影片支援 MP4／MOV、WebM')
+            raise ValueError(ALBUM_FORMAT_ERROR if album else '照片僅支援 JPEG、PNG、WebP；影片支援 MP4／MOV、WebM')
         image.verify()
     except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError):
-        raise ValueError('檔案不是有效的照片或支援的影片格式')
+        raise ValueError(ALBUM_FORMAT_ERROR if album else '檔案不是有效的照片或支援的影片格式')
     finally:
         upload.seek(0)
     return 'photo', extension
@@ -94,7 +129,12 @@ def save_course_upload(evaluation, user, upload):
 def save_album_upload(booking, user, upload):
     from .models import CourseAlbumAsset
 
-    media_type, extension = validate_course_upload(upload)
+    try:
+        media_type, extension = validate_course_upload(upload, album=True)
+    except ValueError as exc:
+        if upload:
+            raise ValueError(f'「{upload.name}」：{exc}') from exc
+        raise
     asset = CourseAlbumAsset(booking=booking, uploaded_by=user, media_type=media_type)
     try:
         asset.file.save(f'{booking.pk}/{uuid.uuid4().hex}{extension}', upload, save=False)
@@ -107,7 +147,8 @@ def save_album_upload(booking, user, upload):
 
 
 def private_file_response(media, range_header=None):
-    content_types = {'.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm'}
+    content_types = {'.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4',
+                     '.mov': 'video/quicktime', '.webm': 'video/webm'}
     extension = os.path.splitext(media.file.name)[1].lower()
     content_type = content_types.get(extension, 'application/octet-stream')
     stream = media.file.open('rb')

@@ -254,8 +254,8 @@ function PayrollPanel() {
 function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
-  const myEvaluationsUrl = useSiteLink('/console/my/evaluations')
-  const booking = coachView ? searchParams.get('booking') : null
+  const evaluationsUrl = useSiteLink(coachView ? '/console/my/evaluations' : '/console/evaluations')
+  const booking = searchParams.get('booking')
   const [evaluationDate, setEvaluationDate] = useState('')
   const client = currentClientCode()
   const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations', client], queryFn: coachView ? fetchCoachEvaluations : fetchEvaluations })
@@ -269,12 +269,12 @@ function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
   return <section className={cardClass}>
     <h2 className="font-semibold text-gray-900 dark:text-white">{booking ? '這堂課的學員評量' : '學員進度與課程紀錄'}</h2>
     <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>
-    {booking && <Link to={myEvaluationsUrl} className="mb-3 inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">查看全部評量</Link>}
-    {booking && /^\d+$/.test(booking) && <CoachCourseAlbum key={booking} bookingId={Number(booking)} />}
-    {coachView && !booking && visibleRows.length > 0 && <div className="mb-3 flex flex-wrap gap-2">
+    {booking && <Link to={evaluationsUrl} className="mb-3 inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">查看全部評量</Link>}
+    {booking && /^\d+$/.test(booking) && <CoachCourseAlbum key={booking} bookingId={Number(booking)} coachView={coachView} />}
+    {!booking && visibleRows.length > 0 && <div className="mb-3 flex flex-wrap gap-2">
       {[...new Map(visibleRows.map(row => [row.booking, row])).values()].map(row =>
         <Link key={row.booking} className="inline-flex min-h-11 items-center rounded-lg border border-violet-200 px-3 text-sm font-semibold text-violet-700 dark:text-violet-200"
-          to={`${myEvaluationsUrl}?booking=${row.booking}`}>課程相簿：{row.course_date} · {row.order_number}</Link>)}
+          to={`${evaluationsUrl}?booking=${row.booking}`}>課程相簿：{row.course_date} · {row.order_number}</Link>)}
     </div>}
     {coachView && !booking && <div className="mb-4 flex flex-wrap items-end gap-2">
       <label className="text-sm font-medium text-gray-900 dark:text-white">依上課日期找評量
