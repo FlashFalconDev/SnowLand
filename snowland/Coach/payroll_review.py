@@ -16,6 +16,8 @@ def publish_statement(statement, deadline, expected_reviewed_at=None):
     statement = PayrollStatement.objects.live().select_for_update().get(pk=statement.pk)
     if statement.status != 'draft':
         raise ValueError('只能送出草稿薪資單，請重新載入目前狀態')
+    if statement.lines.filter(booking__reservation__group__is_test=True).exists():
+        raise ValueError('薪資草稿含測試訂單，請先重新計算薪資再送出')
     if deadline < timezone.localdate() or deadline <= statement.period_end:
         raise ValueError('確認截止日不能早於今天，且必須晚於結算結束日')
     if not statement.lines.exists() or statement.total_amount < 0:

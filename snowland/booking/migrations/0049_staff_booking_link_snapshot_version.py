@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ('booking', '0047_reservationgroup_marketing_source_override'),
+        ('booking', '0048_reservationgroup_test_status'),
     ]
 
     operations = [

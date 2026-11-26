@@ -57,6 +57,8 @@ def process_balance(group, actor, data, *, staff=False, scope=None):
     groups=ReservationGroup.objects.live().select_for_update().filter(client_id=group.client_id)
     groups=groups.filter(pk__in=scope.values('pk')) if staff else groups.filter(user=actor)
     group=get_object_or_404(groups,pk=group.pk)
+    if group.is_test:
+        raise NotificationConflict('測試訂單不能進行正式差額核對')
     row=get_object_or_404(OrderAmendment.objects.select_for_update().select_related('revision'),group=group,pk=data['amendment_id'])
     fingerprint=amendment_digest({'group':group.pk,'actor':actor.pk,'staff':staff,'data':data})
     previous_event=OrderAmendmentEvent.all_objects.filter(request_key=data['request_key']).first()

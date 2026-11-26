@@ -52,6 +52,9 @@ def sync_accounts(group, recipient):
 @transaction.atomic
 def prepare_email(request, group, data):
     Client.objects.select_for_update().get(pk=request.tenant.pk)
+    group.refresh_from_db(fields=['is_test'])
+    if group.is_test:
+        raise NotificationConflict('測試訂單不能寄送正式通知')
     key = data.get('request_key') or uuid.uuid4()  # Older clients remain compatible; the current UI always supplies a key.
     recipient = channel_recipient('email', data['recipient_email'])
     fingerprint = hashlib.sha256(json.dumps({'actor': request.user.pk, 'group': group.pk,
@@ -97,6 +100,10 @@ def deliver_order_email(delivery_id):
             return 409, {'code': 409, 'msg': '通知已停止寄送，請以最新訂單狀態為準。'}
         if delivery.status != 'sending' or delivery.payload.get('email_claimed'):
             return result_for(delivery, duplicate=True)
+        if delivery.group.is_test:
+            delivery.status = 'cancelled'
+            delivery.save(update_fields=['status'])
+            return result_for(delivery)
         if delivery.payload.get('amendment_notice'):
             from booking.amendment_notifications import amendment_delivery_is_current
             if not amendment_delivery_is_current(delivery):

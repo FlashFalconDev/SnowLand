@@ -36,6 +36,8 @@ def merchant_credentials(merchant):
 
 
 def order_card_allowed(group):
+    if group.is_test:
+        return False
     if group.newebpay_override is not None:
         return group.newebpay_override
     return (group.source_country or 'TW') != 'TW'

@@ -45,7 +45,6 @@ class CourseMediaUploadTests(tests_coach_evaluations.CoachEvaluationTests):
         self.assertTrue(response['Content-Type'].startswith('image/png'))
         self.assertEqual(response['Cache-Control'], 'private, no-store')
         self.assertTrue(b''.join(response.streaming_content).startswith(b'\x89PNG'))
-        response.close()
         anonymous = APIClient()
         self.assertEqual(anonymous.get(url).status_code, 401)
         anonymous.force_authenticate(User.objects.create_user('media-stranger'))
@@ -84,9 +83,7 @@ class CourseMediaUploadTests(tests_coach_evaluations.CoachEvaluationTests):
         self.assertEqual(organizer.post(center_url, {
             'action': 'submit_satisfaction', 'evaluation_id': self.own.pk, 'rating': 5,
         }, format='json').status_code, 404)
-        response = organizer.get(url)
-        response.close()
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(organizer.get(url).status_code, 404)
         learner.refresh_from_db()
         self.assertEqual(learner.insurance_data['id_number'], 'PRIVATE-ID')
 
@@ -94,7 +91,7 @@ class CourseMediaUploadTests(tests_coach_evaluations.CoachEvaluationTests):
         own_client.force_authenticate(participant)
         response = own_client.get(url)
         self.assertEqual(response.status_code, 200)
-        response.close()
+        self.assertEqual(b''.join(response.streaming_content), self.photo().read())
         own_center = own_client.get(center_url).data
         self.assertIn(learner.pk, [form['id'] for form in own_center['pre_course_forms']])
         self.assertIn(self.own.pk, [record['id'] for record in own_center['learning_records']])
@@ -110,7 +107,7 @@ class CourseMediaUploadTests(tests_coach_evaluations.CoachEvaluationTests):
         client.force_authenticate(guardian)
         response = client.get(url)
         self.assertEqual(response.status_code, 200)
-        response.close()
+        self.assertEqual(b''.join(response.streaming_content), self.photo().read())
         client.force_authenticate(former_guardian)
         self.assertEqual(client.get(url).status_code, 404)
         learner.guardian = former_guardian
@@ -128,7 +125,6 @@ class CourseMediaUploadTests(tests_coach_evaluations.CoachEvaluationTests):
         self.assertEqual(response.status_code, 206)
         self.assertEqual(response['Content-Range'], f'bytes 4-11/{len(content)}')
         self.assertEqual(b''.join(response.streaming_content), content[4:12])
-        response.close()
         self.assertEqual(self.api.get(url, HTTP_RANGE='bytes=900-999').status_code, 416)
 
     def test_delete_evaluation_removes_private_attachment_after_commit(self):
@@ -156,7 +152,7 @@ class CourseMediaUploadTests(tests_coach_evaluations.CoachEvaluationTests):
         profile.campuses.add(self.campus)
         response = client.get(url)
         self.assertEqual(response.status_code, 200)
-        response.close()
+        self.assertEqual(b''.join(response.streaming_content), self.photo().read())
         client.force_authenticate(User.objects.create_superuser('media-hq', password='pw'))
         self.assertEqual(client.get(url, HTTP_X_CAMPUS_ID=str(other_campus.pk)).status_code, 404)
 

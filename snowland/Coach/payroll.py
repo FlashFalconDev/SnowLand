@@ -3,7 +3,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.db.models import F, Max, Q
 
+from Client.models import Client
 from booking.models import Booking
+from booking.order_testing import exclude_test_orders
 
 from .models import Coach, CoachPayRule, PayrollLine, PayrollStatement
 
@@ -66,6 +68,7 @@ def specified_payroll_fee(booking, rule, used_reservations):
 
 @transaction.atomic
 def calculate_payroll_statement(*, coach, campus, period_start, period_end):
+    Client.objects.select_for_update().get(pk=campus.client_id)
     # Serialize creation/recalculation for this coach, including overlapping periods.
     coach = Coach.objects.select_for_update().get(pk=coach.pk)
     overlap = PayrollStatement.all_objects.filter(
@@ -87,7 +90,7 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
         raise ValueError('此期間已有封存薪資單，須先由平台管理者還原該批次')
     if statement.status != 'draft':
         raise ValueError('已送交確認、已確認或已發放的薪資單不能重新計算')
-    bookings = list(Booking.objects.live().filter(
+    bookings = list(exclude_test_orders(Booking.objects.live(), 'reservation__group').filter(
         reservation__preferred_coach=coach,
         reservation__group__campus=campus,
         reservation__status='completed',
@@ -102,7 +105,7 @@ def calculate_payroll_statement(*, coach, campus, period_start, period_end):
             raise ValueError(f'{coach.name} 的薪資規則有不合法的介紹費百分比或裝備協助時數，請先編輯原規則再結算')
     # Referral ownership is independent of the teacher assigned to a lesson.
     # Resolve the referrer's rules before replacing any existing draft lines.
-    referral_bookings = Booking.objects.live().filter(
+    referral_bookings = exclude_test_orders(Booking.objects.live(), 'reservation__group').filter(
         reservation__group__client=coach.client,
         reservation__group__campus=campus,
         reservation__group__referral_user_id=coach.user_id,
