@@ -95,6 +95,9 @@ class CheckPRMigrationsTests(unittest.TestCase):
         for body in ("", f"Migration：有\n<!-- - `{added}` -->", self.body(added) + "\nMigration：無"):
             with self.subTest(body=body):
                 self.assertEqual(self.check(body)[0], 1)
+        status, output = self.check("Migration：無")
+        self.assertEqual(status, 1)
+        self.assertIn("請把 Migration 欄位改成『有』並逐支列出新 migration 路徑", output)
         self.assertEqual(self.check(self.body(added))[0], 0)
 
     def test_rejects_duplicate_number_even_on_linear_graph(self):

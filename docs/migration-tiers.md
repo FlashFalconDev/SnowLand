@@ -16,7 +16,7 @@
 
 ## 隔離 MySQL 前進、回退、再前進
 
-1. 依 [代理工作教訓](agent-lessons.md) 使用隔離 MySQL。SQLite 測試不檢查部分 MySQL 欄位限制，且會跳過部分舊 migrations。演練請新建拋棄式 MySQL 空庫，使用專用帳號。Docker 只對 loopback 開 port；連線目標不得轉送到正式庫，也不得掛載真實資料或使用正式憑證。
+1. 依 [代理工作教訓](agent-lessons.md) 使用隔離 MySQL。SQLite 測試不檢查部分 MySQL 欄位限制，且會跳過部分舊 migrations。演練請新建拋棄式 MySQL 空庫，使用專用帳號。Docker 只對 loopback 開 port；連線目標不得轉送到正式庫，也不得掛載真實資料或使用正式憑證。不得對正式庫建立 SSH tunnel 或 port-forward 後，再用 `127.0.0.1`／`localhost` 執行演練腳本。
 2. 用環境變數提供 `SNOWLAND_DRILL_USER` 和 `SNOWLAND_DRILL_PASSWORD`。可設定 `SNOWLAND_DRILL_HOST`、`SNOWLAND_DRILL_PORT`、`SNOWLAND_DRILL_DB`，預設為 `127.0.0.1:33306` 和 `snowland_migration_drill`。只接受 `localhost`／`127.0.0.1`，或 GitHub Actions 中名為 `mysql` 的 service。庫名須以底線分隔包含 `test`、`drill` 或 `throwaway`。已有表或 view 的資料庫會被拒絕。
 3. 在 repo 根目錄確認計畫，再用已安裝 `snowland/requirements.txt` 的 Python 執行演練，結束後銷毀本次專用容器及資料。預設回退一支，可用 `--steps` 改步數。
 

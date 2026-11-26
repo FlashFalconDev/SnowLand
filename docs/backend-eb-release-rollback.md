@@ -28,7 +28,7 @@ eb deploy snowland-prod --smoke-only --profile snowland --region ap-northeast-1
 ## 3. 停止、回退與重試
 
 1. 若狀態不明、migration 部分套用或清單漂移，停止後續部署並保留證據。若包裝器明確失敗、EB 有部署 ERROR、健康逾 10 分鐘未過或 smoke 失敗，依獲准計畫回退程式。先查 EB 與收據，確認是否已自動回退。
-2. 若需手動回退，由獲准計畫指定的 EB 環境與上一個健康 app version 執行 `aws elasticbeanstalk update-environment --environment-name <環境> --version-label <健康版本>`，使用計畫的 profile 和 region。保留已套用且與舊版相容的 schema。Schema 回滾、還原快照或修改正式資料都須另走小陌兩步確認。
-3. 回退後用同一套健康等待規則驗證回退版本，再執行 `--verify-only` 和 `--smoke-only`。前者核對候選與本機證據，回退版本以 EB VersionLabel 查詢為準。兩個旗標分開執行。記錄快照、版本、健康、migration、收據與失敗原因。
+2. 若需手動回退，依獲准計畫執行 `aws elasticbeanstalk update-environment --environment-name <環境> --version-label <上一個健康 VersionLabel> --profile <profile> --region <region>`，將 EB 環境切回上一個健康版本。保留已套用且與舊版相容的 schema。Schema 回滾、還原快照或修改正式資料都須另走小陌兩步確認。
+3. 回退後依第 2 節的健康等待規則，核對 EB `VersionLabel` 為上一個健康版本且環境為 Ready/Green/Ok，再執行 `--smoke-only`。若要重試部署，先用 `--verify-only` 核對候選 commit 的本機檢查與隔離 MySQL 驗證證據。記錄快照、版本、健康、migration、收據與失敗原因。
 4. 同一 commit 與計畫範圍內，工具、健康檢查、等待時間或腳本造成失敗或自動回退，修正並由 Claude 重驗後可直接重試，最多兩次。換 commit、新增或修改 migration、另需操作正式 DB、變更計畫範圍或兩次後仍失敗，重新請小陌確認。
 5. 看板記錄 PR、SHA、版本、快照狀態、嘗試次數、驗證及回退結果。更新方式見 [共通代理規則](../AGENTS.md#看板與文件)。

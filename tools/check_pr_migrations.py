@@ -128,6 +128,8 @@ def check(base, body, cwd):
         declarations = re.findall(r"^Migration：[ \t]*([有無])[ \t\r]*$", body, flags=re.MULTILINE)
         if declarations != ["有"]:
             errors.append("PR 說明須有一行 Migration：有")
+            if "無" in declarations:
+                errors.append("請把 Migration 欄位改成『有』並逐支列出新 migration 路徑")
         listed = set(re.findall(r"^[ \t]*-[ \t]+`([^`\r\n]+)`", body, flags=re.MULTILINE))
         for path in sorted(added - listed):
             errors.append(f"PR 說明缺少 migration 路徑：{path}")
