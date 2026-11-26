@@ -30,6 +30,22 @@ def manual_payment_posting_date_mode(client):
     return mode if mode in ('optional', 'required', 'disabled') else 'optional'
 
 
+def booking_discount_settings(client):
+    """Read and validate the tenant's discount rules from its booking JSON."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    config = config if isinstance(config, dict) else {}
+    basis = config.get('discount_course_scope_basis')
+    if basis not in ('course_fee_only', 'legacy_group_subtotal'):
+        basis = 'course_fee_only'
+    codes = config.get('discount_photo_bundle_qualifying_course_codes')
+    qualifying_codes = {
+        code.strip().upper() for code in codes if isinstance(code, str) and code.strip()
+    } if isinstance(codes, list) else set()
+    return basis, qualifying_codes
+
+
 def _vehicle_review_settings(client):
     config = ModuleSetting.objects.filter(
         client=client, module__module_sid='vehicle_review', module__is_active=True, is_active=True,

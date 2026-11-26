@@ -1,5 +1,5 @@
 from .tenant_scope import require_open_booking_resorts, resort_for_course, selected_coach_for_school
-from Client.tenant_settings import gateway_settings, google_client_id, module_enabled
+from Client.tenant_settings import booking_discount_settings, gateway_settings, google_client_id, module_enabled
 from Control.tenant_memberships import staff_profile
 from Client.memberships import member_profile as school_member_profile
 """
@@ -28,6 +28,7 @@ from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from collections import deque
 from datetime import datetime, timedelta
 
 from Client.models import Client, SiteContent
@@ -138,33 +139,11 @@ def looks_like_photo_service(*values):
     return any(keyword.lower() in text for keyword in PHOTO_SERVICE_KEYWORDS)
 
 
-def infer_cart_item_service_type(item, course_type=None):
-    names = [
-        item.get('serviceType'),
-        item.get('service_type'),
-        item.get('category'),
-        item.get('courseCategory'),
-        item.get('courseCategoryName'),
-    ]
-    for course in item.get('courses') or []:
-        names.extend([
-            course.get('courseTypeName'),
-            course.get('courseTemplateName'),
-        ])
-
-    category_service_type = None
-    if course_type:
-        category = getattr(course_type, 'category', None)
-        category_service_type = getattr(category, 'service_type', None)
-        names.extend([
-            getattr(course_type, 'name', ''),
-            getattr(category, 'name', ''),
-        ])
-
-    if looks_like_photo_service(*names):
+def infer_cart_item_service_type(course_type, template_names):
+    category = course_type.category
+    # Catalog names still identify photography in older categories.
+    if category.service_type == 'photo' or looks_like_photo_service(category.name, course_type.name, *template_names):
         return 'photo'
-    if category_service_type in ('ski', 'photo'):
-        return category_service_type
     return 'ski'
 
 
@@ -434,17 +413,20 @@ def compute_cart_item_pricing_authoritative(item):
 
     people_count = int(item.get('peopleCount', 1) or 1)
     ability_level_counts = normalize_student_level_counts(item, people_count)
-    course_fee = 0
+    course_fees = []
+    template_names = []
     duration_hours_total = 0
     group_course_template = select_cart_group_course_template(courses, course_type, resort)
     for course in courses:
-        course_fee += compute_course_price_authoritative(
+        course_fees.append(compute_course_price_authoritative(
             template_id=course.get('courseTemplateId'),
             resort_name=item['resort'],
             people_count=people_count,
             course_date=course['date'],
-        )
+        ))
         template = CourseTemplate.objects.filter(id=course.get('courseTemplateId')).first()
+        if template:
+            template_names.append(template.name)
         if template and template.minimum_student_level:
             required_rank = ABILITY_LEVEL_KEYS.index(template.minimum_student_level) if template.minimum_student_level in ABILITY_LEVEL_KEYS else 0
             if any(ABILITY_LEVEL_KEYS.index(level) < required_rank for level in ability_level_counts):
@@ -464,7 +446,8 @@ def compute_cart_item_pricing_authoritative(item):
         course_template=group_course_template,
     )
 
-    service_type = infer_cart_item_service_type(item, course_type)
+    service_type = infer_cart_item_service_type(course_type, template_names)
+    course_fee = sum(course_fees)
     subtotal = course_fee + coach_fee + language_fee + equipment_fee
 
     return {
@@ -472,6 +455,7 @@ def compute_cart_item_pricing_authoritative(item):
         'course_type': course_type,
         'service_type': service_type,
         'course_fee': int(course_fee),
+        'course_fees': course_fees,
         'coach_fee': int(coach_fee),
         'language_fee': int(language_fee),
         'equipment_fee': int(equipment_fee),
@@ -513,7 +497,7 @@ def discount_rule_is_active(rule, now):
     return True, ''
 
 
-def get_discount_eligible_indices(rule, cart_items):
+def get_discount_eligible_indices(rule, cart_items, has_qualifying_course_discount):
     service_types = {item['service_type'] for item in cart_items}
     has_ski = 'ski' in service_types
     has_photo = 'photo' in service_types
@@ -525,6 +509,8 @@ def get_discount_eligible_indices(rule, cart_items):
     if rule.apply_scope == DiscountCode.APPLY_SCOPE_BUNDLE:
         if not (has_ski and has_photo):
             return [], '此優惠需同時購買滑雪課程與攝影服務'
+        if not has_qualifying_course_discount:
+            return [], '此攝影組合優惠需搭配已套用的合格課程折扣'
         return [index for index, item in enumerate(cart_items) if item['service_type'] == 'photo'], ''
     return list(range(len(cart_items))), ''
 
@@ -552,7 +538,7 @@ def calculate_discount_amount(rule, base_amount, unit_count=1):
     return min(amount, base_amount)
 
 
-def allocate_discount_amount(amount, eligible_indices, remaining_by_index):
+def allocate_discount_amount(amount, eligible_indices, remaining_by_index, *, fill_remainder=False):
     allocations = {}
     eligible = [(index, remaining_by_index.get(index, 0)) for index in eligible_indices]
     eligible = [(index, remaining) for index, remaining in eligible if remaining > 0]
@@ -570,10 +556,21 @@ def allocate_discount_amount(amount, eligible_indices, remaining_by_index):
         if share > 0:
             allocations[index] = share
             amount_left -= share
+    if fill_remainder and amount_left:
+        for index, remaining in reversed(eligible):
+            share = min(remaining - allocations.get(index, 0), amount_left)
+            if share > 0:
+                allocations[index] = allocations.get(index, 0) + share
+                amount_left -= share
+            if amount_left == 0:
+                break
     return allocations
 
 
-def evaluate_discount_rule(rule, cart_items, remaining_by_index, subtotal, is_new_customer):
+def evaluate_discount_rule(
+    rule, cart_items, remaining_by_index, subtotal, is_new_customer, *,
+    has_qualifying_course_discount, remaining_course_fees=None,
+):
     is_active, reason = discount_rule_is_active(rule, timezone.now())
     if not is_active:
         return None, reason
@@ -588,17 +585,24 @@ def evaluate_discount_rule(rule, cart_items, remaining_by_index, subtotal, is_ne
     if rule.require_multiple_items and len(cart_items) < 2 and total_course_count < 2:
         return None, '此優惠需搭配多項課程或服務'
 
-    eligible_indices, scope_reason = get_discount_eligible_indices(rule, cart_items)
+    eligible_indices, scope_reason = get_discount_eligible_indices(rule, cart_items, has_qualifying_course_discount)
     if not eligible_indices:
         return None, scope_reason or '此折扣不適用於目前購物車'
 
-    eligible_base = sum(remaining_by_index.get(index, 0) for index in eligible_indices)
+    course_fee_only = remaining_course_fees is not None
+    discount_basis = remaining_course_fees if course_fee_only else remaining_by_index
+    eligible_base = sum(discount_basis[index] for index in eligible_indices)
     unit_count = get_discount_unit_count(rule, cart_items, eligible_indices)
     amount = calculate_discount_amount(rule, eligible_base, unit_count)
     if amount <= 0:
         return None, '目前沒有可折抵金額'
 
-    allocations = allocate_discount_amount(amount, eligible_indices, remaining_by_index)
+    if course_fee_only:
+        # A whole-order discount can reduce the payable balance independently of the course basis.
+        remaining_by_index = {
+            index: min(remaining_course_fees[index], remaining_by_index[index]) for index in eligible_indices
+        }
+    allocations = allocate_discount_amount(amount, eligible_indices, remaining_by_index, fill_remainder=course_fee_only)
     allocated_amount = sum(allocations.values())
     if allocated_amount <= 0:
         return None, '目前沒有可折抵金額'
@@ -623,9 +627,7 @@ def discount_rule_can_stack(rule, applied_discounts):
     if not rule.can_combine:
         return False
 
-    # Bundle discounts are add-on incentives, e.g. ski course + photo.
-    # Let them stack on top of a broad order discount so an early-bird promo
-    # does not silently hide the photo per-hour discount.
+    # A combinable bundle is a separate photography incentive and can apply once.
     if rule.apply_scope == DiscountCode.APPLY_SCOPE_BUNDLE:
         return not any(
             discount.get('apply_scope') == DiscountCode.APPLY_SCOPE_BUNDLE
@@ -642,13 +644,17 @@ def calculate_cart_discount_summary(cart_data, tenant_client, user=None, contact
 
     subtotal = sum(item['subtotal'] for item in cart_items)
     remaining_by_index = {index: item['subtotal'] for index, item in enumerate(cart_items)}
+    remaining_course_fees = {index: item['course_fee'] for index, item in enumerate(cart_items)}
+    item_course_discounts = [0 for _ in cart_items]
     item_discount_amounts = [0 for _ in cart_items]
     applied_discounts = []
     manual_error = ''
     is_new_customer = is_new_customer_for_discount(tenant_client, user, contact_info)
     manual_code = normalize_discount_code(discount_code)
+    course_basis, qualifying_codes = booking_discount_settings(tenant_client)
+    has_qualifying_course_discount = False
 
-    rules = []
+    rules = deque()
     if manual_code:
         manual_rule = DiscountCode.objects.filter(
             client=tenant_client,
@@ -665,28 +671,56 @@ def calculate_cart_discount_summary(cart_data, tenant_client, user=None, contact
     ).order_by('id')
     if manual_code:
         auto_rules = auto_rules.exclude(code__iexact=manual_code)
-    rules.extend(list(auto_rules))
+    rules.extend(auto_rules)
 
-    for rule in rules:
+    # Preserve rule priority where possible. A bundle can wait for its prerequisite.
+    deferred_bundles = []
+    defer_bundles = True
+    while rules or deferred_bundles:
+        if not rules:
+            rules.extend(deferred_bundles)
+            deferred_bundles.clear()
+            defer_bundles = False
+        rule = rules.popleft()
+        if defer_bundles and not has_qualifying_course_discount and rule.apply_scope == DiscountCode.APPLY_SCOPE_BUNDLE:
+            deferred_bundles.append(rule)
+            continue
+        is_manual_rule = manual_code and normalize_discount_code(rule.code) == manual_code
         if not discount_rule_can_stack(rule, applied_discounts):
+            if is_manual_rule:
+                manual_error = '此折扣無法與已套用的優惠併用'
             continue
 
+        is_course_scope = rule.apply_scope == DiscountCode.APPLY_SCOPE_SKI
+        course_fee_only = is_course_scope and course_basis == 'course_fee_only'
         result, reason = evaluate_discount_rule(
             rule,
             cart_items,
             remaining_by_index,
             subtotal,
             is_new_customer,
+            has_qualifying_course_discount=has_qualifying_course_discount,
+            remaining_course_fees=remaining_course_fees if course_fee_only else None,
         )
         if not result:
-            if manual_code and normalize_discount_code(rule.code) == manual_code:
+            if is_manual_rule:
                 manual_error = reason
             continue
 
         for index, amount in result['allocations'].items():
             remaining_by_index[index] = max(remaining_by_index.get(index, 0) - amount, 0)
             item_discount_amounts[index] += amount
+            if is_course_scope:
+                course_amount = min(remaining_course_fees[index], amount)
+                remaining_course_fees[index] -= course_amount
+                if course_amount and normalize_discount_code(rule.code) in qualifying_codes:
+                    has_qualifying_course_discount = True
+                if course_fee_only:
+                    item_course_discounts[index] += course_amount
         applied_discounts.append(result)
+        if has_qualifying_course_discount and deferred_bundles:
+            rules.extendleft(reversed(deferred_bundles))
+            deferred_bundles.clear()
 
     discount_total = sum(item_discount_amounts)
     public_discounts = []
@@ -708,6 +742,8 @@ def calculate_cart_discount_summary(cart_data, tenant_client, user=None, contact
         'total': max(subtotal - discount_total, 0),
         'item_subtotals': [item['subtotal'] for item in cart_items],
         'item_discount_amounts': item_discount_amounts,
+        'item_course_discounts': item_course_discounts,
+        'item_pricing': cart_items,
         'applied_discounts': public_discounts,
         'applied_discount_details': applied_discounts,
         'discount_code_error': manual_error,
@@ -4047,18 +4083,38 @@ class SuperScheduleAPI(APIView):
                 course_count = max(len(courses), 1)
                 per_course_discount = item_discount_amount // course_count
                 discount_remainder = item_discount_amount - (per_course_discount * course_count)
+                daily_discounts = [per_course_discount + discount_remainder] + [per_course_discount] * (course_count - 1)
+                course_discount = discount_summary['item_course_discounts'][item_index]
+                if course_discount and course_count > 1:
+                    pricing = discount_summary['item_pricing'][item_index]
+                    daily_course_fees = dict(enumerate(pricing['course_fees']))
+                    course_allocations = allocate_discount_amount(
+                        course_discount, daily_course_fees, daily_course_fees, fill_remainder=True,
+                    )
+                    daily_remaining = {
+                        index: fee - course_allocations.get(index, 0) for index, fee in daily_course_fees.items()
+                    }
+                    # Advanced scheduling charges equipment assistance on the first day.
+                    daily_remaining[0] += pricing['equipment_fee']
+                    other_allocations = allocate_discount_amount(
+                        item_discount_amount - course_discount, daily_remaining, daily_remaining,
+                        fill_remainder=True,
+                    )
+                    daily_discounts = [
+                        course_allocations.get(index, 0) + other_allocations.get(index, 0)
+                        for index in daily_course_fees
+                    ]
 
                 # 對每一天的課程創建獨立的Reservation
                 item_reservations = []
                 for course_index, course in enumerate(courses):
-                    course_discount_amount = per_course_discount + (discount_remainder if course_index == 0 else 0)
                     # 創建單日Reservation（強制不指定教練）
                     reservation = self._create_single_day_reservation(
                         group=group,
                         item=item,
                         course=course,
                         force_no_coach=True,  # 進階排課強制不指定教練
-                        discount_amount=course_discount_amount,
+                        discount_amount=daily_discounts[course_index],
                         applied_discounts=item_applied_discounts,
                         charge_equipment_fee=(course_index == 0),
                         learner_choices=learner_choices[item_index],
