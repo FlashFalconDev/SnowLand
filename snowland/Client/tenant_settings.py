@@ -46,6 +46,14 @@ def order_source_override_enabled(client):
     return not isinstance(config, dict) or config.get('order_source_override_enabled') is not False
 
 
+def coach_course_payroll_summary_enabled(client):
+    """Use payroll hours in My Courses unless the tenant opts out."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    return not isinstance(config, dict) or config.get('coach_course_payroll_summary_enabled') is not False
+
+
 def evaluation_date_filter_defaults(client):
     """Return the admin list defaults, or None for the tenant's legacy list."""
     config = ModuleSetting.objects.filter(

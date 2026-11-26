@@ -24,6 +24,7 @@ from django.db.models import Sum, Count, Max, Q, Prefetch, OuterRef, Subquery, V
 from django.db.models.functions import Coalesce, Concat
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from calendar import monthrange
 from datetime import timedelta, datetime, date, time
 from collections import defaultdict
 from zoneinfo import ZoneInfo
@@ -31,12 +32,14 @@ import json
 
 from Client.models import Client, SiteContent
 from Client.tenant_settings import (
+    coach_course_payroll_summary_enabled,
     evaluation_date_filter_defaults,
     manual_payment_posting_date_mode,
     order_source_override_enabled,
 )
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
+from Coach.course_summary import summarize_course_payroll
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
 from Resorts.models import Resorts, Campus, PaymentAccount, OperatingPolicy
 from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseSession, CoursePricing, SeasonSetting, DiscountCode
@@ -567,8 +570,8 @@ def _daily_coach_availability_summary(*, tenant, start_date, end_date, campus_id
     return summary
 
 
-def _coach_visible_window():
-    today = timezone.localdate()
+def _coach_visible_window(today=None):
+    today = today or timezone.localdate()
     return None, today + timedelta(days=10)
 
 
@@ -5002,6 +5005,36 @@ def coach_my_courses(request, client_code):
             'visibility_mode': 'full' if full_schedule_visible else 'recent_10_days',
         },
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsTenantCoach])
+def coach_my_course_summary(request, client_code):
+    coach = Coach.objects.filter(user=request.user, client=request.tenant).first()
+    if coach is None:
+        return Response({'code': 403, 'msg': '您不是教練'}, status=403)
+
+    today = timezone.localdate(timezone=ZoneInfo('Asia/Taipei'))
+    month = request.query_params.get('month', today.isoformat()[:7])
+    try:
+        first_day = date.fromisoformat(f'{month}-01')
+    except ValueError:
+        raise ValidationError({'month': '請使用 YYYY-MM 格式'})
+    last_day = first_day.replace(day=monthrange(first_day.year, first_day.month)[1])
+    data = {'month': first_day.isoformat()[:7], 'mode': 'scheduled'}
+    if coach_course_payroll_summary_enabled(request.tenant):
+        if not _coach_can_view_full_schedule(coach):
+            _, visible_end = _coach_visible_window(today)
+            last_day = min(last_day, visible_end)
+        bookings = Booking.objects.live().filter(
+            reservation__preferred_coach=coach,
+            reservation__group__client=request.tenant,
+            date__range=(first_day, last_day),
+        ).exclude(reservation__status__in=['deleted', 'cancelled']).select_related(
+            'reservation__course_type__category', 'reservation__course_template',
+        ).order_by('date', 'start_time')
+        data.update(mode='payroll', **summarize_course_payroll(bookings, coach=coach))
+    return Response({'code': 200, 'msg': 'OK', 'data': data})
 
 
 @api_view(['GET'])
