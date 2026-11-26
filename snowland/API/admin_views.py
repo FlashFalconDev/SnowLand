@@ -12,11 +12,14 @@ from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
+from rest_framework.fields import IntegerField
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Sum, Count, Max, Q, Prefetch, OuterRef, Subquery
+from django.db.models import Sum, Count, Max, Q, Prefetch, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce, Concat
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from datetime import timedelta, datetime, date, time
@@ -24,7 +27,9 @@ from collections import defaultdict
 from zoneinfo import ZoneInfo
 
 from Client.models import Client, SiteContent
-from Client.tenant_settings import manual_payment_posting_date_mode, staff_booking_link_edit_enabled
+from Client.tenant_settings import (
+    evaluation_date_filter_defaults, manual_payment_posting_date_mode, staff_booking_link_edit_enabled,
+)
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
 from Coach.models import Coach, CoachLeaveRequest, CoachPayRule, PayrollStatement, StaffIncentiveRule
@@ -36,6 +41,7 @@ from booking.models import (
     StaffBookingLink,
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
+from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.marketing_source import display_marketing_source
 from booking.scheduling_metrics import (
     Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling, scheduling_metrics,
@@ -2843,7 +2849,7 @@ class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
 
     def get_queryset(self):
         qs = CourseEvaluation.objects.filter(member__is_active=True,booking__reservation__group__client=self.request.tenant).select_related(
-            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'coach',
+            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'member__learner', 'coach',
         ).prefetch_related('media')
         if _campus_ids(self.request) and (
             not self.request.can_view_all_campuses or self.request.selected_campus_id is not None
@@ -2852,7 +2858,90 @@ class CourseEvaluationAdminViewSet(PayrollCsrfMixin, ModelViewSet):
         return qs.order_by('-booking__date', '-id')
 
     def list(self, request, *args, **kwargs):
-        return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
+        qs = self.get_queryset()
+        params = request.query_params
+        booking = params.get('booking')
+        if booking:
+            try:
+                booking_id = IntegerField(min_value=1, max_value=2**63 - 1).run_validation(booking)
+            except ValidationError as exc:
+                raise ValidationError({'booking': exc.detail}) from exc
+            qs = qs.filter(booking_id=booking_id)
+
+        defaults = evaluation_date_filter_defaults(request.tenant)
+        if defaults is None:
+            return wrap_list(qs, self.get_serializer_class(), request, self.get_serializer_context())
+
+        date_filters = None
+        if not booking:
+            qs, date_filters = self._filter_by_date(qs, defaults)
+            search = (params.get('search') or '').strip()
+            if search:
+                qs = self._search_evaluations(qs, search)
+
+        try:
+            page_number = max(int(params.get('page', 1)), 1)
+        except ValueError:
+            page_number = 1
+        try:
+            page_size = min(max(int(params.get('page_size', 10)), 1), 100)
+        except ValueError:
+            page_size = 10
+        paginator = Paginator(qs, page_size)
+        page = paginator.get_page(page_number)
+        return Response({'code': 200, 'msg': 'OK', 'data': {
+            'list': self.get_serializer(page.object_list, many=True).data,
+            'total': paginator.count,
+            'page': page.number,
+            'page_size': page_size,
+            'total_pages': paginator.num_pages if paginator.count else 0,
+            'date_filters': date_filters,
+        }})
+
+    def _filter_by_date(self, qs, defaults):
+        default_field, default_days = defaults
+        date_field = self.request.query_params.get('date_field', default_field)
+        if date_field not in ('ordered', 'lesson'):
+            raise ValidationError({'date_field': '請選擇下單日期（ordered）或上課日期（lesson）'})
+
+        start, end = _query_date_bounds(self.request, 'date_from', 'date_to')
+        taipei = ZoneInfo('Asia/Taipei')
+        if start is None and end is None:
+            end = timezone.localdate(timezone=taipei)
+            start = end - timedelta(days=default_days - 1)
+
+        ordered_at = 'booking__reservation__group__created_at'
+        group_id = 'booking__reservation__group_id'
+        if date_field == 'ordered':
+            if start and start > date.min:
+                qs = qs.filter(**{f'{ordered_at}__gte': datetime.combine(start, time.min, tzinfo=taipei)})
+            if end and end < date.max:
+                exclusive_end = datetime.combine(end + timedelta(days=1), time.min, tzinfo=taipei)
+                qs = qs.filter(**{f'{ordered_at}__lt': exclusive_end})
+            qs = qs.order_by(f'-{ordered_at}', f'-{group_id}', '-booking__date', '-id')
+        else:
+            if start:
+                qs = qs.filter(booking__date__gte=start)
+            if end:
+                qs = qs.filter(booking__date__lte=end)
+            qs = qs.order_by('-booking__date', f'-{ordered_at}', f'-{group_id}', '-id')
+
+        return qs, {'date_field': date_field, 'date_from': start, 'date_to': end}
+
+    def _search_evaluations(self, qs, search):
+        qs = qs.alias(member_full_name=Concat('member__user__first_name', Value(' '), 'member__user__last_name'))
+        match = (
+            Q(booking__reservation__group__order_number__icontains=search)
+            | Q(member__insurance_data__full_name__icontains=search)
+            | Q(member__learner__name__icontains=search, member__learner__client=self.request.tenant,
+                member__learner__owner_id=Coalesce('member__guardian_id', 'member__user_id'))
+            | Q(member_full_name__icontains=search)
+            | Q(member__user__username__icontains=search, member__user__first_name='', member__user__last_name='')
+        )
+        fallback_order = search.removeprefix('訂單 ').removeprefix('#')
+        if fallback_order.isascii() and fallback_order.isdecimal() and len(fallback_order) <= 19:
+            match |= Q(booking__reservation__group__order_number='', booking__reservation__group_id=int(fallback_order))
+        return qs.filter(match)
 
     @action(detail=True, methods=['post'], url_path='media')
     def add_media(self, request, *args, **kwargs):
@@ -2880,8 +2969,11 @@ class CoachCourseEvaluationViewSet(CourseEvaluationAdminViewSet):
             booking__reservation__preferred_coach__user=self.request.user,
             coach__user=self.request.user, coach__client=self.request.tenant,
         ).select_related(
-            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'coach',
+            'booking__reservation__group__campus', 'booking__reservation__resort', 'member__user', 'member__learner', 'coach',
         ).prefetch_related('media').order_by('-booking__date', '-id')
+
+    def list(self, request, *args, **kwargs):
+        return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
 
 
 class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateModelMixin, GenericViewSet):
@@ -3378,8 +3470,8 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
         serializer.is_valid(raise_exception=True)
         return serializer
 
-    def _version_matches(self, request, link):
-        version = request.data.get('snapshot_version', 0)
+    def _version_matches(self, request, link, *, default=None):
+        version = request.data.get('snapshot_version', default)
         return type(version) is int and version == link.snapshot_version
 
     def _price_cart(self, link, serializer):
@@ -3398,7 +3490,7 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
     @transaction.atomic
     def preview(self, request, *args, **kwargs):
         link = self.get_object()
-        if not self._version_matches(request, link):
+        if not self._version_matches(request, link, default=0):
             return Response({'msg': '連結已更新，請重新開啟修改'}, status=409)
         serializer = self._edit_serializer(request, link)
         if 'cart_snapshot' not in serializer.validated_data:
@@ -3410,12 +3502,16 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
     def update(self, request, *args, **kwargs):
         link = self.get_object()
         serializer = self._edit_serializer(request, link, partial=kwargs.pop('partial', False))
-        changes = {'snapshot_version': link.snapshot_version + 1}
+        changes = {}
         preview = None
         if 'cart_snapshot' in serializer.validated_data:
-            if not self._version_matches(request, link):
-                return Response({'msg': '連結已更新，請重新開啟修改'}, status=409)
             snapshot, preview = self._price_cart(link, serializer)
+            if snapshot != public_staff_cart_snapshot(link.cart_snapshot):
+                if not self._version_matches(request, link):
+                    return Response({'msg': '連結已更新，請重新開啟修改'}, status=409)
+                changes['snapshot_version'] = link.snapshot_version + 1
+            else:
+                snapshot = link.cart_snapshot
             expected = request.data.get('expected_quote')
             if expected is not None and expected != {'subtotal': preview['subtotal'], 'total': preview['total']}:
                 return Response({'msg': '價格已變更，請重新試算後再儲存'}, status=409)

@@ -121,10 +121,10 @@ class StaffBookingLinkEditTests(StaffLinkFixture, TestCase):
         self.assertEqual(changed['cart'][0]['courses'][0]['date'], new_cart[0]['courses'][0]['date'])
         second = self.edit(cart=new_cart, user=self.manager('link-manager', self.campus), version=1)
         self.assertEqual(second.status_code, 200, second.data)
-        self.assertEqual(second.data['snapshot_version'], 2)
+        self.assertEqual(second.data['snapshot_version'], 1)
         self.assertEqual(second.data['token'], created_token)
         self.assertEqual(StaffBookingLink.objects.count(), 1)
-        self.assertEqual(self.edit(version=1).status_code, 409)
+        self.assertEqual(self.edit(version=0).status_code, 409)
 
     def test_other_coaches_campus_managers_and_tenants_cannot_preview_or_edit(self):
         outside = get_user_model().objects.create_user('other-manager')
@@ -205,13 +205,36 @@ class StaffBookingLinkEditTests(StaffLinkFixture, TestCase):
         self.assertEqual(checkout.status_code, 200, checkout.data)
         self.assertEqual(ReservationGroup.objects.get().reservations.get().payment_amount, 13200)
 
-    def test_stale_snapshot_requires_reload_and_two_tabs_can_only_use_link_once(self):
-        old_tab = self.load_tab()
+    def test_metadata_and_unchanged_snapshot_keep_customer_tab_current(self):
         saved = self.edit()
         self.assertEqual(saved.status_code, 200, saved.data)
+        old_tab = self.load_tab()
+        admin = self.api_for(self.author)
+        renamed = admin.patch(self.admin_url, {'title': '更新後的標題'}, format='json')
+        self.assertEqual(renamed.status_code, 200, renamed.data)
+        self.assertEqual(renamed.data['title'], '更新後的標題')
+        self.assertEqual(renamed.data['snapshot_version'], old_tab['staff_link_version'])
+        same_cart = self.edit(cart=old_tab['cart'], version=0)
+        self.assertEqual(same_cart.status_code, 200, same_cart.data)
+        self.assertEqual(same_cart.data['snapshot_version'], old_tab['staff_link_version'])
+
+        checkout = self.api_for(self.member).post(self.checkout_url, old_tab, format='json')
+        self.assertEqual(checkout.status_code, 200, checkout.data)
+        self.assertEqual(ReservationGroup.objects.count(), 1)
+
+    def test_stale_snapshot_requires_reload_and_two_tabs_can_only_use_link_once(self):
+        old_tab = self.load_tab()
+        new_cart = [{**self.cart[0], 'courses': [
+            {**self.cart[0]['courses'][0], 'date': str(timezone.localdate() + timedelta(days=32))},
+        ]}]
+        missing_version = self.api_for(self.author).patch(self.admin_url, {'cart_snapshot': new_cart}, format='json')
+        self.assertEqual(missing_version.status_code, 409)
+        saved = self.edit(cart=new_cart, version=old_tab['staff_link_version'])
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.assertEqual(saved.data['snapshot_version'], old_tab['staff_link_version'] + 1)
         first_tab, second_tab = self.load_tab(), self.load_tab()
         member = self.api_for(self.member)
-        stale = member.post(self.checkout_url, {**first_tab, 'staff_link_version': old_tab['staff_link_version']}, format='json')
+        stale = member.post(self.checkout_url, old_tab, format='json')
         self.assertEqual(stale.status_code, 409, stale.data)
         self.assertEqual(stale.data['error'], 'staff_link_updated')
         self.assertEqual(stale.data['msg'], '內容已更新，請重新確認金額')

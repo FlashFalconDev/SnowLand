@@ -1,7 +1,7 @@
 import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Bell, Calculator, ClipboardCheck, Link2, Loader2, Plus, Save } from 'lucide-react'
 import { fetchCampuses } from '../api/campuses'
@@ -13,7 +13,7 @@ import {
   fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceRecordDetail, type PreCourseFormSnapshot,
   fetchCourseUploadLimits, uploadCourseFile,
   previewStaffBookingLink, updateStaffBookingLink, type StaffBookingLink,
-  updateEvaluation, type Evaluation,
+  updateEvaluation, type Evaluation, type EvaluationDateFilters, type EvaluationPage,
 } from '../api/operations'
 import { useNotification } from '../context'
 import { learningProgressFromText, learningProgressToText } from '@/utils/learningProgress'
@@ -252,27 +252,96 @@ function PayrollPanel() {
   </div>
 }
 
+type EvaluationSearch = EvaluationDateFilters & { search: string }
+const evaluationDateLabels = { ordered: '下單日期', lesson: '上課日期' }
+
+function EvaluationFilterForm({ dateFilters, search, apply, reset }: {
+  dateFilters: EvaluationDateFilters
+  search: string
+  apply: (filters: EvaluationSearch) => void
+  reset: () => void
+}) {
+  const [start, setStart] = useState(dateFilters.date_from || '')
+  const [end, setEnd] = useState(dateFilters.date_to || '')
+  return <form className="mb-4 grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap" onSubmit={event => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    apply({ date_field: form.get('date_field') === 'lesson' ? 'lesson' : 'ordered',
+      date_from: start || null, date_to: end || null, search: String(form.get('search') || '').trim() })
+  }} onReset={() => {
+    setStart(dateFilters.date_from || '')
+    setEnd(dateFilters.date_to || '')
+    reset()
+  }}>
+    <label className="col-span-2 text-sm font-medium text-gray-900 dark:text-white">日期依據
+      <select name="date_field" defaultValue={dateFilters.date_field} className={`${inputClass} mt-1 block min-h-11`}>
+        <option value="ordered">下單日期</option><option value="lesson">上課日期</option>
+      </select>
+    </label>
+    <label className="text-sm font-medium text-gray-900 dark:text-white">開始日期
+      <input type="date" required max={end || undefined} value={start} onChange={event => setStart(event.target.value)} className={`${inputClass} mt-1 block min-h-11`} />
+    </label>
+    <label className="text-sm font-medium text-gray-900 dark:text-white">結束日期
+      <input type="date" required min={start || undefined} value={end} onChange={event => setEnd(event.target.value)} className={`${inputClass} mt-1 block min-h-11`} />
+    </label>
+    <label className="col-span-2 min-w-0 text-sm font-medium text-gray-900 dark:text-white">訂單編號或學員姓名
+      <input type="search" name="search" defaultValue={search} className={`${inputClass} mt-1 block min-h-11`} />
+    </label>
+    <button type="submit" className="min-h-11 rounded-lg bg-violet-700 px-3 py-2 text-sm font-semibold text-white">套用篩選</button>
+    <button type="reset" className="min-h-11 rounded-lg border px-3 py-2 text-sm dark:border-gray-600">恢復預設</button>
+  </form>
+}
+
 function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
   const evaluationsUrl = useSiteLink(coachView ? '/console/my/evaluations' : '/console/evaluations')
   const booking = searchParams.get('booking')
   const [evaluationDate, setEvaluationDate] = useState('')
+  const [filters, setFilters] = useState<EvaluationSearch>()
+  const [pagination, setPagination] = useState({ booking, page: 1 })
+  const page = pagination.booking === booking ? pagination.page : 1
   const client = currentClientCode()
-  const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations', client], queryFn: coachView ? fetchCoachEvaluations : fetchEvaluations })
+  const campus = window.localStorage.getItem(campusScopeKey(client)) || 'all'
+  const params = booking ? { booking, page } : { ...filters, page }
+  const { data, isLoading, isPlaceholderData, isError, refetch } = useQuery<EvaluationPage>({
+    queryKey: [coachView ? 'coach' : 'admin', 'evaluations', client, campus, coachView ? null : params],
+    queryFn: async () => coachView ? { list: await fetchCoachEvaluations() } : fetchEvaluations(params),
+    placeholderData: coachView ? undefined : keepPreviousData,
+  })
   const rubricKey = ['assessment-rubric', client, coachView]
   const rubric = useQuery({ queryKey: rubricKey, queryFn: () => fetchAssessmentRubric(coachView) })
-  const visibleRows = rows.filter(row => (!booking || String(row.booking) === booking)
+  const visibleRows = (isPlaceholderData ? [] : data?.list || []).filter(row => (!booking || String(row.booking) === booking)
     && (!coachView || booking || !evaluationDate || row.course_date?.slice(0, 10) === evaluationDate))
+  const dateFilters = !coachView && !booking ? data?.date_filters : undefined
+  const dateGroups = new Map<string, Evaluation[]>()
+  if (dateFilters) {
+    for (const row of visibleRows) {
+      const date = dateFilters.date_field === 'ordered' ? row.order_date || '日期未提供' : row.course_date
+      const group = dateGroups.get(date)
+      if (group) group.push(row)
+      else dateGroups.set(date, [row])
+    }
+  }
   const emptyText = booking ? '這堂課目前沒有可查看的學員評量。' : coachView
     ? evaluationDate ? '選擇的上課日期沒有學員評量。' : '目前沒有自己的已完課學員評量。'
-    : '尚無課程評量。課程建立學員資料後即可開始填寫。'
+    : dateFilters ? '這個日期範圍與搜尋條件沒有符合的學員評量。' : '尚無課程評量。課程建立學員資料後即可開始填寫。'
+  const currentPage = data?.page || 1
+  const totalPages = data?.total_pages || 0
+  const renderCards = (rows: Evaluation[]) => <div className="grid gap-3 xl:grid-cols-2">{rows.map(row =>
+    <EvaluationCard key={row.id} row={row} coachView={coachView} rubric={rubric.data}
+      albumUrl={dateFilters ? `${evaluationsUrl}?booking=${row.booking}` : undefined} />)}</div>
   return <section className={cardClass}>
     <h2 className="font-semibold text-gray-900 dark:text-white">{booking ? '這堂課的學員評量' : '學員進度與課程紀錄'}</h2>
     <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>
     {booking && <Link to={evaluationsUrl} className="mb-3 inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">查看全部評量</Link>}
     {booking && /^\d+$/.test(booking) && <CoachCourseAlbum key={booking} bookingId={Number(booking)} coachView={coachView} />}
-    {!booking && visibleRows.length > 0 && <div className="mb-3 flex flex-wrap gap-2">
+    {dateFilters && <EvaluationFilterForm
+      key={JSON.stringify([client, campus, dateFilters, filters?.search])}
+      dateFilters={dateFilters} search={filters?.search || ''}
+      apply={value => { setFilters(value); setPagination({ booking, page: 1 }) }}
+      reset={() => { setFilters(undefined); setPagination({ booking, page: 1 }) }} />}
+    {!booking && !dateFilters && visibleRows.length > 0 && <div className="mb-3 flex flex-wrap gap-2">
       {[...new Map(visibleRows.map(row => [row.booking, row])).values()].map(row =>
         <Link key={row.booking} className="inline-flex min-h-11 items-center rounded-lg border border-violet-200 px-3 text-sm font-semibold text-violet-700 dark:text-violet-200"
           to={`${evaluationsUrl}?booking=${row.booking}`}>課程相簿：{row.course_date} · {row.order_number}</Link>)}
@@ -285,11 +354,25 @@ function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
     </div>}
     {rubric.data?.can_edit && <AssessmentSettings config={rubric.data} onSaved={value => qc.setQueryData(rubricKey, value)} reload={rubric.refetch} />}
     {rubric.isError && <p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">技術評量設定載入失敗。<button type="button" onClick={() => void rubric.refetch()} className="ml-2 min-h-11 underline">重試</button></p>}
-    {isLoading ? <Loader2 className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <div className="grid gap-3 xl:grid-cols-2">{visibleRows.map(r => <EvaluationCard key={r.id} row={r} coachView={coachView} rubric={rubric.data} />)}{!visibleRows.length && <Empty text={emptyText} />}</div>}
+    {isLoading || isPlaceholderData ? <Loader2 aria-label="載入評量" className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <>
+      {!visibleRows.length ? <Empty text={emptyText} /> : dateFilters ? <div className="space-y-5">{[...dateGroups].map(([date, rows]) =>
+        <section key={date}>
+          <h3 className="mb-2 border-b border-gray-200 pb-2 text-sm font-semibold text-gray-900 dark:border-gray-700 dark:text-white">{evaluationDateLabels[dateFilters.date_field]} {date}</h3>
+          {renderCards(rows)}
+        </section>)}</div> : renderCards(visibleRows)}
+      {data?.page && <nav aria-label="評量分頁" className="mt-4 flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <span>共 {data.total} 筆評量</span>
+        {totalPages > 1 && <>
+          <button type="button" disabled={currentPage <= 1} onClick={() => setPagination({ booking, page: currentPage - 1 })} className="min-h-11 rounded-lg border px-3 py-1.5 disabled:opacity-40">上一頁</button>
+          <span>{currentPage} / {totalPages}</span>
+          <button type="button" disabled={currentPage >= totalPages} onClick={() => setPagination({ booking, page: currentPage + 1 })} className="min-h-11 rounded-lg border px-3 py-1.5 disabled:opacity-40">下一頁</button>
+        </>}
+      </nav>}
+    </>}
   </section>
 }
 
-function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; coachView?: boolean; rubric?: RubricConfig }) {
+function EvaluationCard({ row, coachView = false, rubric, albumUrl }: { row: Evaluation; coachView?: boolean; rubric?: RubricConfig; albumUrl?: string }) {
   const qc = useQueryClient(); const notify = useNotification()
   const canEditAssessment = row.can_edit_assessment === true
   const rating = Number(row.self_assessment?.satisfaction_rating)
@@ -323,7 +406,17 @@ function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; c
     const skills = skillChanged && skillConfig ? { skill_review: { revision: skillConfig.revision, entries: skillEntries } } : {}
     await updateEvaluation(row.id, canEditAssessment ? { coach_notes: notes, learning_progress, trail_names: trails, completed_at: new Date().toISOString(), ...skills, ...media } : media, coachView)
   }, onSuccess: () => { qc.invalidateQueries({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations'] }); setEditing(false); setMediaUrl(''); setSelectedTrails(trails); setExtraTrails(''); notify.success(canEditAssessment ? '評量已儲存' : '課程附件已加入，評量內容未變更') }, onError: (e: any) => notify.error(e?.response?.data?.new_media?.url?.[0] || e?.response?.data?.skill_review?.[0] || e?.response?.data?.completed_at?.[0] || e?.response?.data?.detail || e?.response?.data?.msg || '資料未儲存，請稍後再試') })
-  return <article className="rounded-xl border border-gray-100 p-4 dark:border-gray-700"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="break-words">{row.member_name}{row.member_nickname && `（${row.member_nickname}）`}</b><p className="mt-1 break-all text-xs text-violet-700 dark:text-violet-300">{row.order_number}</p><p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{row.course_date} · {row.course_name || '未設定課程'}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.campus_name || '未指定校區'} · {row.resort_name || '未指定雪場'} · 教練：{row.coach_name || '尚未指定'}</p></div><button disabled={uploading || save.isPending} onClick={() => setEditing(!editing)} className="min-h-11 shrink-0 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300">{editing ? '收起' : canEditAssessment ? '填寫評量' : '管理課程附件'}</button></div>
+  return <article className="rounded-xl border border-gray-100 p-4 dark:border-gray-700">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <b className="break-words">{row.member_name}{row.member_nickname && `（${row.member_nickname}）`}</b>
+        <p className="mt-1 break-all text-xs text-violet-700 dark:text-violet-300">{row.order_number}</p>
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{!coachView && row.order_date ? `下單日期 ${row.order_date} · 上課日期 ${row.course_date}` : row.course_date} · {row.course_name || '未設定課程'}</p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.campus_name || '未指定校區'} · {row.resort_name || '未指定雪場'} · 教練：{row.coach_name || '尚未指定'}</p>
+      </div>
+      <button disabled={uploading || save.isPending} onClick={() => setEditing(!editing)} className="min-h-11 shrink-0 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300">{editing ? '收起' : canEditAssessment ? '填寫評量' : '管理課程附件'}</button>
+    </div>
+    {albumUrl && <Link to={albumUrl} aria-label={`開啟課程相簿，${row.course_date}，${row.order_number}`} className="inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">開啟課程相簿</Link>}
     {(!editing || !canEditAssessment) && <><p className="mt-3 whitespace-pre-wrap break-words text-sm text-gray-600 dark:text-gray-300">{row.coach_notes || '尚無評語'}</p>{learningProgressToText(row.learning_progress || {}) && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">學習進度：{learningProgressToText(row.learning_progress || {})}</p>}{row.trail_names?.length > 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">完成雪道：{row.trail_names.join('、')}</p>}<p className="mt-2 text-xs text-gray-500 dark:text-gray-400">媒體 {row.media?.length || 0} 個 · {row.completed_at ? '已完成' : '待填寫'}{!canEditAssessment && ' · 評量僅供查看，可另外加入課程附件'}</p></>}
     {(!editing || !canEditAssessment) && row.skill_snapshot && <SkillSnapshotSummary snapshot={row.skill_snapshot} />}
     {editing && <div className="mt-4 space-y-3">
