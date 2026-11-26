@@ -4,8 +4,8 @@ LINE 群組中含「工程」的文字會觸發一筆 Cursor Automation POST。W
 
 ## 儲存與設定
 
-- KV 綁定 `CHAT_HISTORY` 以群組和台北日期索引文字與附件資訊，記錄寫入後保留 48 小時。文字及其中的網址會原樣保存。預設部署省略 R2 綁定，圖片、影片和檔案只記錄 KV metadata。
-- 啟用 R2 並建立私有 bucket `snowland-line-relay-media` 後，恢復 `MEDIA_BUCKET` 綁定並重新部署，即可儲存媒體檔。維持 `r2.dev` 與自訂公開網域停用，為 `line-media/` 設定 2 天的物件生命週期。單檔大小由 `MEDIA_MAX_BYTES` 設定，預設 52428800 位元組（50 MiB）。
+- KV 綁定 `CHAT_HISTORY` 以群組和台北日期索引文字與附件資訊，記錄寫入後保留 48 小時。文字及其中的網址會原樣保存。
+- `wrangler.toml` 將私有 R2 bucket `snowland-line-relay-media` 綁定為 `MEDIA_BUCKET`。部署前確認整個 bucket 的物件自建立起 2 天到期，並維持 `r2.dev` 與自訂公開網域停用。單檔大小由 `MEDIA_MAX_BYTES` 設定，預設 52428800 位元組（50 MiB）。
 - `LINE_CHANNEL_SECRET` 驗證 LINE webhook，`RELAY_SIGNING_SECRET` 簽署轉發內容與下載網址。啟用媒體暫存時，另以 `LINE_CHANNEL_ACCESS_TOKEN` 下載 LINE 媒體。LINE secrets 由小陌本人在互動提示中輸入。 [Worker 設定與測試步驟](../tools/line-engineering-relay/README.md)
 
 ## 轉發格式
