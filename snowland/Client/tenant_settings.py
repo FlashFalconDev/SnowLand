@@ -38,6 +38,22 @@ def course_album_coach_delete_enabled(client):
     return not isinstance(config, dict) or config.get('course_album_coach_delete_enabled') is not False
 
 
+def evaluation_date_filter_defaults(client):
+    """Return the admin list defaults, or None for the tenant's legacy list."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    config = config if isinstance(config, dict) else {}
+    if config.get('evaluation_date_filters_enabled') is False:
+        return None
+    field = config.get('evaluation_default_date_field')
+    days = config.get('evaluation_default_date_range_days')
+    return (
+        field if field in ('ordered', 'lesson') else 'ordered',
+        days if type(days) is int and 1 <= days <= 366 else 30,
+    )
+
+
 def booking_discount_settings(client):
     """Read and validate the tenant's discount rules from its booking JSON."""
     config = ModuleSetting.objects.filter(
