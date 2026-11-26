@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from booking.models import Booking, CourseEvaluation, NotificationDelivery, NotificationTemplate, Payment, ReservationGroup
 from booking.operations import notification_template_matches_group, schedule_group_notifications
+from booking.order_testing import exclude_test_orders
 from booking.notification_recipients import COURSE_RECIPIENT_EVENTS, channel_recipient, course_notification_recipients, email_notification_account_ids, group_documents_missing
 from booking.tasks import auto_cancel_unpaid_reservations
 
@@ -56,7 +57,7 @@ class Command(BaseCommand):
             event__in=['pre_course', 'missing_documents', 'line_group', 'evaluation_due'],
         ).values_list('client_id', 'event').distinct()
         for client_id, event in events:
-            for group in ReservationGroup.objects.live().filter(
+            for group in exclude_test_orders(ReservationGroup.objects.live()).filter(
                 client_id=client_id, payments__is_deleted=False, payments__status='paid',
             ).distinct():
                 if dry_run:
@@ -67,7 +68,9 @@ class Command(BaseCommand):
 
         # Include immediate notices created during this command, not only those present at startup.
         now = timezone.now()
-        deliveries = NotificationDelivery.objects.filter(self._due_status(), scheduled_at__lte=now)
+        deliveries = exclude_test_orders(NotificationDelivery.objects.all(), 'group').filter(
+            self._due_status(), scheduled_at__lte=now,
+        )
         sent = failed = 0
         for delivery_id in deliveries.values_list('pk', flat=True):
             delivery_sent, delivery_failed = self._deliver_due(delivery_id, now, dry_run)
@@ -107,7 +110,7 @@ class Command(BaseCommand):
     def _deliver_due(self, delivery_id, now, dry_run):
         # A second worker may have scanned this ID before the first worker sent it.
         # Lock and recheck current state before calling any external transport.
-        delivery = NotificationDelivery.objects.select_for_update().filter(
+        delivery = exclude_test_orders(NotificationDelivery.objects.select_for_update(), 'group').filter(
             self._due_status(), pk=delivery_id, scheduled_at__lte=now,
         ).first()
         if delivery is None:

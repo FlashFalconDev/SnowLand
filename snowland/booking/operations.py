@@ -157,6 +157,10 @@ def record_order_revision(group, user=None, change_type='modify', reason='', pre
         raise ValueError('封存訂單不能新增版本')
     snapshot = order_snapshot(group)
     current_total = sum(item['payable'] for item in snapshot['reservations'] if item.get('status') not in {'deleted', 'cancelled'})
+    if change_type in ('mark_test', 'unmark_test'):
+        snapshot['is_test'] = group.is_test
+        snapshot['test_actor_name'] = user.get_username()
+        previous_total = current_total
     latest = group.revisions.order_by('-version').first()
     last_version = OrderRevision.all_objects.filter(group=group).order_by('-version').values_list('version', flat=True).first()
     version = (last_version or 0) + 1
@@ -351,6 +355,8 @@ def notification_template_matches_group(template, group):
 def schedule_group_notifications(group, event):
     # Serialize scheduling for the same order so concurrent callers cannot add duplicate recipients.
     group = ReservationGroup.objects.live().select_for_update().select_related('client', 'user').get(pk=group.pk)
+    if group.is_test:
+        return []
     from .notification_recipients import COURSE_RECIPIENT_EVENTS, course_notification_recipients
     templates = group.client.notification_templates.filter(is_active=True, event=event).filter(
         campus__isnull=True

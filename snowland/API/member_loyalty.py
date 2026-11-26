@@ -14,11 +14,12 @@ from django.contrib.auth.models import User
 
 from booking.loyalty import get_loyalty_policy
 from booking.models import MemberLoyaltyAccount, MemberLoyaltyPolicy, MemberLoyaltyReview, ReservationGroup
+from booking.order_testing import exclude_test_orders
 from .admin_views import IsTenantManager, _require_admin_permission, _campus_ids
 
 
 def visible_customer_ids(request):
-    groups = ReservationGroup.objects.live().filter(client=request.tenant)
+    groups = exclude_test_orders(ReservationGroup.objects.live()).filter(client=request.tenant)
     scoped = not request.can_view_all_campuses or request.selected_campus_id is not None
     if scoped:
         groups = groups.filter(campus_id__in=_campus_ids(request))
