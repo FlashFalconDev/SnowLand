@@ -6,7 +6,7 @@ Cloudflare Worker 接收 LINE 群組訊息。含「工程」的文字會觸發�
 
 - LINE webhook 使用 POST。Worker 在 1 MiB 上限內以原始位元組驗證 `X-Line-Signature`，驗簽成功即回 HTTP 200。儲存與轉發透過 `ctx.waitUntil` 在背景執行。
 - KV 綁定 `CHAT_HISTORY` 保存群組文字與附件資訊。文字保留原文和連結，每筆記錄的 TTL 為 172800 秒（48 小時）。
-- 預設部署省略 R2 綁定，圖片、影片和檔案只在 KV 記錄附件資訊。未綁定時標記 `skipped_no_bucket`，缺少 LINE access token 時則標記 `skipped_missing_token`。啟用 `MEDIA_BUCKET` 並設定 token 後，Worker 才會透過 LINE Content API 下載並存入私有 R2，預設單檔上限為 50 MiB。
+- `wrangler.toml` 將私有 R2 bucket `snowland-line-relay-media` 綁定為 `MEDIA_BUCKET`。Worker 使用 `LINE_CHANNEL_ACCESS_TOKEN` 透過 LINE Content API 下載圖片、影片和檔案，預設單檔上限為 50 MiB。缺少 bucket 綁定或 token 時，KV 分別以 `skipped_no_bucket` 或 `skipped_missing_token` 記錄附件資訊。
 - 只有含「工程」的群組文字會觸發轉發。附件在 `context` 中提供 metadata，成功存入且 R2 仍綁定的附件另附短效 `downloadUrl`，預設有效一小時。Worker 的 `GET /media/...` 會驗證簽章與到期時間，再從私有 R2 讀取檔案。
 - 日誌只記固定訊息與 HTTP 狀態碼。轉發內容與接收端驗簽契約見 [LINE 工程訊息中繼整合說明](../../docs/line-engineering-relay.md)。
 
@@ -28,6 +28,5 @@ npm test
    npx wrangler secret put RELAY_SIGNING_SECRET
    ```
 
-3. 在部署階段以 `npx wrangler deploy` 部署 Worker。在 LINE Developers 將 Wrangler 顯示的 Worker HTTPS URL 填為 Webhook URL，並執行 **Verify**。每個 LINE 頻道使用一個 Webhook URL。若該頻道已有預約 webhook，先確認切換後的流量安排。
-
-日後要儲存媒體檔時，在 Cloudflare Dashboard 啟用 R2 並建立 `snowland-line-relay-media` bucket。保持私有，關閉 `r2.dev` 與公開網域，為 `line-media/` 前綴設定物件建立後 2 天（48 小時）到期。取消 `wrangler.toml` 內 `[[r2_buckets]]` 綁定片段的註解，由小陌本人透過 `npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN` 的互動提示設定 token，再重新部署。
+3. 確認 Cloudflare 已建立私有 R2 bucket `snowland-line-relay-media`，且 `expire-after-2-days` 規則適用整個 bucket。物件自建立起 2 天（48 小時）到期。維持 `r2.dev` 與公開網域停用。
+4. 以 `npx wrangler secret list` 確認 `LINE_CHANNEL_ACCESS_TOKEN` 已存在，再執行 `npx wrangler deploy`。首次設定時，在 LINE Developers 將 Wrangler 顯示的 Worker HTTPS URL 填為 Webhook URL，並執行 **Verify**。若該頻道已有預約 webhook，先確認切換後的流量安排。
