@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class InsurancePrepaidAccount(models.Model):
@@ -63,7 +64,7 @@ class InsuranceLedgerEntry(ImmutableLedgerRecord):
     reference = models.CharField(max_length=200, blank=True)
     note = models.CharField(max_length=1000, blank=True)
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
     idempotency_key = models.UUIDField(default=uuid4, unique=True, editable=False)
     request_fingerprint = models.CharField(max_length=64, blank=True)
 
@@ -83,9 +84,9 @@ class InsuranceReconciliation(ImmutableLedgerRecord):
     account = models.ForeignKey(InsurancePrepaidAccount, on_delete=models.PROTECT, related_name='reconciliations')
     month = models.DateField()
     opening = models.DecimalField(max_digits=16, decimal_places=2)
-    top_ups = models.DecimalField(max_digits=16, decimal_places=2)
-    deductions = models.DecimalField(max_digits=16, decimal_places=2)
-    reversals = models.DecimalField(max_digits=16, decimal_places=2)
+    top_ups = models.DecimalField(max_digits=24, decimal_places=2)
+    deductions = models.DecimalField(max_digits=24, decimal_places=2)
+    reversals = models.DecimalField(max_digits=24, decimal_places=2)
     closing = models.DecimalField(max_digits=16, decimal_places=2)
     cutoff_sequence = models.PositiveBigIntegerField()
     confirmed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')

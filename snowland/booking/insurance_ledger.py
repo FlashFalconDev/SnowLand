@@ -47,7 +47,7 @@ def entry_change(kind, amount, target=None):
 
 
 def append_entry(account, kind, amount, actor, *, key=None, fingerprint='', member=None,
-                 target=None, reference='', note=''):
+                 target=None, reference='', note='', posted_at=None):
     balance = account.balance + entry_change(kind, amount, target)
     if balance < ZERO:
         raise ValidationError({'msg': '預付保費餘額不足，請由財務確認並儲值後再試。'})
@@ -64,6 +64,7 @@ def append_entry(account, kind, amount, actor, *, key=None, fingerprint='', memb
             entry = InsuranceLedgerEntry.objects.create(
                 account=account, kind=kind, amount=amount, balance_after=balance, actor=actor,
                 sequence=account.version + 1, reverses=target, reference=reference, note=note,
+                created_at=posted_at or timezone.now(),
                 request_fingerprint=fingerprint, **source, **({'idempotency_key': key} if key else {}),
             )
     except IntegrityError:
@@ -89,11 +90,11 @@ def deposit(client, account, config, actor, data, fingerprint):
                         fingerprint=fingerprint, reference=data['reference'], note=data.get('note', ''))
 
 
-def reverse_entry(account, target, actor, *, note, key=None, fingerprint='', reference=''):
+def reverse_entry(account, target, actor, *, note, key=None, fingerprint='', reference='', posted_at=None):
     if target.kind == Kind.REVERSAL or InsuranceLedgerEntry.objects.filter(reverses=target).exists():
         raise ValidationError({'msg': '這筆分錄已沖正，或本身就是沖正分錄。'})
     return append_entry(account, Kind.REVERSAL, target.amount, actor, target=target,
-                        key=key, fingerprint=fingerprint, reference=reference, note=note)
+                        key=key, fingerprint=fingerprint, reference=reference, note=note, posted_at=posted_at)
 
 
 def guard_paused_premium(config, *, has_history):
@@ -115,6 +116,8 @@ def record_premium(member, account, config, actor, data, fingerprint, *, can_ded
     if not amount:
         return
     require_writable(config, account)
+    if member.reservation.group.is_test:
+        raise ValidationError({'msg': '測試訂單不能扣款。'})
     if data['currency'] != config.currency:
         raise ValidationError({'msg': f'保費幣別須為帳本幣別 {config.currency}。'})
     if account is None:
@@ -126,12 +129,13 @@ def record_premium(member, account, config, actor, data, fingerprint, *, can_ded
         kind=Kind.DEDUCTION, idempotency_key=member.insurance_premium_ledger_key,
         member_record_id=member.pk, reversal__isnull=True,
     ).first()
+    posted_at = timezone.now()
     if prior:
         if not data.get('correction_note'):
             raise ValidationError({'msg': '更正已扣款的保費時，請填寫沖正原因。'})
-        reverse_entry(account, prior, actor, note=data['correction_note'])
+        reverse_entry(account, prior, actor, note=data['correction_note'], posted_at=posted_at)
     entry = append_entry(account, Kind.DEDUCTION, amount, actor, key=key, fingerprint=fingerprint,
-                         member=member, note=data.get('correction_note', ''))
+                         member=member, note=data.get('correction_note', ''), posted_at=posted_at)
     member.insurance_premium_ledger_key = entry.idempotency_key
 
 
@@ -143,23 +147,19 @@ def month_bounds(month):
 
 def reconciliation_totals(account, month):
     start, end = month_bounds(month)
-    rows = account.entries.filter(created_at__lt=end)
-    current = Q(created_at__gte=start)
-    totals = rows.aggregate(
-        cutoff_sequence=Max('sequence', default=0),
-        deposits=Sum('amount', filter=Q(kind__in=[Kind.OPENING, Kind.TOP_UP]), default=ZERO),
-        spent=Sum('amount', filter=Q(kind=Kind.DEDUCTION), default=ZERO),
-        credits=Sum('amount', filter=Q(kind=Kind.REVERSAL, reverses__kind=Kind.DEDUCTION), default=ZERO),
-        debits=Sum('amount', filter=Q(kind=Kind.REVERSAL, reverses__kind__in=[Kind.OPENING, Kind.TOP_UP]), default=ZERO),
-        top_ups=Sum('amount', filter=current & Q(kind=Kind.TOP_UP), default=ZERO),
-        deductions=Sum('amount', filter=current & Q(kind=Kind.DEDUCTION), default=ZERO),
-        reversal_credits=Sum('amount', filter=current & Q(kind=Kind.REVERSAL, reverses__kind=Kind.DEDUCTION), default=ZERO),
-        reversal_debits=Sum('amount', filter=current & Q(kind=Kind.REVERSAL, reverses__kind__in=[Kind.OPENING, Kind.TOP_UP]), default=ZERO),
+    previous = account.entries.filter(created_at__lt=start).order_by('-sequence').values('sequence', 'balance_after').first()
+    totals = account.entries.filter(created_at__gte=start, created_at__lt=end).aggregate(
+        cutoff_sequence=Max('sequence'),
+        initial=Sum('amount', filter=Q(kind=Kind.OPENING), default=ZERO),
+        top_ups=Sum('amount', filter=Q(kind=Kind.TOP_UP), default=ZERO),
+        deductions=Sum('amount', filter=Q(kind=Kind.DEDUCTION), default=ZERO),
+        reversal_credits=Sum('amount', filter=Q(kind=Kind.REVERSAL, reverses__kind=Kind.DEDUCTION), default=ZERO),
+        reversal_debits=Sum('amount', filter=Q(kind=Kind.REVERSAL, reverses__kind__in=[Kind.OPENING, Kind.TOP_UP]), default=ZERO),
     )
-    closing = totals['deposits'] - totals['spent'] + totals['credits'] - totals['debits']
+    opening = totals['initial'] + (previous['balance_after'] if previous else ZERO)
     reversals = totals['reversal_credits'] - totals['reversal_debits']
     return {
-        'opening': closing - totals['top_ups'] + totals['deductions'] - reversals,
-        'top_ups': totals['top_ups'], 'deductions': totals['deductions'],
-        'reversals': reversals, 'closing': closing, 'cutoff_sequence': totals['cutoff_sequence'],
+        'opening': opening, 'top_ups': totals['top_ups'], 'deductions': totals['deductions'],
+        'reversals': reversals, 'closing': opening + totals['top_ups'] - totals['deductions'] + reversals,
+        'cutoff_sequence': totals['cutoff_sequence'] or (previous['sequence'] if previous else 0),
     }

@@ -2191,7 +2191,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     premium_policy = serializers.SerializerMethodField()
 
     def get_premium_policy(self, obj):
-        from booking.insurance_ledger import ledger_writable
+        from booking.insurance_ledger import Kind, ledger_writable
         from booking.models import InsurancePrepaidAccount
         from Client.tenant_settings import insurance_ledger_settings
 
@@ -2199,14 +2199,20 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
         config = insurance_ledger_settings(request.tenant)
         account = InsurancePrepaidAccount.objects.filter(client=request.tenant).first()
         can_deduct = user_has_admin_permission(request.user, 'insurance_ledger_deduct', request.tenant)
+        deductions = account.entries.filter(kind=Kind.DEDUCTION, member_record_id=obj.pk) if account else None
+        linked = deductions.filter(idempotency_key=obj.insurance_premium_ledger_key).select_related('reversal').first() if (
+            deductions is not None and obj.insurance_premium_ledger_key
+        ) else None
+        linked_reversed = bool(linked and hasattr(linked, 'reversal'))
         return {
             'enabled': config.enabled,
             'can_edit': bool(can_deduct and account and ledger_writable(config, account)) if config.enabled
                         else not bool(account and account.version),
             'currency': config.currency,
-            'correction_required': bool(obj.insurance_premium_ledger_key and account and account.entries.filter(
-                idempotency_key=obj.insurance_premium_ledger_key, reversal__isnull=True,
-            ).exists()),
+            'correction_required': bool(linked and not linked_reversed),
+            'deduction_reversed': linked_reversed,
+            'retained_deduction': bool(not obj.insurance_premium_amount and deductions is not None
+                                       and deductions.filter(reversal__isnull=True).exists()),
         }
 
     def get_online_signatures(self, obj):

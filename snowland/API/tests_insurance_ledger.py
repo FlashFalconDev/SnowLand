@@ -263,6 +263,7 @@ class InsuranceLedgerTests(LedgerFixtures, TestCase):
         self.assertEqual(entries[2].reverses_id, entries[1].pk)
         self.assertEqual(entries[2].amount, Decimal('30'))
         self.assertEqual(entries[3].amount, Decimal('40'))
+        self.assertEqual(entries[2].created_at, entries[3].created_at)
         self.assert_balance('60')
 
     def test_failure_after_ledger_write_rolls_back_entry_balance_and_processing(self):
@@ -289,6 +290,7 @@ class InsuranceLedgerTests(LedgerFixtures, TestCase):
         self.assertEqual(self.finance.post(url, {**data, 'idempotency_key': str(uuid4())}, format='json').status_code, 400)
         self.member.refresh_from_db()
         self.assertEqual(self.member.insurance_premium_amount, Decimal('35'))
+        self.assertTrue(self.insurance.get(processing_url(self.member).removesuffix('processing/')).data['premium_policy']['deduction_reversed'])
         self.assert_balance('100')
 
     def test_reschedule_clears_premium_and_new_premium_keeps_original_charge(self):
@@ -312,6 +314,7 @@ class InsuranceLedgerTests(LedgerFixtures, TestCase):
         self.assertIsNone(self.member.insurance_premium_amount)
         self.assertIsNone(self.member.insurance_premium_ledger_key)
         detail = self.insurance.get(processing_url(self.member).removesuffix('processing/')).data
+        self.assertTrue(detail['premium_policy']['retained_deduction'])
         self.assertEqual(self.submit('25', expected=detail['insurance_processing_updated_at']).status_code, 200)
         self.assertEqual(InsuranceLedgerEntry.objects.filter(kind=KIND.DEDUCTION).count(), 2)
         self.assertFalse(InsuranceLedgerEntry.objects.filter(kind=KIND.REVERSAL).exists())
@@ -397,6 +400,27 @@ class InsuranceLedgerTests(LedgerFixtures, TestCase):
             snapshot.delete()
         self.assertEqual(self.finance.get(url, {'month': '2025-03'}).data['data'], saved.data['data'])
         self.assert_balance('130')
+
+    def test_monthly_activity_can_exceed_the_account_balance_limit(self):
+        month = '2025-03'
+        with patch('django.utils.timezone.now', return_value=datetime(2025, 3, 2, tzinfo=ZoneInfo('Asia/Taipei'))):
+            self.deposit('10')
+            for _ in range(2):
+                row = self.deposit('60000000000000', kind=KIND.TOP_UP)
+                response = self.finance.post(LEDGER + f"entries/{row['id']}/reverse/", {
+                    'reference': 'QA', 'note': '重複匯款沖回', 'idempotency_key': str(uuid4()),
+                }, format='json')
+                self.assertEqual(response.status_code, 200, response.data)
+        self.assert_balance('10')
+        url = LEDGER + 'reconciliation/'
+        preview = self.finance.get(url, {'month': month}).data['data']
+        self.assertEqual(preview['top_ups'], '120000000000000.00')
+        self.assertEqual(preview['reversals'], '-120000000000000.00')
+        confirm = self.finance.post(url, {
+            'month': month, 'cutoff_sequence': preview['cutoff_sequence'], 'statement_balance': '10.00',
+        }, format='json')
+        self.assertEqual(confirm.status_code, 200, confirm.data)
+        self.assertEqual(confirm.data['data']['top_ups'], preview['top_ups'])
 
     def test_ledger_entries_reject_instance_and_queryset_mutations(self):
         self.deposit()

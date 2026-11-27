@@ -11,7 +11,7 @@ const source = fs.readFileSync(path.join(root, 'src/admin/pages/OperationsHubPag
 const compile = code => ts.transpileModule(code, { fileName:'insurance.tsx', compilerOptions:{ jsx:ts.JsxEmit.React, module:ts.ModuleKind.CommonJS, target:ts.ScriptTarget.ES2020 } }).outputText
 const row = { id:95, can_mark_complete:true, insurance_processing_status:'pending', insurance_premium_amount:null,
   insurance_premium_currency:'', insurance_processing_updated_at:null, insurance_data:{full_name:'QA原學員'}, member_email:'', waiver_signature:'QA原簽名', waiver_requires_resign:true }
-function render(states, editable=true, processing) {
+function render(states, editable=true, processing, policy) {
   let index=0, mutation
   const calls=[]
   const context=vm.createContext({ React, Date, Number, Object, inputClass:'',
@@ -25,7 +25,7 @@ function render(states, editable=true, processing) {
   })
   vm.runInContext(compile(source.slice(source.indexOf('const insuranceStatuses ='),source.indexOf('function InsurancePanel'))),context)
   vm.runInContext(compile(source.slice(source.indexOf('function PreCourseAnswerSummary('),source.indexOf('function Empty('))),context)
-  const tree=states ? context.InsuranceProcessingForm({row}) : React.createElement(context.InsuranceDetail,{id:95})
+  const tree=states ? context.InsuranceProcessingForm({row:{...row,premium_policy:policy}}) : React.createElement(context.InsuranceDetail,{id:95})
   const html=renderToStaticMarkup(tree)
   return {html,calls,save:()=>mutation.mutationFn()}
 }
@@ -39,6 +39,10 @@ async function main(){
   assert.match(assistant.html,/投保作業回報|儲存投保進度/)
   assert.match(assistant.html,/QA原學員/)
   assert.doesNotMatch(render(null,true,false).html,/投保作業回報|儲存投保進度/)
+  const retained=render(['checking','','',false,''],true,true,{enabled:true,can_edit:false,retained_deduction:true})
+  assert.match(retained.html,/帳本仍有此學員未沖正的扣款/)
+  assert.match(retained.html,/<input[^>]*type="number"[^>]*disabled=""/)
+  assert.doesNotMatch(retained.html,/<button[^>]* disabled=""/)
   const valid=render(['processing','350.50','JPY',false])
   assert.doesNotMatch(valid.html,/<button[^>]* disabled=""/)
   await valid.save()

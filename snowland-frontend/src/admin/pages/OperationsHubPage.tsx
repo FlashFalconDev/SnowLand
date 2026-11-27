@@ -753,6 +753,8 @@ function InsuranceProcessingForm({ row }: { row: InsuranceRecordDetail }) {
       <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder={policy?.currency || '例如 TWD、JPY'} required={amount !== ''} disabled={!canEditPremium || policy?.enabled} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
     </fieldset>
     {!canEditPremium && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">目前只能更新投保進度。保費請由具扣款權限的人員在帳本可用時更新。</p>}
+    {policy?.retained_deduction && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">帳本仍有此學員未沖正的扣款。請核對是否有新支出，再登錄新保費。</p>}
+    {policy?.deduction_reversed && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">這筆保費原扣款已由帳本沖正，保費紀錄仍保留供核對。</p>}
     {willDeduct && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{needsCorrection ? '儲存後將沖正原扣款，並以更正金額重新扣款。' : '儲存後將自預付保費帳本扣款。'}</p>}
     {needsCorrection && <Field label="更正原因"><input className={inputClass} required maxLength={1000} disabled={save.isPending} value={correctionNote} onChange={event => setCorrectionNote(event.target.value)} /></Field>}
     {needsConfirmation && <label className="mt-4 flex min-h-11 items-center gap-2 text-sm text-gray-700 dark:text-gray-200"><input type="checkbox" checked={confirmed} disabled={save.isPending} onChange={event => setConfirmed(event.target.checked)} />我已在保險公司完成投保，本次僅記錄結果</label>}

@@ -94,12 +94,14 @@ def month_data(month, totals, snapshot=None):
     }
 
 
+def saved_month_data(snapshot):
+    keys = ('opening', 'top_ups', 'deductions', 'reversals', 'closing', 'cutoff_sequence')
+    return month_data(snapshot.month, {key: getattr(snapshot, key) for key in keys}, snapshot)
+
+
 def reconciliation_data(account, month):
     snapshot = account.reconciliations.filter(month=month).select_related('confirmed_by').first()
-    if snapshot:
-        keys = ('opening', 'top_ups', 'deductions', 'reversals', 'closing', 'cutoff_sequence')
-        return month_data(month, {key: getattr(snapshot, key) for key in keys}, snapshot)
-    return month_data(month, reconciliation_totals(account, month))
+    return saved_month_data(snapshot) if snapshot else month_data(month, reconciliation_totals(account, month))
 
 
 class InsuranceLedgerAdminViewSet(PayrollCsrfMixin, GenericViewSet):
@@ -148,7 +150,6 @@ class InsuranceLedgerAdminViewSet(PayrollCsrfMixin, GenericViewSet):
     def deposits(self, request, *args, **kwargs):
         data = validated(DepositInput, request.data)
         config, account = self.locked_account()
-        require_writable(config, account)
         fingerprint = self.fingerprint('deposit', data)
         entry = replay_entry(request.tenant, data['idempotency_key'], fingerprint)
         if entry is None:
@@ -160,11 +161,11 @@ class InsuranceLedgerAdminViewSet(PayrollCsrfMixin, GenericViewSet):
     def reverse(self, request, entry_id, *args, **kwargs):
         data = validated(ReversalInput, request.data)
         config, account = self.locked_account()
-        require_writable(config, account)
-        target = get_object_or_404(InsuranceLedgerEntry, account=account, pk=entry_id)
         fingerprint = self.fingerprint('reverse', {**data, 'entry_id': entry_id})
         entry = replay_entry(request.tenant, data['idempotency_key'], fingerprint)
         if entry is None:
+            require_writable(config, account)
+            target = get_object_or_404(InsuranceLedgerEntry, account=account, pk=entry_id)
             entry = reverse_entry(account, target, request.user, key=data['idempotency_key'],
                                   fingerprint=fingerprint, reference=data['reference'], note=data['note'])
         return Response({'code': 200, 'data': entry_data(entry)})
@@ -184,14 +185,18 @@ class InsuranceLedgerAdminViewSet(PayrollCsrfMixin, GenericViewSet):
         month = data['month']
         if month >= timezone.localdate(timezone=timezone.get_default_timezone()).replace(day=1):
             raise ValidationError({'msg': '請於月份結束後確認對帳。'})
+        snapshot = account.reconciliations.filter(month=month).select_related('confirmed_by').first()
+        if snapshot:
+            if data['cutoff_sequence'] != snapshot.cutoff_sequence or data['statement_balance'] != snapshot.closing:
+                raise ValidationError({'msg': '本月已確認，請查看已保存的快照。'})
+            return Response({'code': 200, 'data': saved_month_data(snapshot)})
         totals = reconciliation_totals(account, month)
         if data['cutoff_sequence'] != totals['cutoff_sequence'] or data['statement_balance'] != totals['closing']:
             raise ValidationError({'msg': '分錄已變更或對帳單餘額不符，請重新產生快照並核對。'})
-        snapshot, _ = InsuranceReconciliation.objects.get_or_create(
-            account=account, month=month,
-            defaults={**totals, 'confirmed_by': request.user, 'note': data.get('note', '')},
+        snapshot = InsuranceReconciliation.objects.create(
+            account=account, month=month, confirmed_by=request.user, note=data.get('note', ''), **totals,
         )
-        return Response({'code': 200, 'data': month_data(month, totals, snapshot)})
+        return Response({'code': 200, 'data': saved_month_data(snapshot)})
 
     def locked_account(self):
         client = Client.objects.select_for_update().get(pk=self.request.tenant.pk)

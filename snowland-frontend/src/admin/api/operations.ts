@@ -97,7 +97,10 @@ export interface InsuranceRecord {
 }
 
 export interface InsuranceRecordDetail extends InsuranceRecord {
-  premium_policy?: { enabled: boolean; can_edit: boolean; currency: string; correction_required: boolean }
+  premium_policy?: {
+    enabled: boolean; can_edit: boolean; currency: string; correction_required: boolean
+    deduction_reversed: boolean; retained_deduction: boolean
+  }
   member_email: string
   insurance_data: Record<string, string>
   waiver_signature: string; waiver_document_version: string; waiver_document_snapshot: string
