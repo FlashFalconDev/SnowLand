@@ -1,6 +1,8 @@
 """School-owned settings; missing credentials must never borrow another school's."""
 import os
 import re
+from decimal import Decimal
+from typing import NamedTuple
 from django.conf import settings
 from .models import ModuleSetting, ModuleInfo
 
@@ -36,6 +38,29 @@ def course_album_coach_delete_enabled(client):
         client=client, module__module_sid='booking', module__is_active=True, is_active=True,
     ).values_list('settings', flat=True).first()
     return not isinstance(config, dict) or config.get('course_album_coach_delete_enabled') is not False
+
+
+class InsuranceLedgerSettings(NamedTuple):
+    enabled: bool
+    currency: str
+    low_balance: Decimal | None
+
+
+def insurance_ledger_settings(client):
+    """Read the school's typed values from the active booking module."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    config = config if isinstance(config, dict) else {}
+    currency = config.get('insurance_ledger_currency')
+    currency = currency.strip().upper() if isinstance(currency, str) else ''
+    if not re.fullmatch(r'[A-Z]{3}', currency):
+        currency = ''
+    threshold = config.get('insurance_ledger_low_balance')
+    low_balance = Decimal(str(threshold)) if type(threshold) in (int, float) else None
+    if low_balance is not None and (not low_balance.is_finite() or low_balance < 0):
+        low_balance = None
+    return InsuranceLedgerSettings(config.get('insurance_ledger_enabled') is True, currency, low_balance)
 
 
 def test_order_marking_enabled(client):

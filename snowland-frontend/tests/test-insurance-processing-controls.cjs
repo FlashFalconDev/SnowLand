@@ -19,6 +19,7 @@ function render(states, editable=true, processing) {
     useQuery:()=>({data:{...row,can_mark_complete:editable,...(processing===undefined?{}:{can_process_insurance:processing})},isLoading:false,isError:false}),
     useState:initial=>[states ? states[index++] : initial,()=>{}],
     useMutation:options=>{mutation=options;return {isPending:false,mutate(){}}},
+    useInsuranceRequestKey:()=>({forPayload:()=>'qa-request-key'}),
     saveInsuranceProcessing:async (...args)=>calls.push(args),
     Field:({label,children})=>React.createElement('label',null,label,children),
   })

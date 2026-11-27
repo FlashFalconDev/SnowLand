@@ -2090,10 +2090,14 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
     currency = serializers.CharField(max_length=3, allow_blank=True)
     expected_updated_at = serializers.DateTimeField(allow_null=True)
     confirm_insured = serializers.BooleanField(default=False)
+    idempotency_key = serializers.UUIDField(required=False)
+    correction_note = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     def to_internal_value(self, data):
         if not isinstance(data, dict) or set(data) - set(self.fields):
             raise serializers.ValidationError({'non_field_errors': ['只能更新投保作業欄位，不能修改學員、監護人或簽署資料']})
+        if data.get('premium_amount') == '':
+            data = {**data, 'premium_amount': None}
         return super().to_internal_value(data)
 
     def validate_currency(self, value):
@@ -2184,6 +2188,26 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     member_email = serializers.SerializerMethodField()
     document_history = serializers.SerializerMethodField()
     online_signatures = serializers.SerializerMethodField()
+    premium_policy = serializers.SerializerMethodField()
+
+    def get_premium_policy(self, obj):
+        from booking.insurance_ledger import ledger_writable
+        from booking.models import InsurancePrepaidAccount
+        from Client.tenant_settings import insurance_ledger_settings
+
+        request = self.context['request']
+        config = insurance_ledger_settings(request.tenant)
+        account = InsurancePrepaidAccount.objects.filter(client=request.tenant).first()
+        can_deduct = user_has_admin_permission(request.user, 'insurance_ledger_deduct', request.tenant)
+        return {
+            'enabled': config.enabled,
+            'can_edit': bool(can_deduct and account and ledger_writable(config, account)) if config.enabled
+                        else not bool(account and account.version),
+            'currency': config.currency,
+            'correction_required': bool(obj.insurance_premium_ledger_key and account and account.entries.filter(
+                idempotency_key=obj.insurance_premium_ledger_key, reversal__isnull=True,
+            ).exists()),
+        }
 
     def get_online_signatures(self, obj):
         return list(obj.online_waiver_signatures.order_by('-pk').values(
@@ -2204,7 +2228,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
 
     class Meta(InsuranceRecordAdminSerializer.Meta):
         fields = InsuranceRecordAdminSerializer.Meta.fields + [
-            'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
+            'premium_policy', 'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
             'waiver_document_snapshot', 'media_consent', 'document_history', 'online_signatures', 'pre_course_answers',
         ]
         read_only_fields = fields

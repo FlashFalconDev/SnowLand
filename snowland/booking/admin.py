@@ -3,7 +3,9 @@ from django.contrib import admin
 from django.db.models import FileField
 
 from .media_files import PrivateCourseMediaStorage
-from .models import Reservation, ReservationGroup
+from .models import (
+    InsuranceLedgerEntry, InsurancePrepaidAccount, InsuranceReconciliation, Reservation, ReservationGroup,
+)
 from .order_archive import SCOPES
 
 
@@ -132,3 +134,23 @@ for scope in SCOPES:
         if scope.model._meta.model_name == 'payment':
             admin_class = PaymentArchiveAdmin
         admin.site.register(scope.model, admin_class)
+
+
+@admin.register(InsurancePrepaidAccount, InsuranceLedgerEntry, InsuranceReconciliation)
+class InsuranceLedgerAdmin(admin.ModelAdmin):
+    actions = None
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

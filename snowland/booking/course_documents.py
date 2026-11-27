@@ -2,6 +2,9 @@
 import json
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
+from Client.tenant_settings import insurance_ledger_settings
+
+from .insurance_ledger import guard_paused_premium
 from .models import MemberCourseDocumentRevision
 
 
@@ -29,10 +32,13 @@ def save_course_documents(entries, revision, actor):
         if signed:
             member.waiver_resign_required=True;fields.append('waiver_resign_required')
         if insured:
+            if member.insurance_premium_ledger_key and member.insurance_premium_amount:
+                guard_paused_premium(insurance_ledger_settings(member.reservation.group.client), has_history=True)
             member.insurance_processing_status='checking'
             member.insurance_processing_updated_at=timezone.now()
             member.insurance_processing_updated_by=actor
             member.insurance_premium_amount=None;member.insurance_premium_currency=''
+            member.insurance_premium_ledger_key=None
             fields.extend(['insurance_processing_status','insurance_processing_updated_at','insurance_processing_updated_by',
-                'insurance_premium_amount','insurance_premium_currency'])
+                'insurance_premium_amount','insurance_premium_currency','insurance_premium_ledger_key'])
         member.save(update_fields=fields)

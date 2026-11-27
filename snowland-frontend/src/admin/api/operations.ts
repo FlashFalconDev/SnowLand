@@ -97,6 +97,7 @@ export interface InsuranceRecord {
 }
 
 export interface InsuranceRecordDetail extends InsuranceRecord {
+  premium_policy?: { enabled: boolean; can_edit: boolean; currency: string; correction_required: boolean }
   member_email: string
   insurance_data: Record<string, string>
   waiver_signature: string; waiver_document_version: string; waiver_document_snapshot: string
@@ -202,6 +203,7 @@ export const fetchInsuranceRecords = (status = 'missing') => list<InsuranceRecor
 export async function saveInsuranceProcessing(id: number, data: {
   status: InsuranceRecord['insurance_processing_status']; premium_amount: string | null; currency: string
   expected_updated_at: string | null; confirm_insured: boolean
+  idempotency_key?: string; correction_note?: string
 }) {
   await adminApi.post(`/insurance-records/${id}/processing/`, data)
 }
