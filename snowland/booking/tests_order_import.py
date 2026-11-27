@@ -21,8 +21,10 @@ from Coach.models import Coach, CoachCourseLevel, CoachResort
 from Control.models import TenantStaffMembership
 from Coursekit.models import CourseCategory, CoursePricing, CourseSession, CourseTemplate, CourseType
 from Resorts.models import Campus, Resorts
+from booking.capacity import Slot
 from booking.models import (
     BookingClosure, NotificationDelivery, NotificationTemplate, OrderImportBatch, OrderLoyalty, Payment, ReservationGroup,
+    StaffBookingLink,
 )
 from booking.order_import.parser import HEADERS, MAX_BYTES, MAX_ROWS, SHEET_NAME
 from booking.order_import.template import TEMPLATE_PATH
@@ -31,6 +33,7 @@ from booking.order_import.validation import (
     PHONE, POSTED, RESORT, START, TEMPLATE,
 )
 from booking.participant_invitations import issue_invitation
+from booking.staff_link_holds import create_holds
 
 
 def xlsx(rows, *, header=HEADERS):
@@ -130,9 +133,9 @@ class OrderImportTests(TestCase):
         response = self.hq.get(self.url + 'template/')
         self.assertEqual(response.status_code, 200)
         distributed = load_workbook(io.BytesIO(b''.join(response.streaming_content)))
-        response.close()
         locked = load_workbook(TEMPLATE_PATH)
         self.assertEqual(list(distributed[SHEET_NAME].values), list(locked[SHEET_NAME].values))
+        self.assertIn('請勿填姓名、電話或 Email。', distributed['說明']['D14'].value)
         options = list(distributed['選項'].values)
         self.assertIn(('校區', 'jp', '測試校區', None), options)
         self.assertIn(('時段', '09:00–12:00', '單板／私人課／上午', '測試雪場'), options)
@@ -252,6 +255,24 @@ class OrderImportTests(TestCase):
         self.assertTrue(payment.DataJSON['overbooked_import'])
         self.assertIn('超賣匯入：紙本已收款', payment.reservation_group.revisions.get().reason)
         self.assertEqual(OrderImportBatch.objects.get(pk=result['batch_id']).overbook_reason, '紙本已收款')
+
+    def test_capacity_includes_staff_link_holds_at_preview_and_commit(self):
+        before_hold = self.preview(self.row())
+        self.assertEqual(before_hold['summary']['full'], 0)
+        link = StaffBookingLink.objects.create(
+            client=self.tenant, campus=self.campus, created_by=self.actor,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        slot = Slot(self.template, self.day, self.session.start_time, self.session.end_time)
+        create_holds(link, [(slot, self.resort.name)], self.actor)
+
+        preview = self.preview(self.row())
+        self.assertEqual(preview['summary']['full'], 1)
+        self.assertEqual([issue['code'] for issue in preview['order_results'][0]['issues']], ['full'])
+        committed, = self.commit(before_hold)['commit_results']
+        self.assertEqual(committed['status'], 'skipped')
+        self.assertEqual([issue['code'] for issue in committed['issues']], ['full'])
+        self.assertFalse(ReservationGroup.objects.exists())
 
     def test_commit_rechecks_closure_and_availability(self):
         preview = self.preview(self.row())

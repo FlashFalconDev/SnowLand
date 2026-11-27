@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('Client', '0019_frontend_deployment_cli_request_id'),
-        ('booking', '0052_booking_closure'),
+        ('booking', '0053_staff_link_capacity_hold'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

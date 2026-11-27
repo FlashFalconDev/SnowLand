@@ -120,8 +120,8 @@ def placement_issues(tenant, order, *, prior_slots=None, prior_coaches=None, loc
     issues = []
     for lesson in order.lessons:
         slot = lesson.slot
-        # The shared service owns occupied-count semantics. Preview contributes
-        # preceding orders through requested counts. Staff holds can be added there.
+        # The shared service counts reservations and staff-link holds.
+        # Preview adds preceding orders to the requested count.
         for reason in slot_unavailable_reasons(
             slot, requested=requested[slot] + (prior_slots or {}).get(slot, 0),
             closures=closures, resort_id=lesson.resort.pk,

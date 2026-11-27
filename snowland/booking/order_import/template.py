@@ -16,6 +16,8 @@ TEMPLATE_PATH = Path(__file__).parent / 'assets' / 'snowland-order-import-templa
 
 def workbook_for_tenant(tenant):
     book = load_workbook(TEMPLATE_PATH)
+    order_number_rule = book['說明']['D14']
+    order_number_rule.value += '請勿填姓名、電話或 Email。'
     options = book['選項']
     options['A2'] = '下方是本校目前啟用的選項。請依同一校區與雪場的課程時段填寫。'
     options.delete_rows(4, options.max_row - 3)
