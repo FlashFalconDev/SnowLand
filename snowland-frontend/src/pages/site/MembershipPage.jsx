@@ -366,7 +366,7 @@ function PreCourseForm({ form, waiverDocument, insuranceNotice, skillOptions, on
     {form.waiver_resign_required && <p role="status" className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t("課程日期或模板已修改，請重新閱讀並簽署聲明書。原簽署已留底；如已投保，將由行政重新核對。")}</p>}
     {!editing ? <>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><p>{t('年齡：{age}',{age:ageLabel(form.age_range,t)})}</p><p>{t('保險資料：{status}',{status:t(form.insurance_completed?'已填寫':'待補齊')})}</p><p>{t('聲明書：{status}',{status:t(form.waiver_completed?'完成':'需補齊或重新簽署')})}</p></div>
-      <p className="mt-3 text-sm text-[#64748b]">{t('投保作業：{status}。填妥資料不代表已完成投保，作業狀態由行政核對及登錄。',{status:t(({pending:'尚未投保',checking:'行政核對中',processing:'行政處理中',insured:'已投保完成'})[form.insurance_processing_status] || '待行政確認')})}</p>
+      <p className="mt-3 text-sm text-[#64748b]">{t('投保作業：{status}。填妥資料不代表已完成投保，作業狀態由行政核對及登錄。',{status:t(({pending:'尚未投保',checking:'行政核對中',processing:'行政處理中',insured:'已投保完成',pending_review:'待行政確認'})[form.insurance_processing_status] || '待行政確認')})}</p>
       <p className="mt-3 text-sm text-[#64748b]">{t('程度：{level}',{level:[...form.snowboard_skills,...form.ski_skills].map(value => t(value)).join('、') || t('尚未填寫')})}</p>
       <button type="button" onClick={() => { setDraft(savedDraft()); setMessage(''); setEditing(true); }} className="mt-4 min-h-11 rounded-full bg-[#2b5f8f] px-5 py-2.5 text-sm font-semibold text-white">{t("填寫／修改資料")}</button>
     </> : <div className="mt-5 space-y-5">

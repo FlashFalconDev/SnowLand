@@ -29,7 +29,7 @@ const waiver = {
 }
 const notice = {title: 'QA 保險說明', body: 'QA 公開保險正文\n第二段', version: 'QA-I1', status: 'active', is_draft: false}
 
-function render(insuranceNotice, waiverDocument = waiver) {
+function render(insuranceNotice, waiverDocument = waiver, processingStatus, editing = true) {
   // Open the form through the same click handler used on the member page.
   const states = []
   let cursor = 0
@@ -38,8 +38,9 @@ function render(insuranceNotice, waiverDocument = waiver) {
     if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial
     return [states[index], next => { states[index] = typeof next === 'function' ? next(states[index]) : next }]
   }
-  const props = {form: submission, insuranceNotice, waiverDocument, skillOptions: {}}
+  const props = {form: {...submission, insurance_processing_status: processingStatus}, insuranceNotice, waiverDocument, skillOptions: {}}
   const closed = context.PreCourseForm(props)
+  if (!editing) return renderToStaticMarkup(closed)
   const edit = React.Children.toArray(closed.props.children).flatMap(child =>
     child.type === React.Fragment ? React.Children.toArray(child.props.children) : [child],
   ).find(child => child.type === 'button')
@@ -67,4 +68,9 @@ for (const unpublished of [undefined, {...notice, status: 'draft'}, {...notice, 
 const onlyNotice = render(notice, {title: '', body: '', version: '', questions: []})
 assert.match(onlyNotice, /QA 公開保險正文/)
 assert.doesNotMatch(onlyNotice, /QA 公開聲明書正文|QA 手寫簽名板/)
+for (const status of ['pending_review', 'ineligible', 'unknown']) {
+  const html = render(notice, waiver, status, false)
+  assert.match(html, /投保作業：待行政確認/)
+  assert.doesNotMatch(html, /不符投保資格|ineligible/)
+}
 console.log('PASS pre-course form displays each public document independently and preserves insurance fields')

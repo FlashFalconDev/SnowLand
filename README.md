@@ -29,6 +29,7 @@
 - 前端：在 `snowland-frontend/` 執行 `npm ci`、`npm test`、`npm run build`。前端測試位於 `tests/`；部分檢查會讀取同一儲存庫的後端內容範本。
 - 後端：在 `snowland/` 執行對應虛擬環境的 Django 檢查與測試。測試環境使用 `snowland.test_settings`，不要將正式資料庫作為測試目標。
 - 部署：前端只發布 `snowland-frontend/dist/`；後端 EB 從 `snowland/` 部署。不要把儲存庫根目錄整包上傳。詳細設定見 `docs/aws-eb-deployment.md`。
+- 保險作業的租戶開關、操作權限與狀態規則見[不符投保資格操作說明](docs/insurance-eligibility.md)。
 
 ## 本機目錄搬移
 

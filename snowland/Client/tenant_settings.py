@@ -107,6 +107,16 @@ def _vehicle_review_settings(client):
     return config if isinstance(config, dict) else {}
 
 
+def insurance_eligibility_settings(client) -> tuple[bool, bool]:
+    """Return explicit (enabled, allow_admin) flags from the active booking settings."""
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    if not isinstance(config, dict):
+        return False, False
+    return config.get('insurance_eligibility_enabled') is True, config.get('insurance_eligibility_allow_admin') is True
+
+
 def vehicle_conflict_mode(client):
     mode = _vehicle_review_settings(client).get('vehicle_conflict_mode')
     # TODO(vehicle_conflict_mode=auto_revoke): keep using manual_review until scheduling supports automatic revocation.

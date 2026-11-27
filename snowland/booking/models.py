@@ -515,7 +515,10 @@ class MemberDetail(SoftDeleteModel):
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='guarded_member_details', verbose_name='家長帳號'
     )
     insurance_data = models.JSONField(default=dict, blank=True, verbose_name='保險資料')
-    INSURANCE_PROCESSING_CHOICES = [('pending', '尚未投保'), ('checking', '對資料中'), ('processing', '處理中'), ('insured', '已投保完成')]
+    INSURANCE_PROCESSING_CHOICES = [
+        ('pending', '尚未投保'), ('checking', '對資料中'), ('processing', '處理中'),
+        ('insured', '已投保完成'), ('ineligible', '不符投保資格'),
+    ]
     insurance_processing_status = models.CharField(max_length=12, default='pending', choices=INSURANCE_PROCESSING_CHOICES, verbose_name='投保作業狀態')
     insurance_premium_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name='投保金額')
     insurance_premium_currency = models.CharField(max_length=3, blank=True, default='', verbose_name='投保金額幣別')

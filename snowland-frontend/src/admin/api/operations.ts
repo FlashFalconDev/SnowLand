@@ -85,18 +85,21 @@ export interface StaffBookingPricePreview {
 
 type StaffBookingLinkEdit = { cart_snapshot: CartItem[]; snapshot_version: number }
 
+export type InsuranceProcessingStatus = 'pending' | 'checking' | 'processing' | 'insured' | 'ineligible'
+
 export interface InsuranceRecord {
   can_remind: boolean
   can_mark_complete: boolean
   can_process_insurance?: boolean
   id: number; member_name: string; order_number: string; sn: string; campus_name: string; age_range: string
   insurance_completed_at: string | null; insurance_requires_update?: boolean; waiver_completed_at: string | null; waiver_requires_resign: boolean; course_dates: string[]
-  insurance_processing_status: 'pending' | 'checking' | 'processing' | 'insured'
+  insurance_processing_status: InsuranceProcessingStatus
   insurance_premium_amount: string | null; insurance_premium_currency: string
   insurance_processing_updated_at: string | null
 }
 
 export interface InsuranceRecordDetail extends InsuranceRecord {
+  insurance_eligibility?: { can_mark: boolean; can_restore: boolean }
   member_email: string
   insurance_data: Record<string, string>
   waiver_signature: string; waiver_document_version: string; waiver_document_snapshot: string
@@ -197,7 +200,12 @@ export const fetchEvaluations = async (params: Partial<EvaluationDateFilters> & 
   (await adminApi.get('/evaluations/', { params }) as unknown as DetailResponse<EvaluationPage>).data
 export const fetchCoachEvaluations = () => list<Evaluation>('/coach/evaluations/')
 export const fetchStaffBookingLinks = () => list<StaffBookingLink>('/staff-booking-links/')
-export const fetchInsuranceRecords = (status = 'missing') => list<InsuranceRecord>(`/insurance-records/?status=${status}`)
+export async function fetchInsuranceRecords(status = 'missing') {
+  const { data } = await adminApi.get('/insurance-records/', { params: { status } }) as unknown as DetailResponse<{
+    list: InsuranceRecord[]; insurance_eligibility_enabled?: boolean
+  }>
+  return { rows: data?.list ?? [], eligibilityEnabled: data?.insurance_eligibility_enabled === true }
+}
 
 export async function saveInsuranceProcessing(id: number, data: {
   status: InsuranceRecord['insurance_processing_status']; premium_amount: string | null; currency: string

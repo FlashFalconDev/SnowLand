@@ -45,6 +45,45 @@
       ]
     },
     {
+      "id": "insurance-ineligible",
+      "name": "保險與聲明書資料的不符投保資格",
+      "routes": {
+        "console": "/{client_code}/console/insurance",
+        "scheduling": "/{client_code}/console/scheduling",
+        "member": "/{client_code}/membership/pre-course-forms",
+        "adminApi": "/api/admin/{client_code}/insurance-records/",
+        "processingApi": "/api/admin/{client_code}/insurance-records/{id}/processing/",
+        "reminderApi": "/api/admin/{client_code}/insurance-records/{id}/reminder/",
+        "memberApi": "/booking/{client_code}/api/member-center/"
+      },
+      "permission": "insurance_records、租戶與校區範圍，以及有權限的保險職位或總部管理員。行政職位另須租戶授權。",
+      "testEnvironment": "Django snowland.test_settings 的記憶體 SQLite、snowland.test_settings_mysql 的隔離 MySQL 8.4，以及使用合成資料的本機前端。",
+      "checks": [
+        {
+          "id": "api-eligibility-and-recheck",
+          "command": "cd snowland; python manage.py test API.tests_insurance_processing API.tests_insurance_reminders API.tests_order_amendment_confirm API.tests_staff_positions API.tests_console_permissions booking.tests_shared_course_booking --settings=snowland.test_settings",
+          "expected": "租戶開關、職位與校區範圍控制標記及復原，舊版本回 409。標記時保留已填保費並拒絕新正保費。保險提醒預覽與寄送皆被拒，聲明書提醒可用。需重核的改期或換課留底並回對資料中，會員 API 回傳待行政確認的通用狀態。"
+        },
+        {
+          "id": "frontend-insurance-eligibility",
+          "commands": ["cd snowland-frontend; cmd /c npm test", "cd snowland-frontend; cmd /c npm run build"],
+          "tests": ["tests/test-insurance-processing-controls.cjs", "tests/test-insurance-calendar.cjs", "tests/test-waiver-version-controls.cjs", "tests/test-pre-course-insurance-notice.cjs"],
+          "expected": "授權者依狀態看到標記或復原選項。舊標記仍在全部、篩選與獨立月曆計數中。會員只看到待行政確認。"
+        },
+        {
+          "id": "browser-insurance-eligibility",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "以有權限的測試帳號開啟保險與聲明書資料，展開未投保學員並選不符投保資格，確認金額唯讀。",
+            "儲存後檢查獨立徽章、月曆計數、投保進度篩選，以及保險資料和聲明書提醒按鈕。",
+            "關閉測試租戶的新增開關，重新載入後篩選舊標記並復原為對資料中。以未授權的行政測試帳號檢查標記與復原選項。",
+            "在會員課前資料檢查待行政確認的提示。"
+          ],
+          "expected": "桌機與手機可辨識不符計數、操作篩選及表單，會員畫面只顯示通用狀態。"
+        }
+      ]
+    },
+    {
       "id": "manual-payment-bank-posted-date",
       "name": "已付款核對的銀行入帳日期",
       "routes": {

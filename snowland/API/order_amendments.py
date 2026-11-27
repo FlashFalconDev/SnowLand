@@ -12,6 +12,7 @@ from Coach.models import Coach
 from Coursekit.models import CoursePricing, CourseTemplate, SeasonSetting
 from Resorts.models import EquipmentPricingTier, ResortFee
 from booking.models import EQUIPMENT_CHOICES, MemberDetail
+from booking.course_documents import INSURANCE_RECHECK_STATUSES
 from booking.operations import order_snapshot
 from .manual_notifications import NotificationConflict
 
@@ -223,7 +224,7 @@ def _quote_item(group,reservation,change):
         'discount_changed':discount!=old_discount,'ability_level_counts':change.get('ability_level_counts'),
         'retained_member_ids':change.get('retained_member_ids'),
         'waiver_resign_count':sum(bool(member.waiver_signature or member.waiver_completed_at) for member in reviewed_members),
-        'insurance_recheck_count':sum(member.insurance_processing_status=='insured' for member in reviewed_members)}
+        'insurance_recheck_count':sum(member.insurance_processing_status in INSURANCE_RECHECK_STATUSES for member in reviewed_members)}
 
 
 def amendment_digest(value):

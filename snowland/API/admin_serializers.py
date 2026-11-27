@@ -2094,6 +2094,8 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
     def to_internal_value(self, data):
         if not isinstance(data, dict) or set(data) - set(self.fields):
             raise serializers.ValidationError({'non_field_errors': ['只能更新投保作業欄位，不能修改學員、監護人或簽署資料']})
+        if data.get('status') == 'ineligible' and data.get('premium_amount') == '':
+            data = {**data, 'premium_amount': None}
         return super().to_internal_value(data)
 
     def validate_currency(self, value):
@@ -2103,7 +2105,7 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        if attrs['premium_amount'] is not None and not attrs['currency']:
+        if attrs['status'] != 'ineligible' and attrs['premium_amount'] is not None and not attrs['currency']:
             raise serializers.ValidationError({'currency': '填寫金額時請同時填寫幣別'})
         return attrs
 
@@ -2184,6 +2186,19 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     member_email = serializers.SerializerMethodField()
     document_history = serializers.SerializerMethodField()
     online_signatures = serializers.SerializerMethodField()
+    insurance_eligibility = serializers.SerializerMethodField()
+
+    def get_insurance_eligibility(self, obj):
+        from Client.tenant_settings import insurance_eligibility_settings
+        from .admin_permissions import can_change_insurance_eligibility
+
+        request = self.context['request']
+        enabled, allow_admin = insurance_eligibility_settings(request.tenant)
+        allowed = can_change_insurance_eligibility(request.user, request.tenant, allow_admin)
+        return {
+            'can_mark': enabled and allowed and obj.insurance_processing_status in {'pending', 'checking', 'processing'},
+            'can_restore': allowed and obj.insurance_processing_status == 'ineligible',
+        }
 
     def get_online_signatures(self, obj):
         return list(obj.online_waiver_signatures.order_by('-pk').values(
@@ -2206,6 +2221,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
         fields = InsuranceRecordAdminSerializer.Meta.fields + [
             'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
             'waiver_document_snapshot', 'media_consent', 'document_history', 'online_signatures', 'pre_course_answers',
+            'insurance_eligibility',
         ]
         read_only_fields = fields
 
