@@ -2445,6 +2445,9 @@ class OrderAdminViewSet(ModelViewSet):
                 confirmations.append(foreign_receipt)
                 current.DataJSON={**payload,'settlement':foreign_receipt,'settlement_confirmations':confirmations}
             current.save()
+            if payment_status == 'paid' and not was_paid:
+                from booking.capacity import record_paid_capacity_conflict
+                record_paid_capacity_conflict(instance, current, user=request.user)
             if payment_status == 'paid' and not (was_paid and posting_date_supplied):
                 from booking.currency import settlement_summary
                 from booking.loyalty import sync_order_loyalty

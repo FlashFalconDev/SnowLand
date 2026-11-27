@@ -139,6 +139,13 @@ def staff_booking_link_edit_enabled(client):
     return not isinstance(config, dict) or config.get('staff_booking_link_edit_enabled') is not False
 
 
+def booking_capacity_recheck_enabled(client):
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    return not isinstance(config, dict) or config.get('booking_capacity_recheck_enabled') is not False
+
+
 def _vehicle_review_settings(client):
     config = ModuleSetting.objects.filter(
         client=client, module__module_sid='vehicle_review', module__is_active=True, is_active=True,

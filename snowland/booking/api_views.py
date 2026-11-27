@@ -1,5 +1,5 @@
 from .tenant_scope import require_open_booking_resorts, resort_for_course, selected_coach_for_school
-from Client.tenant_settings import booking_discount_settings, gateway_settings, google_client_id, module_enabled
+from Client.tenant_settings import booking_capacity_recheck_enabled, booking_discount_settings, gateway_settings, google_client_id, module_enabled
 from Control.tenant_memberships import staff_profile
 from Client.memberships import member_profile as school_member_profile
 """
@@ -51,6 +51,10 @@ from .legal_documents import INSURANCE_NOTICE_LOCATION_KEY, get_current_insuranc
 from .pre_course_questions import required_answers_complete, saved_section_answers, section_questions, validate_answers
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .coach_pre_course_summary import COACH_SUMMARY_LOCATION, experience_assessment_enabled
+from .capacity import (
+    PAYMENT_CAPACITY_CODE, Slot, checkout_conflicts,
+    capacity_payment_hold, slot_full_response, slot_unavailable_reasons,
+)
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
 from .discount_usage import rebuild_discount_usage, record_checkout_discount_usage
 from .media_files import course_media_url, private_file_response
@@ -97,7 +101,7 @@ def group_has_pending_coach_confirmation(group):
     return group.reservations.live().filter(status='pending_coach_confirmation').exists()
 
 
-def get_group_payment_hold(group):
+def get_group_payment_hold(group, *, check_capacity=False):
     if group.is_test:
         return '測試訂單不開放付款或匯款回報', 'test_order'
     if group.reservations.live().filter(shared_course_class__status='collecting').exists():
@@ -115,7 +119,44 @@ def get_group_payment_hold(group):
         # A read must not expire only the payment: the job must still see the
         # unpaid candidate and atomically release its reservations as well.
         return '付款保留期已結束，請聯絡客服改期或取消', 'expired'
+    if check_capacity:
+        return capacity_payment_hold(group, payment)
     return None, None
+
+
+def payment_hold_response(message, hold_status):
+    data = {'error': message, 'payment_status': hold_status, 'requires_payment': False}
+    if hold_status == PAYMENT_CAPACITY_CODE:
+        return Response({**data, 'code': hold_status, 'message': message}, status=409)
+    return Response(data, status=400)
+
+
+def checkout_capacity_conflicts(tenant, cart, *, split_reservations=False):
+    if not booking_capacity_recheck_enabled(tenant):
+        return []
+    course_groups = [item.get('courses') or [] for item in cart]
+    templates = CourseTemplate.objects.filter(course_type__category__client=tenant).in_bulk(
+        {course.get('courseTemplateId') for courses in course_groups for course in courses if course.get('courseTemplateId')},
+    )
+    slots = []
+    for courses in course_groups:
+        group_slots = []
+        for course in courses:
+            template = templates.get(int(course['courseTemplateId'])) if course.get('courseTemplateId') else None
+            if template and not template.shared_class_enabled:
+                group_slots.append(Slot(
+                    template, datetime.strptime(course['date'], '%Y-%m-%d').date(),
+                    parse_booking_time(course['timeSlotStart']), parse_booking_time(course['timeSlotEnd']),
+                ))
+        slots.extend(group_slots if split_reservations else dict.fromkeys(group_slots))
+    return checkout_conflicts(slots)
+
+
+def parse_booking_time(value):
+    try:
+        return datetime.strptime(value, '%H:%M:%S').time()
+    except ValueError:
+        return datetime.strptime(value, '%H:%M').time()
 
 
 def model_table_has_column(model, column_name):
@@ -2057,18 +2098,11 @@ class CourseSessionListAPI(APIView):
                 if tmpl.booking_close_date and today > tmpl.booking_close_date:
                     continue
 
-                # 檢查容量（同模板同日同時段已預約人數）
-                booked_reservations = Reservation.objects.live().filter(
-                    course_template=tmpl,
-                    bookings__is_deleted=False, bookings__date=check_date,
-                    bookings__start_time=session.start_time,
-                    bookings__end_time=session.end_time,
-                ).exclude(status__in=['cancelled', 'deleted'])
                 if tmpl.shared_class_enabled:
                     requested = int(people_count) if people_count and people_count.isdigit() else 1
                     is_full = bool(shared_class and shared_class.status == 'cancelled') or shared_count + requested > shared_capacity
                 else:
-                    is_full = booked_reservations.count() >= (tmpl.max_capacity or 6)
+                    is_full = bool(slot_unavailable_reasons(Slot(tmpl, check_date, session.start_time, session.end_time)))
             else:
                 is_full = False
 
@@ -2408,6 +2442,9 @@ class CreateReservationAPI(APIView):
                     contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
                 except ValueError as exc:
                     return Response({'code': 400, 'msg': str(exc)}, status=400)
+            conflicts = checkout_capacity_conflicts(tenant_client, cart_data)
+            if conflicts:
+                return Response(slot_full_response(conflicts), status=409)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
             rebuild_discount_usage(tenant_client)
             discount_summary = calculate_cart_discount_summary(
@@ -2936,16 +2973,8 @@ class CreateReservationAPI(APIView):
         # 解析日期和時間
         booking_date = datetime.strptime(course['date'], '%Y-%m-%d').date()
 
-        # 處理時間格式（可能是 HH:MM 或 HH:MM:SS）
-        try:
-            start_time = datetime.strptime(course['timeSlotStart'], '%H:%M:%S').time()
-        except ValueError:
-            start_time = datetime.strptime(course['timeSlotStart'], '%H:%M').time()
-
-        try:
-            end_time = datetime.strptime(course['timeSlotEnd'], '%H:%M:%S').time()
-        except ValueError:
-            end_time = datetime.strptime(course['timeSlotEnd'], '%H:%M').time()
+        start_time = parse_booking_time(course['timeSlotStart'])
+        end_time = parse_booking_time(course['timeSlotEnd'])
 
         # 創建預約課程
         booking = Booking.objects.create(
@@ -4092,6 +4121,9 @@ class SuperScheduleAPI(APIView):
                 contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
             except ValueError as exc:
                 return Response({'code': 400, 'msg': str(exc)}, status=400)
+            conflicts = checkout_capacity_conflicts(tenant_client, cart_data, split_reservations=True)
+            if conflicts:
+                return Response(slot_full_response(conflicts), status=409)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
             rebuild_discount_usage(tenant_client)
             discount_summary = calculate_cart_discount_summary(
@@ -4396,15 +4428,8 @@ class SuperScheduleAPI(APIView):
         # 為這一天創建Booking
         booking_date = datetime.strptime(course['date'], '%Y-%m-%d').date()
 
-        try:
-            start_time = datetime.strptime(course['timeSlotStart'], '%H:%M:%S').time()
-        except ValueError:
-            start_time = datetime.strptime(course['timeSlotStart'], '%H:%M').time()
-
-        try:
-            end_time = datetime.strptime(course['timeSlotEnd'], '%H:%M:%S').time()
-        except ValueError:
-            end_time = datetime.strptime(course['timeSlotEnd'], '%H:%M').time()
+        start_time = parse_booking_time(course['timeSlotStart'])
+        end_time = parse_booking_time(course['timeSlotEnd'])
 
         seconds=lambda value:value.hour*3600+value.minute*60+value.second
         duration=seconds(end_time)-seconds(start_time)
@@ -4541,13 +4566,9 @@ class PaymentInfoAPI(APIView):
                     'payment_status': 'all_cancelled'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            hold_message, hold_status = get_group_payment_hold(group)
+            hold_message, hold_status = get_group_payment_hold(group, check_capacity=True)
             if hold_message:
-                return Response({
-                    'error': hold_message,
-                    'payment_status': hold_status,
-                    'requires_payment': False,
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return payment_hold_response(hold_message, hold_status)
 
             # 計算訂單詳情和總金額
             order_details = []
@@ -4827,13 +4848,9 @@ class ProcessPaymentAPI(APIView):
             if not can_access_payment(group, request.user, request.data.get('access_token', '')):
                 return Response({'error': '找不到預約群組'}, status=status.HTTP_404_NOT_FOUND)
 
-            hold_message, hold_status = get_group_payment_hold(group)
+            hold_message, hold_status = get_group_payment_hold(group, check_capacity=True)
             if hold_message:
-                return Response({
-                    'error': hold_message,
-                    'payment_status': hold_status,
-                    'requires_payment': False,
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return payment_hold_response(hold_message, hold_status)
 
             if not group.reservations.live().exclude(status__in=['deleted', 'cancelled']).exists():
                 return Response({'error': '此訂單已沒有可付款的課程'}, status=status.HTTP_400_BAD_REQUEST)

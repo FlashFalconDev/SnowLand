@@ -139,6 +139,15 @@ export default function PaymentPage() {
     }
   }
 
+  const showPaymentFailure = (data: { error?: string; code?: string }, fallback: string) => {
+    const message = paymentError(data, fallback)
+    if (data.code === 'slot_full_at_payment') {
+      setLoadError(message)
+      setPaymentData(null)
+    }
+    showToast(message, 'error')
+  }
+
   const handleBankTransferLater = () => {
     const deadline = paymentData?.payment_expires_at
       ? new Date(paymentData.payment_expires_at).toLocaleString(locale==='zh-Hant'?'zh-TW':locale, { timeZone: 'Asia/Taipei' })
@@ -174,7 +183,7 @@ export default function PaymentPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        showToast(paymentError(data,'提交失敗'), 'error')
+        showPaymentFailure(data, '提交失敗')
         setLoadingMessage('')
         return
       }
@@ -207,7 +216,7 @@ export default function PaymentPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        showToast(paymentError(data,'付款請求失敗'), 'error')
+        showPaymentFailure(data, '付款請求失敗')
         setLoadingMessage('')
         return
       }

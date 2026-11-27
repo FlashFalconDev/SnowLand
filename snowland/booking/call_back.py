@@ -11,6 +11,7 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from Client.models import Client
 from Client.tenant_settings import gateway_settings
+from booking.capacity import record_paid_capacity_conflict
 from booking.Newebpay import aes256_cbc_decrypt, sha256_hash
 from booking.models import NewebpayMerchant, Payment, ReservationGroup
 from booking.newebpay_settings import merchant_credentials, merchant_environment_allowed
@@ -56,6 +57,7 @@ def call_back(request, tunnel):
         return HttpResponse('Invalid merchant',status=400)
     if payload.get('Status') != 'SUCCESS':
         return HttpResponse('Payment not successful',status=400)
+    Client.objects.select_for_update().get(pk=school.pk)
     group=ReservationGroup.all_objects.select_for_update().filter(pk=number,client=school).first()
     if not group:
         return HttpResponse('Order not found',status=404)
@@ -84,6 +86,7 @@ def call_back(request, tunnel):
     payment.status='paid';payment.payment_method='newebpay';payment.user_id=group.user_id
     payment.DataJSON=stored
     payment.save(update_fields=['status','payment_method','user','DataJSON','updated_at'])
+    record_paid_capacity_conflict(group, payment)
     from .loyalty import sync_order_loyalty
     sync_order_loyalty(group, confirmed_base=int(amount))
     return HttpResponse('OK')
