@@ -369,7 +369,7 @@ const getTimeMinutes = (time?: string | null) => {
   return Number(hour) * 60 + Number(minute)
 }
 
-const isUsableSession = (session: any) => session && session.is_active !== false && !session.is_full
+const isUsableSession = (session: any) => session && session.is_active !== false && !session.is_full && !session.is_closed
 
 const chooseReplacementSession = (sessions: any[], original: Course, period?: string) => {
   const usableSessions = sessions.filter(isUsableSession)
@@ -1145,7 +1145,7 @@ export default function BookingFlowPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedCourseTemplate, calendarMonth, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage])
+  }, [selectedCourseTemplate, calendarMonth, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage, sessionReloadKey])
 
   useEffect(() => {
     if (currentStep !== 3 || submittedReservation || cart.length === 0) {
@@ -1543,7 +1543,7 @@ export default function BookingFlowPage() {
         case 'coach': return !!selectedTemplateForCoachRule?.shared_class_enabled || selectedTemplateHasCoachRestriction || !languageRequiresCoach(selectedLanguage) || !!selectedCoach
         case 'template': return !!selectedCourseTemplate
         case 'date': return !!selectedDate && selectedCourseDates.length > 0 && unavailableSelectedDates.length === 0
-        case 'timeSlot': return !!selectedTimeSlot
+        case 'timeSlot': return !!selectedTimeSlot && isUsableSession(sessions.find(session => session.id === selectedTimeSlot))
         case 'equipment':
           return !!equipmentOption && (
             equipmentOption !== 'extra_time_help' ||
@@ -1573,7 +1573,7 @@ export default function BookingFlowPage() {
     selectedCourseCategory, selectedCourseType, serviceCourseCategories, resortsForSelectedCategory,
     selectedResort, selectedCampusId, peopleCount, hasUnder6, under7CanSelfSki, abilityLevelCounts, selectedAbilityLevel, selectedCoach, selectedLanguage,
     selectedTemplateHasCoachRestriction,
-    selectedCourseTemplate, selectedDate, selectedCourseDates, unavailableSelectedDates, selectedTimeSlot,
+    selectedCourseTemplate, selectedDate, selectedCourseDates, unavailableSelectedDates, selectedTimeSlot, sessions,
     equipmentOption, equipmentAssistanceTimeSlotId, equipmentTimeSlots,
     cart, discountPreview, staffLinkReloadKey, staffSelectedCart,
     contactInfo.name, contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, referralSourceValue, staffLinkInfo, acceptedPolicy,
@@ -1759,6 +1759,12 @@ export default function BookingFlowPage() {
   }
 
   const handleFullSlotResponse = (error: any) => {
+    const response = error?.response
+    if (response?.status === 409 && response.data?.code === 'slot_closed') {
+      showToast(response.data.message || t('已暫停接單'), 'warning')
+      setSessionReloadKey(key => key + 1)
+      return true
+    }
     const data = error?.response?.data as SlotFullResponse | undefined
     if (error?.response?.status !== 409 || data?.code !== 'slot_full') return false
     setSlotFull(data)
@@ -1857,13 +1863,13 @@ export default function BookingFlowPage() {
           : equipmentOption
         const fetchedSessions = courseDate === selectedDate
           ? sessions
-          : await fetchCourseSessions(selectedCourseTemplate, courseDate)
+          : await fetchCourseSessions(selectedCourseTemplate, courseDate, { resort: selectedResort })
         const daySessions = Array.isArray(fetchedSessions)
           ? fetchedSessions
           : ((fetchedSessions as any)?.data || [])
         const daySession = (daySessions || []).find((item: any) => Number(item.id) === Number(selectedTimeSlot))
-        if (!daySession || daySession.is_full || daySession.is_active === false) {
-          throw new Error(t('{date} 的此時段不可預約',{date:formatDateKey(courseDate)}))
+        if (!isUsableSession(daySession)) {
+          throw new Error(daySession?.closed_reason_zh || t('{date} 的此時段不可預約',{date:formatDateKey(courseDate)}))
         }
         const priceData = await calculatePrice({
           template_id: selectedCourseTemplate,
@@ -2280,7 +2286,7 @@ export default function BookingFlowPage() {
 
         for (const course of group.courses) {
           const targetDate = addDaysToDateKey(suggested.date, getDateKeyOffset(course.date, baseDate))
-          const fetchedSessions = await fetchCourseSessions(course.courseTemplateId, targetDate)
+          const fetchedSessions = await fetchCourseSessions(course.courseTemplateId, targetDate, { resort: group.resort })
           const daySessions = Array.isArray(fetchedSessions)
             ? fetchedSessions
             : ((fetchedSessions as any)?.data || [])
@@ -3662,10 +3668,10 @@ function Step2SkiConfiguration({
           {sessions.map((s: any) => (
             <button
               key={s.id}
-              onClick={() => !s.is_full && actions.setSelectedTimeSlot(s.id)}
-              disabled={s.is_full}
+              onClick={() => isUsableSession(s) && actions.setSelectedTimeSlot(s.id)}
+              disabled={!isUsableSession(s)}
               className={`p-4 rounded-sm border-2 text-center transition-colors relative ${
-                s.is_full
+                !isUsableSession(s)
                   ? 'border-[#e5e9f2] bg-gray-100 text-gray-400 cursor-not-allowed'
                   : state.selectedTimeSlot === s.id
                   ? 'border-[#2b5f8f] bg-[#e9eef3] text-[#2b5f8f]'
@@ -3675,16 +3681,16 @@ function Step2SkiConfiguration({
               <p className="font-semibold text-sm">
                 {s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)}
               </p>
-              {selectedTemplateInfo?.shared_class_enabled && !s.is_full && <p className="mt-1 text-xs">
+              {selectedTemplateInfo?.shared_class_enabled && isUsableSession(s) && <p className="mt-1 text-xs">
                 {s.shared_class
                   ? s.shared_class.status === 'ready'
                     ? t('已成班・剩 {count} 位',{count:s.shared_class.remaining_capacity})
                     : t('湊班 {registered}/{minimum} 人・剩 {count} 位',{registered:s.shared_class.registered_students,minimum:s.shared_class.minimum_students,count:s.shared_class.remaining_capacity})
                   : t('新班・報名後開始湊班')}
               </p>}
-              {s.is_full && (
-                <span className="absolute top-1 right-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
-                  {t("已滿")}
+              {(s.is_closed || s.is_full) && (
+                <span className="mt-1 inline-block px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
+                  {s.is_closed ? t('已暫停接單') : t("已滿")}
                 </span>
               )}
             </button>

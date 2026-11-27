@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from Client.tenant_settings import booking_capacity_recheck_enabled
 from Coursekit.models import CourseTemplate
+from Resorts.models import Resorts
+from .closures import active_booking_closures, closed_slot_message, matching_booking_closure
 from .models import Booking, Payment, Reservation
 
 
@@ -34,8 +36,8 @@ class SlotUnavailable:
     end_time: str
     template_id: int
     template_name: str
-    occupied: int
-    capacity: int
+    occupied: int | None
+    capacity: int | None
 
 
 def occupied_count(slot, *, exclude_group_id=None, paid_only=False):
@@ -54,17 +56,29 @@ def occupied_count(slot, *, exclude_group_id=None, paid_only=False):
     return reservations.values('pk').distinct().count()
 
 
-def slot_unavailable_reasons(slot, *, requested=1, exclude_group_id=None, paid_only=False):
-    if slot.template.shared_class_enabled:
-        return []
+def slot_unavailable_reasons(
+    slot, *, requested=1, exclude_group_id=None, paid_only=False, closures=(), resort_id=None, check_capacity=True,
+):
+    reasons = []
+    if matching_booking_closure(
+        closures, day=slot.date, resort_id=resort_id, template_id=slot.template.pk,
+        start_time=slot.start_time, end_time=slot.end_time,
+    ):
+        reasons.append(SlotUnavailable(
+            code='closed', message_zh=closed_slot_message(slot.date), date=slot.date.isoformat(),
+            start_time=slot.start_time.strftime('%H:%M'), end_time=slot.end_time.strftime('%H:%M'),
+            template_id=slot.template.pk, template_name=slot.template.name, occupied=None, capacity=None,
+        ))
+    if not check_capacity or slot.template.shared_class_enabled:
+        return reasons
     occupied = occupied_count(slot, exclude_group_id=exclude_group_id, paid_only=paid_only)
     capacity = slot.template.max_capacity or 6
     if occupied + requested <= capacity:
-        return []
+        return reasons
     day = slot.date.isoformat()
     start = slot.start_time.strftime('%H:%M')
     end = slot.end_time.strftime('%H:%M')
-    return [SlotUnavailable(
+    return [*reasons, SlotUnavailable(
         code='full', message_zh=f'所選的 {day} {start}–{end} 已經滿額，請改選其他日期或時段。',
         date=day, start_time=start, end_time=end, template_id=slot.template.pk,
         template_name=slot.template.name, occupied=occupied, capacity=capacity,
@@ -78,9 +92,27 @@ def checkout_conflicts(slots):
     ]
 
 
-def slot_full_response(conflicts):
+def checkout_closure_conflicts(tenant, slot_resorts):
+    if not slot_resorts:
+        return []
+    days = [slot.date for slot, _ in slot_resorts]
+    closures = active_booking_closures(tenant, min(days), max(days))
+    if not closures:
+        return []
+    resort_ids = dict(Resorts.objects.filter(
+        client=tenant, name__in={name for _, name in slot_resorts},
+    ).values_list('name', 'pk'))
+    return [
+        reason for slot, resort_name in dict.fromkeys(slot_resorts)
+        for reason in slot_unavailable_reasons(
+            slot, closures=closures, resort_id=resort_ids.get(resort_name), check_capacity=False,
+        )
+    ]
+
+
+def slot_conflict_response(conflicts):
     return {
-        'code': 'slot_full',
+        'code': 'slot_closed' if conflicts[0].code == 'closed' else 'slot_full',
         'message': conflicts[0].message_zh,
         'conflicts': [asdict(reason) for reason in conflicts],
     }

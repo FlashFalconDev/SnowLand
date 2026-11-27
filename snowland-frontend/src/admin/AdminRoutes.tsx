@@ -9,6 +9,7 @@ import SocialSyncPage from './pages/SocialSyncPage'
 import SocialDashboardPage from './pages/SocialDashboardPage'
 import CoachesPage from './pages/CoachesPage'
 import ResortsPage from './pages/ResortsPage'
+import BookingClosuresPage from './pages/BookingClosuresPage'
 import CampusesPage from './pages/CampusesPage'
 import CourseTypesPage from './pages/CourseTypesPage'
 import PricingPage from './pages/PricingPage'
@@ -74,6 +75,7 @@ const pages: Record<ConsolePath, ReactElement> = {
   'course-types': <CourseTypesPage />,
   'pricing': <PricingPage />,
   'resorts': <ResortsPage />,
+  'booking-closures': <BookingClosuresPage />,
   'payment-settings': <PaymentSettingsPage section="accounts" />,
   'payroll/rules': <OperationsHubPage initialTab="payroll-rules" fixed />,
   'payroll': <OperationsHubPage initialTab="payroll" fixed />,

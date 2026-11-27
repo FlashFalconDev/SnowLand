@@ -11,7 +11,8 @@ from rest_framework import serializers
 from Coach.models import Coach
 from Coursekit.models import CoursePricing, CourseTemplate, SeasonSetting
 from Resorts.models import EquipmentPricingTier, ResortFee
-from booking.models import EQUIPMENT_CHOICES, MemberDetail
+from booking.closures import active_booking_closures, closed_slot_message, matching_booking_closure
+from booking.models import Booking, EQUIPMENT_CHOICES, MemberDetail
 from booking.course_documents import INSURANCE_RECHECK_STATUSES
 from booking.operations import order_snapshot
 from .manual_notifications import NotificationConflict
@@ -267,6 +268,35 @@ def amendment_state(group):
         'members':list(MemberDetail.objects.live().filter(reservation__group=group).order_by('pk').values()),
         'payments':list(group.payments.live().order_by('pk').values('pk','status','updated_at')),
         'amendments':list(group.amendments.order_by('pk').values('pk','status','balance_amount','updated_at'))})
+
+
+def amendment_closure_warnings(group, items):
+    courses = [course for item in items for course in item['courses']]
+    days = [course['date'] for course in courses]
+    if not days:
+        return []
+    closures = active_booking_closures(group.client, min(days), max(days))
+    if not closures:
+        return []
+    resorts = dict(group.reservations.live().values_list('pk', 'resort_id'))
+    existing = {
+        pk: (template or fallback, day, start, end)
+        for pk, template, fallback, day, start, end in Booking.objects.live().filter(
+            reservation__group=group, pk__in=[course['booking_id'] for course in courses],
+        ).values_list('pk', 'course_template_id', 'reservation__course_template_id', 'date', 'start_time', 'end_time')
+    }
+    warnings = []
+    for item in items:
+        for course in item['courses']:
+            template, day, start, end = (course[key] for key in ('template_id', 'date', 'start_time', 'end_time'))
+            if existing.get(course['booking_id']) == (template, day, start, end):
+                continue
+            if matching_booking_closure(
+                closures, day=day, resort_id=resorts[item['reservation_id']], template_id=template,
+                start_time=start, end_time=end,
+            ):
+                warnings.append(f"{course['template_name']}：{closed_slot_message(day)}（{start:%H:%M}–{end:%H:%M}）")
+    return list(dict.fromkeys(warnings))
 
 
 def quote_order_amendment(group,data,actor):

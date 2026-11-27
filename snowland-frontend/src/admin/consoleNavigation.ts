@@ -60,6 +60,7 @@ export const consoleNavigation = [
     { path: 'course-types', label: '課程架構', access: 'course_types' },
     { path: 'pricing', label: '課程定價', access: 'pricing' },
     { path: 'resorts', label: '雪場營運資料', access: 'resorts' },
+    { path: 'booking-closures', label: '停收日期', access: '@booking-closures' },
   ] },
   { id: 'marketing', label: '行銷與優惠', icon: Megaphone, pages: [
     { path: 'discounts', label: '折扣碼與促銷規則', access: 'discounts' },
@@ -103,6 +104,7 @@ export type ConsolePath = NavigationPage['path']
 
 export function canOpenConsolePage(page: ConsolePage, user: AdminUser | null | undefined, basePath: string) {
   if (page.access === 'booking_links') return canPrepareStaffBooking(user)
+  if (page.access === '@booking-closures') return hasAdminPermission(user, 'resorts') || hasAdminPermission(user, 'course_types')
   if (page.access === '@coach') return user?.is_coach === true
   if (page.access === '@vehicle-guide') {
     return user?.is_coach === true || hasAdminPermission(user, 'vehicle_review') || hasAdminPermission(user, 'vehicle_finance')

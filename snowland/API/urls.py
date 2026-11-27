@@ -8,6 +8,7 @@ from .admin_views import (
     CoachAdminViewSet,
     CoachLeaveAdminViewSet,
     ResortAdminViewSet,
+    BookingClosureAdminViewSet,
     CampusAdminViewSet,
     PaymentAccountAdminViewSet,
     OperatingPolicyAdminViewSet,
@@ -78,6 +79,7 @@ admin_router.register(r'coaches', CoachAdminViewSet, basename='admin-coaches')
 admin_router.register(r'website-coach-editor', WebsiteCoachEditorViewSet, basename='admin-website-coach-editor')
 admin_router.register(r'coach-leaves', CoachLeaveAdminViewSet, basename='admin-coach-leaves')
 admin_router.register(r'resorts', ResortAdminViewSet, basename='admin-resorts')
+admin_router.register(r'booking-closures', BookingClosureAdminViewSet, basename='admin-booking-closures')
 admin_router.register(r'campuses', CampusAdminViewSet, basename='admin-campuses')
 admin_router.register(r'payment-accounts', PaymentAccountAdminViewSet, basename='admin-payment-accounts')
 admin_router.register(r'operating-policies', OperatingPolicyAdminViewSet, basename='admin-operating-policies')

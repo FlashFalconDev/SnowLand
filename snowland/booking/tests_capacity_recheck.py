@@ -129,6 +129,7 @@ class CapacityRecheckTests(TestCase):
                     'id': self.session.pk, 'template_id': self.private_template.pk,
                     'start_time': '09:00', 'end_time': '13:00', 'is_active': True,
                     'is_full': old_count >= 6, 'shared_class': None,
+                    'is_closed': False, 'closed_reason_zh': '',
                 }])
                 self.create_booking()
         self.assertFalse(self.sessions(date='').data[0]['is_full'])

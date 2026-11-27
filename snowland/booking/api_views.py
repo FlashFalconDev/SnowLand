@@ -52,9 +52,10 @@ from .pre_course_questions import required_answers_complete, saved_section_answe
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .coach_pre_course_summary import COACH_SUMMARY_LOCATION, experience_assessment_enabled
 from .capacity import (
-    PAYMENT_CAPACITY_CODE, Slot, checkout_conflicts,
-    capacity_payment_hold, slot_full_response, slot_unavailable_reasons,
+    PAYMENT_CAPACITY_CODE, Slot, capacity_payment_hold, checkout_closure_conflicts,
+    checkout_conflicts, slot_conflict_response, slot_unavailable_reasons,
 )
+from .closures import active_booking_closures, matching_booking_closure
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
 from .discount_usage import rebuild_discount_usage, record_checkout_discount_usage
 from .media_files import course_media_url, private_file_response
@@ -131,25 +132,30 @@ def payment_hold_response(message, hold_status):
     return Response(data, status=400)
 
 
-def checkout_capacity_conflicts(tenant, cart, *, split_reservations=False):
-    if not booking_capacity_recheck_enabled(tenant):
-        return []
+def checkout_slot_conflicts(tenant, cart, *, split_reservations=False):
     course_groups = [item.get('courses') or [] for item in cart]
     templates = CourseTemplate.objects.filter(course_type__category__client=tenant).in_bulk(
         {course.get('courseTemplateId') for courses in course_groups for course in courses if course.get('courseTemplateId')},
     )
-    slots = []
-    for courses in course_groups:
+    slot_resorts = []
+    for item, courses in zip(cart, course_groups):
         group_slots = []
         for course in courses:
             template = templates.get(int(course['courseTemplateId'])) if course.get('courseTemplateId') else None
-            if template and not template.shared_class_enabled:
+            if template:
                 group_slots.append(Slot(
                     template, datetime.strptime(course['date'], '%Y-%m-%d').date(),
                     parse_booking_time(course['timeSlotStart']), parse_booking_time(course['timeSlotEnd']),
                 ))
-        slots.extend(group_slots if split_reservations else dict.fromkeys(group_slots))
-    return checkout_conflicts(slots)
+        slot_resorts.extend(
+            (slot, item.get('resort')) for slot in (group_slots if split_reservations else dict.fromkeys(group_slots))
+        )
+    conflicts = checkout_closure_conflicts(tenant, slot_resorts)
+    if conflicts or not booking_capacity_recheck_enabled(tenant):
+        return conflicts
+    return checkout_conflicts(
+        slot for slot, _ in slot_resorts if not slot.template.shared_class_enabled
+    )
 
 
 def parse_booking_time(value):
@@ -2054,6 +2060,8 @@ class CourseSessionListAPI(APIView):
             if check_date < today:
                 return Response([], status=status.HTTP_200_OK)
 
+        closures = active_booking_closures(client, check_date, check_date) if check_date else ()
+        resort_id = Resorts.objects.filter(client=client, name=resort_name).values_list('pk', flat=True).first() if closures and resort_name else None
         data = []
         for session in sessions:
             tmpl = session.template
@@ -2085,6 +2093,7 @@ class CourseSessionListAPI(APIView):
                 continue
 
             # 檢查課程期間（雪季）
+            closed_reason = ''
             if check_date:
                 if tmpl.course_start_date and check_date < tmpl.course_start_date:
                     continue
@@ -2098,11 +2107,16 @@ class CourseSessionListAPI(APIView):
                 if tmpl.booking_close_date and today > tmpl.booking_close_date:
                     continue
 
+                reasons = slot_unavailable_reasons(
+                    Slot(tmpl, check_date, session.start_time, session.end_time),
+                    closures=closures, resort_id=resort_id,
+                )
+                closed_reason = next((reason.message_zh for reason in reasons if reason.code == 'closed'), '')
                 if tmpl.shared_class_enabled:
                     requested = int(people_count) if people_count and people_count.isdigit() else 1
                     is_full = bool(shared_class and shared_class.status == 'cancelled') or shared_count + requested > shared_capacity
                 else:
-                    is_full = bool(slot_unavailable_reasons(Slot(tmpl, check_date, session.start_time, session.end_time)))
+                    is_full = any(reason.code == 'full' for reason in reasons)
             else:
                 is_full = False
 
@@ -2113,6 +2127,8 @@ class CourseSessionListAPI(APIView):
                 'end_time': session.end_time.strftime('%H:%M'),
                 'is_active': session.is_active,
                 'is_full': is_full,
+                'is_closed': bool(closed_reason),
+                'closed_reason_zh': closed_reason,
                 'shared_class': ({
                     'status': shared_class.status,
                     'registered_students': shared_count,
@@ -2180,6 +2196,9 @@ class CourseAvailableDatesAPI(APIView):
         course_start = tmpl.course_start_date
         course_end = tmpl.course_end_date
 
+        closures = active_booking_closures(client, date(year, month, 1), date(year, month, last_day))
+        resort_name = request.GET.get('resort')
+        resort_id = Resorts.objects.filter(client=client, name=resort_name).values_list('pk', flat=True).first() if closures and resort_name else None
         available_dates = []
         for day in range(1, last_day + 1):
             d = date(year, month, day)
@@ -2198,12 +2217,12 @@ class CourseAvailableDatesAPI(APIView):
             if course_end and d > course_end:
                 continue
 
-            available_dates.append(d.isoformat())
+            if not matching_booking_closure(closures, day=d, resort_id=resort_id, template_id=tmpl.pk):
+                available_dates.append(d.isoformat())
 
         shared_class_dates = {}
         if tmpl.shared_class_enabled:
             campus_id = request.GET.get('campus_id')
-            resort_name = request.GET.get('resort')
             ability_level = request.GET.get('ability_level')
             language = request.GET.get('language') or 'zh'
             if campus_id and resort_name and ability_level:
@@ -2222,6 +2241,8 @@ class CourseAvailableDatesAPI(APIView):
                 if tmpl.shared_class_fixed_dates:
                     classes = classes.filter(opening_mode='school')
                 for shared_class in classes:
+                    if matching_booking_closure(closures, day=shared_class.date, resort_id=resort.pk, template_id=tmpl.pk):
+                        continue
                     date_key = shared_class.date.isoformat()
                     shared_class_dates.setdefault(date_key, []).append({
                         'start_time': shared_class.start_time.strftime('%H:%M'),
@@ -2442,9 +2463,9 @@ class CreateReservationAPI(APIView):
                     contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
                 except ValueError as exc:
                     return Response({'code': 400, 'msg': str(exc)}, status=400)
-            conflicts = checkout_capacity_conflicts(tenant_client, cart_data)
+            conflicts = checkout_slot_conflicts(tenant_client, cart_data)
             if conflicts:
-                return Response(slot_full_response(conflicts), status=409)
+                return Response(slot_conflict_response(conflicts), status=409)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
             rebuild_discount_usage(tenant_client)
             discount_summary = calculate_cart_discount_summary(
@@ -4121,9 +4142,9 @@ class SuperScheduleAPI(APIView):
                 contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
             except ValueError as exc:
                 return Response({'code': 400, 'msg': str(exc)}, status=400)
-            conflicts = checkout_capacity_conflicts(tenant_client, cart_data, split_reservations=True)
+            conflicts = checkout_slot_conflicts(tenant_client, cart_data, split_reservations=True)
             if conflicts:
-                return Response(slot_full_response(conflicts), status=409)
+                return Response(slot_conflict_response(conflicts), status=409)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
             rebuild_discount_usage(tenant_client)
             discount_summary = calculate_cart_discount_summary(

@@ -1,7 +1,7 @@
 from .tenant_scope import ResortBookingClosed, require_open_booking_resorts, resort_for_course
 from Client.models import Client
 from Client.tenant_settings import booking_capacity_recheck_enabled
-from .capacity import Slot, checkout_conflicts, slot_full_response
+from .capacity import Slot, checkout_closure_conflicts, checkout_conflicts, slot_conflict_response
 from django.shortcuts import render, get_object_or_404
 from django.http import Http404, HttpResponse, JsonResponse
 from django.views.decorators.http import require_GET
@@ -262,7 +262,7 @@ def legacy_checkout_slots(courses):
             except (CourseSession.DoesNotExist, AttributeError, KeyError, TypeError, ValueError):
                 # Invalid input is handled by the original creation path.
                 continue
-        slots.extend(dict.fromkeys(reservation_slots))
+        slots.extend((slot, course.get('resort')) for slot in dict.fromkeys(reservation_slots))
     return slots
 
 
@@ -432,19 +432,25 @@ def API(request, tunnel, Client_Info=None):
             # --- 統一的預約創建流程 ---
             try:
                 with transaction.atomic():
-                    slots = legacy_checkout_slots(courses_to_process)
+                    slot_resorts = legacy_checkout_slots(courses_to_process)
                     # Match the current checkout's tenant-before-resort lock order.
-                    tenant_ids = {slot.template.course_type.category.client_id for slot in slots}
-                    enabled_tenants = {
-                        tenant.pk for tenant in Client.objects.select_for_update().filter(pk__in=tenant_ids).order_by('pk')
-                        if booking_capacity_recheck_enabled(tenant)
-                    }
+                    slots_by_tenant = {}
+                    for slot, resort_name in slot_resorts:
+                        tenant_id = slot.template.course_type.category.client_id
+                        slots_by_tenant.setdefault(tenant_id, []).append((slot, resort_name))
+                    tenants = list(Client.objects.select_for_update().filter(pk__in=slots_by_tenant).order_by('pk'))
                     require_open_booking_resorts(course.get('resort') for course in courses_to_process)
-                    conflicts = checkout_conflicts(
-                        slot for slot in slots if slot.template.course_type.category.client_id in enabled_tenants
-                    )
+                    conflicts = [
+                        conflict for tenant in tenants
+                        for conflict in checkout_closure_conflicts(tenant, slots_by_tenant[tenant.pk])
+                    ]
+                    if not conflicts:
+                        enabled_tenants = {tenant.pk for tenant in tenants if booking_capacity_recheck_enabled(tenant)}
+                        conflicts = checkout_conflicts(
+                            slot for slot, _ in slot_resorts if slot.template.course_type.category.client_id in enabled_tenants
+                        )
                     if conflicts:
-                        return JsonResponse(slot_full_response(conflicts), status=409)
+                        return JsonResponse(slot_conflict_response(conflicts), status=409)
                     group = ReservationGroup.objects.create(user=user)
                     payment = Payment.objects.create(
                         reservation_group=group,
