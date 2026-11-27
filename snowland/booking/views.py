@@ -229,20 +229,41 @@ def calculate_price_api(request, Client_Info=None):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-def legacy_booking_slot(slot_info):
-    slot_id = slot_info.get('timeSlot')
-    template = CourseTemplate.objects.filter(pk=slot_id).first()
-    if template is not None:
-        session = template.sessions.filter(is_active=True).first()
-    else:
-        session = CourseSession.objects.select_related('template').filter(pk=slot_id).first()
-        if session is None:
-            raise ValueError(f'無效的時段ID: {slot_id}')
-        template = session.template
-    day = datetime.strptime(slot_info['date'], '%Y-%m-%d').date()
-    start, end = (session.start_time, session.end_time) if session else (str_to_time('09:00'), str_to_time('17:00'))
-    # The legacy route stored times truncated to minutes.
-    return Slot(template, day, start.replace(second=0, microsecond=0), end.replace(second=0, microsecond=0))
+def legacy_course_slot(slot_id):
+    class TempCourse:
+        def __init__(self, template, session):
+            self.template = template
+            self.main_time = (
+                f"{session.start_time.strftime('%H:%M')}-{session.end_time.strftime('%H:%M')}"
+                if session else '09:00-17:00'
+            )
+
+    try:
+        template = CourseTemplate.objects.get(id=slot_id)
+    except CourseTemplate.DoesNotExist:
+        session = CourseSession.objects.select_related('template').get(id=slot_id)
+        return TempCourse(session.template, session)
+    session = CourseSession.objects.filter(template=template, is_active=True).first()
+    return TempCourse(template, session)
+
+
+def legacy_checkout_slots(courses):
+    slots = []
+    for course in courses:
+        reservation_slots = []
+        for slot_info in course.get('booking') or []:
+            try:
+                course_slot = legacy_course_slot(slot_info.get('timeSlot'))
+                day = datetime.strptime(slot_info['date'], '%Y-%m-%d').date()
+                reservation_slots.extend(
+                    Slot(course_slot.template, day, str_to_time(start), str_to_time(end))
+                    for start, end in parse_time_ranges(course_slot.main_time)
+                )
+            except (CourseSession.DoesNotExist, AttributeError, KeyError, TypeError, ValueError):
+                # Invalid input is handled by the original creation path.
+                continue
+        slots.extend(dict.fromkeys(reservation_slots))
+    return slots
 
 
 @api_view(['GET', 'POST'])
@@ -398,43 +419,32 @@ def API(request, tunnel, Client_Info=None):
                 # 普通排課，直接使用原課程
                 courses_to_process = courses
             
+            # 對於普通排課，執行預檢
+            if not is_super_schedule:
+                is_successful, report = check_availability_and_get_suggestions(courses_to_process)
+                if not is_successful:
+                    return JsonResponse({
+                        "success": False,
+                        "message": "部分時段無法預約，請參考建議調整。",
+                        **report
+                    }, status=400)
+
             # --- 統一的預約創建流程 ---
             try:
                 with transaction.atomic():
-                    # Match the tenant-before-resort lock order of current checkout.
-                    tenant_ids = CourseType.objects.filter(
-                        pk__in=[course.get('courseType') for course in courses_to_process],
-                    ).values('category__client_id')
+                    slots = legacy_checkout_slots(courses_to_process)
+                    # Match the current checkout's tenant-before-resort lock order.
+                    tenant_ids = {slot.template.course_type.category.client_id for slot in slots}
                     enabled_tenants = {
-                        tenant.pk for tenant in Client.objects.select_for_update().filter(
-                            pk__in=tenant_ids,
-                        ).order_by('pk') if booking_capacity_recheck_enabled(tenant)
+                        tenant.pk for tenant in Client.objects.select_for_update().filter(pk__in=tenant_ids).order_by('pk')
+                        if booking_capacity_recheck_enabled(tenant)
                     }
                     require_open_booking_resorts(course.get('resort') for course in courses_to_process)
-                    prepared_courses = [
-                        (course, [(info, legacy_booking_slot(info)) for info in course.get('booking', [])])
-                        for course in courses_to_process
-                    ]
-                    slots = []
-                    for course, lessons in prepared_courses:
-                        course_type = get_object_or_404(CourseType, pk=course.get('courseType'))
-                        for _, slot in lessons:
-                            tenant_id = slot.template.course_type.category.client_id
-                            if tenant_id != course_type.category.client_id:
-                                raise ValueError('課程模板不屬於此學校')
-                            if tenant_id in enabled_tenants:
-                                slots.append(slot)
-                    conflicts = checkout_conflicts(slots)
+                    conflicts = checkout_conflicts(
+                        slot for slot in slots if slot.template.course_type.category.client_id in enabled_tenants
+                    )
                     if conflicts:
                         return JsonResponse(slot_full_response(conflicts), status=409)
-                    if not is_super_schedule:
-                        is_successful, report = check_availability_and_get_suggestions(courses_to_process)
-                        if not is_successful:
-                            return JsonResponse({
-                                "success": False,
-                                "message": "部分時段無法預約，請參考建議調整。",
-                                **report,
-                            }, status=400)
                     group = ReservationGroup.objects.create(user=user)
                     payment = Payment.objects.create(
                         reservation_group=group,
@@ -442,7 +452,7 @@ def API(request, tunnel, Client_Info=None):
                     )
 
                     new_reservations = []
-                    for course_data, lessons in prepared_courses:
+                    for course_data in courses_to_process:
                         # --- 這段邏輯對兩種模式都通用 ---
                         equipment = course_data.get("equipment")
                         language = course_data.get("language")
@@ -480,30 +490,43 @@ def API(request, tunnel, Client_Info=None):
                             max_ability_level=ability_level,
                         )
                         
-                        for slot_info, slot in lessons:
-                            template = slot.template
-                            if number_of_people < template.minimum_group_size:
+                        for slot_info in booking_list:
+                            ctype = slot_info.get("course")
+                            slot_id = slot_info.get("timeSlot")
+                            date = slot_info.get("date")
+
+                            try:
+                                course_slot = legacy_course_slot(slot_id)
+                            except CourseSession.DoesNotExist:
+                                raise Exception(f"無效的時段ID: {slot_id}")
+
+                            if number_of_people < course_slot.template.minimum_group_size:
                                 raise Exception(
-                                    f'此課程每筆預約至少 {template.minimum_group_size} 人'
+                                    f'此課程每筆預約至少 {course_slot.template.minimum_group_size} 人'
                                 )
-                            Booking.objects.create(
-                                reservation=reservation,
-                                course_template=template,
-                                course_type=slot_info.get("course"),
-                                course_name=template.name,
-                                date=slot.date,
-                                start_time=slot.start_time,
-                                end_time=slot.end_time,
-                            )
+                            main_time_str = course_slot.main_time
+                            main_segments = parse_time_ranges(main_time_str)
                             
+                            for (start_s, end_s) in main_segments:
+                                Booking.objects.create(
+                                    reservation=reservation,
+                                    course_template=course_slot.template,
+                                    course_type=ctype,
+                                    course_name=course_slot.template.name,
+                                    date=date,
+                                    start_time=str_to_time(start_s),
+                                    end_time=str_to_time(end_s),
+                                )
+
                             # --- 動態價格計算邏輯 ---
-                            season_type = SeasonSetting.get_season_type_for_date(slot.date)
+                            booking_date = datetime.strptime(date, '%Y-%m-%d').date()
+                            season_type = SeasonSetting.get_season_type_for_date(booking_date)
                             
                             try:
                                 # 使用CoursePricing模型
                                 from Coursekit.models import CoursePricing
                                 pricing_strategy = CoursePricing.objects.filter(
-                                    templates=template,
+                                    templates=course_slot.template,
                                     resort=resort_instance,
                                     is_active=True
                                 ).first()
@@ -512,10 +535,10 @@ def API(request, tunnel, Client_Info=None):
                                     course_fee = pricing_strategy.calculate_price(
                                         number_of_people,
                                         is_peak_season,
-                                        billing_mode=template.billing_mode,
+                                        billing_mode=course_slot.template.billing_mode,
                                     )
                                 else:
-                                    raise Exception(f"找不到對應的價格設定: 課程='{template.name}', 雪場='{resort_instance.name}'")
+                                    raise Exception(f"找不到對應的價格設定: 課程='{course_slot.template.name}', 雪場='{resort_instance.name}'")
                             except Exception as e:
                                 raise Exception(f"價格計算失敗: {str(e)}")
                             

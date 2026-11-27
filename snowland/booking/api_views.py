@@ -52,8 +52,8 @@ from .pre_course_questions import required_answers_complete, saved_section_answe
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .coach_pre_course_summary import COACH_SUMMARY_LOCATION, experience_assessment_enabled
 from .capacity import (
-    PAYMENT_CAPACITY_CODE, PAYMENT_CAPACITY_MESSAGE, Slot, checkout_conflicts,
-    group_capacity_conflicts, slot_full_response, slot_unavailable_reasons,
+    PAYMENT_CAPACITY_CODE, Slot, checkout_conflicts,
+    capacity_payment_hold, slot_full_response, slot_unavailable_reasons,
 )
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
 from .discount_usage import rebuild_discount_usage, record_checkout_discount_usage
@@ -101,7 +101,7 @@ def group_has_pending_coach_confirmation(group):
     return group.reservations.live().filter(status='pending_coach_confirmation').exists()
 
 
-def get_group_payment_hold(group):
+def get_group_payment_hold(group, *, check_capacity=False):
     if group.is_test:
         return '測試訂單不開放付款或匯款回報', 'test_order'
     if group.reservations.live().filter(shared_course_class__status='collecting').exists():
@@ -119,10 +119,8 @@ def get_group_payment_hold(group):
         # A read must not expire only the payment: the job must still see the
         # unpaid candidate and atomically release its reservations as well.
         return '付款保留期已結束，請聯絡客服改期或取消', 'expired'
-    if (payment is None or payment.status in {'unpaid', 'pending'}) and (
-        booking_capacity_recheck_enabled(group.client) and group_capacity_conflicts(group)
-    ):
-        return PAYMENT_CAPACITY_MESSAGE, PAYMENT_CAPACITY_CODE
+    if check_capacity:
+        return capacity_payment_hold(group, payment)
     return None, None
 
 
@@ -133,21 +131,24 @@ def payment_hold_response(message, hold_status):
     return Response(data, status=400)
 
 
-def checkout_capacity_conflicts(tenant, cart):
+def checkout_capacity_conflicts(tenant, cart, *, split_reservations=False):
     if not booking_capacity_recheck_enabled(tenant):
         return []
-    courses = [course for item in cart for course in item.get('courses') or []]
+    course_groups = [item.get('courses') or [] for item in cart]
     templates = CourseTemplate.objects.filter(course_type__category__client=tenant).in_bulk(
-        {course.get('courseTemplateId') for course in courses if course.get('courseTemplateId')},
+        {course.get('courseTemplateId') for courses in course_groups for course in courses if course.get('courseTemplateId')},
     )
     slots = []
-    for course in courses:
-        template = templates.get(int(course['courseTemplateId'])) if course.get('courseTemplateId') else None
-        if template and not template.shared_class_enabled:
-            slots.append(Slot(
-                template, datetime.strptime(course['date'], '%Y-%m-%d').date(),
-                parse_booking_time(course['timeSlotStart']), parse_booking_time(course['timeSlotEnd']),
-            ))
+    for courses in course_groups:
+        group_slots = []
+        for course in courses:
+            template = templates.get(int(course['courseTemplateId'])) if course.get('courseTemplateId') else None
+            if template and not template.shared_class_enabled:
+                group_slots.append(Slot(
+                    template, datetime.strptime(course['date'], '%Y-%m-%d').date(),
+                    parse_booking_time(course['timeSlotStart']), parse_booking_time(course['timeSlotEnd']),
+                ))
+        slots.extend(group_slots if split_reservations else dict.fromkeys(group_slots))
     return checkout_conflicts(slots)
 
 
@@ -4120,7 +4121,7 @@ class SuperScheduleAPI(APIView):
                 contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
             except ValueError as exc:
                 return Response({'code': 400, 'msg': str(exc)}, status=400)
-            conflicts = checkout_capacity_conflicts(tenant_client, cart_data)
+            conflicts = checkout_capacity_conflicts(tenant_client, cart_data, split_reservations=True)
             if conflicts:
                 return Response(slot_full_response(conflicts), status=409)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
@@ -4565,7 +4566,7 @@ class PaymentInfoAPI(APIView):
                     'payment_status': 'all_cancelled'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            hold_message, hold_status = get_group_payment_hold(group)
+            hold_message, hold_status = get_group_payment_hold(group, check_capacity=True)
             if hold_message:
                 return payment_hold_response(hold_message, hold_status)
 
@@ -4847,7 +4848,7 @@ class ProcessPaymentAPI(APIView):
             if not can_access_payment(group, request.user, request.data.get('access_token', '')):
                 return Response({'error': '找不到預約群組'}, status=status.HTTP_404_NOT_FOUND)
 
-            hold_message, hold_status = get_group_payment_hold(group)
+            hold_message, hold_status = get_group_payment_hold(group, check_capacity=True)
             if hold_message:
                 return payment_hold_response(hold_message, hold_status)
 

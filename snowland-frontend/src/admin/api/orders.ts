@@ -108,6 +108,9 @@ export interface Order {
 }
 
 type OrderCapacityConflict = { detected_at: string; conflicts: import('@/api/booking').SlotUnavailable[] }
+type CampusManagerCapacityConflict = {
+  conflicts: Pick<import('@/api/booking').SlotUnavailable, 'date' | 'start_time' | 'end_time' | 'template_name'>[]
+}
 
 interface ListResp {
   code: number; msg: string
@@ -119,7 +122,7 @@ export interface CampusManagerOrder {
   id: number
   sn: string
   is_test?: boolean
-  capacity_conflict?: OrderCapacityConflict | null
+  capacity_conflict?: CampusManagerCapacityConflict | null
   campus_name: string
   student_alias: string
   number_of_people: number

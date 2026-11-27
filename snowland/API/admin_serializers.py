@@ -1736,10 +1736,11 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
             for _, booking in self._visible_bookings(obj)
         }
         conflicts = [
-            slot for slot in marker['conflicts']
+            {field: slot[field] for field in ('date', 'start_time', 'end_time', 'template_name')}
+            for slot in marker.get('conflicts', [])
             if (slot['date'], slot['start_time'], slot['end_time']) in visible_slots
         ]
-        return {**marker, 'conflicts': conflicts} if conflicts else None
+        return {'conflicts': conflicts} if conflicts else None
 
     def get_sessions(self, obj):
         sessions = []

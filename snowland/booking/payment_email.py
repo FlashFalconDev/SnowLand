@@ -62,7 +62,7 @@ def send_payment_email(request):
     payment = group.payments.live().order_by('-created_at', '-pk').first()
     from .api_views import get_group_payment_hold
     from .capacity import PAYMENT_CAPACITY_CODE
-    hold, hold_code = get_group_payment_hold(group)
+    hold, hold_code = get_group_payment_hold(group, check_capacity=True)
     if hold_code == PAYMENT_CAPACITY_CODE:
         return JsonResponse({'code': hold_code, 'message': hold}, status=409)
     payable = sum(reservation.payment_amount for reservation in group.reservations.live().exclude(status__in=['cancelled', 'deleted']))

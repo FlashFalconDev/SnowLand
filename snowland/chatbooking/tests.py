@@ -2236,6 +2236,7 @@ class ChatBookingOrderIntegrationTests(TestCase):
             reservation=reservation, date=self.course_date,
             start_time=self.course_session.start_time, end_time=self.course_session.end_time,
         )
+        Payment.objects.create(reservation_group=other, status='paid')
         for pay in (
             lambda: payment_snapshot_for_groups(self.tenant, [group.pk]),
             lambda: submit_bank_transfer(session, "12345"),

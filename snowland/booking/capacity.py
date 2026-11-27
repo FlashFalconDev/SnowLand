@@ -4,11 +4,12 @@ from collections import Counter
 from dataclasses import dataclass, asdict
 from datetime import date, time
 
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from Client.tenant_settings import booking_capacity_recheck_enabled
 from Coursekit.models import CourseTemplate
-from .models import Booking, Reservation
+from .models import Booking, Payment, Reservation
 
 
 PAYMENT_CAPACITY_CODE = 'slot_full_at_payment'
@@ -37,22 +38,26 @@ class SlotUnavailable:
     capacity: int
 
 
-def occupied_count(slot, *, exclude_group_id=None):
-    # The template uniquely belongs to a tenant. Retain the original join:
-    # each matching live Booking row counts under its Reservation's template.
+def occupied_count(slot, *, exclude_group_id=None, paid_only=False):
+    # A reservation can have more than one matching live lesson.
     reservations = Reservation.objects.live().filter(
         course_template=slot.template, bookings__is_deleted=False, bookings__date=slot.date,
         bookings__start_time=slot.start_time, bookings__end_time=slot.end_time,
     ).exclude(status__in=['cancelled', 'deleted'])
     if exclude_group_id is not None:
         reservations = reservations.exclude(group_id=exclude_group_id)
-    return reservations.count()
+        paid = Exists(Payment.objects.live().filter(reservation_group_id=OuterRef('group_id'), status='paid'))
+        if paid_only:
+            reservations = reservations.filter(paid)
+        else:
+            reservations = reservations.filter(Q(paid) | Q(group_id__lt=exclude_group_id))
+    return reservations.values('pk').distinct().count()
 
 
-def slot_unavailable_reasons(slot, *, requested=1, exclude_group_id=None):
+def slot_unavailable_reasons(slot, *, requested=1, exclude_group_id=None, paid_only=False):
     if slot.template.shared_class_enabled:
         return []
-    occupied = occupied_count(slot, exclude_group_id=exclude_group_id)
+    occupied = occupied_count(slot, exclude_group_id=exclude_group_id, paid_only=paid_only)
     capacity = slot.template.max_capacity or 6
     if occupied + requested <= capacity:
         return []
@@ -81,30 +86,46 @@ def slot_full_response(conflicts):
     }
 
 
-def group_capacity_conflicts(group):
+def group_capacity_conflicts(group, *, paid_only=False):
     """Use each lesson's selected template, with the reservation as a legacy fallback."""
     bookings = Booking.objects.live().filter(
         reservation__group=group, reservation__shared_course_class__isnull=True,
     ).exclude(reservation__status__in=['cancelled', 'deleted']).select_related(
         'course_template__course_type__category', 'reservation__course_template__course_type__category',
     ).order_by('date', 'start_time', 'pk')
-    slots = []
+    reservations_by_slot = {}
     for booking in bookings:
         template = booking.course_template or booking.reservation.course_template
         if template and template.course_type.category.client_id == group.client_id:
-            slots.append(Slot(template, booking.date, booking.start_time, booking.end_time))
+            slot = Slot(template, booking.date, booking.start_time, booking.end_time)
+            reservations_by_slot.setdefault(slot, set()).add(booking.reservation_id)
     return [
-        reason for slot, requested in Counter(slots).items()
-        for reason in slot_unavailable_reasons(slot, requested=requested, exclude_group_id=group.pk)
+        reason for slot, reservation_ids in reservations_by_slot.items()
+        for reason in slot_unavailable_reasons(
+            slot, requested=len(reservation_ids), exclude_group_id=group.pk, paid_only=paid_only,
+        )
     ]
 
 
+def capacity_payment_hold(group, payment):
+    if (payment is not None and payment.status != 'unpaid') or not booking_capacity_recheck_enabled(group.client):
+        return None, None
+    if group.reservations.live().exclude(status__in=['cancelled', 'deleted']).filter(
+        Q(status__in=['manually_assigned', 'pending_coach_confirmation'])
+        | Q(bookings__is_deleted=False, bookings__is_scheduled=True),
+    ).exists():
+        return None, None
+    if group_capacity_conflicts(group):
+        return PAYMENT_CAPACITY_MESSAGE, PAYMENT_CAPACITY_CODE
+    return None, None
+
+
 def record_paid_capacity_conflict(group, payment, *, user=None):
-    """Call on a paid transition inside the transaction holding the order/payment locks."""
+    """Call on a paid transition inside the transaction holding the tenant, order and payment locks."""
     stored = dict(payment.DataJSON) if isinstance(payment.DataJSON, dict) else {}
     if stored.get('capacity_conflict') or not booking_capacity_recheck_enabled(group.client):
         return
-    conflicts = group_capacity_conflicts(group)
+    conflicts = group_capacity_conflicts(group, paid_only=True)
     if conflicts:
         from .operations import record_order_revision
 

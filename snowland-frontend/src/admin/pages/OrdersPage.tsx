@@ -1,4 +1,4 @@
-import type { OrderWorkflow } from '../api/orders'
+import type { CampusManagerOrder, OrderWorkflow } from '../api/orders'
 import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 /**
  * 訂單管理（接 API）
@@ -61,15 +61,16 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 const LANGUAGE_LABEL: Record<string, string> = { zh: '中文', en: '英文', ja: '日文' }
 const REVISION_LABEL: Record<string, string> = { create: '建立訂單', update: '修改訂單', modify: '修改訂單', cancellation: '取消訂單', cancel: '取消申請', mark_test: '標記測試訂單', unmark_test: '取消測試標記' }
 
-function CapacityConflictBanner({ conflict }: { conflict: Order['capacity_conflict'] }) {
-  if (!conflict?.conflicts.length) return null
+function CapacityConflictBanner({ conflict }: { conflict: Order['capacity_conflict'] | CampusManagerOrder['capacity_conflict'] }) {
+  if (!conflict?.conflicts?.length) return null
   return (
     <div role="alert" className="rounded-lg border border-amber-400 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-100">
       <p className="font-semibold">付款後發現時段已滿，需主管跟進</p>
       <ul className="mt-2 list-disc space-y-1 pl-5">
-        {conflict.conflicts.map(slot => (
-          <li key={`${slot.template_id}-${slot.date}-${slot.start_time}-${slot.end_time}`}>
-            {slot.date} {slot.start_time}–{slot.end_time} · {slot.template_name}（其他訂單佔 {slot.occupied} 堂，上限 {slot.capacity} 堂）
+        {conflict.conflicts.map((slot, index) => (
+          <li key={`${slot.date}-${slot.start_time}-${slot.end_time}-${index}`}>
+            {slot.date} {slot.start_time}–{slot.end_time} · {slot.template_name}
+            {'occupied' in slot && <>（其他訂單佔 {slot.occupied} 筆預約，上限 {slot.capacity} 筆）</>}
           </li>
         ))}
       </ul>

@@ -869,7 +869,7 @@ def make_quote(session):
 
 def require_payment_capacity(groups):
     for group in groups:
-        message, code = get_group_payment_hold(group)
+        message, code = get_group_payment_hold(group, check_capacity=True)
         if code == PAYMENT_CAPACITY_CODE:
             raise ChatBookingConflict({"code": code, "message": message})
 

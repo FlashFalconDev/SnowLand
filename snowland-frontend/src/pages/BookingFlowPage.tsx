@@ -58,7 +58,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 import { fetchAdminMe } from '@/admin/api/auth'
 import { canPrepareStaffBooking } from '@/admin/permissions'
-import type { CartItem, Course, Resort } from '@/types/booking'
+import type { CartItem, Course, CourseSession, Resort } from '@/types/booking'
 import {
   fetchCourseTypes,
   fetchResorts,
@@ -653,6 +653,17 @@ const matchesUnavailableSlot = (course: Course, slot: SlotUnavailable) =>
   && course.timeSlotStart?.slice(0, 5) === slot.start_time
   && course.timeSlotEnd?.slice(0, 5) === slot.end_time
 
+function clearAvailableSlots(conflict: SlotFullResponse | null, templateId: number, date: string, sessions: CourseSession[]) {
+  if (!conflict) return null
+  const conflicts = conflict.conflicts.filter(slot => !(slot.template_id === templateId && slot.date === date
+    && sessions.some(session => session.is_full === false
+      && session.start_time.slice(0, 5) === slot.start_time && session.end_time.slice(0, 5) === slot.end_time)))
+  if (conflicts.length === conflict.conflicts.length) return conflict
+  return conflicts.length ? { ...conflict, conflicts, message: conflicts[0].message_zh } : null
+}
+
+class PaymentInfoResponseError extends Error {}
+
 const getLessonDurationKey = (durationHours?: number | null) => {
   if (!durationHours) return 'any'
   return Number(durationHours) >= 5 ? 'full_day' : 'half_day'
@@ -825,6 +836,7 @@ export default function BookingFlowPage() {
   const [sessions, setSessions] = useState<any[]>([])
   const [sessionReloadKey, setSessionReloadKey] = useState(0)
   const [slotFull, setSlotFull] = useState<SlotFullResponse | null>(null)
+  const [isCheckingSlots, setIsCheckingSlots] = useState(false)
   const blockedSlots = slotFull?.conflicts.filter(slot =>
     cart.some(group => group.courses.some(course => matchesUnavailableSlot(course, slot))),
   ) || []
@@ -1098,7 +1110,11 @@ export default function BookingFlowPage() {
         ability_level: levels.length === 1 ? levels[0][0] : null,
         language: selectedLanguage || 'zh', people_count: peopleCount,
       })
-        .then((data: any) => { if (!cancelled) setSessions(data) })
+        .then(data => {
+          if (cancelled) return
+          setSessions(data)
+          if (selectedDate) setSlotFull(current => clearAvailableSlots(current, selectedCourseTemplate, selectedDate, data))
+        })
         .catch((e) => { if (!cancelled) { console.error(e); setSessions([]) } })
     }
     return () => { cancelled = true }
@@ -1753,6 +1769,25 @@ export default function BookingFlowPage() {
     return true
   }
 
+  const refreshBlockedSlots = async () => {
+    setIsCheckingSlots(true)
+    const dates = new Map(blockedSlots.map(slot => [`${slot.template_id}:${slot.date}`, slot]))
+    const results = await Promise.allSettled(Array.from(dates.values(), async slot => ({
+      slot, sessions: await fetchCourseSessions(slot.template_id, slot.date),
+    })))
+    setSlotFull(current => {
+      if (current !== slotFull) return current
+      for (const result of results) {
+        if (result.status !== 'fulfilled') continue
+        const { slot, sessions } = result.value
+        current = clearAvailableSlots(current, slot.template_id, slot.date, sessions)
+      }
+      return current
+    })
+    setSessionReloadKey(key => key + 1)
+    setIsCheckingSlots(false)
+  }
+
   const addCurrentToCart = async () => {
     if (!selectedCourseTemplate || selectedCourseDates.length === 0 || !selectedTimeSlot) return false
     if (editingGroupId && !cart.some(group => group.id === editingGroupId)) {
@@ -1952,7 +1987,8 @@ export default function BookingFlowPage() {
         )
         const pi = await piRes.json().catch(() => ({}))
         if (!piRes.ok) {
-          throw new Error(pi.error || '取得付款資訊失敗')
+          const message = typeof pi?.message === 'string' ? pi.message.trim() : ''
+          throw new PaymentInfoResponseError(message)
         }
         return pi
       }),
@@ -1984,9 +2020,9 @@ export default function BookingFlowPage() {
       setPaymentInfoError('')
       showToast('訂單已建立，請完成付款', 'success')
     } catch (error) {
-      const message = error instanceof Error ? error.message : '付款資訊暫時無法取得。'
-      setPaymentInfoError(message)
-      showToast(message, 'warning')
+      const message = error instanceof PaymentInfoResponseError ? error.message : ''
+      setPaymentInfoError(message || '付款資訊暫時無法取得。')
+      showToast(message || '訂單已建立，但付款資訊暫時無法取得', 'warning')
     }
   }
 
@@ -2503,6 +2539,9 @@ export default function BookingFlowPage() {
           {hasBlockedSlots && currentStep < 4 && !createdReservationIds.length && (
             <div role="alert" className="mb-4 rounded-sm border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               {blockedSlots.map(slot => <p key={`${slot.template_id}-${slot.date}-${slot.start_time}-${slot.end_time}`}>{slot.message_zh}</p>)}
+              <button type="button" disabled={isCheckingSlots} onClick={() => void refreshBlockedSlots()} className="mr-3 min-h-11 font-semibold underline disabled:opacity-50">
+                {t(isCheckingSlots ? '正在檢查時段' : '重新檢查時段')}
+              </button>
               {staffSelectedCart && <p className="mt-2">{t('請聯絡工作人員更新連結中的課程。')}</p>}
               {currentStep === 3 && !staffSelectedCart && blockedSlots.map(slot => {
                 const group = cart.find(item => item.courses.some(course => matchesUnavailableSlot(course, slot)))
