@@ -1198,6 +1198,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                   <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1"><Calendar size={12} />課程時段</h4>
                   <div className="space-y-2">
                     {r.bookings.map((b) => {
+                      const lessonNote = order.import_lesson_notes?.[b.id]
                       return (
                         <div key={b.id} className="flex flex-col gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm md:flex-row md:items-center">
                           <Calendar size={16} className="text-gray-400" />
@@ -1205,6 +1206,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                           <span className="text-gray-500 dark:text-gray-300">{formatTime(b.start_time)} - {formatTime(b.end_time)}</span>
                           {canEditCourse && <span className="text-xs text-purple-700 dark:text-purple-300">改日期或時段請先取消本次編輯，再使用「修改課程／人數與差額」。</span>}
                           <span className="text-xs text-gray-500 md:ml-auto">{b.course_name}</span>
+                          {lessonNote && <span className="whitespace-pre-wrap break-words text-gray-700 dark:text-gray-200">堂次備註 · {lessonNote}</span>}
                         </div>
                       )
                     })}

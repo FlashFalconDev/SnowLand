@@ -2126,6 +2126,9 @@ class OrderAdminViewSet(ModelViewSet):
         detail = serializer.data
         if not is_campus_viewer:
             detail['manual_payment_posting_date_mode'] = manual_payment_posting_date_mode(request.tenant)
+            import_payment = instance.payments.live().filter(DataJSON__has_key='import_lesson_notes').first()
+            if import_payment:
+                detail['import_lesson_notes'] = import_payment.DataJSON['import_lesson_notes']
             can_check_test_status = (user_has_admin_permission(request.user, 'order_edit', request.tenant)
                                      and test_order_marking_enabled(request.tenant))
             detail['can_check_test_status'] = can_check_test_status

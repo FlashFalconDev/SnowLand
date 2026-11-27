@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 from urllib.parse import parse_qs, urlsplit
 from itertools import repeat
 from unittest.mock import patch
+from zipfile import ZipFile
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -14,6 +15,7 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils.datetime import to_excel
 from rest_framework.test import APIClient
 
 from Client.models import Client, ClientMemberProfile, ModuleInfo, ModuleSetting
@@ -26,11 +28,13 @@ from booking.models import (
     BookingClosure, NotificationDelivery, NotificationTemplate, OrderImportBatch, OrderLoyalty, Payment, ReservationGroup,
     StaffBookingLink,
 )
-from booking.order_import.parser import HEADERS, MAX_BYTES, MAX_ROWS, SHEET_NAME
+from booking.order_import.parser import HEADERS, LEGACY_HEADERS, MAX_BYTES, MAX_ROWS, SHEET_NAME
+from booking.order_import.service import batch_cipher, json_bytes
 from booking.order_import.template import TEMPLATE_PATH
 from booking.order_import.validation import (
-    ABILITY, CAMPUS, COACH, DAY, EMAIL, END, FEE, FLAG, KEY, LANGUAGE, METHOD, NAME, NAMES, NOTE, PAID, PEOPLE,
-    PHONE, POSTED, RESORT, START, TEMPLATE,
+    ABILITY, BANK_LAST_FIVE, CAMPUS, COACH, DAY, DISCOUNT, DISCOUNT_NOTE, EMAIL, END, EQUIPMENT, FEE, FLAG, KEY,
+    LANGUAGE, LESSON_NOTE, MARKETING, METHOD, NAME, NAMES, NOTE, ORIGINAL, PAID, PEOPLE, PHONE, POSTED, RECEIVED,
+    RESORT, START, TEMPLATE,
 )
 from booking.participant_invitations import issue_invitation
 from booking.staff_link_holds import create_holds
@@ -43,7 +47,7 @@ def xlsx(rows, *, header=HEADERS):
     sheet.append(header)
     sheet.append(['按範本跳過第 2 列'])
     for row in rows:
-        sheet.append([row.get(column) for column in HEADERS] if isinstance(row, dict) else row)
+        sheet.append([row.get(column) for column in header] if isinstance(row, dict) else row)
     binary = io.BytesIO()
     workbook.save(binary)
     return binary.getvalue()
@@ -139,6 +143,7 @@ class OrderImportTests(TestCase):
         options = list(distributed['選項'].values)
         self.assertIn(('校區', 'jp', '測試校區', None), options)
         self.assertIn(('時段', '09:00–12:00', '單板／私人課／上午', '測試雪場'), options)
+        self.assertIn(('協助狀況', 'assistDuringCourse', '課程時間內協助', None), options)
         self.assertNotIn('外校校區', str(options))
 
     def test_native_cells_merge_order_preserve_phone_and_create_audited_paid_order(self):
@@ -196,14 +201,14 @@ class OrderImportTests(TestCase):
     def test_validation_reports_each_bad_field_and_returns_mixed_commit(self):
         invalid = self.row(**{
             KEY: 'invalid', FLAG: '任意值', NAME: '甲' * 101, PHONE: 912345678, EMAIL: 'bad',
-            CAMPUS: '不存在', RESORT: '不存在', TEMPLATE: '不存在', DAY: 44000,
+            CAMPUS: '不存在', RESORT: '不存在', TEMPLATE: '2026-02-30 早課', DAY: '2026-02-30',
             START: time(9, 0, 1), END: '晚點', PEOPLE: True, ABILITY: '等級 0:0',
-            NAMES: '甲、乙', LANGUAGE: '紐約語', COACH: 987, FEE: -1, PAID: '未付款',
+            NAMES: '甲、', LANGUAGE: '紐約語', COACH: 987, FEE: -1, PAID: '未付款',
             METHOD: '未知', POSTED: '2026-02-30', NOTE: '甲' * 2001,
         })
         preview = self.preview(invalid, self.row())
         columns = {col for item in preview['row_results'] if item['level'] == 'error' for col in item['columns']}
-        self.assertEqual(columns, set(HEADERS) - {KEY})
+        self.assertEqual(columns, set(LEGACY_HEADERS) - {KEY})
         result = self.commit(preview)
         self.assertEqual(result['status'], 'partial')
         self.assertEqual([item['status'] for item in result['commit_results']], ['failed', 'created'])
@@ -211,10 +216,175 @@ class OrderImportTests(TestCase):
     def test_repeated_order_fields_and_lesson_conflicts(self):
         preview = self.preview(self.row(), self.row(**{NAME: '不同姓名', POSTED: date.today()}))
         issues = preview['order_results'][0]['issues']
-        self.assertEqual({item['code'] for item in issues}, {'order_field_conflict', 'duplicate_lesson'})
-        self.assertTrue(all(item['row_number'] == 4 for item in issues))
+        errors = [item for item in issues if item['level'] == 'error']
+        self.assertEqual({item['code'] for item in errors}, {'order_field_conflict', 'duplicate_lesson'})
+        self.assertTrue(all(item['row_number'] == 4 for item in errors))
         self.assertEqual(self.commit(preview)['status'], 'failed')
         self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_old_headers_float_key_and_legacy_lesson_note(self):
+        row = self.row(**{KEY: 3123456789.0, POSTED: to_excel(date.today())})
+        second = self.row(**{
+            KEY: 3123456789, DAY: to_excel(self.day + timedelta(days=1)), NOTE: '第二堂',
+            PHONE: '０９１２　３４５－６７８',
+        })
+        content = io.BytesIO()
+        with ZipFile(io.BytesIO(xlsx([row, second], header=LEGACY_HEADERS))) as source, ZipFile(content, 'w') as target:
+            for entry in source.namelist():
+                value = source.read(entry)
+                if entry == 'xl/worksheets/sheet1.xml':
+                    # openpyxl writes whole floats as integers. Excel can store an explicit decimal.
+                    value = value.replace(b'<v>3123456789</v>', b'<v>3123456789.0</v>', 1)
+                target.writestr(entry, value)
+        preview = self.preview(content=content.getvalue())
+        self.assertEqual(preview['summary']['committable'], 1)
+        self.assertEqual(preview['order_results'][0]['amount'], 2000)
+        self.assertEqual(
+            {item['code'] for item in preview['row_results']}, {'legacy_lesson_note', 'repeated_lesson_amount'},
+        )
+        # Reproduce a cached preview written before the appended columns existed.
+        batch = OrderImportBatch.objects.get(pk=preview['batch_id'])
+        key, staged = json.loads(batch_cipher().decrypt(bytes(batch.staged_input)))[0]
+        self.assertEqual(key, '3123456789')
+        batch.staged_input = batch_cipher().encrypt(json_bytes([
+            [key, [[number, values[:len(LEGACY_HEADERS)]] for number, values in staged]],
+        ]))
+        batch.save(update_fields=['staged_input'])
+        self.assertEqual(self.commit(preview)['summary']['created'], 1)
+        payment = Payment.objects.get()
+        self.assertEqual(payment.bank_posted_date, date.today())
+        group = payment.reservation_group
+        booking = group.reservations.order_by('pk').last().bookings.get()
+        self.assertEqual(payment.DataJSON['import_lesson_notes'], {str(booking.pk): '第二堂'})
+        self.assertEqual(group.revisions.get().reason, '內部導入：行政備註')
+
+    def test_partial_optional_headers_are_mapped_by_name_and_have_fixed_order(self):
+        first = self.row(**{RECEIVED: 1000, MARKETING: '虛構來源'})
+        header = LEGACY_HEADERS + (RECEIVED, MARKETING)
+        preview = self.preview(content=xlsx([first], header=header))
+        self.assertEqual(self.commit(preview)['summary']['created'], 1)
+        self.assertEqual(ReservationGroup.objects.get().marketing_source, '虛構來源')
+        for wrong in ((MARKETING, RECEIVED), (RECEIVED, RECEIVED), ('未知欄位',)):
+            with self.subTest(wrong=wrong):
+                response = self.preview_response(xlsx([first], header=LEGACY_HEADERS + wrong))
+                self.assertEqual(response.data['code'], 'invalid_header')
+
+    def test_same_slot_allows_separate_group_labels(self):
+        first = self.row(**{NOTE: '第一組', RECEIVED: 2500})
+        second = self.row(**{NOTE: '第二組', FEE: 1500})
+        preview = self.preview(content=xlsx([first, second], header=LEGACY_HEADERS))
+        self.assertEqual(preview['summary']['errors'], 0)
+        self.assertEqual(self.commit(preview, allow_overbook=True, overbook_reason='已確認兩組皆收款')['summary']['created'], 1)
+        self.assertEqual(ReservationGroup.objects.get().reservations.count(), 2)
+        repeating = self.preview(first, second, {**second})
+        self.assertIn('duplicate_lesson', [item['code'] for item in repeating['row_results'] if item['row_number'] == 5])
+
+    def test_optional_columns_create_consistent_paid_order(self):
+        first = self.row(**{
+            LESSON_NOTE: '上午組', EQUIPMENT: '課程時間內協助', BANK_LAST_FIVE: 123.0,
+            ORIGINAL: 1200, DISCOUNT: '-200', DISCOUNT_NOTE: '虛構折扣', RECEIVED: 2100, MARKETING: 'Google搜尋',
+        })
+        second = self.row(**{
+            DAY: self.day + timedelta(days=1), FEE: 1100, DISCOUNT: -100, NOTE: '舊標籤', LESSON_NOTE: '下午組',
+        })
+        preview = self.preview(first, second)
+        self.assertEqual(preview['summary']['errors'], 0)
+        self.assertEqual(self.commit(preview)['summary']['created'], 1)
+        payment = Payment.objects.get()
+        group = payment.reservation_group
+        self.assertEqual((group.marketing_source, group.marketing_source_override), ('Google搜尋', None))
+        self.assertEqual((payment.bank_account, payment.DataJSON['amount']), ('00123', 2100))
+        self.assertEqual(payment.DataJSON['import_source'], '內部導入')
+        self.assertEqual(group.currency_snapshot['base_amount'], 2100)
+        first_reservation, second_reservation = group.reservations.order_by('pk')
+        self.assertEqual(
+            (first_reservation.course_fee, first_reservation.discount_amount, first_reservation.payment_amount),
+            (1200, 200, 1000),
+        )
+        self.assertEqual((first_reservation.equipment, first_reservation.need_equipment), ('assistDuringCourse', True))
+        self.assertEqual(first_reservation.discount_name, '虛構折扣')
+        self.assertEqual((second_reservation.course_fee, second_reservation.payment_amount), (1200, 1100))
+        self.assertEqual(payment.DataJSON['import_lesson_notes'], {
+            str(first_reservation.bookings.get().pk): '上午組', str(second_reservation.bookings.get().pk): '下午組',
+        })
+        detail = self.hq.get(f'/api/admin/snowland/orders/{group.pk}/')
+        self.assertEqual(detail.data['data']['import_lesson_notes'], payment.DataJSON['import_lesson_notes'])
+        repeated = self.preview(first, second)
+        self.assertEqual(repeated['order_results'][0]['status'], 'skipped')
+        first[DISCOUNT_NOTE] = '另一種折扣'
+        self.assertEqual(self.preview(first, second)['order_results'][0]['code'], 'source_order_conflict')
+
+    def test_price_checks_and_warnings_have_preview_amounts(self):
+        bad = self.preview(self.row(**{RECEIVED: 1000, ORIGINAL: 1100, DISCOUNT: -200}), self.row(**{
+            DAY: self.day + timedelta(days=1),
+        }))
+        self.assertEqual(bad['order_results'][0]['amount'], 2000)
+        self.assertEqual(bad['summary']['committable'], 0)
+        self.assertEqual({item['code'] for item in bad['row_results'] if item['level'] == 'error'}, {
+            'lesson_price_conflict', 'received_total_mismatch',
+        })
+        good = self.preview(self.row(**{EMAIL: 'fake@example.con', RECEIVED: 2000}), self.row(**{
+            EMAIL: None, DAY: self.day + timedelta(days=1),
+        }))
+        self.assertEqual(good['summary']['committable'], 1)
+        self.assertEqual([item['code'] for item in good['row_results'] if item['level'] == 'warning'], ['email_domain_con'])
+        self.assertEqual(self.commit(good)['summary']['created'], 1)
+
+    def test_cash_coach_is_rejected_before_lookup_and_conflicts_reference_first_row(self):
+        Coach.objects.create(client=self.tenant, name='Cash')
+        Campus.objects.create(client=self.tenant, name='另一校區', code='other')
+        preview = self.preview(self.row(), self.row(**{
+            COACH: 'Ｃａｓｈ', CAMPUS: 'other', PHONE: '0900-000-000', DAY: self.day + timedelta(days=1),
+        }))
+        errors = [item for item in preview['row_results'] if item['level'] == 'error']
+        self.assertIn('付款方式', next(item for item in errors if item['columns'] == [COACH])['message_zh'])
+        self.assertEqual({item['columns'][0] for item in errors}, {COACH, PHONE, CAMPUS})
+        for item in errors:
+            if item['code'] == 'order_field_conflict':
+                self.assertIn('第 4 列和首列（第 3 列）不同', item['message_zh'])
+
+    def test_course_matching_uses_resort_pricing_and_distinguishes_catalog_problems(self):
+        self.template.resorts.clear()
+        self.assertEqual(self.preview(self.row(**{TEMPLATE: '  單板 / 私人課  ／  上午 '}))['summary']['errors'], 0)
+        response = self.hq.get(self.url + 'template/')
+        workbook = load_workbook(io.BytesIO(b''.join(response.streaming_content)))
+        self.assertIn(('時段', '09:00–12:00', '單板／私人課／上午', '測試雪場'), list(workbook['選項'].values))
+        other = CourseTemplate.objects.create(course_type=self.kind, name='上午', duration_hours=3)
+        other.resorts.add(self.resort)
+        CourseSession.objects.create(template=other, start_time=time(10), end_time=time(13))
+        self.assertEqual(self.preview(self.row())['summary']['errors'], 0)
+        self.assertEqual(self.preview(self.row(**{END: time(13)}))['row_results'][0]['code'], 'unknown_session')
+        CourseSession.objects.create(template=other, start_time=time(9), end_time=time(12))
+        self.assertEqual(self.preview(self.row())['row_results'][0]['code'], 'course_ambiguous')
+        self.assertEqual(self.preview(self.row(**{TEMPLATE: self.template.pk}))['summary']['errors'], 0)
+        self.template.is_active = False
+        self.template.save(update_fields=['is_active'])
+        self.assertEqual(self.preview(self.row(**{TEMPLATE: self.template.pk}))['row_results'][0]['code'], 'course_inactive')
+        foreign_tenant = Client.objects.create(name='另一校', internal_code='other')
+        foreign_category = CourseCategory.objects.create(client=foreign_tenant, name='另一類')
+        foreign_kind = CourseType.objects.create(category=foreign_category, name='另一種')
+        foreign_course = CourseTemplate.objects.create(course_type=foreign_kind, name='外校課程', duration_hours=3)
+        self.assertEqual(self.preview(self.row(**{TEMPLATE: foreign_course.pk}))['row_results'][0]['code'], 'course_not_found')
+        different_resort = Resorts.objects.create(client=self.tenant, name='new-resort', display_name='另一雪場')
+        self.campus.resorts.add(different_resort)
+        self.assertEqual(self.preview(self.row(**{RESORT: different_resort.name}))['row_results'][0]['code'], 'course_not_at_resort')
+
+    def test_photo_course_or_addon_explains_missing_data(self):
+        token = '雪地攝影 / 全家福/寫真 / 滑雪攝影_1H'
+        row = self.row(**{TEMPLATE: token, DAY: None, PEOPLE: None, ABILITY: None})
+        self.assertEqual(self.preview(row)['row_results'][0]['code'], 'unmatched_addon')
+        category = CourseCategory.objects.create(client=self.tenant, name='雪地攝影', service_type='photo')
+        kind = CourseType.objects.create(category=category, name='全家福／寫真')
+        photo = CourseTemplate.objects.create(course_type=kind, name='滑雪攝影_1H', duration_hours=1)
+        photo.resorts.add(self.resort)
+        CourseSession.objects.create(template=photo, start_time=time(9), end_time=time(10))
+        row[END] = time(10)
+        result = self.preview(row)['row_results']
+        self.assertEqual([(item['code'], item['columns']) for item in result], [
+            ('photo_fields_required', [DAY, PEOPLE, ABILITY]),
+        ])
+        row.update({DAY: self.day, PEOPLE: 2, ABILITY: '等級 0'})
+        self.assertEqual(self.preview(row)['summary']['committable'], 1)
 
     def coach(self):
         coach = Coach.objects.create(client=self.tenant, name='行政已排教練', languages=['zh'], availability_status='active')
@@ -371,7 +541,7 @@ class OrderImportTests(TestCase):
         self.assertEqual(self.commit(preview)['summary']['created'], 1)
         cases = [
             (xlsx([], header=(*HEADERS[:-1], ' 備註')), 'invalid_header', 400),
-            (xlsx([[*repeat('', 21), '額外資料']]), 'extra_column', 400),
+            (xlsx([[*repeat('', len(HEADERS)), '額外資料']]), 'extra_column', 400),
             (xlsx(repeat([None], MAX_ROWS + 1)), 'too_many_rows', 400),
             (b'malformed\x00bytes', 'invalid_xlsx', 400),
             (b'x' * (MAX_BYTES + 1), 'file_too_large', 413),

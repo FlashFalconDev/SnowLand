@@ -105,6 +105,7 @@ export interface Order {
   marketing_source_detail?: string
   marketing_source_override?: string | null
   marketing_source_options?: string[]
+  import_lesson_notes?: Record<string, string>
   line_group_url?: string
   line_group_qr_url?: string
   revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string; created_by_name?: string; snapshot?: OrderRevisionSnapshot }[]
