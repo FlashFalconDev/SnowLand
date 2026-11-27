@@ -3186,7 +3186,9 @@ class MemberCenterAPI(APIView):
             'snowboard_skills': list(member.snowboard_skills or []),
             'ski_skills': list(member.ski_skills or []),
             'insurance_data': member.insurance_data or {},
-            'insurance_processing_status': member.insurance_processing_status,
+            'insurance_processing_status': (
+                'pending_review' if member.insurance_processing_status == 'ineligible' else member.insurance_processing_status
+            ),
             'waiver_signature': member.waiver_signature,
             'waiver_signature_strokes': signature_strokes.get(member.pk, []),
             'waiver_document_version': member.waiver_document_version,

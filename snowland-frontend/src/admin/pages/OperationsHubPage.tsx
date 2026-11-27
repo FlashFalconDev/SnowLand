@@ -10,7 +10,7 @@ import { hasAdminPermission } from '../permissions'
 import {
   calculatePayroll, createStaffBookingLink, fetchEvaluations, fetchNotificationDeliveries,
   fetchNotificationTemplates, fetchNotificationCourseOptions, fetchPayrollStatements, fetchPayrollCoaches, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, addPayrollAdjustment, editPayrollAdjustment, removePayrollAdjustment, deletePayrollDraft,
-  fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceRecordDetail, type PreCourseFormSnapshot,
+  fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceProcessingStatus, type InsuranceRecordDetail, type PreCourseFormSnapshot,
   fetchCourseUploadLimits, uploadCourseFile,
   previewStaffBookingLink, updateStaffBookingLink, type StaffBookingLink,
   updateEvaluation, type Evaluation, type EvaluationDateFilters, type EvaluationPage,
@@ -598,8 +598,10 @@ function BookingLinksPanel() {
   </div>
 }
 
-const insuranceStatuses = { pending: '尚未投保', checking: '對資料中', processing: '處理中', insured: '已投保完成' }
-const insuranceStatusColors = { pending: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200', checking: 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-200', processing: 'bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-200', insured: 'bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-200' }
+const insuranceStatuses = { pending: '尚未投保', checking: '對資料中', processing: '處理中', insured: '已投保完成', ineligible: '不符投保資格' } satisfies Record<InsuranceProcessingStatus, string>
+const insuranceStatusColors = { pending: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200', checking: 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-200', processing: 'bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-200', insured: 'bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-200', ineligible: 'bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-200' }
+const insuranceStatusLabel = (status: string) => Object.prototype.hasOwnProperty.call(insuranceStatuses, status)
+  ? insuranceStatuses[status as InsuranceProcessingStatus] : '待行政確認'
 const canProcessInsurance = (row: { can_process_insurance?: boolean; can_mark_complete: boolean }) => row.can_process_insurance ?? row.can_mark_complete
 
 function InsurancePanel() {
@@ -609,7 +611,10 @@ function InsurancePanel() {
   const [selectedDate, setSelectedDate] = useState('')
   const [reminder, setReminder] = useState<{id:number;field:'insurance'|'waiver'}|null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: ['admin', 'insurance-records', status], queryFn: () => fetchInsuranceRecords(status) })
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['admin', 'insurance-records', status], queryFn: () => fetchInsuranceRecords(status) })
+  const rows = data?.rows ?? []
+  const showIneligible = data?.eligibilityEnabled || processingStatus === 'ineligible'
+    || rows.some(row => row.insurance_processing_status === 'ineligible')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const filteredRows = useMemo(() => {
@@ -629,18 +634,18 @@ function InsurancePanel() {
       <div className="flex flex-col flex-wrap gap-2 sm:flex-row">
         <label className="sr-only" htmlFor="insurance-status">資料完成狀態</label>
         <select id="insurance-status" className={`${inputClass} sm:w-auto`} value={status} onChange={event => { setStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="missing">待補資料</option><option value="all">全部資料</option><option value="completed">已標記完成</option></select>
-        <select aria-label="投保作業狀態" className={`${inputClass} sm:w-auto`} value={processingStatus} onChange={event => { setProcessingStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="all">全部投保進度</option>{Object.entries(insuranceStatuses).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
+        <select aria-label="投保作業狀態" className={`${inputClass} sm:w-auto`} value={processingStatus} onChange={event => { setProcessingStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="all">全部投保進度</option>{Object.entries(insuranceStatuses).filter(([value]) => value !== 'ineligible' || showIneligible).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
         <input aria-label="搜尋學員、訂單或校區" className={`${inputClass} sm:max-w-xs`} placeholder="搜尋學員、訂單或校區" value={search} onChange={event => { setSearch(event.target.value); setPage(1); setExpandedId(null) }} />
       </div>
     </div>
     {isLoading ? <Loader2 aria-label="載入資料中" className="mt-4 animate-spin" /> : isError ? <div role="alert" className="mt-4 text-sm text-red-600 dark:text-red-400">資料載入失敗，請稍後重試。<button className="ml-3 min-h-11 underline" onClick={() => refetch()}>重新載入</button></div> : <>
-      <InsuranceCalendar rows={filteredRows} selectedDate={selectedDate} onSelect={date=>{setSelectedDate(date);setPage(1);setExpandedId(null)}} />
+      <InsuranceCalendar rows={filteredRows} showIneligible={showIneligible} selectedDate={selectedDate} onSelect={date=>{setSelectedDate(date);setPage(1);setExpandedId(null)}} />
       <div className="mt-4 space-y-3">{visibleRows.map(row => <div key={row.id} className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0"><b className="text-gray-900 dark:text-white">{row.member_name}</b><p className="break-words text-xs text-gray-500 dark:text-gray-400">{[row.sn || row.order_number, row.campus_name, row.course_dates.join('、')].filter(Boolean).join(' · ')}</p><p className="mt-2 text-xs text-gray-600 dark:text-gray-300">保險資料：{row.insurance_requires_update ? '題目已更新，待補' : row.insurance_completed_at ? '已填寫／已確認' : '待補'}　聲明書：{row.waiver_requires_resign ? '需重新簽署（課程或文件已更新）' : row.waiver_completed_at ? '已完成／已確認' : '待補'}</p><p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><span className={`rounded px-2 py-1 ${insuranceStatusColors[row.insurance_processing_status]}`}>{insuranceStatuses[row.insurance_processing_status]}</span><span>投保金額：{row.insurance_premium_amount === null ? '尚未填寫' : `${row.insurance_premium_currency} ${row.insurance_premium_amount}`}</span></p></div>
+          <div className="min-w-0"><b className="text-gray-900 dark:text-white">{row.member_name}</b><p className="break-words text-xs text-gray-500 dark:text-gray-400">{[row.sn || row.order_number, row.campus_name, row.course_dates.join('、')].filter(Boolean).join(' · ')}</p><p className="mt-2 text-xs text-gray-600 dark:text-gray-300">保險資料：{row.insurance_requires_update ? '題目已更新，待補' : row.insurance_completed_at ? '已填寫／已確認' : '待補'}　聲明書：{row.waiver_requires_resign ? '需重新簽署（課程或文件已更新）' : row.waiver_completed_at ? '已完成／已確認' : '待補'}</p><p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><span className={`rounded px-2 py-1 ${insuranceStatusColors[row.insurance_processing_status] ?? ''}`}><span className="sr-only">投保進度：</span>{insuranceStatusLabel(row.insurance_processing_status)}</span><span>投保金額：{row.insurance_premium_amount === null ? '尚未填寫' : `${row.insurance_premium_currency} ${row.insurance_premium_amount}`}</span></p></div>
           <div className="flex flex-wrap gap-2">
             <button aria-expanded={expandedId === row.id} aria-controls={`insurance-detail-${row.id}`} onClick={() => setExpandedId(expandedId === row.id ? null : row.id)} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200">{expandedId === row.id ? '收合資料' : '查看資料'}</button>
-            {row.can_remind && (!row.insurance_completed_at || row.insurance_requires_update) && <button onClick={()=>setReminder({id:row.id,field:'insurance'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">提醒補保險資料</button>}
+            {row.can_remind && row.insurance_processing_status !== 'ineligible' && (!row.insurance_completed_at || row.insurance_requires_update) && <button onClick={()=>setReminder({id:row.id,field:'insurance'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">提醒補保險資料</button>}
             {row.can_remind && (!row.waiver_completed_at || row.waiver_requires_resign) && <button onClick={()=>setReminder({id:row.id,field:'waiver'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">{row.waiver_requires_resign ? '提醒重新簽署' : '提醒補聲明書'}</button>}
             {row.can_mark_complete && !row.insurance_completed_at && <button disabled={complete.isPending} onClick={() => complete.mutate({ id: row.id, field: 'insurance' })} className="min-h-11 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">標記保險資料已確認</button>}
             {row.can_mark_complete && !row.waiver_completed_at && !row.waiver_requires_resign && <button disabled={complete.isPending} onClick={() => complete.mutate({ id: row.id, field: 'waiver' })} className="min-h-11 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">標記聲明書完成</button>}
@@ -698,8 +703,8 @@ function InsuranceDetail({ id }: { id: number }) {
         {data.waiver_document_snapshot && <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看當時簽署的聲明書內容</summary><div className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white p-4 leading-7 dark:border-gray-700 dark:bg-gray-800">{data.waiver_document_snapshot}</div></details>}
       </div>
       <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">以上為會員填寫及簽署的唯讀紀錄，不會因後台標記完成而修改簽名或文件內容。</p>
-      {Boolean(data.document_history?.length) && <details className="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-600"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看改期／換課的簽署與投保留底（{data.document_history.length} 筆）</summary>{data.document_history.map(row=><section key={row.id} className="mt-3 space-y-2 border-t border-gray-200 pt-3 text-sm dark:border-gray-600"><p>第 {row.version} 版 · {new Date(row.created_at).toLocaleString('zh-TW')}</p><p className="break-words">原因：{row.reason}</p><p>原課程：{row.snapshot.previous_courses.map(course=>course.date).join('、')}</p><p>原簽署：{row.snapshot.waiver_signature || '無線上簽名'} · {row.snapshot.waiver_document_version || '無版本'}</p><p>原投保：{row.snapshot.insurance_processing_status==='insured'?'已投保完成':row.snapshot.insurance_processing_status} · {row.snapshot.insurance_premium_amount===null?'無原保費':`${row.snapshot.insurance_premium_currency} ${row.snapshot.insurance_premium_amount}`}</p><details><summary className="min-h-11 cursor-pointer py-3">查看原簽署文件</summary><p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">{row.snapshot.waiver_document_snapshot || '無線上文件'}</p></details></section>)}</details>}
-      {canProcessInsurance(data) && <InsuranceProcessingForm key={`${data.id}-${data.insurance_processing_updated_at || 'new'}`} row={data} />}
+      {Boolean(data.document_history?.length) && <details className="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-600"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看改期／換課的簽署與投保留底（{data.document_history.length} 筆）</summary>{data.document_history.map(row=><section key={row.id} className="mt-3 space-y-2 border-t border-gray-200 pt-3 text-sm dark:border-gray-600"><p>第 {row.version} 版 · {new Date(row.created_at).toLocaleString('zh-TW')}</p><p className="break-words">原因：{row.reason}</p><p>原課程：{row.snapshot.previous_courses.map(course=>course.date).join('、')}</p><p>原簽署：{row.snapshot.waiver_signature || '無線上簽名'} · {row.snapshot.waiver_document_version || '無版本'}</p><p>原投保：{insuranceStatusLabel(row.snapshot.insurance_processing_status)} · {row.snapshot.insurance_premium_amount===null?'無原保費':`${row.snapshot.insurance_premium_currency} ${row.snapshot.insurance_premium_amount}`}</p><details><summary className="min-h-11 cursor-pointer py-3">查看原簽署文件</summary><p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">{row.snapshot.waiver_document_snapshot || '無線上文件'}</p></details></section>)}</details>}
+      {canProcessInsurance(data) && (data.insurance_processing_status !== 'ineligible' || data.insurance_eligibility?.can_restore) && <InsuranceProcessingForm key={`${data.id}-${data.insurance_processing_updated_at || 'new'}`} row={data} />}
     </>}
   </div>
 }
@@ -710,10 +715,18 @@ function InsuranceProcessingForm({ row }: { row: InsuranceRecordDetail }) {
   const [amount, setAmount] = useState(row.insurance_premium_amount ?? '')
   const [currency, setCurrency] = useState(row.insurance_premium_currency)
   const [confirmed, setConfirmed] = useState(false)
+  const markingIneligible = status === 'ineligible'
+  const options = Object.entries(insuranceStatuses).filter(([value]) => {
+    if (row.insurance_processing_status === 'ineligible') {
+      return value === 'ineligible' || (value === 'checking' && row.insurance_eligibility?.can_restore)
+    }
+    return value !== 'ineligible' || row.insurance_eligibility?.can_mark
+  })
   const needsConfirmation = status === 'insured' && row.insurance_processing_status !== 'insured'
-  const changed = status !== row.insurance_processing_status || amount !== (row.insurance_premium_amount ?? '') || currency !== row.insurance_premium_currency
-  const valid = (!currency || /^[A-Z]{3}$/.test(currency)) && (!amount || (Number.isFinite(Number(amount)) && Number(amount) >= 0 && Number(amount) <= 99999999.99 && /^[A-Z]{3}$/.test(currency))) && (!needsConfirmation || confirmed)
-  const save = useMutation({ mutationFn: () => saveInsuranceProcessing(row.id, { status, premium_amount: amount === '' ? null : amount, currency, expected_updated_at: row.insurance_processing_updated_at, confirm_insured: confirmed }),
+  const changed = status !== row.insurance_processing_status || (!markingIneligible && (amount !== (row.insurance_premium_amount ?? '') || currency !== row.insurance_premium_currency))
+  const validPremium = (!currency || /^[A-Z]{3}$/.test(currency)) && (!amount || (Number.isFinite(Number(amount)) && Number(amount) >= 0 && Number(amount) <= 99999999.99 && /^[A-Z]{3}$/.test(currency)))
+  const valid = options.some(([value]) => value === status) && (markingIneligible || validPremium) && (!needsConfirmation || confirmed)
+  const save = useMutation({ mutationFn: () => saveInsuranceProcessing(row.id, { status, premium_amount: markingIneligible || amount === '' ? null : amount, currency: markingIneligible ? '' : currency, expected_updated_at: row.insurance_processing_updated_at, confirm_insured: confirmed }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin','insurance-records'] }); qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); notify.success('投保作業紀錄已儲存；系統不會自動投保') },
     onError: (error: any) => { if (error?.response?.status === 409) qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); notify.error(String(error?.response?.data?.msg || Object.values(error?.response?.data || {})[0] || '儲存失敗，請重新核對')) },
   })
@@ -721,9 +734,12 @@ function InsuranceProcessingForm({ row }: { row: InsuranceRecordDetail }) {
     <h3 className="font-semibold text-gray-900 dark:text-white">投保作業回報</h3>
     <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">這是人工作業紀錄，不會向保險公司送件，也不會改動學員資料或聲明書。金額未知可留空，不會當作0元。</p>
     <fieldset disabled={save.isPending} className="grid gap-3 sm:grid-cols-3">
-      <Field label="投保進度"><select className={`${inputClass} min-h-11`} value={status} onChange={event => { setStatus(event.target.value as typeof status); setConfirmed(false) }}>{Object.entries(insuranceStatuses).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-      <Field label="投保金額（選填）"><input className={`${inputClass} min-h-11`} type="number" min="0" max="99999999.99" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} /></Field>
-      <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder="例如 TWD、JPY" required={amount !== ''} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
+      <Field label="投保進度"><select className={`${inputClass} min-h-11`} value={status} onChange={event => { setStatus(event.target.value as typeof status); setConfirmed(false) }}>
+        {!options.some(([value]) => value === status) && <option value={status} disabled>{insuranceStatusLabel(status)}</option>}
+        {options.map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+      </select></Field>
+      <Field label="投保金額（選填）"><input className={`${inputClass} min-h-11`} type="number" min="0" max="99999999.99" step="0.01" disabled={markingIneligible} value={markingIneligible ? row.insurance_premium_amount ?? '' : amount} onChange={event => setAmount(event.target.value)} /></Field>
+      <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder="例如 TWD、JPY" disabled={markingIneligible} required={!markingIneligible && amount !== ''} value={markingIneligible ? row.insurance_premium_currency : currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
     </fieldset>
     {needsConfirmation && <label className="mt-4 flex min-h-11 items-center gap-2 text-sm text-gray-700 dark:text-gray-200"><input type="checkbox" checked={confirmed} disabled={save.isPending} onChange={event => setConfirmed(event.target.checked)} />我已在保險公司完成投保，本次僅記錄結果</label>}
     <button type="submit" disabled={!changed || !valid || save.isPending} className="mt-4 min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{save.isPending ? '儲存中…' : '儲存投保進度'}</button>

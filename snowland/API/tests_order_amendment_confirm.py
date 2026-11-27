@@ -327,23 +327,69 @@ class OrderAmendmentConfirmTests(TestCase):
         self.assertEqual(self.api.get(detail_url,HTTP_X_CAMPUS_ID=str(self.campus_b.pk)).status_code,404)
 
     def test_time_only_change_does_not_invalidate_documents_or_insurance(self):
-        self.member.waiver_signature='QA保留';self.member.insurance_processing_status='insured';self.member.save()
+        self.member.waiver_signature='QA保留';self.member.insurance_processing_status='ineligible';self.member.save()
         body=self.body(number_of_people=1)
         body['changes'][0]['courses'][0].update(start_time='10:00',end_time='13:00')
         preview=self.api.post(self.url,{'changes':body['changes']},format='json')
         body['quote_token']=preview.data['data']['quote_token']
         self.assertEqual(preview.data['data']['items'][0]['waiver_resign_count'],0)
+        self.assertEqual(preview.data['data']['items'][0]['insurance_recheck_count'],0)
         self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,201)
         self.member.refresh_from_db()
         self.assertFalse(self.member.waiver_resign_required)
-        self.assertEqual(self.member.insurance_processing_status,'insured')
+        self.assertEqual(self.member.insurance_processing_status,'ineligible')
         self.assertFalse(self.member.course_document_revisions.exists())
+
+    def test_date_change_archives_ineligible_decision_even_without_a_signed_waiver(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        self.member.insurance_processing_status = 'ineligible'
+        self.member.insurance_premium_amount = '300.00'
+        self.member.insurance_premium_currency = 'TWD'
+        self.member.insurance_processing_updated_at = timezone.now()
+        self.member.save()
+        body = self.body(number_of_people=1)
+        body['changes'][0]['courses'][0]['date'] = str(self.day + timedelta(days=1))
+        preview = self.api.post(self.url, {'changes': body['changes']}, format='json')
+        self.assertEqual(preview.data['data']['items'][0]['insurance_recheck_count'], 1)
+        self.assertEqual(preview.data['data']['items'][0]['waiver_resign_count'], 0)
+        body['quote_token'] = preview.data['data']['quote_token']
+        self.assertEqual(self.api.post(self.url_confirm, body, format='json').status_code, 201)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.insurance_processing_status, 'checking')
+        self.assertIsNone(self.member.insurance_premium_amount)
+        self.assertFalse(self.member.waiver_resign_required)
+        self.assertEqual(self.member.insurance_processing_updated_by_id, self.superuser.pk)
+        detail_url = f'/api/admin/snowland/insurance-records/{self.member.pk}/'
+        snapshot = self.api.get(detail_url).data['document_history'][0]['snapshot']
+        self.assertEqual(snapshot['insurance_processing_status'], 'ineligible')
+        self.assertEqual(snapshot['insurance_premium_amount'], '300.00')
+
+    def test_replaced_learner_starts_pending_on_the_new_course(self):
+        from datetime import timedelta
+
+        self.member.insurance_processing_status = 'ineligible'
+        self.member.save(update_fields=['insurance_processing_status'])
+        body = self.body(number_of_people=1, retained_member_ids=[])
+        body['changes'][0]['courses'][0]['date'] = str(self.day + timedelta(days=1))
+        preview = self.api.post(self.url, {'changes': body['changes']}, format='json')
+        self.assertEqual(preview.data['data']['items'][0]['insurance_recheck_count'], 0)
+        body['quote_token'] = preview.data['data']['quote_token']
+        self.assertEqual(self.api.post(self.url_confirm, body, format='json').status_code, 201)
+        self.member.refresh_from_db()
+        self.assertFalse(self.member.is_active)
+        self.assertEqual(self.member.insurance_processing_status, 'ineligible')
+        replacement = self.reservation.members.live().get()
+        self.assertNotEqual(replacement.pk, self.member.pk)
+        self.assertEqual(replacement.insurance_processing_status, 'pending')
+        self.assertFalse(replacement.course_document_revisions.exists())
 
     def test_template_change_also_requires_resign_without_changing_date(self):
         from Coursekit.models import CourseTemplate
         replacement=CourseTemplate.objects.create(course_type=self.template.course_type,name='QA另一模板',duration_hours=3,max_capacity=4)
         replacement.resorts.add(self.resort_a);self.pricing.templates.add(replacement)
-        self.member.waiver_signature='QA舊模板簽名';self.member.save()
+        self.member.waiver_signature='QA舊模板簽名';self.member.insurance_processing_status='ineligible';self.member.save()
         body=self.body(number_of_people=1)
         body['changes'][0]['courses'][0]['template_id']=replacement.pk
         preview=self.api.post(self.url,{'changes':body['changes']},format='json')
@@ -352,6 +398,8 @@ class OrderAmendmentConfirmTests(TestCase):
         self.assertEqual(self.api.post(self.url_confirm,body,format='json').status_code,201)
         self.member.refresh_from_db();self.booking.refresh_from_db()
         self.assertTrue(self.member.waiver_resign_required)
+        self.assertEqual(self.member.insurance_processing_status, 'checking')
+        self.assertEqual(self.member.course_document_revisions.get().snapshot['insurance_processing_status'], 'ineligible')
         self.assertEqual(self.booking.date,self.day)
         self.assertEqual(self.booking.course_template_id,replacement.pk)
         self.assertEqual(self.member.course_document_revisions.get().snapshot['previous_courses'][0]['template_id'],self.template.pk)

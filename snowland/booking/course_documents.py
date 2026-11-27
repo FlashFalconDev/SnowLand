@@ -5,12 +5,15 @@ from django.utils import timezone
 from .models import MemberCourseDocumentRevision
 
 
+INSURANCE_RECHECK_STATUSES = ('insured', 'ineligible')
+
+
 def capture_course_documents(members, previous_courses, new_courses):
     entries=[]
     for member in members:
         signed=bool(member.waiver_signature or member.waiver_completed_at)
-        insured=member.insurance_processing_status=='insured'
-        if not (signed or insured):
+        recheck_insurance = member.insurance_processing_status in INSURANCE_RECHECK_STATUSES
+        if not (signed or recheck_insurance):
             continue
         snapshot={key:getattr(member,key) for key in [
             'insurance_data','insurance_processing_status','insurance_premium_amount','insurance_premium_currency',
@@ -18,17 +21,17 @@ def capture_course_documents(members, previous_courses, new_courses):
             'waiver_signature','waiver_document_version','waiver_document_snapshot','waiver_completed_at','media_consent',
             'user_id','guardian_id','waiver_resign_required']}
         snapshot.update(previous_courses=previous_courses,new_courses=new_courses)
-        entries.append((member,json.loads(json.dumps(snapshot,cls=DjangoJSONEncoder)),signed,insured))
+        entries.append((member,json.loads(json.dumps(snapshot,cls=DjangoJSONEncoder)),signed,recheck_insurance))
     return entries
 
 
 def save_course_documents(entries, revision, actor):
-    for member,snapshot,signed,insured in entries:
+    for member,snapshot,signed,recheck_insurance in entries:
         MemberCourseDocumentRevision.objects.create(member=member,revision=revision,snapshot=snapshot)
         fields=[]
         if signed:
             member.waiver_resign_required=True;fields.append('waiver_resign_required')
-        if insured:
+        if recheck_insurance:
             member.insurance_processing_status='checking'
             member.insurance_processing_updated_at=timezone.now()
             member.insurance_processing_updated_by=actor

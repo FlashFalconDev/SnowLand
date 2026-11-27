@@ -39,6 +39,36 @@ class InsuranceReminderTests(TestCase):
         self.member.refresh_from_db(); self.assertIsNone(self.member.insurance_completed_at)
 
     @patch('booking.scheduler.send_gmail', return_value='ok')
+    def test_ineligible_invalidates_an_open_insurance_reminder_but_allows_waiver_reminders(self, send):
+        self.assertEqual(self.api.get(self.url, {'field': 'insurance'}).status_code, 200)
+        self.member.insurance_processing_status = 'ineligible'
+        self.member.save(update_fields=['insurance_processing_status'])
+        self.assertEqual(self.api.get(self.url, {'field': 'insurance'}).status_code, 409)
+        self.assertEqual(self.api.post(self.url, self.payload, format='json').status_code, 409)
+        self.assertFalse(NotificationDelivery.objects.exists())
+        send.assert_not_called()
+        self.assertEqual(self.api.get(self.url, {'field': 'waiver'}).status_code, 200)
+        self.assertEqual(self.api.post(self.url, {**self.payload, 'field': 'waiver'}, format='json').status_code, 200)
+        send.assert_called_once()
+
+    def test_member_center_exposes_only_the_generic_pending_review_status(self):
+        self.member.user = self.owner
+        self.member.insurance_processing_status = 'ineligible'
+        self.member.insurance_premium_amount = '350.50'
+        self.member.insurance_premium_currency = 'JPY'
+        self.member.insurance_processing_updated_by = self.superuser
+        self.member.save()
+        member_api = APIClient()
+        member_api.force_authenticate(self.owner)
+        result = member_api.get('/booking/snowland/api/member-center/')
+        self.assertEqual(result.status_code, 200, result.data)
+        form = next(row for row in result.data['pre_course_forms'] if row['id'] == self.member.pk)
+        self.assertEqual(form['insurance_processing_status'], 'pending_review')
+        self.assertNotIn('ineligible', str(result.data))
+        self.assertTrue({'insurance_premium_amount', 'insurance_premium_currency', 'insurance_eligibility',
+                         'insurance_processing_updated_by', 'document_history'}.isdisjoint(form))
+
+    @patch('booking.scheduler.send_gmail', return_value='ok')
     def test_assistant_can_remind_but_cannot_mark_complete(self, send):
         self.profile.role='assistant'; self.profile.admin_permissions=None; self.profile.save()
         self.api.force_authenticate(User.objects.get(pk=self.manager.pk))
