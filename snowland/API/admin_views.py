@@ -39,7 +39,7 @@ from Client.tenant_settings import (
     order_refund_charge_enabled,
     order_source_override_enabled,
     staff_booking_link_edit_enabled,
-    test_order_marking_enabled,
+    test_order_financial_override_enabled, test_order_marking_enabled,
 )
 from .payroll_security import PayrollCsrfMixin
 from .coach_workload import coach_workload, photography_booking_filter, workload_resorts
@@ -53,7 +53,10 @@ from booking.models import (
     StaffBookingLink,
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
-from booking.order_testing import InsuranceLedgerTestOrderError, exclude_test_orders, set_order_test_status
+from booking.order_testing import (
+    FinancialHistoryTestOrderError, InsuranceLedgerTestOrderError, exclude_test_orders, financial_history_reasons,
+    set_order_test_status,
+)
 from booking.course_documents import INSURANCE_RECHECK_STATUSES
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.marketing_source import display_marketing_source
@@ -1994,10 +1997,10 @@ class OrderAdminViewSet(ModelViewSet):
         detail = serializer.data
         if not is_campus_viewer:
             detail['manual_payment_posting_date_mode'] = manual_payment_posting_date_mode(request.tenant)
-            detail['can_mark_test'] = (
-                _is_headquarters(request) and user_has_admin_permission(request.user, 'order_edit', request.tenant)
-                and test_order_marking_enabled(request.tenant)
-            )
+            can_check_test_status = (user_has_admin_permission(request.user, 'order_edit', request.tenant)
+                                     and test_order_marking_enabled(request.tenant))
+            detail['can_check_test_status'] = can_check_test_status
+            detail['can_mark_test'] = can_check_test_status and _is_headquarters(request)
             detail['marketing_source_override'] = instance.marketing_source_override
             if (
                 user_has_admin_permission(request.user, 'order_edit', request.tenant)
@@ -2012,22 +2015,41 @@ class OrderAdminViewSet(ModelViewSet):
         from rest_framework.authentication import SessionAuthentication
 
         SessionAuthentication().enforce_csrf(request)
-        if not _is_headquarters(request):
-            raise PermissionDenied('只有具修改與排課權限的總部管理員可以變更測試標記')
-        Client.objects.select_for_update().get(pk=request.tenant.pk)
-        if not test_order_marking_enabled(request.tenant):
+        is_headquarters = _is_headquarters(request)
+        tenant = Client.objects.select_for_update().get(pk=request.tenant.pk)
+        if not test_order_marking_enabled(tenant):
             raise PermissionDenied('此學校已停用測試訂單標記')
         data = request.data
-        if (not isinstance(data, dict) or set(data) != {'is_test', 'reason'}
+        if (not isinstance(data, dict) or set(data) - {'is_test', 'reason', 'acknowledged_reasons'}
+                or not {'is_test', 'reason'} <= set(data)
                 or type(data['is_test']) is not bool or not isinstance(data['reason'], str)
-                or not 1 <= len(data['reason'].strip()) <= 1000):
+                or len(data['reason'].strip()) > 1000 or (is_headquarters and not data['reason'].strip())):
             raise ValidationError({'msg': '請指定測試狀態，並填寫 1 至 1000 字的原因'})
+        acknowledged_reasons = data.get('acknowledged_reasons')
+        can_override = is_headquarters and test_order_financial_override_enabled(tenant)
+        if 'acknowledged_reasons' in data:
+            if not can_override:
+                raise PermissionDenied('目前無權覆寫已有帳務的測試標記')
+            if (not data['is_test'] or not isinstance(acknowledged_reasons, list) or not acknowledged_reasons
+                    or not all(isinstance(code, str) for code in acknowledged_reasons)
+                    or len(set(acknowledged_reasons)) != len(acknowledged_reasons)):
+                raise ValidationError({'msg': '請確認要覆寫的帳務阻擋項目'})
         scoped = self.get_object()
-        group = get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk=scoped.pk, client=request.tenant)
+        group = get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk=scoped.pk, client=tenant)
         try:
-            set_order_test_status(group, is_test=data['is_test'], actor=request.user, reason=data['reason'].strip())
+            if not is_headquarters:
+                if data['is_test'] and not group.is_test:
+                    reasons = financial_history_reasons(group)
+                    if reasons:
+                        raise FinancialHistoryTestOrderError(reasons)
+                raise PermissionDenied('只有具修改與排課權限的總部管理員可以變更測試標記')
+            set_order_test_status(group, is_test=data['is_test'], actor=request.user, reason=data['reason'].strip(),
+                                  acknowledged_reasons=acknowledged_reasons)
         except InsuranceLedgerTestOrderError as exc:
             return Response({'code': 400, 'msg': str(exc)}, status=400)
+        except FinancialHistoryTestOrderError as exc:
+            return Response({'code': 409, 'msg': str(exc), 'detail': str(exc), 'reasons': exc.reasons,
+                             'can_override': can_override and bool(exc.reasons)}, status=409)
         except ValueError as exc:
             return Response({'code': 409, 'msg': str(exc)}, status=409)
         msg = '已標記為測試訂單' if group.is_test else '已取消測試標記'

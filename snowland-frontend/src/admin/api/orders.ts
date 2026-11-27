@@ -56,8 +56,11 @@ export interface OrderReservation {
   bookings: OrderBooking[]
 }
 
+export type OrderTestStatusBlockReason = { code: string; label: string; hint: string }
+
 export interface OrderRevisionSnapshot {
   order_number?: string
+  test_override_reasons?: Pick<OrderTestStatusBlockReason, 'code' | 'label'>[]
   reservations?: {
     id: number
     resort_id?: number | null
@@ -79,6 +82,7 @@ export interface Order {
   sn: string
   is_test?: boolean
   can_mark_test?: boolean
+  can_check_test_status?: boolean
   name: string
   user: number | null
   user_name: string
@@ -199,8 +203,10 @@ export async function fetchOrder(id: number, workflow?: OrderWorkflow): Promise<
   return res.data || res
 }
 
-export async function changeOrderTestStatus(id: number, isTest: boolean, reason: string): Promise<ActionResp> {
-  return await adminApi.post(`/orders/${id}/test-status/`, { is_test: isTest, reason }) as unknown as ActionResp
+export async function changeOrderTestStatus(id: number, isTest: boolean, reason: string, acknowledgedReasons?: string[]): Promise<ActionResp> {
+  return await adminApi.post(`/orders/${id}/test-status/`, {
+    is_test: isTest, reason, ...(acknowledgedReasons ? { acknowledged_reasons: acknowledgedReasons } : {}),
+  }) as unknown as ActionResp
 }
 
 export async function saveOrderMarketingSource(id: number, source: string | null): Promise<ActionResp> {
