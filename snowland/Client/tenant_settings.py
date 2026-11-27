@@ -70,6 +70,13 @@ def test_order_marking_enabled(client):
     return not isinstance(config, dict) or config.get('test_order_marking_enabled') is not False
 
 
+def test_order_financial_override_enabled(client):
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    return not isinstance(config, dict) or config.get('test_order_financial_override_enabled') is not False
+
+
 def order_source_override_enabled(client):
     """Enable order source corrections unless the tenant turns off editing."""
     config = ModuleSetting.objects.filter(

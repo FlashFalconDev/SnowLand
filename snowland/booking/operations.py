@@ -152,7 +152,7 @@ def order_snapshot(group):
     }
 
 
-def record_order_revision(group, user=None, change_type='modify', reason='', previous_total=None):
+def record_order_revision(group, user=None, change_type='modify', reason='', previous_total=None, *, test_override_reasons=()):
     if group.is_deleted:
         raise ValueError('封存訂單不能新增版本')
     snapshot = order_snapshot(group)
@@ -160,6 +160,8 @@ def record_order_revision(group, user=None, change_type='modify', reason='', pre
     if change_type in ('mark_test', 'unmark_test'):
         snapshot['is_test'] = group.is_test
         snapshot['test_actor_name'] = user.get_username()
+        if test_override_reasons:
+            snapshot['test_override_reasons'] = test_override_reasons
         previous_total = current_total
     latest = group.revisions.order_by('-version').first()
     last_version = OrderRevision.all_objects.filter(group=group).order_by('-version').values_list('version', flat=True).first()

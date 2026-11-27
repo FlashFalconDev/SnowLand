@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 
 from Client.models import ClientMemberProfile
 
@@ -37,7 +37,10 @@ def rebuild_loyalty_account(account):
     """Reconcile a locked account from its reviewed baseline and active ledger."""
     before = (account.points, account.reward_balance, account.opening_points, account.opening_rewards)
     entries = MemberLoyaltyEntry.all_objects.filter(account=account, order__group__client_id=account.client_id)
-    totals = exclude_test_orders(entries.live(), 'order__group').aggregate(points=Sum('points_delta'), rewards=Sum('rewards_delta'))
+    # Posted loyalty stays in the balance until accounting handles it; test orders cannot post new accruals.
+    totals = entries.live().filter(Q(order__group__is_test=False) | Q(order__paid_base__isnull=False)).aggregate(
+        points=Sum('points_delta'), rewards=Sum('rewards_delta'),
+    )
     if account.opening_points is None or account.opening_rewards is None:
         original = entries.aggregate(points=Sum('points_delta'), rewards=Sum('rewards_delta'))
         account.opening_points = account.points - account.previous_points - (original['points'] or 0)

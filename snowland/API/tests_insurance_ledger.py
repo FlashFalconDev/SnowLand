@@ -433,9 +433,12 @@ class InsuranceLedgerTests(LedgerFixtures, TestCase):
         self.assertEqual(self.submit('25').status_code, 200)
         mark_url = f'{BASE}/orders/{self.member.reservation.group_id}/test-status/'
         hq = self.actor('hq_admin', None)
-        response = authenticated(hq).post(mark_url, {'is_test': True, 'reason': 'QA 確認測試標記'}, format='json')
-        self.assertEqual(response.status_code, 400, response.data)
-        self.assertIn('預付保費', str(response.data['msg']))
+        api = authenticated(hq)
+        body = {'is_test': True, 'reason': 'QA 確認測試標記'}
+        for payload in (body, {**body, 'acknowledged_reasons': ['payment_record']}):
+            response = api.post(mark_url, payload, format='json')
+            self.assertEqual(response.status_code, 400, response.data)
+            self.assertIn('預付保費', str(response.data['msg']))
         self.assertFalse(ReservationGroup.objects.get(pk=self.member.reservation.group_id).is_test)
         self.assert_balance('75')
 
