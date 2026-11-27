@@ -65,6 +65,7 @@ from .staff_positions import staff_positions, staff_position_detail
 from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet, ManagerCourseAlbumAPI
 from .vehicle_views import VehicleDesk, VehicleFile
 from .insurance_ledger import InsuranceLedgerAdminViewSet
+from .order_import import OrderImportAdminViewSet
 
 
 # 後台 ViewSet router
@@ -90,6 +91,7 @@ admin_router.register(r'course-sessions', CourseSessionAdminViewSet, basename='a
 admin_router.register(r'course-pricing', CoursePricingAdminViewSet, basename='admin-course-pricing')
 admin_router.register(r'discount-codes', DiscountCodeAdminViewSet, basename='admin-discount-codes')
 admin_router.register(r'seasons', SeasonSettingAdminViewSet, basename='admin-seasons')
+admin_router.register(r'order-import', OrderImportAdminViewSet, basename='admin-order-import')
 admin_router.register(r'orders', OrderAdminViewSet, basename='admin-orders')
 admin_router.register(r'cancellations', CancellationAdminViewSet, basename='admin-cancellations')
 admin_router.register(r'notification-templates', NotificationTemplateAdminViewSet, basename='admin-notification-templates')

@@ -47,6 +47,30 @@ class BookingClosure(SoftDeleteModel):
         ]
 
 
+class OrderImportBatch(models.Model):
+    STATUS_CHOICES = [
+        ('previewed', '已預覽'), ('committed', '已處理'), ('partial', '部分成功'), ('failed', '失敗'),
+    ]
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE, related_name='order_import_batches')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    filename = models.CharField(max_length=255)
+    file_sha256 = models.CharField(max_length=64)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='previewed')
+    summary = models.JSONField(default=dict)
+    row_results = models.JSONField(default=list)
+    order_results = models.JSONField(default=list)
+    commit_results = models.JSONField(default=dict)
+    staged_input = models.BinaryField(null=True, editable=False)
+    commit_started = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    committed_at = models.DateTimeField(null=True)
+    allow_overbook = models.BooleanField(default=False)
+    overbook_reason = models.TextField(blank=True, default='')
+
+    class Meta:
+        indexes = [models.Index(fields=['client', 'status', 'created_at'], name='sl_import_client_status_date')]
+
+
 ABILITY_LEVEL_CHOICES = [
     ('no_exp', '等級 0'),
     ('level1', '等級 1'),

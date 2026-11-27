@@ -152,10 +152,14 @@ def order_snapshot(group):
     }
 
 
-def record_order_revision(group, user=None, change_type='modify', reason='', previous_total=None, *, test_override_reasons=()):
+def record_order_revision(
+    group, user=None, change_type='modify', reason='', previous_total=None, *, test_override_reasons=(), import_metadata=None,
+):
     if group.is_deleted:
         raise ValueError('封存訂單不能新增版本')
     snapshot = order_snapshot(group)
+    if import_metadata:
+        snapshot.update(import_metadata)
     current_total = sum(item['payable'] for item in snapshot['reservations'] if item.get('status') not in {'deleted', 'cancelled'})
     if change_type in ('mark_test', 'unmark_test'):
         snapshot['is_test'] = group.is_test
