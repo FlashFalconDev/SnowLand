@@ -5,7 +5,7 @@ from Control.tenant_memberships import staff_profile, writable_staff_profile
 URL 格式：/api/admin/<client_code>/<resource>/
 """
 from rest_framework.viewsets import GenericViewSet, ModelViewSet, ReadOnlyModelViewSet
-from rest_framework.mixins import RetrieveModelMixin, UpdateModelMixin
+from rest_framework.mixins import DestroyModelMixin, RetrieveModelMixin, UpdateModelMixin
 from rest_framework.permissions import IsAuthenticated, AllowAny, SAFE_METHODS
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
@@ -32,6 +32,7 @@ import json
 
 from Client.models import Client, SiteContent
 from Client.tenant_settings import (
+    booking_closures_enabled,
     coach_course_payroll_summary_enabled,
     evaluation_date_filter_defaults,
     insurance_eligibility_settings,
@@ -50,7 +51,7 @@ from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseS
 from booking.models import (
     ReservationGroup, Reservation, Booking, MemberDetail, Payment, SharedCourseClass,
     CancellationRequest, CourseEvaluation, NotificationTemplate, NotificationDelivery,
-    StaffBookingLink,
+    StaffBookingLink, BookingClosure,
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
 from booking.order_testing import (
@@ -70,6 +71,7 @@ from booking.coach_pre_course_summary import (
 )
 
 from .admin_serializers import (
+    BookingClosureAdminSerializer,
     SiteContentAdminSerializer,
     CoachAdminSerializer,
     CoachLeaveRequestAdminSerializer,
@@ -1360,6 +1362,129 @@ def _course_types_for_request(request, tenant):
     ).order_by('display_order', 'id')
 
 
+class BookingClosureAdminViewSet(DestroyModelMixin, GenericViewSet):
+    serializer_class = BookingClosureAdminSerializer
+    permission_classes = [IsTenantManager]
+    permission_keys = ('resorts', 'course_types')
+
+    def _scope(self):
+        request, tenant = self.request, self.request.tenant
+        permissions = get_user_admin_permissions(request.user, tenant)
+        resorts = _visible_course_resorts_for_request(request, tenant)
+        templates = CourseTemplate.objects.filter(course_type__category__client=tenant)
+        if not (_is_headquarters(request) and request.selected_campus_id is None):
+            exclusive_ids = Resorts.objects.filter(client=tenant).annotate(campus_count=Count(
+                'campuses', filter=Q(campuses__client=tenant, campuses__is_active=True),
+            )).filter(campus_count=1).values('pk')
+            resorts = resorts.filter(pk__in=exclusive_ids)
+            templates = templates.annotate(closure_campus_count=Count(
+                'resorts__campuses',
+                filter=Q(resorts__campuses__client=tenant, resorts__campuses__is_active=True),
+                distinct=True,
+            )).filter(closure_campus_count=1, resorts__in=resorts).exclude(
+                resorts__in=Resorts.objects.exclude(pk__in=resorts),
+            ).distinct()
+        return permissions, resorts, templates
+
+    def get_queryset(self):
+        permissions, resorts, templates = self._scope()
+        scope = Q(pk__in=[])
+        if 'resorts' in permissions:
+            scope |= Q(resort__in=resorts, course_template__isnull=True)
+        if 'course_types' in permissions:
+            scope |= Q(resort__isnull=True, course_template__in=templates)
+        if set(self.permission_keys).issubset(permissions):
+            scope |= Q(resort__in=resorts, course_template__course_type__category__client=self.request.tenant)
+        return BookingClosure.objects.live().filter(
+            scope, client=self.request.tenant,
+        ).select_related('resort', 'course_template').order_by('date_from', 'pk')
+
+    @action(detail=False, methods=['get'])
+    def options(self, request, client_code=None):
+        permissions, resorts, templates = self._scope()
+        resort_options = resorts.order_by('display_name', 'pk') if 'resorts' in permissions else resorts.none()
+        template_ids = set(templates.values_list('pk', flat=True)) if 'course_types' in permissions else set()
+        resort_ids = {resort.pk for resort in resort_options}
+        template_options = CourseTemplate.objects.filter(course_type__category__client=request.tenant).filter(
+            Q(pk__in=template_ids) | Q(resorts__in=resort_ids),
+        ).distinct().prefetch_related(
+            'resorts',
+            Prefetch('sessions', queryset=CourseSession.objects.filter(is_active=True).order_by('start_time', 'pk')),
+        ).order_by('name', 'pk')
+        return Response({'code': 200, 'msg': 'OK', 'data': {
+            'enabled': booking_closures_enabled(request.tenant),
+            'can_manage_templates': 'course_types' in permissions,
+            'resorts': [{'id': resort.pk, 'name': resort.display_name} for resort in resort_options],
+            'templates': [{
+                'id': template.pk, 'name': template.name, 'can_close_all_resorts': template.pk in template_ids,
+                'resorts': list(resort_ids.intersection(resort.pk for resort in template.resorts.all())),
+                'sessions': [{
+                    'id': session.pk,
+                    'start_time': session.start_time.isoformat(),
+                    'end_time': session.end_time.isoformat(),
+                } for session in template.sessions.all()],
+            } for template in template_options],
+        }})
+
+    def list(self, request, *args, **kwargs):
+        rules = self.get_queryset()
+        for field in ('resort', 'course_template'):
+            value = request.query_params.get(field)
+            if value:
+                identifier = IntegerField(min_value=1).run_validation(value)
+                rules = rules.filter(**{field: identifier})
+        start, end = _query_date_bounds(request, 'date_from', 'date_to')
+        day, _ = _query_date_bounds(request, 'date', 'date')
+        if day:
+            rules = rules.filter(date_from__lte=day, date_to__gte=day)
+        if start:
+            rules = rules.filter(date_to__gte=start)
+        if end:
+            rules = rules.filter(date_from__lte=end)
+        return wrap_list(rules, self.get_serializer_class(), request)
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        resort, template = values.get('resort'), values.get('course_template')
+        permissions, resorts, templates = self._scope()
+        if (
+            (resort and ('resorts' not in permissions or not resorts.filter(pk=resort.pk).exists()))
+            or (template and ('course_types' not in permissions or (
+                not resort and not templates.filter(pk=template.pk).exists()
+            )))
+        ):
+            raise PermissionDenied('沒有權限管理這個範圍的停收規則。共用範圍請由總部在全部校區管理。')
+
+        covering = BookingClosure.objects.live().filter(
+            Q(resort__isnull=True) | Q(resort=resort),
+            Q(course_template__isnull=True) | Q(course_template=template),
+            client=request.tenant, date_from__lte=values['date_from'], date_to__gte=values['date_to'],
+        )
+        times = Q(start_time__isnull=True)
+        if values.get('start_time') is not None:
+            times |= Q(start_time__lte=values['start_time'], end_time__gte=values['end_time'])
+        warning = '此範圍已被既有停收規則涵蓋，仍已新增。' if covering.filter(times).exists() else ''
+        serializer.save(client=request.tenant, created_by=request.user)
+        return Response({
+            'code': 200, 'msg': '停收規則已新增', 'data': serializer.data, 'warning': warning,
+        }, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.deleted_at = timezone.now()
+        instance.deleted_by = self.request.user
+        instance.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by'])
+
+
 class HeadquartersCourseStructureWriteMixin:
     def create(self, request, *args, **kwargs):
         _require_headquarters(request)
@@ -1780,12 +1905,13 @@ class OrderAdminViewSet(ModelViewSet):
     @action(detail=True,methods=['post'],url_path='amendment-quote')
     def amendment_quote(self,request,*args,**kwargs):
         from rest_framework.authentication import SessionAuthentication
-        from .order_amendments import AmendmentQuoteInput, quote_order_amendment
+        from .order_amendments import AmendmentQuoteInput, amendment_closure_warnings, quote_order_amendment
         SessionAuthentication().enforce_csrf(request)
         group=self.get_object()
         serializer=AmendmentQuoteInput(data=request.data)
         serializer.is_valid(raise_exception=True)
         result=quote_order_amendment(group,serializer.validated_data,request.user)
+        result['closure_warnings'] = amendment_closure_warnings(group, result['items'])
         return Response({'code':200,'msg':'價格預覽完成，尚未修改訂單','data':result})
 
     @action(detail=True,methods=['get','post'],url_path='amendment-balances')

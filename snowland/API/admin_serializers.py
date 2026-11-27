@@ -29,7 +29,7 @@ from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseS
 from booking.models import (
     ReservationGroup, Reservation, Booking, MemberDetail, Payment,
     CancellationRequest, CourseEvaluation, CourseMedia, NotificationTemplate,
-    NotificationDelivery, OrderRevision, StaffBookingLink,
+    NotificationDelivery, OrderRevision, StaffBookingLink, BookingClosure,
 )
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.assessment import RUBRIC_LOCATION, TECHNICAL_KEY, school_rubric, technical_snapshot, validate_review
@@ -40,6 +40,44 @@ from .admin_permissions import user_has_admin_permission
 
 
 logger = logging.getLogger(__name__)
+
+
+class BookingClosureAdminSerializer(serializers.ModelSerializer):
+    resort_name = serializers.CharField(source='resort.display_name', read_only=True, default=None)
+    template_name = serializers.CharField(source='course_template.name', read_only=True, default=None)
+
+    class Meta:
+        model = BookingClosure
+        fields = (
+            'id', 'resort', 'resort_name', 'course_template', 'template_name',
+            'date_from', 'date_to', 'start_time', 'end_time', 'reason', 'created_by', 'created_at',
+        )
+        read_only_fields = ('created_by', 'created_at')
+        extra_kwargs = {
+            'resort': {'error_messages': {'does_not_exist': '找不到此租戶的雪場'}},
+            'course_template': {'error_messages': {'does_not_exist': '找不到此租戶的課程模板'}},
+        }
+
+    def get_fields(self):
+        fields = super().get_fields()
+        tenant = self.context['request'].tenant
+        fields['resort'].queryset = Resorts.objects.filter(client=tenant)
+        fields['course_template'].queryset = CourseTemplate.objects.filter(course_type__category__client=tenant)
+        return fields
+
+    def validate(self, attrs):
+        resort, template = attrs.get('resort'), attrs.get('course_template')
+        if not (resort or template):
+            raise serializers.ValidationError('請至少選擇一個雪場或課程模板')
+        if resort and template and template.resorts.exists() and not template.resorts.filter(pk=resort.pk).exists():
+            raise serializers.ValidationError('此課程模板不適用於所選雪場')
+        days = (attrs['date_to'] - attrs['date_from']).days
+        if not 0 <= days < 366:
+            raise serializers.ValidationError({'date_to': '日期區間必須介於 1 到 366 天'})
+        start, end = attrs.get('start_time'), attrs.get('end_time')
+        if (start is None) != (end is None) or (start is not None and end <= start):
+            raise serializers.ValidationError({'end_time': '請同時填寫起迄時間，且結束時間必須晚於開始時間'})
+        return attrs
 
 
 class TenantRelationValidationMixin:

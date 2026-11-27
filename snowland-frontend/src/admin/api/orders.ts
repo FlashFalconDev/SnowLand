@@ -270,6 +270,7 @@ export interface OrderAmendmentItem {
 }
 export interface OrderAmendmentQuote {
   settlement?: AmendmentSettlement
+  closure_warnings?: string[]
   previous_total: number; new_total: number; difference_amount: number
   status: 'preview_only'; notice: string; quote_token: string
   items: {

@@ -76,6 +76,8 @@ export interface CourseSession {
   end_time: string
   is_active: boolean
   is_full?: boolean
+  is_closed?: boolean
+  closed_reason_zh?: string
   shared_class?: {
     status: 'collecting' | 'ready' | 'cancelled'
     registered_students: number

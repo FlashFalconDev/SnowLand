@@ -11,6 +11,42 @@ from Coursekit.models import CourseType
 from .media_files import PrivateCourseMediaStorage
 from snowland.soft_delete import SoftDeleteManager, SoftDeleteModel
 
+
+class BookingClosure(SoftDeleteModel):
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)
+    resort = models.ForeignKey('Resorts.Resorts', on_delete=models.CASCADE, null=True, blank=True)
+    course_template = models.ForeignKey('Coursekit.CourseTemplate', on_delete=models.CASCADE, null=True, blank=True)
+    date_from = models.DateField()
+    date_to = models.DateField()
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    reason = models.CharField(max_length=255, blank=True, default='')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['client', 'date_from', 'date_to'], name='booking_closure_client_dates'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(resort__isnull=False) | models.Q(course_template__isnull=False),
+                name='booking_closure_has_scope',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(date_to__gte=models.F('date_from')),
+                name='booking_closure_ordered_dates',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(start_time__isnull=True, end_time__isnull=True)
+                    | models.Q(start_time__isnull=False, end_time__isnull=False, end_time__gt=models.F('start_time'))
+                ),
+                name='booking_closure_ordered_times',
+            ),
+        ]
+
+
 ABILITY_LEVEL_CHOICES = [
     ('no_exp', '等級 0'),
     ('level1', '等級 1'),
