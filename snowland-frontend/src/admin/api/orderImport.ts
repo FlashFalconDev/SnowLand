@@ -14,6 +14,7 @@ export interface ImportOrderResult {
   group_key: string
   status: 'ready' | 'error' | 'created' | 'skipped' | 'failed'
   member?: ImportIssue
+  amount?: number | null
   issues: ImportIssue[]
   order_id?: number
   order_number?: string

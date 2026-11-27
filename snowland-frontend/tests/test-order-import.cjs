@@ -17,8 +17,14 @@ const issue = (code, level, message) => ({
 const preview = {
   batch_id: 17, status: 'previewed',
   summary: { orders: 1, lessons: 2, amount: 3000, errors: 1, full: 1, closed: 1, skipped_examples: 2, committable: 1 },
-  row_results: [issue('coach_conflict', 'error', '教練已佔用'), issue('full', 'warning', '本堂會超賣'), issue('closed', 'warning', '本堂已停收')],
-  order_results: [{ row_number: 3, group_key: 'EXT-1', member: issue('existing_member', 'ok', '綁定既有會員') }],
+  row_results: [
+    issue('coach_conflict', 'error', '教練已佔用'), issue('full', 'warning', '本堂會超賣'),
+    issue('closed', 'warning', '本堂已停收'), issue('repeated_lesson_amount', 'warning', '請確認各堂分攤'),
+  ],
+  order_results: [
+    { row_number: 3, group_key: 'EXT-1', amount: 3000, member: issue('existing_member', 'ok', '綁定既有會員') },
+    { row_number: 4, group_key: 'EXT-2', amount: 1200 },
+  ],
 }
 const result = {
   ...preview, status: 'partial', summary: { ...preview.summary, created: 1, skipped: 0, failed: 1 },
@@ -105,7 +111,10 @@ async function verify() {
   cursor = 0
   const detail = () => { cursor = 0; return context.exports.PreviewDetails({ batch: preview }) }
   const all = renderToStaticMarkup(detail())
-  for (const value of ['綁定既有會員', '已跳過 2 列範例', '指定教練', '教練已佔用', '本堂已停收']) {
+  for (const value of [
+    '綁定既有會員', '已跳過 2 列範例', '指定教練', '教練已佔用', '本堂已停收', '請核對',
+    '本單各堂加總＝$3,000', '本單各堂加總＝$1,200',
+  ]) {
     assert.ok(all.includes(value), value)
   }
   button(detail(), '已滿堂').props.onClick()

@@ -29,7 +29,7 @@ from booking.scheduler import check_manual_assignment, manual_assignment_occupan
 
 from .parser import InputRow, parse_file
 from .validation import (
-    CAMPUS, COACH, DAY, EMAIL, END, FEE, NAME, NOTE, POSTED, METHOD, START, TEMPLATE,
+    BANK_LAST_FIVE, CAMPUS, COACH, DAY, EMAIL, END, MARKETING, METHOD, NAME, NOTE, POSTED, START, TEMPLATE,
     Validator, group_rows, issue, redact,
 )
 
@@ -81,12 +81,22 @@ def batch_cipher():
 
 
 def order_fingerprint(order):
-    lessons = sorted(json_bytes([
-        lesson.slot.template.pk, lesson.resort.pk, lesson.slot.date, lesson.slot.start_time, lesson.slot.end_time,
-        lesson.people, lesson.abilities, lesson.learner_names, lesson.language, lesson.coach.pk if lesson.coach else None,
-        lesson.fee,
-    ]).decode() for lesson in order.lessons)
+    lessons = []
+    for lesson in order.lessons:
+        fields = [
+            lesson.slot.template.pk, lesson.resort.pk, lesson.slot.date, lesson.slot.start_time, lesson.slot.end_time,
+            lesson.people, lesson.abilities, lesson.learner_names, lesson.language, lesson.coach.pk if lesson.coach else None,
+            lesson.fee,
+        ]
+        if lesson.discount or lesson.discount_note or lesson.equipment or lesson.note:
+            fields.extend((lesson.discount, lesson.discount_note, lesson.equipment, lesson.note))
+        lessons.append(json_bytes(fields).decode())
+    lessons.sort()
     data = [order.contact, order.fields[CAMPUS].pk, order.fields[METHOD], order.fields[POSTED], order.fields[NOTE], lessons]
+    # Keep identical legacy orders recognizable after adding optional fields.
+    marketing = order.fields[MARKETING]
+    if order.fields[BANK_LAST_FIVE] or marketing and marketing != SOURCE:
+        data.extend((order.fields[BANK_LAST_FIVE], marketing or SOURCE))
     return hashlib.sha256(json_bytes(data)).hexdigest()
 
 
@@ -180,9 +190,9 @@ def preview_batch(tenant, actor, filename, content):
     results, staged = [], []
     total_amount = 0
     for key, rows in groups.items():
-        order, issues = validator.validate(key, rows)
+        order, issues, amount = validator.validate(key, rows)
         status = 'error'
-        details = {}
+        details = {'amount': amount, 'lessons': len(rows)}
         if order:
             total_amount += order.amount
             _, duplicate = already_imported(tenant, order, order_fingerprint(order))
@@ -192,8 +202,8 @@ def preview_batch(tenant, actor, filename, content):
             else:
                 first = order.first_row
                 member = issue(first, key, 'ok', order.member_code, MEMBER_MESSAGES[order.member_code], EMAIL)
-                details = {'member': member, 'amount': order.amount, 'lessons': len(order.lessons)}
-                issues = placement_issues(tenant, order, prior_slots=previous_slots, prior_coaches=previous_coaches)
+                details['member'] = member
+                issues.extend(placement_issues(tenant, order, prior_slots=previous_slots, prior_coaches=previous_coaches))
                 status = 'error' if has_error(issues) else 'ready'
                 staged.append([key, [[row.number, row.values] for row in rows]])
                 if status == 'ready':
@@ -257,8 +267,9 @@ def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
     user = member_for_order(tenant, order)
     group = ReservationGroup.objects.create(
         client=tenant, campus=order.fields[CAMPUS], user=user, name=contact['name'],
-        booking_contact=contact, marketing_source=SOURCE, is_test=False,
+        booking_contact=contact, marketing_source=order.fields[MARKETING] or SOURCE, is_test=False,
     )
+    lesson_notes = {}
     for lesson in order.lessons:
         template = lesson.slot.template
         status = 'manual_assignment_needed'
@@ -268,14 +279,18 @@ def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
         reservation = Reservation.objects.create(
             group=group, resort=lesson.resort, course_template=template, course_type=template.course_type,
             number_of_people=lesson.people, ability_level_counts=lesson.abilities, max_ability_level=lesson.highest_level,
-            course_fee=lesson.fee, language=lesson.language, preferred_coach=lesson.coach,
+            course_fee=lesson.original, discount_amount=lesson.discount, discount_name=lesson.discount_note,
+            equipment=lesson.equipment, need_equipment=lesson.equipment in ('rentWithoutyourself', 'assistDuringCourse'),
+            language=lesson.language, preferred_coach=lesson.coach,
             is_preferred_coach=False, status=status,
         )
-        Booking.objects.create(
+        booking = Booking.objects.create(
             reservation=reservation, course_template=template, course_type=template.course_type.name,
             course_name=template.name, date=lesson.slot.date, start_time=lesson.slot.start_time, end_time=lesson.slot.end_time,
-            is_scheduled=bool(lesson.coach), fee_snapshot={'course': lesson.fee, 'coach': 0},
+            is_scheduled=bool(lesson.coach), fee_snapshot={'course': lesson.original, 'coach': 0},
         )
+        if lesson.note:
+            lesson_notes[str(booking.pk)] = lesson.note
         members = ensure_reservation_members(reservation)
         for member, name in zip(members, lesson.learner_names):
             member.insurance_data = {'full_name': name}
@@ -291,9 +306,10 @@ def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
         reason += f'（超賣匯入：{batch.overbook_reason}）'
     Payment.objects.create(
         reservation_group=group, user=user, status='paid', expires_at=None, payment_method=order.fields[METHOD],
-        bank_posted_date=order.fields[POSTED], DataJSON={
+        bank_posted_date=order.fields[POSTED], bank_account=order.fields[BANK_LAST_FIVE], DataJSON={
             'amount': order.amount, 'contact': contact, 'source_order_number': order.key,
             'import_source': SOURCE, 'import_fingerprint': fingerprint, **metadata,
+            **({'import_lesson_notes': lesson_notes} if lesson_notes else {}),
         },
     )
     record_order_revision(group, user=actor, change_type='create', reason=reason, import_metadata=metadata)
@@ -341,7 +357,7 @@ def commit_one(tenant, actor, batch, key, rows):
         return order_result(first, key, 'failed', [
             issue(first, key, 'error', 'import_disabled', '此學校已停用訂單匯入'),
         ])
-    order, issues = Validator(tenant).validate(key, rows)
+    order, issues, _ = Validator(tenant).validate(key, rows)
     if order is None:
         return order_result(first, key, 'failed', issues)
     fingerprint = order_fingerprint(order)
@@ -351,7 +367,7 @@ def commit_one(tenant, actor, batch, key, rows):
             group = payment.reservation_group
             return order_result(first, key, 'created', [duplicate], order_id=group.pk, order_number=group.order_number)
         return order_result(first, key, 'failed' if has_error([duplicate]) else 'skipped', [duplicate])
-    issues = placement_issues(tenant, order, lock_coaches=True)
+    issues.extend(placement_issues(tenant, order, lock_coaches=True))
     overbooked = any(item['code'] == 'full' for item in issues)
     if has_error(issues):
         return order_result(first, key, 'failed', issues)

@@ -24,6 +24,7 @@ function IssueBadge({ issue }: { issue: ImportIssue }) {
   if (issue.level === 'error') return <span className="font-semibold text-red-700 dark:text-red-300">錯誤</span>
   if (issue.code === 'full') return <span className="font-semibold text-amber-800 dark:text-amber-300">已滿堂</span>
   if (issue.code === 'closed') return <span className="font-semibold text-orange-800 dark:text-orange-300">停收</span>
+  if (issue.level === 'warning') return <span className="font-semibold text-amber-800 dark:text-amber-300">請核對</span>
   return <span className="text-gray-600 dark:text-gray-300">{issue.code === 'already_imported' ? '已匯入' : '通過'}</span>
 }
 
@@ -66,11 +67,12 @@ function PreviewDetails({ batch }: { batch: ImportBatch }) {
         </tbody>
       </table>
     </div>
-    {batch.order_results.some(order => order.member) && <details open className="mt-4">
-      <summary className="min-h-11 cursor-pointer py-2 font-medium">逐單會員綁定</summary>
+    {batch.order_results.length > 0 && <details open className="mt-4">
+      <summary className="min-h-11 cursor-pointer py-2 font-medium">逐單金額與會員綁定</summary>
       <ul className="max-h-64 space-y-2 overflow-auto text-sm">
-        {batch.order_results.map(order => order.member && <li key={order.row_number} className="break-words">
-          第 {order.row_number} 列 · {order.group_key} · {order.member.message_zh}
+        {batch.order_results.map(order => <li key={order.row_number} className="break-words">
+          第 {order.row_number} 列 · {order.group_key} · 本單各堂加總＝{order.amount == null ? '待補齊各堂金額' : money.format(order.amount)}
+          {order.member && <> · {order.member.message_zh}</>}
         </li>)}
       </ul>
     </details>}
@@ -179,6 +181,7 @@ export default function OrderImportPage() {
     <section className={card}>
       <h2 className="text-lg font-semibold">填寫並上傳範本</h2>
       <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">一列 = 一堂。相同匯入訂單編號會合成一張訂單。同單首列填聯絡及付款資料，教練欄只填行政已排定的教練。</p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">本堂已付金額填這堂分到的實收。整單已收款金額和備註填首列，各堂的標籤填堂次備註。舊版範本也能上傳。</p>
       <button type="button" className={secondary + ' mt-3'} disabled={Boolean(action)} onClick={download}>
         <Download size={16} />{action === 'download' ? '下載中…' : '下載 Excel 範本'}
       </button>
