@@ -99,7 +99,7 @@ export interface SharedClassLookup {
   people_count?: number
 }
 
-export const fetchCourseSessions = async (templateId?: number, date?: string, lookup?: SharedClassLookup): Promise<CourseSession[]> => {
+export const fetchCourseSessions = async (templateId?: number, date?: string, lookup?: SharedClassLookup & { staff_link?: string }): Promise<CourseSession[]> => {
   const params: any = {}
   if (templateId) params.template_id = templateId
   if (date) params.date = date

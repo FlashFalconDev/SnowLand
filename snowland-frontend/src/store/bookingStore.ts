@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { BookingState, CartItem, EquipmentOption, Course, ReservationGroup } from '@/types/booking'
 
 interface BookingStore extends BookingState {
+  staffLinkToken?: string
   // 購物車
   cart: CartItem[]
 
@@ -257,7 +258,7 @@ const createBookingStore = (storageKey: string, staffDraft = false) => create<Bo
       return { cart: updatedCart }
     }),
 
-  clearCart: () => set({ cart: [], currentReservationGroup: null }),
+  clearCart: () => set({ cart: [], currentReservationGroup: null, staffLinkToken: undefined }),
 
   // 只重置步驟選擇（用於繼續新增課程）
   resetStepSelection: () =>
@@ -275,6 +276,7 @@ const createBookingStore = (storageKey: string, staffDraft = false) => create<Bo
       ...(staffDraft ? { storage: createJSONStorage(() => sessionStorage) } : {}),
       partialize: (state) => ({
         cart: state.cart, // 只持久化購物車
+        ...(staffDraft ? { staffLinkToken: state.staffLinkToken } : {}),
       }),
     }
   )

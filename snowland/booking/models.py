@@ -1100,6 +1100,30 @@ class StaffBookingLink(models.Model):
         from .staff_link_snapshot import staff_cart_is_current
         return staff_cart_is_current(self)
 
+class StaffLinkCapacityHold(models.Model):
+    # Django handles related deletes. Database constraints would block old
+    # application versions from deleting objects they don't know are referenced.
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE, db_constraint=False)
+    staff_link = models.ForeignKey(
+        StaffBookingLink, on_delete=models.CASCADE, related_name='capacity_holds', db_constraint=False,
+    )
+    course_template = models.ForeignKey('Coursekit.CourseTemplate', on_delete=models.CASCADE, db_constraint=False)
+    resort = models.ForeignKey('Resorts.Resorts', on_delete=models.CASCADE, db_constraint=False)
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    expires_at = models.DateTimeField()
+    released_at = models.DateTimeField(null=True, blank=True)
+    converted_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+', db_constraint=False)
+
+    class Meta:
+        indexes = [models.Index(
+            fields=['client', 'course_template', 'date', 'start_time', 'end_time'],
+            name='booking_staff_hold_slot_idx',
+        )]
+
+
 class NewebpayMerchant(models.Model):
     client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)
     encrypted_credentials = models.TextField(editable=False)
