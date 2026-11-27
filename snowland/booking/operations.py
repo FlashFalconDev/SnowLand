@@ -152,7 +152,7 @@ def order_snapshot(group):
     }
 
 
-def record_order_revision(group, user=None, change_type='modify', reason='', previous_total=None):
+def record_order_revision(group, user=None, change_type='modify', reason='', previous_total=None, *, test_override_reasons=()):
     if group.is_deleted:
         raise ValueError('封存訂單不能新增版本')
     snapshot = order_snapshot(group)
@@ -160,6 +160,8 @@ def record_order_revision(group, user=None, change_type='modify', reason='', pre
     if change_type in ('mark_test', 'unmark_test'):
         snapshot['is_test'] = group.is_test
         snapshot['test_actor_name'] = user.get_username()
+        if test_override_reasons:
+            snapshot['test_override_reasons'] = test_override_reasons
         previous_total = current_total
     latest = group.revisions.order_by('-version').first()
     last_version = OrderRevision.all_objects.filter(group=group).order_by('-version').values_list('version', flat=True).first()
@@ -246,6 +248,9 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         raise ValueError('這張訂單已完成退款，不能再次提出退款申請')
     if group.cancellation_requests.filter(status__in=['requested', 'approved']).exists():
         raise ValueError('這張訂單已有待處理的取消申請')
+    from .amendment_workflow import active_refunds
+    if active_refunds(group).exists():
+        raise ValueError('已有差額退款處理中，請先完成或駁回再申請取消訂單')
     if not isinstance(reason, str) or reason not in dict(CancellationRequest.REASON_CHOICES):
         raise ValueError('請選擇取消原因')
     if not isinstance(reason_note, str) or len(reason_note) > 1000:

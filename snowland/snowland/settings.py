@@ -108,29 +108,30 @@ COACH_PHOTO_PUBLIC_BASE_URL = os.getenv('SNOWLAND_COACH_PHOTO_PUBLIC_BASE_URL', 
 COACH_PHOTO_MAX_BYTES = int(os.getenv('SNOWLAND_COACH_PHOTO_MAX_BYTES') or 5 * 1024 * 1024)
 # ALB health checks address the target by its EC2 private IP. Use IMDSv2 only.
 ec2_private_ip = None
-try:
-    token_response = requests.put(
-        'http://169.254.169.254/latest/api/token',
-        headers={'X-aws-ec2-metadata-token-ttl-seconds': '21600'},
-        timeout=0.2,
-        allow_redirects=False,
-    )
-    token_response.raise_for_status()
-    token = token_response.text.strip()
-    if token_response.status_code == 200 and token:
-        ip_response = requests.get(
-            'http://169.254.169.254/latest/meta-data/local-ipv4',
-            headers={'X-aws-ec2-metadata-token': token},
+if os.getenv('DJANGO_SETTINGS_MODULE') not in {'snowland.test_settings', 'snowland.test_settings_mysql'}:
+    try:
+        token_response = requests.put(
+            'http://169.254.169.254/latest/api/token',
+            headers={'X-aws-ec2-metadata-token-ttl-seconds': '21600'},
             timeout=0.2,
             allow_redirects=False,
         )
-        ip_response.raise_for_status()
-        if ip_response.status_code == 200:
-            address = ip_address(ip_response.text.strip())
-            if address.version == 4:
-                ec2_private_ip = str(address)
-except (requests.exceptions.RequestException, ValueError):
-    pass
+        token_response.raise_for_status()
+        token = token_response.text.strip()
+        if token_response.status_code == 200 and token:
+            ip_response = requests.get(
+                'http://169.254.169.254/latest/meta-data/local-ipv4',
+                headers={'X-aws-ec2-metadata-token': token},
+                timeout=0.2,
+                allow_redirects=False,
+            )
+            ip_response.raise_for_status()
+            if ip_response.status_code == 200:
+                address = ip_address(ip_response.text.strip())
+                if address.version == 4:
+                    ec2_private_ip = str(address)
+    except (requests.exceptions.RequestException, ValueError):
+        pass
 
 ALLOWED_HOSTS = [
     value.strip() for value in os.getenv(

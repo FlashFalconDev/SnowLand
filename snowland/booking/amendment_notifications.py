@@ -71,7 +71,7 @@ def _content(row,event=None):
 
 def prepare_amendment_notice(row,actor,event=None):
     # Called within the business transaction holding the client/order lock.
-    if row.is_deleted or row.group.is_deleted or (event and event.is_deleted):
+    if row.is_deleted or row.group.is_deleted or row.group.is_test or (event and event.is_deleted):
         return
     owner=row.group.user
     if not owner or not owner.is_active:return

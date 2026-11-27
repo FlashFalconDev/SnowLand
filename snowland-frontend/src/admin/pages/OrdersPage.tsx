@@ -6,7 +6,7 @@ import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Search, X, Eye, Edit2, Calendar, User, CreditCard, MapPin, Loader2, AlertCircle, Save, Zap, Mail, Link2, ChevronLeft, ChevronRight } from 'lucide-react'
-import { fetchOrder, fetchOrdersPaged, fetchCampusManagerOrdersPaged, fetchGuestPaymentLink, updateOrder, completeOrderCourse, saveClassGroupLink, previewOrderRefund, requestOrderCancellation, changeOrderTestStatus, type Order, type PaymentStatus } from '../api/orders'
+import { fetchOrder, fetchOrdersPaged, fetchCampusManagerOrdersPaged, fetchGuestPaymentLink, updateOrder, completeOrderCourse, saveClassGroupLink, previewOrderRefund, requestOrderCancellation, changeOrderTestStatus, type Order, type OrderTestStatusBlockReason, type PaymentStatus } from '../api/orders'
 import { fetchAdminMe } from '../api/auth'
 import { useSearchParams } from 'react-router-dom'
 import { fetchOrderEmailMode, sendOrderEmail } from '../api/extras'
@@ -18,7 +18,7 @@ import ClassGroupQRPanel from '../components/ClassGroupQRPanel'
 import CancellationStatusPanel from '../components/CancellationStatusPanel'
 import OrderExportForm from '../components/OrderExportForm'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
-import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
+import AmendmentBalancesPanel, { amendmentBalanceLabel } from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
 import OrderMarketingSource from '../components/OrderMarketingSource'
 import OrderCoachAvailability from '../components/OrderCoachAvailability'
@@ -215,12 +215,14 @@ function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boole
 
 function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const querySearch = searchParams.get('search') || ''
+  const showBalanceFilters = workflow === 'payments' && adminMe?.user?.order_refund_charge_enabled === true
+  const balanceFilter = showBalanceFilters ? searchParams.get('balance_status') || '' : ''
   const [searchInput, setSearchInput] = useState(querySearch)
   const [statusFilter, setStatusFilter] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('')
-  const [includeTest, setIncludeTest] = useState(false)
+  const [includeTest, setIncludeTest] = useState(() => searchParams.get('include_test') === '1')
   const [page, setPage] = useState(1)
   const [viewingId, setViewingId] = useState<number | null>(null)
 
@@ -233,16 +235,17 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   }, [searchInput])
 
   // 搜尋 / 過濾條件變動 → 強制回到第一頁(避免在第 5 頁但條件過濾後只剩 2 頁的空畫面)
-  useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter, includeTest])
+  useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter, balanceFilter, includeTest])
 
   const { data: pageData, isLoading, error, isFetching, isPlaceholderData } = useQuery({
-    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, workflow, includeTest }],
+    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, balanceFilter, workflow, includeTest }],
     queryFn: () => fetchOrdersPaged({
       page,
       page_size: PAGE_SIZE,
       search: search || undefined,
       status: statusFilter || undefined,
       payment_status: paymentFilter || undefined,
+      balance_status: balanceFilter || undefined,
       include_test: includeTest,
       workflow,
     }),
@@ -301,6 +304,20 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
             <option value="">全部付款狀態</option>
             {Object.entries(PAYMENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
+          {showBalanceFilters && <select aria-label="差額進度" value={balanceFilter} onChange={event => {
+            const next = new URLSearchParams(searchParams)
+            if (event.target.value) next.set('balance_status', event.target.value)
+            else next.delete('balance_status')
+            setSearchParams(next)
+          }} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+            <option value="">全部差額進度</option>
+            <option value="topup">待處理補款</option>
+            <option value="refund">待處理退款</option>
+            <option value="request_refund">退款待審核</option>
+            <option value="approve_refund">待記錄外部退款</option>
+            <option value="reject_refund">退款已駁回</option>
+            <option value="record_refund">已記錄外部退款</option>
+          </select>}
           <label className="flex min-h-11 items-center gap-2 text-sm dark:text-gray-100">
             <input type="checkbox" checked={includeTest} onChange={event => setIncludeTest(event.target.checked)} />顯示測試訂單
           </label>
@@ -348,12 +365,12 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
                   {order.cancellation?.status === 'requested' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">申請取消・待審核</span>}
-                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</span>}
+                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{amendmentBalanceLabel(order.amendment_balance)} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</span>}
                   <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
                 </div>
               </div>
             })}
-            {orders.length === 0 && <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</div>}
+            {orders.length === 0 && <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter && !balanceFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</div>}
           </div>
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm">
@@ -409,7 +426,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                       <td className="px-5 py-3 hidden md:table-cell whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
                         {workflow === 'payments' && order.bank_posted_date && <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">入帳日期 {order.bank_posted_date}</div>}
-                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</div>}
+                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{amendmentBalanceLabel(order.amendment_balance)} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</div>}
                       </td>
                       <td className="px-5 py-2 text-right">
                         <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"><Eye size={16} /></button>
@@ -418,7 +435,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                   )
                 })}
                 {orders.length === 0 && (
-                  <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</td></tr>
+                  <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter && !balanceFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</td></tr>
                 )}
               </tbody>
             </table>
@@ -557,6 +574,48 @@ export function OrderDetailStatusDrawer({ title, message = '請稍候...', onClo
   )
 }
 
+function OrderTestOverrideDialog({ reasons, busy, onClose, onConfirm }: {
+  reasons: OrderTestStatusBlockReason[]
+  busy: boolean
+  onClose: () => void
+  onConfirm: (reason: string, acknowledgedReasons: string[]) => void
+}) {
+  const [reason, setReason] = useState('')
+  const dialog = useAdminDialog(true, busy, onClose)
+  const hasPostedRecords = reasons.some(({ code }) => ['loyalty', 'coach_payroll', 'staff_incentive'].includes(code))
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <form ref={node => { dialog.current = node }} role="dialog" aria-modal="true" aria-labelledby="test-override-title"
+        aria-describedby="test-override-warning" aria-busy={busy} tabIndex={-1}
+        className="flex max-h-[90dvh] w-full max-w-lg flex-col rounded-xl bg-white text-gray-900 shadow-xl outline-none dark:bg-gray-800 dark:text-gray-100"
+        onSubmit={event => {
+          event.preventDefault()
+          if (!busy && reason.trim()) onConfirm(reason.trim(), reasons.map(({ code }) => code))
+        }}>
+        <h3 id="test-override-title" className="border-b border-gray-200 px-5 py-4 font-semibold dark:border-gray-700">覆寫並標記為測試訂單</h3>
+        <div className="space-y-3 overflow-y-auto p-5 text-sm">
+          <p>這張訂單有以下帳務阻擋項目：</p>
+          <ul className="list-disc pl-5">
+            {reasons.map(({ code, label }) => <li key={code}>{label}</li>)}
+          </ul>
+          <div id="test-override-warning" className="space-y-2 rounded-lg bg-amber-50 p-3 leading-6 text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            <p>覆寫不會刪除或改寫既有付款、退款、差額、紅利或薪獎紀錄。之後重新查詢的營業額報表、新一期薪獎與新紅利計算會排除此單。</p>
+            {hasPostedRecords && <p className="font-semibold">此單已有非草稿薪獎或已入帳紅利。既有紀錄不會自動沖銷或改寫，已入帳的那期需由帳務另外處理。</p>}
+          </div>
+          <label className="block font-medium" htmlFor="test-override-reason">覆寫原因（必填）</label>
+          <textarea id="test-override-reason" required maxLength={1000} rows={3} value={reason} disabled={busy}
+            onChange={event => setReason(event.target.value)} className="w-full rounded-lg border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-700" />
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 p-4 text-sm dark:border-gray-700">
+          <button type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-lg border border-gray-300 px-3 dark:border-gray-600">返回</button>
+          <button type="submit" disabled={busy || !reason.trim()} className="min-h-11 rounded-lg bg-amber-800 px-3 font-medium text-white disabled:opacity-50">{busy ? '儲存中…' : '確認覆寫並標記'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }: { order: Order; onClose: () => void; readOnly?: boolean; workflow?: OrderWorkflow }) {
   const notify = useNotification()
   const qc = useQueryClient()
@@ -573,24 +632,44 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
   const { data: noticeAdmin } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const canEdit = !readOnly && (!workflow || workflow === 'edit') && hasAdminPermission(noticeAdmin?.user, 'order_edit')
   const mayReconcile = hasAdminPermission(noticeAdmin?.user, 'order_payments')
-  const canReconcile = !readOnly && !order.is_test && (!workflow || workflow === 'payments') && mayReconcile
+  const balanceWorkflowAccess = {
+    enabled: noticeAdmin?.user?.order_refund_charge_enabled === true,
+    charge: hasAdminPermission(noticeAdmin?.user, 'order_charge_operate'),
+    request: hasAdminPermission(noticeAdmin?.user, 'order_amendment_refund_request'),
+    review: hasAdminPermission(noticeAdmin?.user, 'order_amendment_refund_review'),
+  }
+  const canReconcileBalance = !readOnly && (!order.is_test || balanceWorkflowAccess.enabled) && (!workflow || workflow === 'payments') && mayReconcile
+  const canReconcile = canReconcileBalance && !order.is_test
   const mayRefund = hasAdminPermission(noticeAdmin?.user, 'order_refunds')
   const canRefund = !readOnly && !order.is_test && (!workflow || workflow === 'refunds') && mayRefund
   const canNotify = !readOnly && !order.is_test && !workflow && hasAdminPermission(noticeAdmin?.user, 'notifications') && hasAdminPermission(noticeAdmin?.user, 'order_view')
     && !['campus_manager', 'campus_principal'].includes(noticeAdmin?.user?.role || '')
   const [testReason, setTestReason] = useState<string | null>(null)
-  const [testStatusError, setTestStatusError] = useState('')
+  const [testStatusError, setTestStatusError] = useState<{ detail: string; reasons?: OrderTestStatusBlockReason[]; canOverride: boolean } | null>(null)
+  const [testOverrideOpen, setTestOverrideOpen] = useState(false)
   const testAction = order.is_test ? '取消測試標記' : '標記為測試訂單'
   const testStatusMutation = useMutation({
-    mutationFn: (reason: string) => changeOrderTestStatus(order.id, !order.is_test, reason),
+    mutationFn: ({ reason, acknowledgedReasons }: { reason: string; acknowledgedReasons?: string[] }) =>
+      changeOrderTestStatus(order.id, !order.is_test, reason, acknowledgedReasons),
     onSuccess: async (response) => {
       await qc.invalidateQueries({ queryKey: ['admin', 'orders'] })
       setTestReason(null)
+      setTestOverrideOpen(false)
       notify.success(response.msg)
     },
-    onError: (error: { response?: { data?: { msg?: string; detail?: string } } }) => {
+    onError: (error: { response?: { status?: number; data?: {
+      msg?: string
+      detail?: string
+      reasons?: OrderTestStatusBlockReason[]
+      can_override?: boolean
+    } } }) => {
       const data = error.response?.data
-      setTestStatusError(data?.msg || data?.detail || '無法更新測試標記，請再試一次。')
+      setTestOverrideOpen(false)
+      setTestStatusError({
+        detail: data?.detail || data?.msg || '無法更新測試標記，請再試一次。',
+        reasons: data?.reasons,
+        canOverride: error.response?.status === 409 && data?.can_override === true,
+      })
     },
   })
 
@@ -880,27 +959,49 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
           </div>
-          {!readOnly && !editing && order.can_mark_test && (!workflow || workflow === 'edit') && (
-            testReason === null ? <button type="button" onClick={() => { setTestStatusError(''); setTestReason('') }} className="min-h-11 rounded-lg border border-amber-300 px-3 text-sm font-medium text-amber-800 dark:border-amber-700 dark:text-amber-200">{testAction}</button> :
+          {!readOnly && !editing && (!workflow || workflow === 'edit') && (order.can_mark_test || (order.can_check_test_status && !order.is_test)) && (
+            testReason === null ? <button type="button" onClick={() => {
+              setTestStatusError(null)
+              setTestReason('')
+              if (!order.can_mark_test) testStatusMutation.mutate({ reason: '' })
+            }} className="min-h-11 rounded-lg border border-amber-300 px-3 text-sm font-medium text-amber-800 dark:border-amber-700 dark:text-amber-200">{order.can_mark_test ? testAction : '查看測試標記阻擋原因'}</button> :
               <form className="space-y-2 rounded-lg border border-amber-300 p-3 text-sm dark:border-amber-700 dark:text-gray-100" onSubmit={event => {
                 event.preventDefault()
-                if (testStatusMutation.isPending || !testReason.trim()) return
-                setTestStatusError('')
-                testStatusMutation.mutate(testReason.trim())
+                if (!order.can_mark_test || testStatusMutation.isPending || !testReason.trim()) return
+                setTestStatusError(null)
+                testStatusMutation.mutate({ reason: testReason.trim() })
               }}>
-                <label className="block font-medium" htmlFor="test-order-reason">{testAction}的原因</label>
-                <textarea id="test-order-reason" required maxLength={1000} value={testReason} onChange={event => setTestReason(event.target.value)}
-                  disabled={testStatusMutation.isPending} className="w-full rounded-lg border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-700" rows={2} />
-                {testStatusError && <p role="alert" className="text-red-700 dark:text-red-300">{testStatusError}</p>}
+                {order.can_mark_test && <>
+                  <label className="block font-medium" htmlFor="test-order-reason">{testAction}的原因</label>
+                  <textarea id="test-order-reason" required maxLength={1000} value={testReason} onChange={event => setTestReason(event.target.value)}
+                    disabled={testStatusMutation.isPending} className="w-full rounded-lg border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-700" rows={2} />
+                </>}
+                {testStatusError && (
+                  <div role="alert" className="space-y-1 text-red-700 dark:text-red-300">
+                    <p>{testStatusError.detail}</p>
+                    {!!testStatusError.reasons?.length && (
+                      <ul className="list-disc space-y-1 pl-5">
+                        {testStatusError.reasons.map(({ code, label, hint }) => (
+                          <li key={code}><strong>{label}</strong>：{hint}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
-                  <button type="submit" disabled={testStatusMutation.isPending || !testReason.trim()} className="min-h-11 rounded-lg bg-violet-700 px-3 font-medium text-white disabled:opacity-50">{testStatusMutation.isPending ? '儲存中…' : testAction}</button>
+                  {order.can_mark_test && <button type="submit" disabled={testStatusMutation.isPending || !testReason.trim()} className="min-h-11 rounded-lg bg-violet-700 px-3 font-medium text-white disabled:opacity-50">{testStatusMutation.isPending ? '儲存中…' : testAction}</button>}
+                  {order.can_mark_test && testStatusError?.canOverride && !!testStatusError.reasons?.length && (
+                    <button type="button" onClick={() => setTestOverrideOpen(true)} className="min-h-11 rounded-lg border border-amber-600 px-3 font-medium text-amber-800 dark:text-amber-200">覆寫帳務阻擋</button>
+                  )}
+                  {!order.can_mark_test && testStatusMutation.isPending && <span role="status" className="self-center">查詢中…</span>}
                   <button type="button" disabled={testStatusMutation.isPending} onClick={() => setTestReason(null)} className="min-h-11 rounded-lg border border-gray-300 px-3 dark:border-gray-600">返回</button>
                 </div>
               </form>
           )}
-          {(order.amendment_balance || canReconcile) && <AmendmentBalancesPanel key={order.id} order={order}
-            canReconcile={canReconcile} canRefund={canRefund}
-            paymentsHref={!order.is_test && mayReconcile && !canReconcile ? `/${currentClientCode()}/console/orders/payments?search=${encodeURIComponent(order.sn)}` : undefined}
+          {(order.amendment_balance || canReconcileBalance) && <AmendmentBalancesPanel key={order.id} order={order}
+            canReconcile={canReconcileBalance} canRefund={canRefund} workflowAccess={balanceWorkflowAccess}
+            paymentsHref={mayReconcile && !canReconcileBalance && (!order.is_test || balanceWorkflowAccess.enabled)
+              ? `/${currentClientCode()}/console/orders/payments?search=${encodeURIComponent(order.sn)}${order.is_test ? '&include_test=1' : ''}` : undefined}
             refundsHref={!order.is_test && mayRefund && !canRefund ? `/${currentClientCode()}/console/orders/refunds?search=${encodeURIComponent(order.sn)}` : undefined}
           />}
 
@@ -937,13 +1038,16 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
             </div>
             <div className="mt-3 space-y-2">{order.revisions?.map(revision => <details key={revision.id} className="rounded-lg border border-gray-100 text-xs dark:border-gray-700">
               <summary className="min-h-11 cursor-pointer px-3 py-3 text-gray-900 dark:text-gray-100">
-                <span className="ml-1 break-words">第 {revision.version} 版 · {REVISION_LABEL[revision.change_type] || revision.change_type}{revision.reason ? ` · ${revision.change_type === 'cancel' ? (CANCELLATION_REASON_LABEL[revision.reason] || revision.reason) : revision.reason}` : ''}</span>
+                <span className="ml-1 break-words">第 {revision.version} 版 · {revision.snapshot?.test_override_reasons?.length ? '覆寫標記測試訂單' : (REVISION_LABEL[revision.change_type] || revision.change_type)}{revision.reason ? ` · ${revision.change_type === 'cancel' ? (CANCELLATION_REASON_LABEL[revision.reason] || revision.reason) : revision.reason}` : ''}</span>
                 <b className={`ml-2 inline-block ${revision.difference_amount > 0 ? 'text-red-600 dark:text-red-400' : revision.difference_amount < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>{revision.difference_amount ? `${revision.difference_amount > 0 ? '+' : ''}NT$ ${revision.difference_amount.toLocaleString()}` : '無差額'}</b>
                 {revision.created_by_name && <span className="mt-1 block text-gray-500 dark:text-gray-400">{revision.created_by_name} · {new Date(revision.created_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}</span>}
                 <span className="mt-1 block text-gray-500 dark:text-gray-400">點選查看當時課程內容</span>
               </summary>
               <div className="space-y-3 border-t border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
                 <p className="text-gray-500 dark:text-gray-400">這是當時保存的資料，不代表目前訂單，也不會還原或修改訂單。</p>
+                {!!revision.snapshot?.test_override_reasons?.length && (
+                  <p>覆寫時的帳務阻擋項目：{revision.snapshot.test_override_reasons.map(({ label }) => label).join('、')}</p>
+                )}
                 {revision.snapshot?.reservations?.length ? revision.snapshot.reservations.map(item => <div key={item.id} className="space-y-1 break-words rounded border border-gray-200 bg-white p-3 text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100">
                   <p className="font-semibold">{item.resort_name || (item.resort_id ? `雪場（舊資料編號 ${item.resort_id}）` : '未設定雪場')} · {item.course_template_name || item.course_type_name || '舊版未保存課程名稱'}</p>
                   <p>教練：{item.coach_name || (item.coach_id ? `舊資料編號 ${item.coach_id}` : '未安排')} · {item.people ?? 0} 人</p>
@@ -1193,6 +1297,11 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
         </div>
       </div>
 
+      {testOverrideOpen && order.can_mark_test && testStatusError?.canOverride && !!testStatusError.reasons?.length && (
+        <OrderTestOverrideDialog reasons={testStatusError.reasons} busy={testStatusMutation.isPending}
+          onClose={() => setTestOverrideOpen(false)}
+          onConfirm={(reason, acknowledgedReasons) => testStatusMutation.mutate({ reason, acknowledgedReasons })} />
+      )}
       {amending && <OrderAmendmentDialog orderId={order.id} onClose={() => setAmending(false)} />}
       {/* Email Modal */}
       {cancelOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 animate-fadeIn">

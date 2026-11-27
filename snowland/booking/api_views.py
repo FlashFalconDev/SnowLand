@@ -10,6 +10,7 @@ from Client.memberships import member_profile as school_member_profile
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
@@ -3889,6 +3890,42 @@ class CourseMediaFileAPI(APIView):
             return Response({'error': '找不到課程附件'}, status=404)
 
 
+class GuestAmendmentTopupAPI(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        response['Cache-Control'] = 'no-store'
+        response['Referrer-Policy'] = 'no-referrer'
+        return response
+
+    def get(self, request, client_code, group_id, amendment_id):
+        from django.shortcuts import get_object_or_404
+        from Client.tenant_settings import order_refund_charge_enabled
+        from .amendment_workflow import cash_amount, topup_is_payable, valid_topup_token
+        from .models import OrderAmendment
+
+        unavailable = Response({'error': '補款連結無效、已到期或差額已停止收款，請聯絡客服'}, status=404)
+        try:
+            tenant = resolve_tenant_client(client_code)
+        except TenantResolutionError:
+            return unavailable
+        token = request.headers.get('X-Amendment-Access', '')
+        if not order_refund_charge_enabled(tenant) or not valid_topup_token(tenant, group_id, amendment_id, token):
+            return unavailable
+        with transaction.atomic():
+            group = get_object_or_404(
+                ReservationGroup.objects.live().select_for_update(),
+                pk=group_id, client=tenant, user__isnull=True, is_test=False,
+            )
+            row = get_object_or_404(OrderAmendment.objects.all(), pk=amendment_id, group=group)
+            if not topup_is_payable(row):
+                return unavailable
+            currency, amount = cash_amount(row)
+            return Response({'currency': currency, 'amount': amount, 'bank': row.bank_snapshot})
+
+
 class MemberAmendmentsAPI(APIView):
     def initial(self,request,*args,**kwargs):
         super().initial(request,*args,**kwargs)
@@ -3908,7 +3945,7 @@ class MemberAmendmentsAPI(APIView):
         from .amendment_balances import group_balances
         group,error=self._group(request,client_code,group_id)
         if error is not None:return error
-        return Response({'items':group_balances(group)})
+        return Response({'items':[] if group.is_test else group_balances(group)})
 
     def post(self,request,client_code,group_id):
         from .amendment_balances import BalanceActionInput, balance_data, process_balance

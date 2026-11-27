@@ -5,6 +5,9 @@ ADMIN_PERMISSION_DEFINITIONS = [
     {'key': 'order_view', 'label': '訂單列表與明細', 'group': '訂單', 'description': '查看授權校區的訂單'},
     {'key': 'order_edit', 'label': '修改與排課', 'group': '訂單', 'description': '修改課程、人數與教練、完成課程或補登客人來源'},
     {'key': 'order_payments', 'label': '對帳與差額', 'group': '訂單', 'description': '核對收款及補退差額'},
+    {'key': 'order_charge_operate', 'label': '修改差額補款操作', 'group': '訂單', 'description': '取得補款連結、登記通知及核對外部補款，須搭配對帳與差額權限'},
+    {'key': 'order_amendment_refund_request', 'label': '修改差額退款申請', 'group': '訂單', 'description': '提出修改差額退款申請，須搭配對帳與差額權限'},
+    {'key': 'order_amendment_refund_review', 'label': '修改差額退款審核', 'group': '訂單', 'description': '審核退款申請及登記外部退款結果，須搭配對帳與差額權限'},
     {'key': 'order_refunds', 'label': '取消與退款', 'group': '訂單', 'description': '處理取消申請及記錄退款'},
     {'key': 'booking_links', 'label': '代客訂課連結', 'group': '訂單', 'description': '建立與管理代客訂課連結'},
     {'key': 'order_export', 'label': '匯出訂單', 'group': '訂單', 'description': '匯出訂單資料，限可管理全校的總部管理員'},
@@ -63,8 +66,11 @@ LEGACY_PERMISSIONS = {
 
 ADMIN_PERMISSION_KEYS = [item['key'] for item in ADMIN_PERMISSION_DEFINITIONS]
 
-EXPLICIT_LEDGER_PERMISSIONS = {'insurance_ledger_deduct', 'insurance_ledger_finance'}
-DEFAULT_ALL_ADMIN_PERMISSIONS = [key for key in ADMIN_PERMISSION_KEYS if key not in EXPLICIT_LEDGER_PERMISSIONS]
+ORDER_BALANCE_PERMISSIONS = {
+    'order_charge_operate', 'order_amendment_refund_request', 'order_amendment_refund_review',
+}
+EXPLICIT_ADMIN_PERMISSIONS = ORDER_BALANCE_PERMISSIONS | {'insurance_ledger_deduct', 'insurance_ledger_finance'}
+DEFAULT_ALL_ADMIN_PERMISSIONS = [key for key in ADMIN_PERMISSION_KEYS if key not in EXPLICIT_ADMIN_PERMISSIONS]
 
 ROLE_DEFAULT_PERMISSIONS = {
     'marketing': ['analytics', 'discounts'],
@@ -92,7 +98,7 @@ def get_user_admin_permissions(user, tenant=None):
     profile = staff_profile(user, tenant)
     if getattr(user, 'is_superuser', False):
         explicit = normalize_admin_permissions(profile.admin_permissions) if profile and profile.is_manager else []
-        return [key for key in ADMIN_PERMISSION_KEYS if key not in EXPLICIT_LEDGER_PERMISSIONS or key in explicit]
+        return [key for key in ADMIN_PERMISSION_KEYS if key not in EXPLICIT_ADMIN_PERMISSIONS or key in explicit]
     if not profile or not profile.is_manager:
         return []
     stored = profile.admin_permissions
