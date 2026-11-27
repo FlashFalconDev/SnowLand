@@ -100,12 +100,20 @@ export default function OperationsHubPage({ initialTab = 'notifications', fixed 
   const activeTab = fixed ? initialTab : tab
   const visibleTabs = fixed ? tabs.filter(item => item.id === initialTab) : tabs.filter(item => item.id !== 'insurance-ledger')
   const currentTab = tabs.find(item => item.id === activeTab) || tabs[0]
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe, enabled: activeTab === 'notifications' && !coachView })
+  const showOrderBalances = activeTab === 'notifications' && !coachView && adminMe?.user?.order_refund_charge_enabled === true
+    && hasAdminPermission(adminMe.user, 'order_payments')
+  const paymentsPath = `/${currentClientCode()}/console/orders/payments`
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{fixed ? currentTab.label : '進階營運'}</h1>
         <p className="mt-1 text-gray-500 dark:text-gray-400">{fixed ? descriptions[currentTab.id] : '通知、薪資、評量與代客訂課集中在這裡。'}</p>
       </div>
+      {showOrderBalances && <nav aria-label="訂單差額" className="flex flex-wrap gap-4 text-sm font-semibold text-violet-700 dark:text-violet-300">
+        <Link className="py-2 underline" to={`${paymentsPath}?balance_status=topup`}>查看待補款訂單</Link>
+        <Link className="py-2 underline" to={`${paymentsPath}?balance_status=request_refund`}>查看退款待審核訂單</Link>
+      </nav>}
       {!fixed && <div className="grid grid-cols-2 gap-2 rounded-xl bg-gray-100 p-2 dark:bg-gray-900 md:grid-cols-5">
         {visibleTabs.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold ${activeTab === item.id ? 'bg-white text-violet-600 shadow-sm dark:bg-gray-700' : 'text-gray-500 dark:text-gray-400'}`}><item.icon size={16} />{item.label}</button>)}
       </div>}

@@ -100,3 +100,29 @@ assert.match(history.html, /差額回報與核對/)
 assert.doesNotMatch(history.html, /訂單修改差額尚未結清/)
 assert.equal(history.entry, undefined)
 assert.equal(render({ amendmentBalance: null }, { data: { items: [] } }).html, '')
+
+const refundRow = { ...reported, status: 'refund_due', balance_amount: -120, refund_action: 'request_refund' }
+const reviewAccess = { enabled: true, charge: false, request: false, review: true }
+const review = render({ workflowAccess: reviewAccess }, { data: { items: [refundRow] } })
+assert.match(review.html, /退款待審核/)
+assert.match(review.html, /核准退款/)
+assert.match(review.html, /駁回退款/)
+assert.doesNotMatch(review.html, /記錄已在系統外退款|記錄已於系統外退款/)
+
+const approvedRow = { ...refundRow, refund_action: 'approve_refund' }
+const awaitingExternal = render({ workflowAccess: reviewAccess }, { data: { items: [approvedRow] } })
+assert.match(awaitingExternal.html, /記錄已在系統外退款/)
+const disabled = render({ workflowAccess: { ...reviewAccess, enabled: false } }, { data: { items: [approvedRow] } })
+assert.match(disabled.html, /退款已核准/)
+assert.doesNotMatch(disabled.html, /記錄已在系統外退款|記錄已於系統外退款|駁回退款/)
+
+const guestOrder = { id: 42, user: null, amendment_balance: balance }
+const chargeAccess = { enabled: true, charge: true, request: false, review: false }
+const guestTopup = { data: { items: [{ ...reported, status: 'topup_due' }] } }
+const guestPanel = render({ workflowAccess: chargeAccess, order: guestOrder }, guestTopup)
+assert.match(guestPanel.html, /取得補款連結/)
+assert.match(guestPanel.html, /登記已通知補款/)
+assert.match(guestPanel.html, /核對外部補款/)
+const testOrder = render({ workflowAccess: chargeAccess, order: { ...guestOrder, is_test: true } }, guestTopup)
+assert.match(testOrder.html, /測試訂單僅供後台演練/)
+assert.doesNotMatch(testOrder.html, /取得補款連結/)

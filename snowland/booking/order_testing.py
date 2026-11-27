@@ -49,6 +49,12 @@ def set_order_test_status(group, *, is_test, actor, reason):
         raise InsuranceLedgerTestOrderError('此訂單已有預付保費分錄，不能標記為測試訂單。')
     if is_test and _has_financial_history(group):
         raise ValueError('此訂單已有付款、退款、差額或薪獎出帳紀錄，請先由主管依既有流程更正，再標記為測試訂單。')
+    if not is_test:
+        from .amendment_workflow import ACTION_PERMISSIONS, PENDING_STATUSES
+        from .models import OrderAmendmentEvent
+        if (group.amendments.filter(status__in=PENDING_STATUSES).exists()
+                or OrderAmendmentEvent.objects.filter(amendment__group=group, action__in=ACTION_PERMISSIONS).exists()):
+            raise ValueError('已有測試差額或補退工作流紀錄，請保留測試標記。')
 
     account_ids = MemberLoyaltyEntry.all_objects.filter(order__group=group).values('account_id')
     accounts = list(MemberLoyaltyAccount.objects.select_for_update().filter(

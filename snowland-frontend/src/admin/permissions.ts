@@ -7,6 +7,8 @@ export interface AdminPermissionDefinition {
   description: string
 }
 
+export const orderBalancePermissions = ['order_charge_operate', 'order_amendment_refund_request', 'order_amendment_refund_review']
+
 export function canUseFrontendSupport(basePath: string, user?: AdminUser | null): boolean {
   return basePath === '/flashfalcon' && !!user?.is_superuser
 }
@@ -15,6 +17,10 @@ export function hasAdminPermission(user: AdminUser | null | undefined, permissio
   if (!permission) return !!user?.is_manager || !!user?.is_superuser
   if (permission === 'insurance_ledger_finance') {
     return !!user?.is_manager && user.role === 'hq_admin' && !!user.can_view_all_campuses
+      && (user.permissions || []).includes(permission)
+  }
+  if (orderBalancePermissions.includes(permission)) {
+    return !!user?.is_manager && !['coach', 'campus_manager', 'campus_principal'].includes(user.role || '')
       && (user.permissions || []).includes(permission)
   }
   if (user?.is_superuser) return true

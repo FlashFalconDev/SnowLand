@@ -32,6 +32,13 @@ def manual_payment_posting_date_mode(client):
     return mode if mode in ('optional', 'required', 'disabled') else 'optional'
 
 
+def order_refund_charge_enabled(client):
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    return isinstance(config, dict) and config.get('order_refund_charge_enabled') is True
+
+
 def course_album_coach_delete_enabled(client):
     """By default the current instructor may delete their own uploads."""
     config = ModuleSetting.objects.filter(
