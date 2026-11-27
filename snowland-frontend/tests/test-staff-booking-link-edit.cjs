@@ -32,16 +32,22 @@ function findElement(tree, predicate) {
 const panelFile = readTsx('admin/pages/OperationsHubPage.tsx')
 const panel = panelFile.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'BookingLinksPanel')
 const cart = [{ id: 'g1', campusId: 1, peopleCount: 2, resortName: '測試雪場', courses: [{ courseTemplateName: '半天課', date: '2026-12-01' }] }]
-const row = { id: 1, title: '半天課連結', can_edit: true, is_available: false, campus: 1, snapshot_version: 3, cart_snapshot: cart }
-const unavailable = { ...row, id: 2, title: '已使用連結', can_edit: false, is_available: false }
+const hold = { id: 1, template_name: '半天課', resort_name: '測試雪場', date: '2026-12-01', start_time: '09:00', end_time: '13:00', expires_at: '2026-11-30T10:00:00Z' }
+const row = { id: 1, token: 'draft-token', title: '半天課連結', can_edit: true, is_available: true, campus: 1, snapshot_version: 3, cart_snapshot: cart, capacity_holds: [hold], expires_at: hold.expires_at }
+const unavailable = { ...row, id: 2, title: '已使用連結', can_edit: false, is_available: false, capacity_holds: [] }
 const price = { previous_subtotal: 10000, subtotal: 12000, subtotal_difference: 2000, discount_total: 1000, total: 11000, previous_total: 9000, total_difference: 2000 }
 
 async function checkConsole() {
   let preload
   let previewData
   let saved
-  const render = editKey => {
+  let released
+  let confirmed = false
+  let conflicts = []
+  let saveError
+  const render = (editKey, canManage = true) => {
     let mutationIndex = 0
+    let stateIndex = 0
     const context = run(panel.getText(panelFile), {
       useQueryClient: () => ({ invalidateQueries() {} }),
       useNotification: () => ({ success() {}, error() {} }),
@@ -49,20 +55,22 @@ async function checkConsole() {
       useSearchParams: () => [new URLSearchParams(editKey ? { staff_edit: editKey } : {}), () => {}],
       useBookingStore: () => ({ cart: [], clearCart() {} }),
       getStaffBookingDraftStore: (tenant, key) => Object.assign(() => ({ cart, clearCart() {} }), {
-        getState: () => ({ replaceCart(next) { preload = { tenant, key, cart: next } } }),
+        setState: next => { preload = { tenant, key, ...next } },
       }),
       useScopedCampuses: () => ({ campuses: [], selectedCampus: '' }),
-      useQuery: () => ({ data: [row, unavailable] }),
-      useState: value => [value, () => {}],
+      useQuery: () => ({ data: { list: [row, unavailable], can_create_hold: canManage, can_release_hold: canManage } }),
+      useState: value => stateIndex++ === 1 ? [conflicts, value => { conflicts = value }] : [value, () => {}],
       useEffect() {},
       useMutation: options => {
         const index = mutationIndex++
+        if (index === 2) saveError = options.onError
         return {
           data: index === 1 ? previewData : undefined,
-          mutate: async () => {
-            const result = await options.mutationFn()
+          mutate: async (...args) => {
+            const result = await options.mutationFn(...args)
             if (index === 1) previewData = result
           },
+          reset() {},
         }
       },
       fetchStaffBookingLinks() {},
@@ -73,6 +81,8 @@ async function checkConsole() {
         return price
       },
       updateStaffBookingLink: async (id, data, quote) => { saved = { id, data, quote } },
+      releaseStaffBookingLinkHold: async id => { released = id },
+      window: { confirm: () => confirmed },
       Link: ({ children }) => React.createElement('a', {}, children),
       Field: ({ children }) => React.createElement('label', {}, children),
       Plus: () => null,
@@ -84,15 +94,30 @@ async function checkConsole() {
   }
   const label = (tree, children) => findElement(tree, element => element.props.children === children)
   const list = render()
+  assert.match(renderToStaticMarkup(list), /已保留名額/)
+  assert.match(renderToStaticMarkup(list), /2026-12-01 09:00–13:00/)
+  assert.match(renderToStaticMarkup(list), /保留至/)
+  assert.equal(findElement(list, element => element.props.type === 'checkbox').props.checked, true)
+  const release = label(list, '釋放保留')
+  await release.props.onClick()
+  assert.equal(released, undefined)
+  confirmed = true
+  await release.props.onClick()
+  assert.equal(released, row.id)
+  const scoped = render(undefined, false)
+  assert.equal(findElement(scoped, element => element.props.type === 'checkbox'), undefined)
+  assert.equal(label(scoped, '釋放保留'), undefined)
   const edit = label(list, '修改')
   assert.equal(edit.props.href, '/snowland/booking?staff_prepare=1&staff_edit=1%3A3')
   edit.props.onClick()
   assert.equal(preload.tenant, 'snowland')
   assert.equal(preload.key, '1:3')
+  assert.equal(preload.staffLinkToken, row.token)
   assert.equal(preload.cart[0].courses[0].courseTemplateName, '半天課')
   assert.doesNotMatch(renderToStaticMarkup(list), /staff_edit=2/)
   const before = render('1:3')
   assert.equal(label(before, '儲存修改').props.disabled, true)
+  assert.equal(findElement(before, element => element.props.type === 'checkbox').props.checked, true)
   await label(before, '試算金額').props.onClick()
   const after = render('1:3')
   const html = renderToStaticMarkup(after)
@@ -101,7 +126,16 @@ async function checkConsole() {
   await label(after, '儲存修改').props.onClick()
   assert.equal(saved.id, row.id)
   assert.equal(saved.data.cart_snapshot, cart)
+  assert.equal(saved.data.hold_capacity, true)
   assert.equal(saved.quote, price)
+  saveError({ response: { data: { conflicts: [
+    { template_name: '半天課', message_zh: '2026-12-01 09:00–13:00 已額滿' },
+    { template_name: '半天課', message_zh: '2026-12-02 09:00–13:00 已額滿' },
+  ] } } })
+  const conflictHtml = renderToStaticMarkup(render('1:3'))
+  assert.match(conflictHtml, /以下堂次無法保留/)
+  assert.match(conflictHtml, /2026-12-01 09:00–13:00 已額滿/)
+  assert.match(conflictHtml, /2026-12-02 09:00–13:00 已額滿/)
 }
 
 async function checkCustomerRefresh() {

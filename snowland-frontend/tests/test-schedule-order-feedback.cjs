@@ -83,7 +83,7 @@ function walkOrders(node){
  ts.forEachChild(node,walkOrders)
 }
 walkOrders(orders);assert.ok(viewingGuard);assert.ok(viewingData);assert.ok(viewingQuery)
-ctx.setViewingId=()=>{};ctx.refetchViewing=()=>{}
+ctx.setViewingId=()=>{};ctx.closeOrderDetail=()=>{};ctx.directOrderId=null;ctx.refetchViewing=()=>{}
 run('exports.viewing=()=> <>{'+viewingGuard.getText(orders)+'}{'+viewingData.getText(orders)+'}</>')
 ctx.workflow=undefined;ctx.viewingId=213;ctx.viewing={id:213};ctx.viewingError={response:{status:403}};ctx.isViewingLoading=false
 const hidden=ctx.exports.viewing(),html=renderToStaticMarkup(hidden)

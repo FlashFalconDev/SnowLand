@@ -29,7 +29,7 @@ from Coursekit.models import CourseCategory, CourseType, CourseTemplate, CourseS
 from booking.models import (
     ReservationGroup, Reservation, Booking, MemberDetail, Payment,
     CancellationRequest, CourseEvaluation, CourseMedia, NotificationTemplate,
-    NotificationDelivery, OrderRevision, StaffBookingLink,
+    NotificationDelivery, OrderRevision, StaffBookingLink, BookingClosure,
 )
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.assessment import RUBRIC_LOCATION, TECHNICAL_KEY, school_rubric, technical_snapshot, validate_review
@@ -40,6 +40,44 @@ from .admin_permissions import user_has_admin_permission
 
 
 logger = logging.getLogger(__name__)
+
+
+class BookingClosureAdminSerializer(serializers.ModelSerializer):
+    resort_name = serializers.CharField(source='resort.display_name', read_only=True, default=None)
+    template_name = serializers.CharField(source='course_template.name', read_only=True, default=None)
+
+    class Meta:
+        model = BookingClosure
+        fields = (
+            'id', 'resort', 'resort_name', 'course_template', 'template_name',
+            'date_from', 'date_to', 'start_time', 'end_time', 'reason', 'created_by', 'created_at',
+        )
+        read_only_fields = ('created_by', 'created_at')
+        extra_kwargs = {
+            'resort': {'error_messages': {'does_not_exist': '找不到此租戶的雪場'}},
+            'course_template': {'error_messages': {'does_not_exist': '找不到此租戶的課程模板'}},
+        }
+
+    def get_fields(self):
+        fields = super().get_fields()
+        tenant = self.context['request'].tenant
+        fields['resort'].queryset = Resorts.objects.filter(client=tenant)
+        fields['course_template'].queryset = CourseTemplate.objects.filter(course_type__category__client=tenant)
+        return fields
+
+    def validate(self, attrs):
+        resort, template = attrs.get('resort'), attrs.get('course_template')
+        if not (resort or template):
+            raise serializers.ValidationError('請至少選擇一個雪場或課程模板')
+        if resort and template and template.resorts.exists() and not template.resorts.filter(pk=resort.pk).exists():
+            raise serializers.ValidationError('此課程模板不適用於所選雪場')
+        days = (attrs['date_to'] - attrs['date_from']).days
+        if not 0 <= days < 366:
+            raise serializers.ValidationError({'date_to': '日期區間必須介於 1 到 366 天'})
+        start, end = attrs.get('start_time'), attrs.get('end_time')
+        if (start is None) != (end is None) or (start is not None and end <= start):
+            raise serializers.ValidationError({'end_time': '請同時填寫起迄時間，且結束時間必須晚於開始時間'})
+        return attrs
 
 
 class TenantRelationValidationMixin:
@@ -1673,6 +1711,13 @@ class BookingAdminSerializer(serializers.ModelSerializer):
         read_only_fields = ['course_template']
 
 
+def order_capacity_conflict(group):
+    payment = group.latest_live_payment()
+    if payment and isinstance(payment.DataJSON, dict):
+        return payment.DataJSON.get('capacity_conflict')
+    return None
+
+
 class CampusManagerOrderSerializer(serializers.ModelSerializer):
     """校區主管與校長僅取得排課必需的訂單資訊。"""
     sn = serializers.SerializerMethodField()
@@ -1681,10 +1726,11 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
     number_of_people = serializers.SerializerMethodField()
     course_dates = serializers.SerializerMethodField()
     sessions = serializers.SerializerMethodField()
+    capacity_conflict = serializers.SerializerMethodField()
 
     class Meta:
         model = ReservationGroup
-        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions', 'is_test']
+        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions', 'is_test', 'capacity_conflict']
         read_only_fields = fields
 
     def _visible_bookings(self, obj):
@@ -1718,6 +1764,21 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
 
     def get_course_dates(self, obj):
         return sorted({booking.date.isoformat() for _, booking in self._visible_bookings(obj)})
+
+    def get_capacity_conflict(self, obj):
+        marker = order_capacity_conflict(obj)
+        if not marker:
+            return None
+        visible_slots = {
+            (booking.date.isoformat(), booking.start_time.strftime('%H:%M'), booking.end_time.strftime('%H:%M'))
+            for _, booking in self._visible_bookings(obj)
+        }
+        conflicts = [
+            {field: slot[field] for field in ('date', 'start_time', 'end_time', 'template_name')}
+            for slot in marker.get('conflicts', [])
+            if (slot['date'], slot['start_time'], slot['end_time']) in visible_slots
+        ]
+        return {'conflicts': conflicts} if conflicts else None
 
     def get_sessions(self, obj):
         sessions = []
@@ -1754,6 +1815,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     reservations = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
     payment_method = serializers.SerializerMethodField()
+    capacity_conflict = serializers.SerializerMethodField()
     bank_account = serializers.SerializerMethodField()
     bank_posted_date = serializers.DateField(source='latest_live_payment.bank_posted_date', read_only=True, allow_null=True)
     total_fee = serializers.SerializerMethodField()
@@ -1773,7 +1835,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sn', 'order_number', 'name', 'user', 'user_name', 'user_email', 'booking_contact',
             'campus', 'campus_name', 'marketing_source', 'marketing_source_detail', 'line_group_url', 'line_group_qr_url',
-            'reservations', 'total_fee', 'payment_status', 'payment_method',
+            'reservations', 'total_fee', 'payment_status', 'payment_method', 'capacity_conflict',
             'bank_account', 'bank_posted_date', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at', 'is_test',
         ]
         read_only_fields = fields
@@ -1927,6 +1989,9 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         except Exception as exc:
             logger.warning('Coach candidates failed for reservation %s (%s)', reservation.pk, type(exc).__name__)
             return {'candidate_status': 'error', 'available_coaches': None, 'unavailable_coaches': None}
+
+    def get_capacity_conflict(self, obj):
+        return order_capacity_conflict(obj)
 
     def get_payment_status(self, obj):
         p = obj.latest_live_payment()
@@ -2595,17 +2660,37 @@ class StaffBookingLinkAdminSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     is_available = serializers.BooleanField(read_only=True)
     can_edit = serializers.SerializerMethodField()
+    hold_capacity = serializers.BooleanField(required=False, write_only=True)
+    capacity_holds = serializers.SerializerMethodField()
 
     class Meta:
         model = StaffBookingLink
         fields = ['id', 'token', 'campus', 'title', 'cart_snapshot', 'snapshot_version', 'quoted_total',
                   'expires_at', 'used_by', 'used_at', 'is_active', 'is_available', 'can_edit',
-                  'created_by_name', 'url', 'created_at']
+                  'created_by_name', 'url', 'created_at', 'hold_capacity', 'capacity_holds']
         read_only_fields = ['id', 'token', 'snapshot_version', 'quoted_total', 'used_by', 'used_at',
                             'created_by_name', 'url', 'created_at']
 
     def get_can_edit(self, obj):
         return self.context.get('staff_link_edit_enabled', False) and obj.is_open
+
+    def get_capacity_holds(self, obj):
+        from booking.capacity import active_staff_link_holds
+
+        holds = getattr(obj, 'active_capacity_holds', None)
+        if holds is None:
+            holds = active_staff_link_holds(client_id=obj.client_id).filter(staff_link=obj).select_related(
+                'course_template', 'resort',
+            ).order_by('date', 'start_time', 'pk')
+        return [{
+            'id': hold.pk,
+            'template_name': hold.course_template.name,
+            'resort_name': hold.resort.display_name,
+            'date': hold.date.isoformat(),
+            'start_time': hold.start_time.strftime('%H:%M'),
+            'end_time': hold.end_time.strftime('%H:%M'),
+            'expires_at': serializers.DateTimeField().to_representation(hold.expires_at),
+        } for hold in holds]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

@@ -35,6 +35,7 @@ export const consoleNavigation = [
     { path: 'orders/edit', label: '修改與排課', access: 'order_edit' },
     { path: 'orders/payments', label: '對帳與差額', access: 'order_payments' },
     { path: 'orders/refunds', label: '取消與退款', access: 'order_refunds' },
+    { path: 'orders/import', label: '匯入已購訂單', access: '@order-import' },
     { path: 'orders/export', label: '匯出訂單', access: 'order_export' },
   ] },
   { id: 'support', label: '客服與通知', icon: MessageCircle, pages: [
@@ -60,6 +61,7 @@ export const consoleNavigation = [
     { path: 'course-types', label: '課程架構', access: 'course_types' },
     { path: 'pricing', label: '課程定價', access: 'pricing' },
     { path: 'resorts', label: '雪場營運資料', access: 'resorts' },
+    { path: 'booking-closures', label: '停收日期', access: '@booking-closures' },
   ] },
   { id: 'marketing', label: '行銷與優惠', icon: Megaphone, pages: [
     { path: 'discounts', label: '折扣碼與促銷規則', access: 'discounts' },
@@ -103,6 +105,11 @@ export type ConsolePath = NavigationPage['path']
 
 export function canOpenConsolePage(page: ConsolePage, user: AdminUser | null | undefined, basePath: string) {
   if (page.access === 'booking_links') return canPrepareStaffBooking(user)
+  if (page.access === '@booking-closures') return hasAdminPermission(user, 'resorts') || hasAdminPermission(user, 'course_types')
+  if (page.access === '@order-import') {
+    return user?.order_import_enabled === true && (user.is_superuser === true
+      || (user.role === 'hq_admin' && user.can_view_all_campuses === true && hasAdminPermission(user, 'order_edit')))
+  }
   if (page.access === '@coach') return user?.is_coach === true
   if (page.access === '@vehicle-guide') {
     return user?.is_coach === true || hasAdminPermission(user, 'vehicle_review') || hasAdminPermission(user, 'vehicle_finance')

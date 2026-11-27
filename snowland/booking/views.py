@@ -1,4 +1,7 @@
 from .tenant_scope import ResortBookingClosed, require_open_booking_resorts, resort_for_course
+from Client.models import Client
+from Client.tenant_settings import booking_capacity_recheck_enabled
+from .capacity import Slot, checkout_closure_conflicts, checkout_conflicts, slot_conflict_response
 from django.shortcuts import render, get_object_or_404
 from django.http import Http404, HttpResponse, JsonResponse
 from django.views.decorators.http import require_GET
@@ -226,6 +229,43 @@ def calculate_price_api(request, Client_Info=None):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
+def legacy_course_slot(slot_id):
+    class TempCourse:
+        def __init__(self, template, session):
+            self.template = template
+            self.main_time = (
+                f"{session.start_time.strftime('%H:%M')}-{session.end_time.strftime('%H:%M')}"
+                if session else '09:00-17:00'
+            )
+
+    try:
+        template = CourseTemplate.objects.get(id=slot_id)
+    except CourseTemplate.DoesNotExist:
+        session = CourseSession.objects.select_related('template').get(id=slot_id)
+        return TempCourse(session.template, session)
+    session = CourseSession.objects.filter(template=template, is_active=True).first()
+    return TempCourse(template, session)
+
+
+def legacy_checkout_slots(courses):
+    slots = []
+    for course in courses:
+        reservation_slots = []
+        for slot_info in course.get('booking') or []:
+            try:
+                course_slot = legacy_course_slot(slot_info.get('timeSlot'))
+                day = datetime.strptime(slot_info['date'], '%Y-%m-%d').date()
+                reservation_slots.extend(
+                    Slot(course_slot.template, day, str_to_time(start), str_to_time(end))
+                    for start, end in parse_time_ranges(course_slot.main_time)
+                )
+            except (CourseSession.DoesNotExist, AttributeError, KeyError, TypeError, ValueError):
+                # Invalid input is handled by the original creation path.
+                continue
+        slots.extend((slot, course.get('resort')) for slot in dict.fromkeys(reservation_slots))
+    return slots
+
+
 @api_view(['GET', 'POST'])
 @login_required_control
 def API(request, tunnel, Client_Info=None):
@@ -392,7 +432,25 @@ def API(request, tunnel, Client_Info=None):
             # --- 統一的預約創建流程 ---
             try:
                 with transaction.atomic():
+                    slot_resorts = legacy_checkout_slots(courses_to_process)
+                    # Match the current checkout's tenant-before-resort lock order.
+                    slots_by_tenant = {}
+                    for slot, resort_name in slot_resorts:
+                        tenant_id = slot.template.course_type.category.client_id
+                        slots_by_tenant.setdefault(tenant_id, []).append((slot, resort_name))
+                    tenants = list(Client.objects.select_for_update().filter(pk__in=slots_by_tenant).order_by('pk'))
                     require_open_booking_resorts(course.get('resort') for course in courses_to_process)
+                    conflicts = [
+                        conflict for tenant in tenants
+                        for conflict in checkout_closure_conflicts(tenant, slots_by_tenant[tenant.pk])
+                    ]
+                    if not conflicts:
+                        enabled_tenants = {tenant.pk for tenant in tenants if booking_capacity_recheck_enabled(tenant)}
+                        conflicts = checkout_conflicts(
+                            slot for slot, _ in slot_resorts if slot.template.course_type.category.client_id in enabled_tenants
+                        )
+                    if conflicts:
+                        return JsonResponse(slot_conflict_response(conflicts), status=409)
                     group = ReservationGroup.objects.create(user=user)
                     payment = Payment.objects.create(
                         reservation_group=group,
@@ -444,32 +502,9 @@ def API(request, tunnel, Client_Info=None):
                             date = slot_info.get("date")
 
                             try:
-                                # 首先嘗試從CourseTemplate模型查找
-                                course_template = CourseTemplate.objects.get(id=slot_id)
-                                # 創建一個臨時的Course對象來兼容後續邏輯
-                                class TempCourse:
-                                    def __init__(self, template):
-                                        self.template = template
-                                        # 從CourseSession獲取時間段
-                                        sessions = CourseSession.objects.filter(template=template, is_active=True)
-                                        if sessions.exists():
-                                            session = sessions.first()  # 取第一個時段
-                                            self.main_time = f"{session.start_time.strftime('%H:%M')}-{session.end_time.strftime('%H:%M')}"
-                                        else:
-                                            self.main_time = "09:00-17:00"  # 預設時間
-                                course_slot = TempCourse(course_template)
-                            except CourseTemplate.DoesNotExist:
-                                try:
-                                    # 如果CourseTemplate模型找不到，嘗試從CourseSession模型查找
-                                    course_session = CourseSession.objects.select_related('template').get(id=slot_id)
-                                    # 創建一個臨時的Course對象來兼容後續邏輯
-                                    class TempCourse:
-                                        def __init__(self, session):
-                                            self.template = session.template
-                                            self.main_time = f"{session.start_time.strftime('%H:%M')}-{session.end_time.strftime('%H:%M')}"
-                                    course_slot = TempCourse(course_session)
-                                except CourseSession.DoesNotExist:
-                                    raise Exception(f"無效的時段ID: {slot_id}")
+                                course_slot = legacy_course_slot(slot_id)
+                            except CourseSession.DoesNotExist:
+                                raise Exception(f"無效的時段ID: {slot_id}")
 
                             if number_of_people < course_slot.template.minimum_group_size:
                                 raise Exception(
@@ -488,7 +523,7 @@ def API(request, tunnel, Client_Info=None):
                                     start_time=str_to_time(start_s),
                                     end_time=str_to_time(end_s),
                                 )
-                            
+
                             # --- 動態價格計算邏輯 ---
                             booking_date = datetime.strptime(date, '%Y-%m-%d').date()
                             season_type = SeasonSetting.get_season_type_for_date(booking_date)

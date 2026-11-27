@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from API import tests_order_amendments as fixtures
 from Resorts.models import PaymentAccount
-from booking.models import Booking, MemberDetail, OrderAmendment, Payment
+from booking.models import Booking, BookingClosure, MemberDetail, OrderAmendment, Payment
 from Coach.models import Coach, CoachResort
 
 
@@ -65,6 +65,32 @@ class OrderAmendmentConfirmTests(TestCase):
         detail=self.api.get(self.url.split('amendment-quote/')[0])
         self.assertEqual(detail.status_code,200)
         self.assertEqual(detail.data['data']['amendment_balance'],{'amount':2000,'statuses':['topup_due']})
+
+    def test_closure_warns_on_new_slot_without_blocking_save(self):
+        draft = fixtures.OrderAmendmentQuoteTests.draft(self, number_of_people=1, equipment=self.reservation.equipment)
+        draft['changes'][0]['courses'][0].update(start_time='10:00', end_time='13:00')
+        closure = BookingClosure.objects.create(
+            client=self.tenant, resort=self.resort_a, course_template=self.template,
+            date_from=self.day, date_to=self.day, start_time='12:00', end_time='14:00', reason='內部原因',
+        )
+        original = self.api.post(self.url, fixtures.OrderAmendmentQuoteTests.draft(self), format='json')
+        self.assertEqual(original.data['data']['closure_warnings'], [])
+        preview = self.api.post(self.url, draft, format='json')
+        self.assertEqual(preview.status_code, 200, preview.data)
+        warnings = preview.data['data']['closure_warnings']
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('已暫停接單', warnings[0])
+        self.assertNotIn(closure.reason, warnings[0])
+        BookingClosure.objects.create(
+            client=self.tenant, resort=self.resort_a, date_from=self.day, date_to=self.day,
+        )
+        response = self.api.post(self.url_confirm, {
+            **draft, 'quote_token': preview.data['data']['quote_token'], 'request_key': str(uuid.uuid4()),
+            'reason': '依客人需求人工改期', 'confirmed': True,
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.booking.refresh_from_db()
+        self.assertEqual(str(self.booking.start_time), '10:00:00')
 
     def test_same_request_is_idempotent_and_different_reuse_is_rejected(self):
         body=self.body()

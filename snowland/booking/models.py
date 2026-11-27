@@ -11,6 +11,66 @@ from Coursekit.models import CourseType
 from .media_files import PrivateCourseMediaStorage
 from snowland.soft_delete import SoftDeleteManager, SoftDeleteModel
 
+
+class BookingClosure(SoftDeleteModel):
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)
+    resort = models.ForeignKey('Resorts.Resorts', on_delete=models.CASCADE, null=True, blank=True)
+    course_template = models.ForeignKey('Coursekit.CourseTemplate', on_delete=models.CASCADE, null=True, blank=True)
+    date_from = models.DateField()
+    date_to = models.DateField()
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    reason = models.CharField(max_length=255, blank=True, default='')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        indexes = [
+            models.Index(fields=['client', 'date_from', 'date_to'], name='booking_closure_client_dates'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(resort__isnull=False) | models.Q(course_template__isnull=False),
+                name='booking_closure_has_scope',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(date_to__gte=models.F('date_from')),
+                name='booking_closure_ordered_dates',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(start_time__isnull=True, end_time__isnull=True)
+                    | models.Q(start_time__isnull=False, end_time__isnull=False, end_time__gt=models.F('start_time'))
+                ),
+                name='booking_closure_ordered_times',
+            ),
+        ]
+
+
+class OrderImportBatch(models.Model):
+    STATUS_CHOICES = [
+        ('previewed', '已預覽'), ('committed', '已處理'), ('partial', '部分成功'), ('failed', '失敗'),
+    ]
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE, related_name='order_import_batches')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    filename = models.CharField(max_length=255)
+    file_sha256 = models.CharField(max_length=64)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='previewed')
+    summary = models.JSONField(default=dict)
+    row_results = models.JSONField(default=list)
+    order_results = models.JSONField(default=list)
+    commit_results = models.JSONField(default=dict)
+    staged_input = models.BinaryField(null=True, editable=False)
+    commit_started = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    committed_at = models.DateTimeField(null=True)
+    allow_overbook = models.BooleanField(default=False)
+    overbook_reason = models.TextField(blank=True, default='')
+
+    class Meta:
+        indexes = [models.Index(fields=['client', 'status', 'created_at'], name='sl_import_client_status_date')]
+
+
 ABILITY_LEVEL_CHOICES = [
     ('no_exp', '等級 0'),
     ('level1', '等級 1'),
@@ -1063,6 +1123,30 @@ class StaffBookingLink(models.Model):
             return False
         from .staff_link_snapshot import staff_cart_is_current
         return staff_cart_is_current(self)
+
+class StaffLinkCapacityHold(models.Model):
+    # Django handles related deletes. Database constraints would block old
+    # application versions from deleting objects they don't know are referenced.
+    client = models.ForeignKey('Client.Client', on_delete=models.CASCADE, db_constraint=False)
+    staff_link = models.ForeignKey(
+        StaffBookingLink, on_delete=models.CASCADE, related_name='capacity_holds', db_constraint=False,
+    )
+    course_template = models.ForeignKey('Coursekit.CourseTemplate', on_delete=models.CASCADE, db_constraint=False)
+    resort = models.ForeignKey('Resorts.Resorts', on_delete=models.CASCADE, db_constraint=False)
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    expires_at = models.DateTimeField()
+    released_at = models.DateTimeField(null=True, blank=True)
+    converted_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+', db_constraint=False)
+
+    class Meta:
+        indexes = [models.Index(
+            fields=['client', 'course_template', 'date', 'start_time', 'end_time'],
+            name='booking_staff_hold_slot_idx',
+        )]
+
 
 class NewebpayMerchant(models.Model):
     client = models.ForeignKey('Client.Client', on_delete=models.CASCADE)

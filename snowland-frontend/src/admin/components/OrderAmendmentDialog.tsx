@@ -89,6 +89,12 @@ export default function OrderAmendmentDialog({orderId,onClose}:{orderId:number;o
             <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={reschedule} onChange={event=>{setReschedule(event.target.checked);setReviewed(false)}}/>沒有保留教練時，嘗試依新條件自動排課</label>
             <label className="block text-sm">修改原因（必填）<textarea className={field} maxLength={1000} value={reason} onChange={event=>{setReason(event.target.value);setReviewed(false)}}/></label>
           </fieldset>}
+          {!!quote?.closure_warnings?.length && <div role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            <p className="font-semibold">新時段已暫停前台接單，仍可保存行政修改。</p>
+            <ul className="ml-5 list-disc">
+              {quote.closure_warnings.map(warning => <li key={warning}>{warning}</li>)}
+            </ul>
+          </div>}
           {quote&&<section className="space-y-3 rounded-lg border border-violet-300 bg-violet-50 p-4 dark:border-violet-700 dark:bg-violet-950"><h3 className="font-semibold">請核對這次修改</h3><dl className="grid grid-cols-2 gap-2 text-sm"><dt>原訂單金額</dt><dd className="text-right">{money(quote.settlement?.previous_total??quote.previous_total,quote.settlement?.currency)}</dd><dt>新訂單金額</dt><dd className="text-right">{money(quote.settlement?.new_total??quote.new_total,quote.settlement?.currency)}</dd><dt>本次價差</dt><dd className="text-right font-semibold">{quote.difference_amount>0?'+':''}{money(quote.settlement?.difference_amount??quote.difference_amount,quote.settlement?.currency)}</dd></dl>{quote.settlement&&<p className="text-xs leading-6">台幣計價基準：原 {money(quote.previous_total)} → 新 {money(quote.new_total)}；沿用訂單匯率1 TWD＝{quote.settlement.rate} {quote.settlement.currency}。差額以原幣收退。</p>}<p className="text-xs leading-6">這是本次改價，尚未實際收退。若原單已有未結清差額，保存後會合併計算；未付款訂單直接更新應付總額。</p><label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={pending} checked={reviewed} onChange={event=>setReviewed(event.target.checked)}/>已核對課程、學員、原價、新價及差額</label></section>}
         </>}
         {error&&<p role="alert" className="whitespace-pre-wrap break-words rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}

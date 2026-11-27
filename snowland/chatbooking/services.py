@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.http import QueryDict
 from django.utils import timezone
 
+from Client.models import Client
 from Coach.models import Coach
 from Coursekit.models import CourseCategory, CourseSession, CourseTemplate, CourseType
 from Resorts.models import EquipmentAssistanceTimeSlot, Resorts
@@ -22,7 +23,9 @@ from booking.api_views import (
     calculate_cart_discount_summary,
     compute_cart_item_pricing_authoritative,
     get_category_frontend_resorts,
+    get_group_payment_hold,
 )
+from booking.capacity import PAYMENT_CAPACITY_CODE
 from booking.models import Payment, ReservationGroup
 
 from .flow import (
@@ -41,6 +44,12 @@ class ConfirmBookingResult:
     status_code: int = 200
     error: str = ""
     replayed: bool = False
+
+
+class ChatBookingConflict(ValueError):
+    def __init__(self, payload):
+        super().__init__(payload["message"])
+        self.payload = payload
 
 
 class RequestProxy:
@@ -858,7 +867,14 @@ def make_quote(session):
     return draft
 
 
-def payment_snapshot_for_groups(client, group_ids):
+def require_payment_capacity(groups):
+    for group in groups:
+        message, code = get_group_payment_hold(group, check_capacity=True)
+        if code == PAYMENT_CAPACITY_CODE:
+            raise ChatBookingConflict({"code": code, "message": message})
+
+
+def payment_snapshot_for_groups(client, group_ids, *, recheck_capacity=True):
     groups = ReservationGroup.objects.filter(client=client, id__in=group_ids).prefetch_related(
         "reservations",
         "payments",
@@ -866,6 +882,8 @@ def payment_snapshot_for_groups(client, group_ids):
     by_id = {group.id: group for group in groups}
     if set(int(group_id) for group_id in group_ids) != set(by_id):
         raise ValueError("訂單歸屬驗證失敗")
+    if recheck_capacity:
+        require_payment_capacity(by_id.values())
 
     order_groups = []
     total_amount = 0
@@ -918,12 +936,14 @@ def submit_bank_transfer(session, sender_account):
         raise ValueError("尚未建立可付款訂單")
     if draft.payment_snapshot.get("payment_allowed") is not True:
         raise ValueError("此訂單目前不可付款，請等待排課處理")
-    groups = ReservationGroup.objects.filter(
+    Client.objects.select_for_update().get(pk=session.client_id)
+    groups = list(ReservationGroup.objects.live().select_for_update().filter(
         client=session.client,
         id__in=draft.reservation_group_ids,
-    )
-    if groups.count() != len(draft.reservation_group_ids):
+    ).order_by("pk"))
+    if len(groups) != len(draft.reservation_group_ids):
         raise ValueError("訂單歸屬驗證失敗")
+    require_payment_capacity(groups)
     for group in groups:
         payment, _ = Payment.objects.get_or_create(
             reservation_group=group,
@@ -934,7 +954,9 @@ def submit_bank_transfer(session, sender_account):
         payment.payment_method = "TT"
         payment.bank_account = str(sender_account)
         payment.save(update_fields=["user", "status", "payment_method", "bank_account", "updated_at"])
-    draft.payment_snapshot = payment_snapshot_for_groups(session.client, draft.reservation_group_ids)
+    draft.payment_snapshot = payment_snapshot_for_groups(
+        session.client, draft.reservation_group_ids, recheck_capacity=False,
+    )
     draft.payment_snapshot["payment_allowed"] = True
     draft.save(update_fields=["payment_snapshot", "updated_at"])
     return draft.payment_snapshot
@@ -969,6 +991,8 @@ def commit_draft(session, request_user):
         with transaction.atomic():
             response = CreateReservationAPI().post(proxy, client_code=session.client.internal_code)
             if response.status_code >= 400 or response.data.get("code") != 200:
+                if response.data.get("code") == "slot_full":
+                    raise ChatBookingConflict(response.data)
                 raise CommitRejected(response.data.get("msg") or "建立預約失敗")
     except CommitRejected as exc:
         raise ValueError(str(exc)) from exc
@@ -980,7 +1004,7 @@ def commit_draft(session, request_user):
     if not group_ids:
         raise ValueError("建立預約後未取得訂單編號")
 
-    snapshot = payment_snapshot_for_groups(session.client, group_ids)
+    snapshot = payment_snapshot_for_groups(session.client, group_ids, recheck_capacity=False)
     payment_allowed = bool(response.data.get("requires_payment")) and not response.data.get("scheduling_failed")
     snapshot["payment_allowed"] = payment_allowed
     if not payment_allowed:
@@ -1027,24 +1051,42 @@ def confirm_quoted_session(
     )
     if not created:
         if invocation.status == ChatBookingToolInvocation.STATUS_SUCCEEDED:
-            return ConfirmBookingResult(True, invocation.output_data, replayed=True)
+            output = invocation.output_data
+            group_ids = output.get("reservation_group_ids", [])
+            if output.get("requires_payment") and group_ids:
+                try:
+                    require_payment_capacity(ReservationGroup.objects.live().filter(
+                        client_id=locked_session.client_id, pk__in=group_ids,
+                    ))
+                except ChatBookingConflict as exc:
+                    # Replay the created order, but keep stale payment instructions out of the reply.
+                    output = {
+                        **output, "requires_payment": False, "message": str(exc),
+                        "payment": {
+                            **exc.payload, "payment_allowed": False, "payment_methods": [],
+                            "reservation_group_ids": group_ids,
+                        },
+                    }
+            return ConfirmBookingResult(True, output, replayed=True)
         if invocation.status == ChatBookingToolInvocation.STATUS_FAILED:
             saved_status = int((invocation.output_data or {}).get("status_code") or 400)
             return ConfirmBookingResult(
                 False,
-                {},
+                (invocation.output_data or {}).get("conflict", {}),
                 saved_status,
                 invocation.error or "前次建立訂單失敗",
                 replayed=True,
             )
         return ConfirmBookingResult(False, {}, 409, "訂單正在建立中，請勿重複送出", replayed=True)
 
-    def reject(message, status_code):
+    def reject(message, status_code, conflict=None):
         invocation.status = ChatBookingToolInvocation.STATUS_FAILED
         invocation.output_data = {"status_code": status_code}
+        if conflict:
+            invocation.output_data["conflict"] = conflict
         invocation.error = message
         invocation.save(update_fields=["status", "output_data", "error", "updated_at"])
-        return ConfirmBookingResult(False, {}, status_code, message)
+        return ConfirmBookingResult(False, conflict or {}, status_code, message)
 
     if expected_state_version is None:
         return reject("缺少預約狀態版本", 400)
@@ -1067,10 +1109,10 @@ def confirm_quoted_session(
 
     try:
         # Serialize tenant booking writes before entering the legacy scheduling pipeline.
-        from Client.models import Client
-
         Client.objects.select_for_update().get(pk=locked_session.client_id)
         output = commit_draft(locked_session, request_user)
+    except ChatBookingConflict as exc:
+        return reject(str(exc), 409, exc.payload)
     except ValueError as exc:
         return reject(str(exc), 400)
 

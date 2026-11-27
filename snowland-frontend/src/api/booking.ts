@@ -99,7 +99,7 @@ export interface SharedClassLookup {
   people_count?: number
 }
 
-export const fetchCourseSessions = async (templateId?: number, date?: string, lookup?: SharedClassLookup): Promise<CourseSession[]> => {
+export const fetchCourseSessions = async (templateId?: number, date?: string, lookup?: SharedClassLookup & { staff_link?: string }): Promise<CourseSession[]> => {
   const params: any = {}
   if (templateId) params.template_id = templateId
   if (date) params.date = date
@@ -266,6 +266,24 @@ export interface DiscountPreviewResponse {
 
 export const previewDiscounts = async (data: CreateReservationParams): Promise<DiscountPreviewResponse> => {
   return api.post('/discount-preview/', data, { timeout: DISCOUNT_PREVIEW_TIMEOUT_MS })
+}
+
+export interface SlotUnavailable {
+  code: string
+  message_zh: string
+  date: string
+  start_time: string
+  end_time: string
+  template_id: number
+  template_name: string
+  occupied: number
+  capacity: number
+}
+
+export interface SlotFullResponse {
+  code: 'slot_full'
+  message: string
+  conflicts: SlotUnavailable[]
 }
 
 export interface CreateReservationResponse {

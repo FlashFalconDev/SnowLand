@@ -58,7 +58,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 import { fetchAdminMe } from '@/admin/api/auth'
 import { canPrepareStaffBooking } from '@/admin/permissions'
-import type { CartItem, Course, Resort } from '@/types/booking'
+import type { CartItem, Course, CourseSession, Resort } from '@/types/booking'
 import {
   fetchCourseTypes,
   fetchResorts,
@@ -75,6 +75,8 @@ import {
   cancelFailedReservations,
   type DiscountPreviewResponse,
   type ResolvedStaffBookingLink,
+  type SlotFullResponse,
+  type SlotUnavailable,
 } from '@/api/booking'
 
 // ========== 類型 ==========
@@ -367,7 +369,7 @@ const getTimeMinutes = (time?: string | null) => {
   return Number(hour) * 60 + Number(minute)
 }
 
-const isUsableSession = (session: any) => session && session.is_active !== false && !session.is_full
+const isUsableSession = (session: any) => session && session.is_active !== false && !session.is_full && !session.is_closed
 
 const chooseReplacementSession = (sessions: any[], original: Course, period?: string) => {
   const usableSessions = sessions.filter(isUsableSession)
@@ -646,6 +648,22 @@ const PHOTO_STEP2_FIELDS = [
   'category', 'resort', 'courseType', 'template', 'date', 'timeSlot',
 ]
 
+const matchesUnavailableSlot = (course: Course, slot: SlotUnavailable) =>
+  course.courseTemplateId === slot.template_id && course.date === slot.date
+  && course.timeSlotStart?.slice(0, 5) === slot.start_time
+  && course.timeSlotEnd?.slice(0, 5) === slot.end_time
+
+function clearAvailableSlots(conflict: SlotFullResponse | null, templateId: number, date: string, sessions: CourseSession[]) {
+  if (!conflict) return null
+  const conflicts = conflict.conflicts.filter(slot => !(slot.template_id === templateId && slot.date === date
+    && sessions.some(session => session.is_full === false
+      && session.start_time.slice(0, 5) === slot.start_time && session.end_time.slice(0, 5) === slot.end_time)))
+  if (conflicts.length === conflict.conflicts.length) return conflict
+  return conflicts.length ? { ...conflict, conflicts, message: conflicts[0].message_zh } : null
+}
+
+class PaymentInfoResponseError extends Error {}
+
 const getLessonDurationKey = (durationHours?: number | null) => {
   if (!durationHours) return 'any'
   return Number(durationHours) >= 5 ? 'full_day' : 'half_day'
@@ -757,6 +775,7 @@ export default function BookingFlowPage() {
   const [staffOperator, setStaffOperator] = useState(false)
   const [staffOperatorLoading, setStaffOperatorLoading] = useState(staffPreparing)
   const staffPrepareMode = staffPreparing && staffOperator
+  const staffHoldToken = staffPrepareMode ? staffDraft?.getState().staffLinkToken : undefined
 
   useEffect(() => {
     if (!staffPreparing) return
@@ -816,6 +835,13 @@ export default function BookingFlowPage() {
   const [coaches, setCoaches] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
   const [sessions, setSessions] = useState<any[]>([])
+  const [sessionReloadKey, setSessionReloadKey] = useState(0)
+  const [slotFull, setSlotFull] = useState<SlotFullResponse | null>(null)
+  const [isCheckingSlots, setIsCheckingSlots] = useState(false)
+  const blockedSlots = slotFull?.conflicts.filter(slot =>
+    cart.some(group => group.courses.some(course => matchesUnavailableSlot(course, slot))),
+  ) || []
+  const hasBlockedSlots = blockedSlots.length > 0
   const [isCoachesLoading, setIsCoachesLoading] = useState(false)
   const [isTemplatesLoading, setIsTemplatesLoading] = useState(false)
   const [selectedCourseDateKeys, setSelectedCourseDateKeys] = useState<string[]>([])
@@ -1077,17 +1103,24 @@ export default function BookingFlowPage() {
 
   // 載入時段（當課程模板選好；若已選日期，會帶 date 一起檢查容量）
   useEffect(() => {
+    let cancelled = false
     if (selectedCourseTemplate) {
       const levels = Object.entries(abilityLevelCounts).filter(([, count]) => Number(count) > 0)
       fetchCourseSessions(selectedCourseTemplate, selectedDate || undefined, {
         campus_id: selectedCampusId, resort: selectedResort,
+        staff_link: staffHoldToken,
         ability_level: levels.length === 1 ? levels[0][0] : null,
         language: selectedLanguage || 'zh', people_count: peopleCount,
       })
-        .then((data: any) => setSessions(data))
-        .catch((e) => { console.error(e); setSessions([]) })
+        .then(data => {
+          if (cancelled) return
+          setSessions(data)
+          if (selectedDate) setSlotFull(current => clearAvailableSlots(current, selectedCourseTemplate, selectedDate, data))
+        })
+        .catch((e) => { if (!cancelled) { console.error(e); setSessions([]) } })
     }
-  }, [selectedCourseTemplate, selectedDate, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage, peopleCount])
+    return () => { cancelled = true }
+  }, [selectedCourseTemplate, selectedDate, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage, peopleCount, sessionReloadKey, staffHoldToken])
 
   // 載入可預約日期資訊（當模板或日曆月份改變）
   useEffect(() => {
@@ -1114,7 +1147,7 @@ export default function BookingFlowPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedCourseTemplate, calendarMonth, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage])
+  }, [selectedCourseTemplate, calendarMonth, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage, sessionReloadKey])
 
   useEffect(() => {
     if (currentStep !== 3 || submittedReservation || cart.length === 0) {
@@ -1512,7 +1545,7 @@ export default function BookingFlowPage() {
         case 'coach': return !!selectedTemplateForCoachRule?.shared_class_enabled || selectedTemplateHasCoachRestriction || !languageRequiresCoach(selectedLanguage) || !!selectedCoach
         case 'template': return !!selectedCourseTemplate
         case 'date': return !!selectedDate && selectedCourseDates.length > 0 && unavailableSelectedDates.length === 0
-        case 'timeSlot': return !!selectedTimeSlot
+        case 'timeSlot': return !!selectedTimeSlot && isUsableSession(sessions.find(session => session.id === selectedTimeSlot))
         case 'equipment':
           return !!equipmentOption && (
             equipmentOption !== 'extra_time_help' ||
@@ -1525,6 +1558,7 @@ export default function BookingFlowPage() {
       if (createdReservationIds.length > 0 && !submittedReservation) return false
       // 3a 送出訂單前：要求電話 + 通訊軟體 + 通訊 ID + 同意條款
       if (!submittedReservation) {
+        if (hasBlockedSlots) return false
         if(currencyQuote.currency!=='TWD'&&(!currencyReady||!jpyPreview||isDiscountPreviewLoading))return false
         if (staffLinkReloadKey > 0 && staffSelectedCart && (!discountPreview || isDiscountPreviewLoading)) return false
         if (hasUnconfirmedCartPrice(cart)) return false
@@ -1541,11 +1575,11 @@ export default function BookingFlowPage() {
     selectedCourseCategory, selectedCourseType, serviceCourseCategories, resortsForSelectedCategory,
     selectedResort, selectedCampusId, peopleCount, hasUnder6, under7CanSelfSki, abilityLevelCounts, selectedAbilityLevel, selectedCoach, selectedLanguage,
     selectedTemplateHasCoachRestriction,
-    selectedCourseTemplate, selectedDate, selectedCourseDates, unavailableSelectedDates, selectedTimeSlot,
+    selectedCourseTemplate, selectedDate, selectedCourseDates, unavailableSelectedDates, selectedTimeSlot, sessions,
     equipmentOption, equipmentAssistanceTimeSlotId, equipmentTimeSlots,
     cart, discountPreview, staffLinkReloadKey, staffSelectedCart,
     contactInfo.name, contactInfo.phone, contactInfo.messengerType, contactInfo.messengerId, referralSourceValue, staffLinkInfo, acceptedPolicy,
-    submittedReservation, createdReservationIds, paymentMethod, senderAccount, currencyQuote.currency, currencyReady, jpyPreview, isDiscountPreviewLoading,
+    submittedReservation, createdReservationIds, paymentMethod, senderAccount, currencyQuote.currency, currencyReady, jpyPreview, isDiscountPreviewLoading, hasBlockedSlots,
   ])
 
   const handleNext = async () => {
@@ -1664,11 +1698,13 @@ export default function BookingFlowPage() {
     showToast('請新增下一組預約，原本的訂單明細已保留', 'info')
   }
 
-  const handleAddCourseToGroup = (groupId: string) => {
+  const handleAddCourseToGroup = (groupId: string, unavailable?: SlotUnavailable) => {
     setEditingGroupId(null)
     if (submittedReservation) return
     const group = cart.find((item) => item.id === groupId)
-    const firstCourse = group?.courses?.[0]
+    const firstCourse = unavailable
+      ? group?.courses.find(course => matchesUnavailableSlot(course, unavailable))
+      : group?.courses?.[0]
     if (!group || !firstCourse) return
     if (firstCourse.sharedClassEnabled) {
       showToast('團體湊班每筆只能報名一堂課，請先完成這筆報名。', 'warning')
@@ -1679,7 +1715,8 @@ export default function BookingFlowPage() {
     const nextFields = nextServiceType === 'photo' ? PHOTO_STEP2_FIELDS : SKI_STEP2_FIELDS
     const templateStepIndex = nextFields.findIndex((field) => field === 'template')
 
-    setAppendTargetGroupId(group.id)
+    setAppendTargetGroupId(unavailable ? null : group.id)
+    setEditingGroupId(unavailable ? group.id : null)
     setServiceType(nextServiceType)
     setSelectedCourseCategory(null as any, group.courseCategory as any)
     setSelectedResort(group.resort || null, group.resortName || group.resort || null, group.campusId || null, group.campusName || null)
@@ -1696,9 +1733,11 @@ export default function BookingFlowPage() {
       group.coach === 'any' ? null : group.coachName,
     )
     setSelectedLanguage(group.language || 'zh')
-    setSelectedCourseTemplate(null)
-    setSelectedDate(null)
-    setSelectedCourseDateKeys([])
+    setSelectedCourseTemplate(unavailable?.template_id ?? null)
+    setSelectedDate(unavailable?.date ?? null)
+    setSelectedCourseDateKeys(unavailable ? [...new Set(group.courses
+      .filter(course => course.courseTemplateId === unavailable.template_id)
+      .map(course => course.date))].sort() : [])
     setSelectedTimeSlot(null)
     setNeedEquipment(Boolean(group.equipment || group.equipmentOption))
     setEquipmentOption(group.equipmentOption || null)
@@ -1710,10 +1749,51 @@ export default function BookingFlowPage() {
     setDateInfo(null)
     setCoachSearchTerm('')
     setCoachLevelFilter('all')
-    setCalendarMonth(new Date())
+    setCalendarMonth(unavailable ? parseDateKey(unavailable.date) : new Date())
     setCurrentStep(2)
+    if (unavailable) {
+      setStep2Index(nextFields.indexOf('timeSlot'))
+      setSessionReloadKey(key => key + 1)
+      return
+    }
     setStep2Index(templateStepIndex >= 0 ? templateStepIndex : 0)
     showToast(t('正在加課到第 {group} 組，請選擇課程、日期與時段；人數、程度與教練會沿用此組。',{group:cart.findIndex((item) => item.id === groupId)+1}), 'info')
+  }
+
+  const handleFullSlotResponse = (error: any) => {
+    const response = error?.response
+    if (response?.status === 409 && response.data?.code === 'slot_closed') {
+      showToast(response.data.message || t('已暫停接單'), 'warning')
+      setSessionReloadKey(key => key + 1)
+      return true
+    }
+    const data = error?.response?.data as SlotFullResponse | undefined
+    if (error?.response?.status !== 409 || data?.code !== 'slot_full') return false
+    setSlotFull(data)
+    const slot = data.conflicts[0]
+    const group = slot && cart.find(item => item.courses.some(course => matchesUnavailableSlot(course, slot)))
+    if (group && !staffSelectedCart) handleAddCourseToGroup(group.id, slot)
+    if (!group) showToast(data.message, 'warning')
+    return true
+  }
+
+  const refreshBlockedSlots = async () => {
+    setIsCheckingSlots(true)
+    const dates = new Map(blockedSlots.map(slot => [`${slot.template_id}:${slot.date}`, slot]))
+    const results = await Promise.allSettled(Array.from(dates.values(), async slot => ({
+      slot, sessions: await fetchCourseSessions(slot.template_id, slot.date),
+    })))
+    setSlotFull(current => {
+      if (current !== slotFull) return current
+      for (const result of results) {
+        if (result.status !== 'fulfilled') continue
+        const { slot, sessions } = result.value
+        current = clearAvailableSlots(current, slot.template_id, slot.date, sessions)
+      }
+      return current
+    })
+    setSessionReloadKey(key => key + 1)
+    setIsCheckingSlots(false)
   }
 
   const addCurrentToCart = async () => {
@@ -1785,13 +1865,13 @@ export default function BookingFlowPage() {
           : equipmentOption
         const fetchedSessions = courseDate === selectedDate
           ? sessions
-          : await fetchCourseSessions(selectedCourseTemplate, courseDate)
+          : await fetchCourseSessions(selectedCourseTemplate, courseDate, { resort: selectedResort, staff_link: staffHoldToken })
         const daySessions = Array.isArray(fetchedSessions)
           ? fetchedSessions
           : ((fetchedSessions as any)?.data || [])
         const daySession = (daySessions || []).find((item: any) => Number(item.id) === Number(selectedTimeSlot))
-        if (!daySession || daySession.is_full || daySession.is_active === false) {
-          throw new Error(t('{date} 的此時段不可預約',{date:formatDateKey(courseDate)}))
+        if (!isUsableSession(daySession)) {
+          throw new Error(daySession?.closed_reason_zh || t('{date} 的此時段不可預約',{date:formatDateKey(courseDate)}))
         }
         const priceData = await calculatePrice({
           template_id: selectedCourseTemplate,
@@ -1915,7 +1995,8 @@ export default function BookingFlowPage() {
         )
         const pi = await piRes.json().catch(() => ({}))
         if (!piRes.ok) {
-          throw new Error(pi.error || '取得付款資訊失敗')
+          const message = typeof pi?.message === 'string' ? pi.message.trim() : ''
+          throw new PaymentInfoResponseError(message)
         }
         return pi
       }),
@@ -1946,9 +2027,10 @@ export default function BookingFlowPage() {
       setPaymentMethod(paymentInfo.payment_methods.includes('bank_transfer') ? 'bank' : 'card')
       setPaymentInfoError('')
       showToast('訂單已建立，請完成付款', 'success')
-    } catch {
-      setPaymentInfoError('付款資訊暫時無法取得。')
-      showToast('訂單已建立，但付款資訊暫時無法取得', 'warning')
+    } catch (error) {
+      const message = error instanceof PaymentInfoResponseError ? error.message : ''
+      setPaymentInfoError(message || '付款資訊暫時無法取得。')
+      showToast(message || '訂單已建立，但付款資訊暫時無法取得', 'warning')
     }
   }
 
@@ -1957,6 +2039,15 @@ export default function BookingFlowPage() {
     setIsSubmitting(true)
     await loadPaymentForCreatedOrder(createdReservationIds, paymentAccessTokens)
     setIsSubmitting(false)
+  }
+
+  const handlePaymentCapacityHold = (error: any) => {
+    const data = error?.response?.data
+    if (data?.code !== 'slot_full_at_payment') return false
+    setSubmittedReservation(null)
+    setPaymentInfoError(data.message)
+    showToast(data.message, 'warning')
+    return true
   }
 
   // Step 3a：送出訂單；成功後抓付款資訊，停留在 Step 3 進入付款區塊
@@ -2039,6 +2130,7 @@ export default function BookingFlowPage() {
       setLoadingDetail('預約已建立，正在準備付款資訊。')
       await loadPaymentForCreatedOrder(reservationGroupIds, accessTokens)
     } catch (e: any) {
+      if (handleFullSlotResponse(e)) return
       if (staffLinkToken && e?.response?.status === 409 && e.response.data?.error === 'staff_link_updated') {
         setStaffLinkStatus('loading')
         setLearnerChoices({})
@@ -2096,6 +2188,7 @@ export default function BookingFlowPage() {
         setCompletionFlow('bank_submitted')
         setCurrentStep(4)
       } catch (e: any) {
+        if (handlePaymentCapacityHold(e)) return
         showToast(t('提交失敗：{message}',{message:t(getPriceErrorMessage(e, '未知錯誤'))}), 'error')
       } finally {
         setIsSubmitting(false)
@@ -2132,6 +2225,7 @@ export default function BookingFlowPage() {
         }
       }
     } catch (e: any) {
+      if (handlePaymentCapacityHold(e)) return
         showToast(t('跳轉失敗：{message}',{message:t(getPriceErrorMessage(e, '未知錯誤'))}), 'error')
     } finally {
       setIsSubmitting(false)
@@ -2194,7 +2288,7 @@ export default function BookingFlowPage() {
 
         for (const course of group.courses) {
           const targetDate = addDaysToDateKey(suggested.date, getDateKeyOffset(course.date, baseDate))
-          const fetchedSessions = await fetchCourseSessions(course.courseTemplateId, targetDate)
+          const fetchedSessions = await fetchCourseSessions(course.courseTemplateId, targetDate, { resort: group.resort, staff_link: staffHoldToken })
           const daySessions = Array.isArray(fetchedSessions)
             ? fetchedSessions
             : ((fetchedSessions as any)?.data || [])
@@ -2448,6 +2542,21 @@ export default function BookingFlowPage() {
             <div role="alert" className="mb-4 rounded-sm border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               {t('內容已更新，請重新確認金額')}
               {!discountPreview && !isDiscountPreviewLoading && <button type="button" onClick={() => setPriceRetryKey(key => key + 1)} className="ml-3 min-h-11 font-semibold underline">{t('重新確認價格')}</button>}
+            </div>
+          )}
+          {hasBlockedSlots && currentStep < 4 && !createdReservationIds.length && (
+            <div role="alert" className="mb-4 rounded-sm border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {blockedSlots.map(slot => <p key={`${slot.template_id}-${slot.date}-${slot.start_time}-${slot.end_time}`}>{slot.message_zh}</p>)}
+              <button type="button" disabled={isCheckingSlots} onClick={() => void refreshBlockedSlots()} className="mr-3 min-h-11 font-semibold underline disabled:opacity-50">
+                {t(isCheckingSlots ? '正在檢查時段' : '重新檢查時段')}
+              </button>
+              {staffSelectedCart && <p className="mt-2">{t('請聯絡工作人員更新連結中的課程。')}</p>}
+              {currentStep === 3 && !staffSelectedCart && blockedSlots.map(slot => {
+                const group = cart.find(item => item.courses.some(course => matchesUnavailableSlot(course, slot)))
+                return group && <button key={`${slot.template_id}-${slot.date}-${slot.start_time}-${slot.end_time}`} type="button" className="mr-3 min-h-11 font-semibold underline" onClick={() => handleAddCourseToGroup(group.id, slot)}>
+                  {t('重新選擇 {date} 這組課程', { date: slot.date })}
+                </button>
+              })}
             </div>
           )}
           {editingGroupId && currentStep === 2 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#b6d6ec] bg-[#eef4fa] px-4 py-3 text-sm text-[#2b5f8f]"><p>{t("正在修改這組課程。原課程已保留，完成新設定後才會替換。")}</p><button type="button" onClick={() => { resetDraftSelection(); setCurrentStep(3); }} className="min-h-11 rounded-full border border-[#2b5f8f] px-4 py-2 font-semibold">{t("取消修改，保留原課程")}</button></div>}
@@ -2784,6 +2893,7 @@ export default function BookingFlowPage() {
             setLoadingDetail('進階排課已完成，正在準備付款資訊。')
             await loadPaymentForCreatedOrder(reservationGroupIds, accessTokens)
           } catch (e: any) {
+            if (handleFullSlotResponse(e)) return
             if (!oldOrderCancelled) setSchedulingFailed((p) => ({ ...p, isOpen: true }))
             if (isTimeoutError(e)) {
               showToast('進階排課處理時間較久，系統可能仍在建立訂單。請先不要重複送出，稍後確認訂單或聯絡客服。', 'warning')
@@ -3560,10 +3670,10 @@ function Step2SkiConfiguration({
           {sessions.map((s: any) => (
             <button
               key={s.id}
-              onClick={() => !s.is_full && actions.setSelectedTimeSlot(s.id)}
-              disabled={s.is_full}
+              onClick={() => isUsableSession(s) && actions.setSelectedTimeSlot(s.id)}
+              disabled={!isUsableSession(s)}
               className={`p-4 rounded-sm border-2 text-center transition-colors relative ${
-                s.is_full
+                !isUsableSession(s)
                   ? 'border-[#e5e9f2] bg-gray-100 text-gray-400 cursor-not-allowed'
                   : state.selectedTimeSlot === s.id
                   ? 'border-[#2b5f8f] bg-[#e9eef3] text-[#2b5f8f]'
@@ -3573,16 +3683,16 @@ function Step2SkiConfiguration({
               <p className="font-semibold text-sm">
                 {s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)}
               </p>
-              {selectedTemplateInfo?.shared_class_enabled && !s.is_full && <p className="mt-1 text-xs">
+              {selectedTemplateInfo?.shared_class_enabled && isUsableSession(s) && <p className="mt-1 text-xs">
                 {s.shared_class
                   ? s.shared_class.status === 'ready'
                     ? t('已成班・剩 {count} 位',{count:s.shared_class.remaining_capacity})
                     : t('湊班 {registered}/{minimum} 人・剩 {count} 位',{registered:s.shared_class.registered_students,minimum:s.shared_class.minimum_students,count:s.shared_class.remaining_capacity})
                   : t('新班・報名後開始湊班')}
               </p>}
-              {s.is_full && (
-                <span className="absolute top-1 right-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
-                  {t("已滿")}
+              {(s.is_closed || s.is_full) && (
+                <span className="mt-1 inline-block px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
+                  {s.is_closed ? t('已暫停接單') : t("已滿")}
                 </span>
               )}
             </button>

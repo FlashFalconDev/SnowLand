@@ -23,6 +23,7 @@ from .models import (
     ChatBookingSession,
 )
 from .services import (
+    ChatBookingConflict,
     confirm_quoted_session,
     make_quote,
     option_payload,
@@ -409,7 +410,7 @@ class ChatSessionConfirmAPI(SessionAccessMixin, APIView):
             input_data=dict(request.data),
         )
         if not result.ok:
-            return Response({"error": result.error}, status=result.status_code)
+            return Response({"error": result.error, **result.output}, status=result.status_code)
         return Response(result.output)
 
 
@@ -425,6 +426,8 @@ class ChatSessionPaymentAPI(SessionAccessMixin, APIView):
             return Response({"error": "尚未建立可付款訂單"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             snapshot = payment_snapshot_for_groups(session.client, draft.reservation_group_ids)
+        except ChatBookingConflict as exc:
+            return Response({"error": str(exc), **exc.payload}, status=409)
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         payment_allowed = draft.payment_snapshot.get("payment_allowed") is True
@@ -449,6 +452,8 @@ class ChatSessionPaymentAPI(SessionAccessMixin, APIView):
             )
         try:
             snapshot = submit_bank_transfer(session, str(request.data.get("sender_account") or ""))
+        except ChatBookingConflict as exc:
+            return Response({"error": str(exc), **exc.payload}, status=409)
         except (ChatBookingDraft.DoesNotExist, ValueError) as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"message": "匯款帳戶後五碼已提交，等待確認", "payment": snapshot})

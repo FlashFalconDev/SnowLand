@@ -172,6 +172,7 @@ class PricingModeApiTests(TestCase):
             'template_id': self.private_template.id,
             'start_time': '09:00', 'end_time': '13:00',
             'is_active': True, 'is_full': False, 'shared_class': None,
+            'is_closed': False, 'closed_reason_zh': '',
         }])
 
     def test_private_and_per_person_templates_produce_different_totals(self):

@@ -93,6 +93,7 @@ export interface Order {
   payment_status: PaymentStatus
   amendment_balance?: { amount: number; statuses: string[]; refund_action?: AmendmentRefundAction | null; settlement?: {currency:ForeignPaymentCurrency;amount:number} } | null
   payment_method: string
+  capacity_conflict?: OrderCapacityConflict | null
   bank_account?: string | null
   bank_posted_date?: string | null
   manual_payment_posting_date_mode?: ManualPaymentPostingDateMode
@@ -110,6 +111,11 @@ export interface Order {
   cancellation?: { id: number; status: string; reason: string; refund_amount: number | null; refund_percent: string; handling_fee_percent: string; calculation_mode: 'auto' | 'rule' | 'manual'; selected_rule_days_before: number | null; requires_cash_review:boolean;actual_received_amount:number|null;cash_review_note:string;currency_snapshot?:CancellationSettlement;refund_bank_name?:string;refund_account_number?:string;refund_account_holder?:string;refund_overseas_details?:string } | null
 }
 
+type OrderCapacityConflict = { detected_at: string; conflicts: import('@/api/booking').SlotUnavailable[] }
+type CampusManagerCapacityConflict = {
+  conflicts: Pick<import('@/api/booking').SlotUnavailable, 'date' | 'start_time' | 'end_time' | 'template_name'>[]
+}
+
 interface ListResp {
   code: number; msg: string
   data: { list: Order[]; total: number; page?: number; page_size?: number; total_pages?: number }
@@ -120,6 +126,7 @@ export interface CampusManagerOrder {
   id: number
   sn: string
   is_test?: boolean
+  capacity_conflict?: CampusManagerCapacityConflict | null
   campus_name: string
   student_alias: string
   number_of_people: number
@@ -198,8 +205,10 @@ export async function fetchOrders(): Promise<Order[]> {
   return page.items
 }
 
-export async function fetchOrder(id: number, workflow?: OrderWorkflow): Promise<Order> {
-  const res = (await adminApi.get(`/orders/${id}/`, { params: { workflow } })) as any
+export async function fetchOrder(id: number, workflow?: OrderWorkflow, allCampuses = false): Promise<Order> {
+  const res = (await adminApi.get(`/orders/${id}/`, {
+    params: { workflow }, headers: allCampuses ? { 'X-Campus-ID': 'all' } : undefined,
+  })) as any
   return res.data || res
 }
 
@@ -263,6 +272,7 @@ export interface OrderAmendmentItem {
 }
 export interface OrderAmendmentQuote {
   settlement?: AmendmentSettlement
+  closure_warnings?: string[]
   previous_total: number; new_total: number; difference_amount: number
   status: 'preview_only'; notice: string; quote_token: string
   items: {

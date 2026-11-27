@@ -1298,6 +1298,7 @@ const messages: Record<string, { en: string; ja: string }> = {
   "將加入的日期": { en: "Dates to add", ja: "追加する日程" },
   "有日期不在可預約範圍內，請取消該日期。": { en: "Remove dates outside the available booking range.", ja: "予約可能期間外の日付を選択から外してください。" },
   "已滿": { en: "Full", ja: "満員" },
+  "已暫停接單": { en: "Bookings paused", ja: "予約受付停止中" },
   "加購半小時協助時段": { en: "Add 30 minutes of assistance", ja: "30分のサポートを追加" },
   "多天課程只會把加購協助費加在第一天，其他日期仍保留原課程時間。": { en: "For multi-day lessons, assistance is charged only on day one. Other lesson times stay unchanged.", ja: "複数日のレッスンでは追加サポート料金は初日のみです。他の日程は元のレッスン時間のままです。" },
   "後台尚未設定裝備協助時段。": { en: "Equipment assistance times are not configured yet.", ja: "用具サポートの時間帯はまだ設定されていません。" },

@@ -58,6 +58,7 @@ from .services import (
     add_current_booking_to_cart,
     confirm_quoted_session,
     edit_cart_item,
+    payment_snapshot_for_groups,
     make_quote,
     remove_cart_item,
     start_new_cart_item,
@@ -2193,6 +2194,61 @@ class ChatBookingOrderIntegrationTests(TestCase):
         self.assertEqual(session.current_step, "scheduling_support")
         with self.assertRaisesMessage(ValueError, "目前不可付款"):
             submit_bank_transfer(session, "12345")
+
+    def test_cart_that_fills_after_quote_returns_a_replayable_slot_conflict(self):
+        self.template.max_capacity = 1
+        self.template.save(update_fields=["max_capacity"])
+        session = self.create_complete_chat_session()
+        draft = make_quote(session)
+        group = ReservationGroup.objects.create(client=self.tenant, campus=self.campus)
+        reservation = Reservation.objects.create(group=group, course_template=self.template)
+        Booking.objects.create(
+            reservation=reservation, date=self.course_date,
+            start_time=self.course_session.start_time, end_time=self.course_session.end_time,
+        )
+
+        def confirm():
+            return confirm_quoted_session(
+                session, self.member, idempotency_key="slot-full-checkout",
+                expected_state_version=session.state_version, expected_quote_hash=draft.quote_hash,
+            )
+
+        first = confirm()
+        replay = confirm()
+        self.assertEqual(first.status_code, 409)
+        self.assertEqual(first.output["code"], "slot_full")
+        self.assertEqual(first.output["conflicts"][0]["date"], self.course_date)
+        self.assertEqual(replay.output, first.output)
+        self.assertTrue(replay.replayed)
+        self.assertEqual(ReservationGroup.objects.count(), 1)
+        self.assertFalse(Payment.objects.exists())
+
+    def test_chat_payment_snapshot_and_transfer_hold_a_full_slot(self):
+        self.template.max_capacity = 1
+        self.template.save(update_fields=["max_capacity"])
+        session = self.create_complete_chat_session()
+        result = self.quote_and_confirm(session, "checkout-before-full")
+        self.assertTrue(result.ok, result.error)
+        group = ReservationGroup.objects.get()
+        other = ReservationGroup.objects.create(client=self.tenant, campus=self.campus)
+        reservation = Reservation.objects.create(group=other, course_template=self.template)
+        Booking.objects.create(
+            reservation=reservation, date=self.course_date,
+            start_time=self.course_session.start_time, end_time=self.course_session.end_time,
+        )
+        Payment.objects.create(reservation_group=other, status='paid')
+        for pay in (
+            lambda: payment_snapshot_for_groups(self.tenant, [group.pk]),
+            lambda: submit_bank_transfer(session, "12345"),
+        ):
+            with self.assertRaisesMessage(ValueError, "先不收款"):
+                pay()
+        self.assertEqual(group.payments.get().status, "unpaid")
+        replay = confirm_quoted_session(session, self.member, idempotency_key="checkout-before-full")
+        self.assertTrue(replay.replayed)
+        self.assertEqual(replay.output["reservation_group_ids"], [group.pk])
+        self.assertFalse(replay.output["requires_payment"])
+        self.assertNotIn("bank_info", replay.output["payment"])
 
     @skipUnless(
         os.getenv("RUN_OPENAI_LIVE_TESTS") == "1",
