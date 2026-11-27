@@ -273,22 +273,30 @@ function SidebarItem({ item, collapsed, active, expanded, popup, onToggle, onOpe
         }}
       >
         {entryLabel}
-        {!collapsed && <ChevronDown size={16} aria-hidden className={`shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />}
+        {!collapsed && <ChevronDown
+          size={16}
+          aria-hidden
+          className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${expanded ? '' : '-rotate-90'}`}
+        />}
       </button>
+      {/* React 18 forwards inert as a string attribute so closing links are inactive during the transition. */}
       <div
         id={submenuId}
-        hidden={!submenuVisible}
+        hidden={collapsed && !submenuVisible}
+        {...(!collapsed && !submenuVisible ? { inert: '' } : {})}
         className={collapsed
           ? 'fixed z-50 w-56 pl-3'
-          : 'mb-2 ml-5 mt-1 border-l border-gray-200 pl-2 dark:border-gray-700'}
+          : `grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none ${expanded
+            ? 'grid-rows-[1fr] opacity-100'
+            : 'grid-rows-[0fr] opacity-0'}`}
         style={collapsed ? { top: popup?.top, left: popup?.left } : undefined}
       >
-        <div className={collapsed ? 'flex max-h-[calc(100dvh-1rem)] flex-col rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800' : undefined}>
+        <div className={collapsed ? 'flex max-h-[calc(100dvh-1rem)] flex-col rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800' : 'min-h-0 overflow-y-clip'}>
           {collapsed && <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-gray-100 px-3 text-sm font-semibold dark:border-gray-700">
             <item.icon size={16} className="text-violet-500" aria-hidden />
             {item.label}
           </div>}
-          <ul className={collapsed ? 'min-h-0 overflow-y-auto p-1' : 'space-y-1'}>
+          <ul className={collapsed ? 'min-h-0 overflow-y-auto p-1' : 'mb-2 ml-5 mt-1 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-700'}>
             {item.children.map(child => (
               <li key={child.id}>
                 <NavLink
