@@ -248,6 +248,9 @@ def request_cancellation(group, *, reason, reason_note='', bank=None, user=None,
         raise ValueError('這張訂單已完成退款，不能再次提出退款申請')
     if group.cancellation_requests.filter(status__in=['requested', 'approved']).exists():
         raise ValueError('這張訂單已有待處理的取消申請')
+    from .amendment_workflow import active_refunds
+    if active_refunds(group).exists():
+        raise ValueError('已有差額退款處理中，請先完成或駁回再申請取消訂單')
     if not isinstance(reason, str) or reason not in dict(CancellationRequest.REASON_CHOICES):
         raise ValueError('請選擇取消原因')
     if not isinstance(reason_note, str) or len(reason_note) > 1000:

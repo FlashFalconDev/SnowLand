@@ -1818,9 +1818,13 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         return CancellationRequestAdminSerializer(cancellation).data
 
     def get_amendment_balance(self, obj):
-        pending=list(obj.amendments.filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
+        from booking.amendment_workflow import PENDING_STATUSES, refund_progress
+        pending = list(refund_progress(obj.amendments.filter(status__in=PENDING_STATUSES)))
         if not pending:return None
         result={'amount':sum(row.balance_amount for row in pending),'statuses':sorted({row.status for row in pending})}
+        refund_action = next((row.refund_action for row in pending if row.refund_action), None)
+        if refund_action:
+            result['refund_action'] = refund_action
         from booking.currency import foreign_currency
         currency = (obj.currency_snapshot or {}).get('currency')
         if foreign_currency(currency):

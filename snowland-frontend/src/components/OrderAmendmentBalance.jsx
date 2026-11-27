@@ -9,7 +9,7 @@ const amount=(value,currency)=>formatPaymentValue(Math.abs(Number(value)||0),cur
 function BalanceRow({row,requestJson,url,onReload,onRefresh}) {
   const [reference,setReference]=useState(''),[bank,setBank]=useState(row.refund_bank||{}),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[uncertain,setUncertain]=useState(false);
   const requestKey=useRef(crypto.randomUUID()),locked=useRef(false);
-  const isTopup=row.status==='topup_due',isRefund=['refund_account_due','refund_due'].includes(row.status);
+  const isTopup=row.status==='topup_due',isRefund=['refund_account_due','refund_due'].includes(row.status)&&!row.refund_account_locked;
   const settlement=row.settlement, nativeBalance=settlement?settlement.balance_amount:row.balance_amount;
   const bankKeys=['bank_name','account_number','account_holder'];
   const bankChanged=[...bankKeys,'overseas_details'].some(key=>(bank[key]||'').trim()!==(row.refund_bank?.[key]||'').trim());
@@ -25,13 +25,14 @@ function BalanceRow({row,requestJson,url,onReload,onRefresh}) {
     }catch(error){setMessage(error.message);if(error.status&&error.status<500){setUncertain(false);requestKey.current=crypto.randomUUID();await onReload();}else setUncertain(true);}
     finally{locked.current=false;setBusy(false);}
   };
-  return <article className="space-y-4 rounded-sm border border-[#dbe3ec] bg-white p-5 text-[#1f2937]">
+  return <article id={`amendment-${row.id}`} className="scroll-mt-20 space-y-4 rounded-sm border border-[#dbe3ec] bg-white p-5 text-[#1f2937]">
     <div className="flex flex-wrap justify-between gap-2"><h4 className="font-semibold">第 {row.version} 版修改差額</h4><span className="rounded-full bg-[#eef4fa] px-3 py-1 text-xs font-semibold text-[#2b5f8f]">{labels[row.status]||row.status}</span></div>
     <p className="text-sm">{nativeBalance>0?'補款':nativeBalance<0?'退還差額':'差額'}：<strong>{amount(nativeBalance,settlement?.currency)}</strong></p>
     {settlement&&<p className="text-sm leading-7 text-[#64748b]">台幣計價差額基準 {amount(row.balance_amount)}；沿用訂單匯率1 TWD＝{settlement.rate} {settlement.currency}。差額以上方原幣金額收退。</p>}
     {row.review_message&&<p role="status" className="rounded bg-amber-50 p-3 text-sm text-amber-900">上次回報未通過：{row.review_message}</p>}
     {isTopup&&<section className="space-y-2 rounded bg-[#f5f8fc] p-4 text-sm"><h5 className="font-semibold">請匯款至此帳戶</h5>{['bank_name','bank_branch','account_number','account_holder'].map((key,index)=><p key={key} className="break-all">{['銀行','分行','帳號','戶名'][index]}：{row.bank_snapshot?.[key]||(key==='bank_branch'?'—':'未設定，請聯絡客服確認')}</p>)}{row.bank_snapshot?.overseas_details&&<p className="whitespace-pre-wrap">{row.bank_snapshot.overseas_details}</p>}<p className="pt-2 text-xs leading-6 text-[#64748b]">這是修改當時的收款帳戶。請確認金額並完成匯款後，再回報帳號末五碼；此頁不會自動扣款。</p></section>}
     {row.status==='topup_reported'&&<p className="text-sm leading-7">已回報末五碼 {row.topup_reference}，等待 SnowLand 查核銀行收款；請勿重複匯款。</p>}
+    {row.refund_account_locked && <p className="text-sm">退款已核准。若需更新退款帳戶，請聯絡客服。</p>}
     {(isTopup||isRefund)&&<form onSubmit={submit} className="space-y-4">
       {isRefund&&settlement&&<p className="text-sm leading-7">請提供可接收 {settlement.currency} 的帳戶。若需跨國匯款，可補充分行、SWIFT或中間行等必要資料，行政會核對後處理。</p>}
       <fieldset disabled={busy||uncertain} className="space-y-3">
@@ -50,6 +51,12 @@ export default function OrderAmendmentBalance({orderId,requestJson,onRefresh,can
   const url=`/member-amendments/${orderId}/`;
   const load=useCallback(async()=>{try{const result=await requestJson(url);setItems(result.items||[]);setError('');}catch(error){setError(error.message);}finally{setLoaded(true);}},[requestJson,url]);
   useEffect(()=>{load();},[load]);
+  useEffect(() => {
+    const target = window.location.hash.slice(1);
+    if (items.some(row => target === `amendment-${row.id}`)) {
+      document.getElementById(target)?.scrollIntoView({ block: 'start' });
+    }
+  }, [items]);
   if(loaded&&!error&&!items.length)return null;
   if(['requested','approved','refunded'].includes(cancellationStatus))return <p role="status" className="rounded border border-[#b6d6ec] bg-[#eaf4fb] p-4 text-sm leading-7 text-[#1e4e73]">{cancellationStatus==='refunded'?'原補退差額已併入取消結算，請勿再補款。':'訂單正在取消／退款流程，補退差額暫停處理。請勿再補款，退款以 SnowLand 核對實收款後確認的金額為準。'}</p>;
   if(!loaded)return <p role="status" className="text-sm text-[#64748b]">正在核對訂單修改差額…</p>;

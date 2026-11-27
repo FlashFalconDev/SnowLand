@@ -11,7 +11,7 @@ import {
   saveStaffPosition, deleteStaffPosition, type StaffPosition, type StaffPositionInput,
 } from '../api/extras'
 import { useNotification } from '../context'
-import { hasAdminPermission } from '../permissions'
+import { hasAdminPermission, orderBalancePermissions } from '../permissions'
 import { STAFF_ROLE_OPTIONS } from '../staffRoles'
 import { consoleNavigation } from '../consoleNavigation'
 import { fetchCampuses } from '../api/campuses'
@@ -445,6 +445,13 @@ function StaffPositionManager({ onClose }: { onClose: () => void }) {
 
     if (group.id === 'members' && choices.has('insurance_ledger_deduct')) {
       permissions.set('insurance_ledger_deduct', ['保險預付保費扣款'])
+    }
+    if (group.id === 'orders') {
+      for (const definition of definitions) {
+        if (orderBalancePermissions.includes(definition.key) && choices.has(definition.key)) {
+          permissions.set(definition.key, [definition.label])
+        }
+      }
     }
     return { label: group.label, permissions: Array.from(permissions) }
   }).filter(group => group.permissions.length)

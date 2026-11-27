@@ -18,7 +18,7 @@ import ClassGroupQRPanel from '../components/ClassGroupQRPanel'
 import CancellationStatusPanel from '../components/CancellationStatusPanel'
 import OrderExportForm from '../components/OrderExportForm'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
-import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
+import AmendmentBalancesPanel, { amendmentBalanceLabel } from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
 import OrderMarketingSource from '../components/OrderMarketingSource'
 import OrderCoachAvailability from '../components/OrderCoachAvailability'
@@ -215,12 +215,14 @@ function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boole
 
 function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const querySearch = searchParams.get('search') || ''
+  const showBalanceFilters = workflow === 'payments' && adminMe?.user?.order_refund_charge_enabled === true
+  const balanceFilter = showBalanceFilters ? searchParams.get('balance_status') || '' : ''
   const [searchInput, setSearchInput] = useState(querySearch)
   const [statusFilter, setStatusFilter] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('')
-  const [includeTest, setIncludeTest] = useState(false)
+  const [includeTest, setIncludeTest] = useState(() => searchParams.get('include_test') === '1')
   const [page, setPage] = useState(1)
   const [viewingId, setViewingId] = useState<number | null>(null)
 
@@ -233,16 +235,17 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   }, [searchInput])
 
   // 搜尋 / 過濾條件變動 → 強制回到第一頁(避免在第 5 頁但條件過濾後只剩 2 頁的空畫面)
-  useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter, includeTest])
+  useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter, balanceFilter, includeTest])
 
   const { data: pageData, isLoading, error, isFetching, isPlaceholderData } = useQuery({
-    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, workflow, includeTest }],
+    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, balanceFilter, workflow, includeTest }],
     queryFn: () => fetchOrdersPaged({
       page,
       page_size: PAGE_SIZE,
       search: search || undefined,
       status: statusFilter || undefined,
       payment_status: paymentFilter || undefined,
+      balance_status: balanceFilter || undefined,
       include_test: includeTest,
       workflow,
     }),
@@ -301,6 +304,20 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
             <option value="">全部付款狀態</option>
             {Object.entries(PAYMENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
+          {showBalanceFilters && <select aria-label="差額進度" value={balanceFilter} onChange={event => {
+            const next = new URLSearchParams(searchParams)
+            if (event.target.value) next.set('balance_status', event.target.value)
+            else next.delete('balance_status')
+            setSearchParams(next)
+          }} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+            <option value="">全部差額進度</option>
+            <option value="topup">待處理補款</option>
+            <option value="refund">待處理退款</option>
+            <option value="request_refund">退款待審核</option>
+            <option value="approve_refund">待記錄外部退款</option>
+            <option value="reject_refund">退款已駁回</option>
+            <option value="record_refund">已記錄外部退款</option>
+          </select>}
           <label className="flex min-h-11 items-center gap-2 text-sm dark:text-gray-100">
             <input type="checkbox" checked={includeTest} onChange={event => setIncludeTest(event.target.checked)} />顯示測試訂單
           </label>
@@ -348,12 +365,12 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
                   {order.cancellation?.status === 'requested' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">申請取消・待審核</span>}
-                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</span>}
+                  {order.amendment_balance && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">{amendmentBalanceLabel(order.amendment_balance)} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</span>}
                   <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="min-h-11 rounded-lg px-4 text-sm font-medium text-white" style={{ backgroundColor: PRIMARY }}>查看訂單</button>
                 </div>
               </div>
             })}
-            {orders.length === 0 && <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</div>}
+            {orders.length === 0 && <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter && !balanceFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</div>}
           </div>
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm">
@@ -409,7 +426,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                       <td className="px-5 py-3 hidden md:table-cell whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
                         {workflow === 'payments' && order.bank_posted_date && <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">入帳日期 {order.bank_posted_date}</div>}
-                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</div>}
+                        {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{amendmentBalanceLabel(order.amendment_balance)} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</div>}
                       </td>
                       <td className="px-5 py-2 text-right">
                         <button type="button" aria-label={`查看訂單 ${order.sn}`} onClick={() => setViewingId(order.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"><Eye size={16} /></button>
@@ -418,7 +435,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                   )
                 })}
                 {orders.length === 0 && (
-                  <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</td></tr>
+                  <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-gray-500 dark:text-gray-400">{total === 0 && !search && !statusFilter && !paymentFilter && !balanceFilter ? '尚未有訂單' : '沒有符合條件的訂單'}</td></tr>
                 )}
               </tbody>
             </table>
@@ -615,7 +632,14 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
   const { data: noticeAdmin } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const canEdit = !readOnly && (!workflow || workflow === 'edit') && hasAdminPermission(noticeAdmin?.user, 'order_edit')
   const mayReconcile = hasAdminPermission(noticeAdmin?.user, 'order_payments')
-  const canReconcile = !readOnly && !order.is_test && (!workflow || workflow === 'payments') && mayReconcile
+  const balanceWorkflowAccess = {
+    enabled: noticeAdmin?.user?.order_refund_charge_enabled === true,
+    charge: hasAdminPermission(noticeAdmin?.user, 'order_charge_operate'),
+    request: hasAdminPermission(noticeAdmin?.user, 'order_amendment_refund_request'),
+    review: hasAdminPermission(noticeAdmin?.user, 'order_amendment_refund_review'),
+  }
+  const canReconcileBalance = !readOnly && (!order.is_test || balanceWorkflowAccess.enabled) && (!workflow || workflow === 'payments') && mayReconcile
+  const canReconcile = canReconcileBalance && !order.is_test
   const mayRefund = hasAdminPermission(noticeAdmin?.user, 'order_refunds')
   const canRefund = !readOnly && !order.is_test && (!workflow || workflow === 'refunds') && mayRefund
   const canNotify = !readOnly && !order.is_test && !workflow && hasAdminPermission(noticeAdmin?.user, 'notifications') && hasAdminPermission(noticeAdmin?.user, 'order_view')
@@ -974,9 +998,10 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                 </div>
               </form>
           )}
-          {(order.amendment_balance || canReconcile) && <AmendmentBalancesPanel key={order.id} order={order}
-            canReconcile={canReconcile} canRefund={canRefund}
-            paymentsHref={!order.is_test && mayReconcile && !canReconcile ? `/${currentClientCode()}/console/orders/payments?search=${encodeURIComponent(order.sn)}` : undefined}
+          {(order.amendment_balance || canReconcileBalance) && <AmendmentBalancesPanel key={order.id} order={order}
+            canReconcile={canReconcileBalance} canRefund={canRefund} workflowAccess={balanceWorkflowAccess}
+            paymentsHref={mayReconcile && !canReconcileBalance && (!order.is_test || balanceWorkflowAccess.enabled)
+              ? `/${currentClientCode()}/console/orders/payments?search=${encodeURIComponent(order.sn)}${order.is_test ? '&include_test=1' : ''}` : undefined}
             refundsHref={!order.is_test && mayRefund && !canRefund ? `/${currentClientCode()}/console/orders/refunds?search=${encodeURIComponent(order.sn)}` : undefined}
           />}
 

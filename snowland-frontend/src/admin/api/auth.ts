@@ -17,6 +17,7 @@ export interface AdminUser {
   is_coach?: boolean
   permissions?: string[]
   permission_definitions?: AdminPermissionDefinition[]
+  order_refund_charge_enabled?: boolean
   role?: string
   assigned_campus_ids?: number[]
   campuses?: { id: number; name: string; code: string; is_active: boolean }[]

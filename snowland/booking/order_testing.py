@@ -93,6 +93,12 @@ def set_order_test_status(group, *, is_test, actor, reason, acknowledged_reasons
             raise FinancialHistoryTestOrderError(reasons)
     elif set(acknowledged_reasons) != {item['code'] for item in reasons}:
         raise FinancialHistoryTestOrderError(reasons, changed=True)
+    if not is_test:
+        from .amendment_workflow import ACTION_PERMISSIONS, PENDING_STATUSES
+        from .models import OrderAmendmentEvent
+        if (group.amendments.filter(status__in=PENDING_STATUSES).exists()
+                or OrderAmendmentEvent.objects.filter(amendment__group=group, action__in=ACTION_PERMISSIONS).exists()):
+            raise ValueError('已有測試差額或補退工作流紀錄，請保留測試標記。')
 
     account_ids = MemberLoyaltyEntry.all_objects.filter(order__group=group).values('account_id')
     accounts = list(MemberLoyaltyAccount.objects.select_for_update().filter(
