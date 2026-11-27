@@ -136,6 +136,7 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
                 '在 booking 設定加入 "test_order_marking_enabled": false 可停用測試訂單標記操作。預設開啟。'
                 '私人課在送單與付款時預設重查容量。可在 booking 設定加入 '
                 '"booking_capacity_recheck_enabled": false 關閉重查與付款後衝突標記。'
+                '加入 "test_order_financial_override_enabled": false 可停用總部管理員覆寫已有帳務的測試標記。預設開啟。'
                 '後台學習評量的 booking 設定可用 "evaluation_date_filters_enabled": false 還原原清單。'
                 '"evaluation_default_date_field" 可填 "ordered"（下單日期，預設）或 "lesson"（上課日期）。'
                 '"evaluation_default_date_range_days" 可填 1 至 366 的整數，預設 30 天（含今天）。'
