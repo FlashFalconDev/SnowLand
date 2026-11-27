@@ -9,9 +9,11 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from Client.models import Client
+from Client.tenant_settings import order_refund_charge_enabled
 from Coach.models import Coach, CoachLeaveRequest
 from Coursekit.models import CourseTemplate
 from booking.models import Booking, MemberDetail, OrderAmendment, Reservation, ReservationGroup
+from booking.amendment_workflow import active_refunds, can_rehearse
 from booking.course_documents import capture_course_documents, save_course_documents
 from booking.operations import order_snapshot, record_order_revision, resolve_payment_account
 from .manual_notifications import NotificationConflict
@@ -122,6 +124,8 @@ def confirm_order_amendment(request,group_id,data,scope):
                 or existing.created_by_id!=request.user.pk or existing.request_fingerprint!=fingerprint):
             raise NotificationConflict('此修改識別碼已使用，請重新開啟修改視窗')
         return existing,True
+    if active_refunds(group).exists():
+        raise NotificationConflict('已有差額退款處理中，請先完成或駁回再修改訂單')
     reservations={row.pk:row for row in Reservation.objects.live().select_for_update().filter(group=group).select_related('group','resort','course_type','course_template').order_by('pk')}
     list(Booking.objects.live().select_for_update().filter(reservation__group=group).order_by('pk'))
     list(MemberDetail.objects.live().select_for_update().filter(reservation__group=group).order_by('pk'))
@@ -131,13 +135,16 @@ def confirm_order_amendment(request,group_id,data,scope):
         raise NotificationConflict('請先核對待確認、逾期或已退款的付款狀態，再修改訂單')
     pending=list(group.amendments.select_for_update().filter(status__in=['topup_due','topup_reported','refund_account_due','refund_due']))
     if any(row.status=='topup_reported' for row in pending):raise NotificationConflict('已有回報補款待核對，請先確認實際收款再修改')
-    balance=quote['difference_amount']+sum(row.balance_amount for row in pending) if previous and previous.status=='paid' else 0
-    status=('topup_due' if balance>0 else 'refund_account_due' if balance<0 else 'no_difference') if previous and previous.status=='paid' else 'included_in_order'
+    paid = (previous and previous.status == 'paid') or (
+        can_rehearse(group, previous) and order_refund_charge_enabled(group.client)
+    )
+    balance=quote['difference_amount']+sum(row.balance_amount for row in pending) if paid else 0
+    status=('topup_due' if balance>0 else 'refund_account_due' if balance<0 else 'no_difference') if paid else 'included_in_order'
     from booking.currency import amendment_settlement
     try:settlement=amendment_settlement(group,quote['previous_total'],quote['new_total'],pending=pending)
     except ValueError as error:raise serializers.ValidationError({'settlement':str(error)})
     if settlement:
-        if previous and previous.status=='paid':
+        if paid:
             native_balance=settlement['balance_amount']
             status='topup_due' if native_balance>0 else 'refund_account_due' if native_balance<0 else 'no_difference'
         else:settlement['balance_amount']=0

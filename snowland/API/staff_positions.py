@@ -10,14 +10,14 @@ from Client.models import Client
 from Control.models import TenantStaffPosition, UserProfile
 from Resorts.models import Campus
 
-from .admin_permissions import DEFAULT_ALL_ADMIN_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS, normalize_admin_permissions, user_has_admin_permission
+from .admin_permissions import DEFAULT_ALL_ADMIN_PERMISSIONS, ORDER_BALANCE_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS, normalize_admin_permissions, user_has_admin_permission
 from .admin_views import IsTenantManager, _require_headquarters
 
 
 COACH_POSITION_ID = 0
 RESTRICTED_ROLES = {'hq_admin', 'campus_principal', 'campus_manager', 'assistant', 'photographer', 'coach'}
 HEADQUARTERS_ONLY = {'insurance_ledger_finance', 'member_loyalty', 'social_sync', 'staff', 'order_export', 'site_tracking', 'checkout_policies'}
-CAMPUS_ORDER_RESTRICTIONS = {'order_edit', 'order_payments', 'order_refunds'}
+CAMPUS_ORDER_RESTRICTIONS = {'order_edit', 'order_payments', 'order_refunds'} | ORDER_BALANCE_PERMISSIONS
 
 
 def usable_permissions(permissions, role, all_campuses):

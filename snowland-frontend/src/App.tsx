@@ -16,6 +16,7 @@ import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import LoginPage from '@/pages/LoginPage'
 import AuthCallbackPage from '@/pages/AuthCallbackPage'
 import PaymentPage from '@/pages/PaymentPage'
+import GuestAmendmentTopupPage from '@/pages/GuestAmendmentTopupPage'
 import HistoryPage from '@/pages/HistoryPage'
 import ClientSelectionPage from '@/pages/ClientSelectionPage'
 import SiteRoutes from '@/pages/site/SiteRoutes'
@@ -218,6 +219,7 @@ function App() {
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
       {/* 🔥 多租戶路由：/:clientCode/xxx */}
+      <Route path="/:clientCode/amendment-topup/:groupId/:amendmentId" element={<GuestAmendmentTopupPage />} />
       <Route path="/:clientCode/*" element={<ClientRoutes />} />
     </Routes>
   )

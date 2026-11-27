@@ -36,6 +36,7 @@ from Client.tenant_settings import (
     evaluation_date_filter_defaults,
     insurance_eligibility_settings,
     manual_payment_posting_date_mode,
+    order_refund_charge_enabled,
     order_source_override_enabled,
     staff_booking_link_edit_enabled,
     test_order_marking_enabled,
@@ -1722,6 +1723,7 @@ class OrderAdminViewSet(ModelViewSet):
                 'export': 'order_export',
                 'payment_link': 'order_payments',
                 'amendment_balances': 'order_payments',
+                'amendment_workflow': 'order_payments',
                 'refund_preview': 'order_refunds',
                 'cancel_order': 'order_refunds',
                 'revision_history': 'order_view',
@@ -1788,13 +1790,40 @@ class OrderAdminViewSet(ModelViewSet):
         from booking.amendment_balances import BalanceActionInput, balance_data, group_balances, process_balance
         from rest_framework.authentication import SessionAuthentication
         group=self.get_object()
-        if request.method=='GET':return Response({'code':200,'data':{'items':group_balances(group,staff=True)}})
+        if request.method=='GET':
+            from django.middleware.csrf import get_token
+            get_token(request._request)
+            return Response({'code':200,'data':{'items':group_balances(group,staff=True)}})
         SessionAuthentication().enforce_csrf(request)
         serializer=BalanceActionInput(data=request.data);serializer.is_valid(raise_exception=True)
         row,duplicate,event=process_balance(group,request.user,serializer.validated_data,staff=True,scope=self.get_queryset())
         from booking.amendment_notifications import deliver_amendment_notice
         deliver_amendment_notice(row,event)
         return Response({'code':200,'data':balance_data(row,staff=True),'duplicate':duplicate,'msg':'差額核對已留底；系統沒有執行轉帳。'})
+
+    @action(detail=True, methods=['get', 'post'], url_path='amendment-workflow')
+    def amendment_workflow(self, request, *args, **kwargs):
+        from rest_framework.authentication import SessionAuthentication
+        from booking.amendment_balances import balance_data, process_balance
+        from booking.amendment_workflow import WorkflowInput, require_workflow_access, topup_path
+        from booking.models import OrderAmendment
+        from .order_amendments import WholeNumber
+
+        if not order_refund_charge_enabled(request.tenant):
+            raise PermissionDenied('此租戶尚未啟用訂單補款與退款工作流')
+        group = self.get_object()
+        if request.method == 'GET':
+            require_workflow_access(request.user, request.tenant, 'order_charge_operate')
+            amendment_id = WholeNumber(min_value=1).run_validation(request.query_params.get('amendment_id'))
+            row = get_object_or_404(OrderAmendment.objects.select_related('group__client'), group=group, pk=amendment_id)
+            return Response({'code': 200, 'data': {'path': topup_path(row)}}, headers={'Cache-Control': 'no-store'})
+        SessionAuthentication().enforce_csrf(request)
+        serializer = WorkflowInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        row, duplicate, _ = process_balance(
+            group, request.user, serializer.validated_data, staff=True, scope=self.get_queryset(), workflow=True,
+        )
+        return Response({'code': 200, 'data': balance_data(row, staff=True), 'duplicate': duplicate})
 
     @action(detail=True,methods=['get'],url_path='amendment-options')
     def amendment_options(self,request,*args,**kwargs):
@@ -1905,6 +1934,12 @@ class OrderAdminViewSet(ModelViewSet):
         payment_filter = (params.get('payment_status') or '').strip()
         if payment_filter and not self._is_campus_order_viewer():
             qs = qs.filter(payments__is_deleted=False, payments__status=payment_filter).distinct()
+
+        balance_filter = params.get('balance_status')
+        if (balance_filter and self.action == 'list' and params.get('workflow') == 'payments'
+                and not self._is_campus_order_viewer() and order_refund_charge_enabled(tenant)):
+            from booking.amendment_workflow import workflow_filter
+            qs = qs.filter(pk__in=workflow_filter(balance_filter).values('group_id'))
 
         return qs
 
@@ -2218,6 +2253,10 @@ class OrderAdminViewSet(ModelViewSet):
             # A group may retain historical attempts. Lock and validate the same record we update.
             payment = instance.payments.live().select_for_update().order_by('-created_at', '-pk').first()
         was_paid = bool(payment and payment.status == 'paid')
+        if was_paid and payment_status != 'paid':
+            from booking.amendment_workflow import active_refunds
+            if active_refunds(instance).exists():
+                raise ValidationError('請先完成或駁回差額退款，再變更原訂單付款狀態')
         bank_posted_date = payment.bank_posted_date if payment else None
         if payment_status == 'paid':
             mode = manual_payment_posting_date_mode(request.tenant)
@@ -2667,6 +2706,10 @@ class CancellationAdminViewSet(PayrollCsrfMixin, ReadOnlyModelViewSet):
         next_status = request.data.get('status')
         if next_status not in ('approved', 'rejected', 'refunded'):
             return Response({'code': 400, 'msg': '無效的處理狀態'}, status=400)
+        if next_status != 'rejected':
+            from booking.amendment_workflow import active_refunds
+            if active_refunds(group).exists():
+                raise ValidationError('請先完成或駁回差額退款，再處理整張訂單的取消退款')
         allowed = {
             'requested': {'approved', 'rejected'},
             'approved': {'refunded'},
@@ -5597,6 +5640,7 @@ def admin_me(request, client_code):
             'can_view_all_campuses': can_view_all,
             'permissions': console_permissions_for_user(request.user, request.tenant) if (is_superuser or is_manager) else [],
             'permission_definitions': ADMIN_PERMISSION_DEFINITIONS,
+            'order_refund_charge_enabled': order_refund_charge_enabled(tenant),
         },
     })
 

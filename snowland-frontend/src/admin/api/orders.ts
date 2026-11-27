@@ -87,7 +87,7 @@ export interface Order {
   reservations: OrderReservation[]
   total_fee: number
   payment_status: PaymentStatus
-  amendment_balance?: { amount: number; statuses: string[];settlement?:{currency:ForeignPaymentCurrency;amount:number} } | null
+  amendment_balance?: { amount: number; statuses: string[]; refund_action?: AmendmentRefundAction | null; settlement?: {currency:ForeignPaymentCurrency;amount:number} } | null
   payment_method: string
   bank_account?: string | null
   bank_posted_date?: string | null
@@ -141,6 +141,7 @@ export interface OrdersQuery {
   search?: string
   status?: string
   payment_status?: string
+  balance_status?: string
 }
 
 export interface OrdersPage {
@@ -161,6 +162,7 @@ export async function fetchOrdersPaged(query: OrdersQuery = {}): Promise<OrdersP
   if (query.search) params.search = query.search
   if (query.status) params.status = query.status
   if (query.payment_status) params.payment_status = query.payment_status
+  if (query.balance_status) params.balance_status = query.balance_status
 
   const res = (await adminApi.get('/orders/', { params })) as unknown as ListResp
   return {
@@ -320,7 +322,10 @@ export interface AmendmentBalance {
   status: OrderAmendmentResult['status']; updated_at: string; settled_at: string | null
   bank_snapshot: Record<string,string>; refund_bank: Record<string,string>; topup_reference: string; review_message: string
   notification?: {in_app:string;email:string;local_test:boolean}
-  events: { action: string; previous_status: string; status: string; note: string; reference: string; created_at: string; actor: string }[]
+  refund_action?: AmendmentRefundAction | null
+  topup_notified?: boolean
+  events: { action: string; previous_status: string; status: string; note: string; reference: string; external_reference?: string;
+    settlement?: {currency: PaymentCurrency; amount: number} | null; created_at: string; actor: string }[]
 }
 export interface AmendmentBalanceAction {
   currency?:PaymentCurrency;expected_amount?:number
@@ -335,6 +340,25 @@ export async function processAmendmentBalance(orderId:number,payload:AmendmentBa
   return await adminApi.post(`/orders/${orderId}/amendment-balances/`,payload) as unknown as {msg:string;data:AmendmentBalance}
 }
 
+export type AmendmentRefundAction = 'request_refund' | 'approve_refund' | 'reject_refund' | 'record_refund'
+export type AmendmentWorkflowAction = AmendmentRefundAction | 'mark_topup_notified' | 'record_topup'
+type AmendmentWorkflowInput = Omit<AmendmentBalanceAction, 'action' | 'currency' | 'expected_amount'> & {
+  action: AmendmentWorkflowAction
+  currency: PaymentCurrency
+  expected_amount: number
+  external_reference?: string
+}
+
+export async function fetchAmendmentTopupLink(orderId: number, amendmentId: number) {
+  const result = await adminApi.get(`/orders/${orderId}/amendment-workflow/`, {
+    params: { amendment_id: amendmentId },
+  }) as unknown as { data: { path: string } }
+  return result.data.path
+}
+
+export async function processAmendmentWorkflow(orderId: number, payload: AmendmentWorkflowInput) {
+  return await adminApi.post(`/orders/${orderId}/amendment-workflow/`, payload) as unknown as { data: AmendmentBalance }
+}
 export async function completeOrderCourse(orderId: number, reservationId: number): Promise<{ code: number; msg: string }> {
   return await adminApi.post(`/orders/${orderId}/complete-course/`, { reservation_id: reservationId }) as unknown as ActionResp
 }

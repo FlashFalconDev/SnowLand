@@ -57,6 +57,22 @@ async function main(){
   assert.match(JSON.stringify(ui.render()),/9,000/,'Reviewer confirms the same native amount')
   await ui.button('確認核對並留底').props.onClick()
   assert.equal(actionCalls[1].currency,'JPY');assert.equal(actionCalls[1].expected_amount,9000)
+  const workflowCalls=[]
+  const workflowApi={ processAmendmentWorkflow: async(id,payload)=>{workflowCalls.push(payload);return{data:{id:row.id}}} }
+  const requestProps={...reviewProps,action:'request_refund',row:{...native,status:'refund_due',balance_amount:-2000,settlement:{...native.settlement,balance_amount:-9000}}}
+  ui=harness('src/admin/components/AmendmentBalancesPanel.tsx','BalanceReviewDialog',['合成原因',false,false,false,'','2000',''],requestProps,workflowApi)
+  assert.equal(ui.button('申請退款').props.disabled,true)
+  ui=harness('src/admin/components/AmendmentBalancesPanel.tsx','BalanceReviewDialog',['合成原因',false,false,false,'','9000',''],requestProps,workflowApi)
+  await ui.button('申請退款').props.onClick()
+  assert.equal(workflowCalls[0].currency,'JPY')
+  assert.equal(workflowCalls[0].expected_amount,9000)
+  const externalProps={...requestProps,action:'record_refund'}
+  ui=harness('src/admin/components/AmendmentBalancesPanel.tsx','BalanceReviewDialog',['合成依據',true,false,false,'','',''],externalProps,workflowApi)
+  assert.equal(ui.button('記錄已在系統外退款').props.disabled,true)
+  ui=harness('src/admin/components/AmendmentBalancesPanel.tsx','BalanceReviewDialog',['合成依據',true,false,false,'','','QA-TXN'],externalProps,workflowApi)
+  await ui.button('記錄已在系統外退款').props.onClick()
+  assert.equal(workflowCalls[1].external_reference,'QA-TXN')
+  assert.equal(workflowCalls[1].confirmed,true)
   console.log('PASS actual member/staff balance controls: required fields, no paid claim on report, same retry key, acknowledged refresh error, explicit staff confirmation')
 }
 main().catch(error=>{console.error(error);process.exitCode=1})

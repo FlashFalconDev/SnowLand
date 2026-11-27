@@ -193,6 +193,45 @@
       ]
     },
     {
+      "id": "order-refund-charge",
+      "name": "訂單修改差額補款與退款工作流",
+      "routes": {
+        "payments": "/{client_code}/console/orders/payments",
+        "orders": "/{client_code}/console/orders",
+        "notifications": "/{client_code}/console/notifications",
+        "staff": "/{client_code}/console/staff",
+        "member": "/{client_code}/membership/orders/{group_id}",
+        "guest": "/{client_code}/amendment-topup/{group_id}/{amendment_id}",
+        "adminApi": "/api/admin/{client_code}/orders/{group_id}/amendment-workflow/",
+        "guestApi": "/booking/{client_code}/api/amendment-topup/{group_id}/{amendment_id}/"
+      },
+      "permission": "order_payments 加明確指派 order_charge_operate、order_amendment_refund_request 或 order_amendment_refund_review。租戶 booking 設定 order_refund_charge_enabled 預設關閉。",
+      "testEnvironment": "SQLite 使用 snowland.test_settings 的記憶體測試庫。瀏覽器使用專屬 loopback 與合成訂單、帳務及角色資料。",
+      "checks": [
+        {
+          "id": "api-amendment-workflow",
+          "command": "cd snowland; python manage.py test API.tests_amendment_workflow API.tests_amendment_balances API.tests_order_bank_posted_date API.tests_cancellation_cash_review API.tests_test_orders --settings=snowland.test_settings",
+          "expected": "功能預設關；無明確權限、跨租戶校區、無 CSRF 皆拒絕。訪客只看到有效差額的凍結匯款資訊。退款全額申請、核准、駁回、外部結果、可退額與 UUID 重送正確。既有入帳日期、取消及測試單排除與差額回報可用。"
+        },
+        {
+          "id": "frontend-amendment-workflow",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-amendment-balance-entry.cjs", "tests/test-amendment-balance-controls.cjs", "tests/test-staff-permission-editor.cjs"],
+          "expected": "橫幅可進入差額面板；既有回報與核對、職位設定和重送行為保持可用。"
+        },
+        {
+          "id": "browser-amendment-workflow",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "在對帳頁開啟退款差額，點橫幅確認定位；金額輸入錯誤時無法送出。完成申請、駁回、重申、核准及記錄系統外退款。",
+            "從自動通知進入退款待審核清單。手機查看已結清的處理紀錄。",
+            "在手機後台取得訪客連結及登記通知；訪客開啟凍結金額與收款資料。核對外部補款後重新開連結，確認匯款資料不再出現。關閉功能後確認篩選隱藏。"
+          ],
+          "expected": "兩個視窗均可進入相應面板，無水平溢出。後台明確記錄外部作業狀態，訪客失效頁不露出匯款資訊。"
+        }
+      ]
+    },
+    {
       "id": "staff-booking-link-edit",
       "name": "代客訂課連結送出前可修改",
       "routes": {
