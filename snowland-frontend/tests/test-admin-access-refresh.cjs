@@ -31,8 +31,16 @@ function setup(relative,targetName){
    assert.equal(button.props['aria-label'],'訂單')
    assert.equal(button.props['aria-expanded'],visible)
    assert.equal(button.props['aria-controls'],panel.props.id)
-   assert.equal(panel.props.hidden,!visible)
-   if(popup) assert.equal(panel.props.style.left,52)
+    assert.equal(panel.props.hidden,collapsed&&!visible,'Only the compact popup needs hidden')
+    assert.equal(panel.props.inert==='',!collapsed&&!visible,'Closed inline links leave the tab order immediately')
+    if(popup) assert.equal(panel.props.style.left,52)
+    if(!collapsed){
+      const chevron=React.Children.toArray(button.props.children).at(-1)
+      assert.match(panel.props.className,/transition-\[[^\]]*opacity[^\]]*\]/)
+      assert.match(panel.props.className,/motion-reduce:transition-none/)
+      assert.match(chevron.props.className,/motion-reduce:transition-none/)
+      assert.equal(chevron.props.className.includes('-rotate-90'),!visible)
+    }
    const list=React.Children.toArray(panel.props.children.props.children).find(child=>child.type==='ul')
    const [child]=React.Children.toArray(list.props.children)
    assert.equal(child.props.children.props.to,'/snowland/console/orders/refunds')
