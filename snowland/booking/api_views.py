@@ -31,6 +31,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from collections import deque
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from Client.models import Client, SiteContent
 from Client.coach_profiles import read_coach_profile
@@ -52,8 +53,8 @@ from .pre_course_questions import required_answers_complete, saved_section_answe
 from .assessment import RUBRIC_LOCATION, TECHNICAL_KEY, learning_reports
 from .coach_pre_course_summary import COACH_SUMMARY_LOCATION, experience_assessment_enabled
 from .capacity import (
-    PAYMENT_CAPACITY_CODE, Slot, capacity_payment_hold, checkout_closure_conflicts,
-    checkout_conflicts, slot_conflict_response, slot_unavailable_reasons,
+    PAYMENT_CAPACITY_CODE, Slot, capacity_payment_hold, cart_capacity_slots, checkout_closure_conflicts,
+    checkout_conflicts, parse_booking_time, slot_conflict_response, slot_unavailable_reasons,
 )
 from .closures import active_booking_closures, matching_booking_closure
 from .checkout_policies import checkout_policy_payload, accepted_checkout_policies
@@ -63,6 +64,7 @@ from .participant_forms import GUARDIAN_AGE_LIMIT, insurance_details_complete, p
 from .participant_invitations import InvitationError, accept_invitation, binding_status, check_invitation, issue_invitation
 from .payment_access import can_access_payment, payment_url_for_group
 from .staff_link_snapshot import public_staff_cart_snapshot
+from .staff_link_holds import release_holds
 from .newebpay_settings import order_card_allowed, order_gateway
 from .scheduling_metrics import Source as SchedulingSource, collect_scheduling_metrics, measure_scheduling
 from .trails import trail_names_as_list
@@ -132,37 +134,15 @@ def payment_hold_response(message, hold_status):
     return Response(data, status=400)
 
 
-def checkout_slot_conflicts(tenant, cart, *, split_reservations=False):
-    course_groups = [item.get('courses') or [] for item in cart]
-    templates = CourseTemplate.objects.filter(course_type__category__client=tenant).in_bulk(
-        {course.get('courseTemplateId') for courses in course_groups for course in courses if course.get('courseTemplateId')},
-    )
-    slot_resorts = []
-    for item, courses in zip(cart, course_groups):
-        group_slots = []
-        for course in courses:
-            template = templates.get(int(course['courseTemplateId'])) if course.get('courseTemplateId') else None
-            if template:
-                group_slots.append(Slot(
-                    template, datetime.strptime(course['date'], '%Y-%m-%d').date(),
-                    parse_booking_time(course['timeSlotStart']), parse_booking_time(course['timeSlotEnd']),
-                ))
-        slot_resorts.extend(
-            (slot, item.get('resort')) for slot in (group_slots if split_reservations else dict.fromkeys(group_slots))
-        )
+def checkout_slot_conflicts(tenant, cart, *, split_reservations=False, exclude_staff_link_id=None):
+    slot_resorts = cart_capacity_slots(tenant, cart, split_reservations=split_reservations)
     conflicts = checkout_closure_conflicts(tenant, slot_resorts)
     if conflicts or not booking_capacity_recheck_enabled(tenant):
         return conflicts
     return checkout_conflicts(
-        slot for slot, _ in slot_resorts if not slot.template.shared_class_enabled
+        (slot for slot, _ in slot_resorts if not slot.template.shared_class_enabled),
+        exclude_staff_link_id=exclude_staff_link_id,
     )
-
-
-def parse_booking_time(value):
-    try:
-        return datetime.strptime(value, '%H:%M:%S').time()
-    except ValueError:
-        return datetime.strptime(value, '%H:%M').time()
 
 
 def model_table_has_column(model, column_name):
@@ -2030,10 +2010,20 @@ class CourseSessionListAPI(APIView):
         ability_level = request.GET.get('ability_level')
         language = request.GET.get('language') or 'zh'
         people_count = request.GET.get('people_count')
+        exclude_staff_link_id = None
+        staff_link_token = request.GET.get('staff_link')
+        if staff_link_token and date_str:
+            try:
+                token = UUID(staff_link_token)
+            except ValueError:
+                return Response({'error': '代客訂課連結格式錯誤'}, status=400)
+            exclude_staff_link_id = StaffBookingLink.objects.filter(
+                client=client, token=token,
+            ).values_list('pk', flat=True).first()
 
         sessions = CourseSession.objects.filter(
             is_active=True, template__course_type__category__client=client,
-        ).select_related('template')
+        ).select_related('template__course_type__category')
 
         if template_id:
             try:
@@ -2109,7 +2099,7 @@ class CourseSessionListAPI(APIView):
 
                 reasons = slot_unavailable_reasons(
                     Slot(tmpl, check_date, session.start_time, session.end_time),
-                    closures=closures, resort_id=resort_id,
+                    closures=closures, resort_id=resort_id, exclude_staff_link_id=exclude_staff_link_id,
                 )
                 closed_reason = next((reason.message_zh for reason in reasons if reason.code == 'closed'), '')
                 if tmpl.shared_class_enabled:
@@ -2401,8 +2391,11 @@ class CreateReservationAPI(APIView):
             staff_link_token = request.data.get('staff_link')
             staff_link = None
             if staff_link_token:
+                # Hold writers and checkout must acquire the tenant before the link.
+                tenant_client = resolve_tenant_client(client_code)
+                tenant_client = Client.objects.select_for_update().get(pk=tenant_client.pk)
                 staff_link = StaffBookingLink.objects.select_for_update().filter(
-                    token=staff_link_token, client=resolve_tenant_client(client_code),
+                    token=staff_link_token, client=tenant_client,
                 ).first()
                 if not staff_link or not staff_link.is_open:
                     return Response({'code': 400, 'msg': '這個代客訂課連結已失效，請向工作人員索取新連結'}, status=400)
@@ -2450,11 +2443,12 @@ class CreateReservationAPI(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             contact_info['policy_accepted_at'] = timezone.now().isoformat()
 
-            # 解析 tenant client(永不回 None;失敗會 raise TenantResolutionError)
-            tenant_client = resolve_tenant_client(client_code)
+            if not staff_link:
+                tenant_client = resolve_tenant_client(client_code)
             if not module_enabled(tenant_client, 'booking'):
                 return Response({'error':'此學校目前未開放新增預約'},status=503)
-            tenant_client = type(tenant_client).objects.select_for_update().get(pk=tenant_client.pk)
+            if not staff_link:
+                tenant_client = Client.objects.select_for_update().get(pk=tenant_client.pk)
             require_open_booking_resorts((item.get('resort') for item in cart_data), client=tenant_client)
             if getattr(request, 'checkout_consent_channel', None) == 'legacy_chat':
                 contact_info['policy_consent_channel'] = 'legacy_chat'
@@ -2463,7 +2457,9 @@ class CreateReservationAPI(APIView):
                     contact_info['policy_acceptance'] = accepted_checkout_policies(tenant_client, request.data.get('policy_acceptance'))
                 except ValueError as exc:
                     return Response({'code': 400, 'msg': str(exc)}, status=400)
-            conflicts = checkout_slot_conflicts(tenant_client, cart_data)
+            conflicts = checkout_slot_conflicts(
+                tenant_client, cart_data, exclude_staff_link_id=staff_link.pk if staff_link else None,
+            )
             if conflicts:
                 return Response(slot_conflict_response(conflicts), status=409)
             discount_code = request.data.get('discount_code') or request.data.get('discountCode') or ''
@@ -2542,6 +2538,7 @@ class CreateReservationAPI(APIView):
                         )
 
             if staff_link:
+                release_holds(staff_link, converted=True)
                 staff_link.used_by = request_user
                 staff_link.used_at = timezone.now()
                 staff_link.save(update_fields=['used_by', 'used_at'])

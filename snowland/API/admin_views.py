@@ -40,6 +40,7 @@ from Client.tenant_settings import (
     order_refund_charge_enabled,
     order_source_override_enabled,
     staff_booking_link_edit_enabled,
+    staff_booking_link_hold_enabled,
     test_order_financial_override_enabled, test_order_marking_enabled,
 )
 from .payroll_security import PayrollCsrfMixin
@@ -59,6 +60,8 @@ from booking.order_testing import (
     set_order_test_status,
 )
 from booking.course_documents import INSURANCE_RECHECK_STATUSES
+from booking.capacity import active_staff_link_holds, slot_conflict_response
+from booking.staff_link_holds import create_holds, hold_conflicts, hold_slots_match, private_hold_slots, release_holds
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.marketing_source import display_marketing_source
 from booking.scheduling_metrics import (
@@ -3779,8 +3782,13 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
             not self.request.can_view_all_campuses or self.request.selected_campus_id
         ):
             qs = qs.filter(campus_id__in=_campus_ids(self.request))
-        if self.action in ('update', 'partial_update'):
+        if self.action in ('update', 'partial_update', 'destroy', 'release_hold'):
             qs = qs.select_related(None).select_for_update()
+        elif self.action in ('list', 'retrieve'):
+            holds = active_staff_link_holds(client_id=self.request.tenant.pk).select_related(
+                'course_template', 'resort',
+            ).order_by('date', 'start_time', 'pk')
+            qs = qs.prefetch_related(Prefetch('capacity_holds', queryset=holds, to_attr='active_capacity_holds'))
         return qs.order_by('-created_at')
 
     def get_serializer_context(self):
@@ -3789,11 +3797,44 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
             'staff_link_edit_enabled': staff_booking_link_edit_enabled(self.request.tenant),
         }
 
-    def perform_create(self, serializer):
+    def _can_manage_holds(self):
+        request = self.request
+        return _is_headquarters(request) and all(
+            user_has_admin_permission(request.user, permission, request.tenant)
+            for permission in ('order_edit', 'scheduling')
+        )
+
+    def _hold_choice(self, serializer):
+        choice = serializer.validated_data.pop('hold_capacity', None)
+        if choice is not None and not self._can_manage_holds():
+            raise PermissionDenied('僅總部管理員可設定名額保留')
+        return choice
+
+    def _hold_slots(self, snapshot):
+        try:
+            return private_hold_slots(self.request.tenant, snapshot)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError({'cart_snapshot': '課程日期或時段資料不正確，請重新選課'}) from exc
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         campus = serializer.validated_data['campus']
-        if campus.client_id != self.request.tenant.id or (_campus_ids(self.request) and campus.id not in _campus_ids(self.request)):
+        if _campus_ids(request) and campus.id not in _campus_ids(request):
             raise PermissionDenied('不能為其他校區建立訂課連結')
-        serializer.save(client=self.request.tenant, created_by=self.request.user)
+        choice = self._hold_choice(serializer)
+        slots = []
+        if choice and staff_booking_link_hold_enabled(request.tenant) and serializer.validated_data.get('is_active', True):
+            slots = self._hold_slots(serializer.validated_data['cart_snapshot'])
+            conflicts = hold_conflicts(request.tenant, slots)
+            if conflicts:
+                return Response(slot_conflict_response(conflicts), status=409)
+        link = serializer.save(client=request.tenant, created_by=request.user)
+        if slots:
+            create_holds(link, slots, request.user)
+        return Response(serializer.data, status=201, headers=self.get_success_headers(serializer.data))
 
     def _edit_serializer(self, request, link, *, partial=True):
         serializer = self.get_serializer(link, data=request.data, partial=partial)
@@ -3834,8 +3875,10 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
 
     @transaction.atomic
     def update(self, request, *args, **kwargs):
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
         link = self.get_object()
         serializer = self._edit_serializer(request, link, partial=kwargs.pop('partial', False))
+        choice = self._hold_choice(serializer)
         changes = {}
         preview = None
         if 'cart_snapshot' in serializer.validated_data:
@@ -3850,11 +3893,59 @@ class StaffBookingLinkAdminViewSet(ModelViewSet):
             if expected is not None and expected != {'subtotal': preview['subtotal'], 'total': preview['total']}:
                 return Response({'msg': '價格已變更，請重新試算後再儲存'}, status=409)
             changes.update(cart_snapshot=snapshot, quoted_total=preview['total'])
+        taking_hold = choice and staff_booking_link_hold_enabled(request.tenant)
+        active = serializer.validated_data.get('is_active', True)
+        new_slots = self._hold_slots(changes.get('cart_snapshot', link.cart_snapshot)) if taking_hold and active else []
+        if taking_hold and active:
+            conflicts = hold_conflicts(request.tenant, new_slots, exclude_staff_link_id=link.pk)
+            if conflicts:
+                return Response(slot_conflict_response(conflicts), status=409)
+        replace_holds = taking_hold or choice is False or not active
+        holds = active_staff_link_holds(client_id=request.tenant.pk).filter(staff_link=link)
+        if not replace_holds and 'cart_snapshot' in changes:
+            existing = list(holds.select_related('course_template', 'resort'))
+            if existing and not hold_slots_match(existing, self._hold_slots(changes['cart_snapshot'])):
+                raise ValidationError({'msg': '連結仍有名額保留，請由總部管理員調整或先釋放保留'})
+        if replace_holds:
+            release_holds(link)
+        elif 'expires_at' in serializer.validated_data:
+            # Use IDs to keep this a single-table UPDATE on MySQL.
+            hold_ids = list(holds.values_list('pk', flat=True))
+            link.capacity_holds.filter(pk__in=hold_ids).update(expires_at=serializer.validated_data['expires_at'])
         serializer.save(**changes)
+        if new_slots:
+            create_holds(link, new_slots, request.user)
         return Response({**serializer.data, 'price_preview': preview})
 
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='release-hold')
+    @transaction.atomic
+    def release_hold(self, request, *args, **kwargs):
+        if not self._can_manage_holds():
+            raise PermissionDenied('僅總部管理員可釋放名額保留')
+        Client.objects.select_for_update().get(pk=request.tenant.pk)
+        link = self.get_object()
+        if link.is_open:
+            released = release_holds(link)
+            if released:
+                LogEntry.objects.create(
+                    user=request.user, content_type=ContentType.objects.get_for_model(link), object_id=str(link.pk),
+                    object_repr=link.title[:200], action_flag=CHANGE, change_message=f'釋放代客訂課名額保留（{released} 堂）',
+                )
+        return Response(self.get_serializer(link).data)
+
     def list(self, request, *args, **kwargs):
-        return wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
+        response = wrap_list(self.get_queryset(), self.get_serializer_class(), request, self.get_serializer_context())
+        can_manage = self._can_manage_holds()
+        response.data['data'].update({
+            'can_create_hold': can_manage and staff_booking_link_hold_enabled(request.tenant),
+            'can_release_hold': can_manage,
+        })
+        return response
 
 
 # ==================== Customers ====================

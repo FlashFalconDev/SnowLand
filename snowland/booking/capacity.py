@@ -2,16 +2,17 @@
 
 from collections import Counter
 from dataclasses import dataclass, asdict
-from datetime import date, time
+from datetime import date, datetime, time
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Count, Exists, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from Client.tenant_settings import booking_capacity_recheck_enabled
 from Coursekit.models import CourseTemplate
 from Resorts.models import Resorts
 from .closures import active_booking_closures, closed_slot_message, matching_booking_closure
-from .models import Booking, Payment, Reservation
+from .models import Booking, Payment, Reservation, StaffLinkCapacityHold
 
 
 PAYMENT_CAPACITY_CODE = 'slot_full_at_payment'
@@ -40,7 +41,24 @@ class SlotUnavailable:
     capacity: int | None
 
 
-def occupied_count(slot, *, exclude_group_id=None, paid_only=False):
+def active_staff_link_holds(*, client_id):
+    now = timezone.now()
+    campus_resorts = Resorts.objects.filter(pk=OuterRef('resort_id'), campuses=OuterRef('staff_link__campus_id'))
+    template_resorts = CourseTemplate.objects.filter(pk=OuterRef('course_template_id')).filter(
+        Q(resorts=OuterRef('resort_id'))
+        | Q(resorts__isnull=True, pricing_options__is_active=True, pricing_options__resort_id=OuterRef('resort_id')),
+    )
+    return StaffLinkCapacityHold.objects.filter(
+        client_id=client_id, released_at__isnull=True, expires_at__gt=now,
+        staff_link__client_id=client_id, staff_link__is_active=True,
+        staff_link__used_at__isnull=True, staff_link__expires_at__gt=now,
+        staff_link__campus__is_active=True, staff_link__campus__client_id=client_id,
+        course_template__is_active=True, course_template__shared_class_enabled=False,
+        course_template__course_type__category__client_id=client_id, resort__client_id=client_id,
+    ).filter(Exists(campus_resorts), Exists(template_resorts))
+
+
+def occupied_count(slot, *, exclude_group_id=None, paid_only=False, exclude_staff_link_id=None):
     # A reservation can have more than one matching live lesson.
     reservations = Reservation.objects.live().filter(
         course_template=slot.template, bookings__is_deleted=False, bookings__date=slot.date,
@@ -53,11 +71,26 @@ def occupied_count(slot, *, exclude_group_id=None, paid_only=False):
             reservations = reservations.filter(paid)
         else:
             reservations = reservations.filter(Q(paid) | Q(group_id__lt=exclude_group_id))
-    return reservations.values('pk').distinct().count()
+    holds = active_staff_link_holds(client_id=slot.template.course_type.category.client_id).filter(
+        course_template=slot.template, date=slot.date, start_time=slot.start_time, end_time=slot.end_time,
+    )
+    if exclude_staff_link_id is not None:
+        holds = holds.exclude(staff_link_id=exclude_staff_link_id)
+    # Read both counts in one statement so checkout cannot move a hold to a
+    # reservation between the availability reads.
+    reservation_count = reservations.order_by().values('course_template').annotate(
+        total=Count('pk', distinct=True),
+    ).values('total')
+    hold_count = holds.order_by().values('course_template').annotate(total=Count('pk')).values('total')
+    occupied = CourseTemplate.objects.filter(pk=slot.template.pk).annotate(
+        total=Coalesce(Subquery(reservation_count), 0) + Coalesce(Subquery(hold_count), 0),
+    ).values_list('total', flat=True).first()
+    return occupied or 0
 
 
 def slot_unavailable_reasons(
-    slot, *, requested=1, exclude_group_id=None, paid_only=False, closures=(), resort_id=None, check_capacity=True,
+    slot, *, requested=1, exclude_group_id=None, paid_only=False, exclude_staff_link_id=None,
+    closures=(), resort_id=None, check_capacity=True,
 ):
     reasons = []
     if matching_booking_closure(
@@ -71,7 +104,9 @@ def slot_unavailable_reasons(
         ))
     if not check_capacity or slot.template.shared_class_enabled:
         return reasons
-    occupied = occupied_count(slot, exclude_group_id=exclude_group_id, paid_only=paid_only)
+    occupied = occupied_count(
+        slot, exclude_group_id=exclude_group_id, paid_only=paid_only, exclude_staff_link_id=exclude_staff_link_id,
+    )
     capacity = slot.template.max_capacity or 6
     if occupied + requested <= capacity:
         return reasons
@@ -85,11 +120,39 @@ def slot_unavailable_reasons(
     )]
 
 
-def checkout_conflicts(slots):
+def checkout_conflicts(slots, *, exclude_staff_link_id=None):
     return [
         reason for slot, requested in Counter(slots).items()
-        for reason in slot_unavailable_reasons(slot, requested=requested)
+        for reason in slot_unavailable_reasons(slot, requested=requested, exclude_staff_link_id=exclude_staff_link_id)
     ]
+
+
+def parse_booking_time(value):
+    try:
+        return datetime.strptime(value, '%H:%M:%S').time()
+    except ValueError:
+        return datetime.strptime(value, '%H:%M').time()
+
+
+def cart_capacity_slots(tenant, cart, *, split_reservations=False):
+    course_groups = [item.get('courses') or [] for item in cart]
+    templates = CourseTemplate.objects.filter(course_type__category__client=tenant).in_bulk(
+        {course.get('courseTemplateId') for courses in course_groups for course in courses if course.get('courseTemplateId')},
+    )
+    slot_resorts = []
+    for item, courses in zip(cart, course_groups):
+        group_slots = []
+        for course in courses:
+            template = templates.get(int(course['courseTemplateId'])) if course.get('courseTemplateId') else None
+            if template:
+                group_slots.append(Slot(
+                    template, datetime.strptime(course['date'], '%Y-%m-%d').date(),
+                    parse_booking_time(course['timeSlotStart']), parse_booking_time(course['timeSlotEnd']),
+                ))
+        slot_resorts.extend(
+            (slot, item.get('resort')) for slot in (group_slots if split_reservations else dict.fromkeys(group_slots))
+        )
+    return slot_resorts
 
 
 def checkout_closure_conflicts(tenant, slot_resorts):

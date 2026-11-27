@@ -138,6 +138,7 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
                 '"booking_capacity_recheck_enabled": false 關閉重查與付款後衝突標記。'
                 '加入 "test_order_financial_override_enabled": false 可停用總部管理員覆寫已有帳務的測試標記。預設開啟。'
                 '"booking_closures_enabled": false 暫停套用租戶的停收規則，仍可在後台管理。預設開啟。'
+                '"staff_booking_link_hold_enabled": false 關閉建立新的代客訂課名額保留。預設開啟。'
                 '後台學習評量的 booking 設定可用 "evaluation_date_filters_enabled": false 還原原清單。'
                 '"evaluation_default_date_field" 可填 "ordered"（下單日期，預設）或 "lesson"（上課日期）。'
                 '"evaluation_default_date_range_days" 可填 1 至 366 的整數，預設 30 天（含今天）。'

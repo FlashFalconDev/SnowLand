@@ -12,7 +12,7 @@ import {
   fetchNotificationTemplates, fetchNotificationCourseOptions, fetchPayrollStatements, fetchPayrollCoaches, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, addPayrollAdjustment, editPayrollAdjustment, removePayrollAdjustment, deletePayrollDraft,
   fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceProcessingStatus, type InsuranceRecordDetail, type PreCourseFormSnapshot,
   fetchCourseUploadLimits, uploadCourseFile,
-  previewStaffBookingLink, updateStaffBookingLink, type StaffBookingLink,
+  previewStaffBookingLink, updateStaffBookingLink, releaseStaffBookingLinkHold, type StaffBookingLink,
   updateEvaluation, type Evaluation, type EvaluationDateFilters, type EvaluationPage,
 } from '../api/operations'
 import { useNotification } from '../context'
@@ -37,6 +37,7 @@ import { fetchAssessmentRubric, type RubricConfig, type SkillEntries } from '../
 import AssessmentSettings from '../components/AssessmentSettings'
 import { SkillReviewFields, SkillSnapshotSummary } from '../components/SkillReviewFields'
 import { CoachCourseAlbum, EvaluationLearnerLink } from '../components/LearnerCourseTools'
+import type { SlotFullResponse } from '@/api/booking'
 
 const PRIMARY = '#8b5cf6'
 type Tab = 'notifications' | 'payroll' | 'payroll-rules' | 'staff-incentives' | 'payroll-documents' | 'evaluations' | 'insurance' | 'insurance-ledger' | 'links'
@@ -491,7 +492,11 @@ function BookingLinksPanel() {
   const { cart, clearCart } = useCart()
   const { campuses, selectedCampus } = useScopedCampuses()
   const activeCampuses = campuses.filter(campus => campus.is_active)
-  const { data: rows = [], isLoading, isFetching, error, refetch } = useQuery({ queryKey: ['admin', 'staff-booking-links'], queryFn: fetchStaffBookingLinks })
+  const linksKey = ['admin', 'staff-booking-links']
+  const { data, isLoading, isFetching, error, refetch } = useQuery({ queryKey: linksKey, queryFn: fetchStaffBookingLinks })
+  const rows = data?.list ?? []
+  const [holdCapacity, setHoldCapacity] = useState(true)
+  const [conflicts, setConflicts] = useState<SlotFullResponse['conflicts']>([])
   const editing = rows.find(row => `${row.id}:${row.snapshot_version}` === editKey && row.can_edit)
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 16)
   const [form, setForm] = useState({ campus: selectedCampus, title: '', expires_at: tomorrow })
@@ -502,13 +507,45 @@ function BookingLinksPanel() {
       setForm(current => ({ ...current, campus: String(selectedCartCampus) }))
     }
   }, [selectedCartCampus, activeCampuses.map(campus => campus.id).join(',')])
-  const create = useMutation({ mutationFn: () => createStaffBookingLink({ campus: Number(form.campus), title: form.title, expires_at: new Date(form.expires_at).toISOString(), cart_snapshot: cart }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'staff-booking-links'] }); clearCart(); setForm({ ...form, title: '' }); notify.success('已建立含課程明細的訂課連結') }, onError: (e: any) => notify.error(e?.response?.data?.cart_snapshot?.[0] || e?.response?.data?.msg || '建立失敗') })
+  const showLinkError = (error: any, fallback: string) => {
+    const body = error?.response?.data
+    if (Array.isArray(body?.conflicts) && body.conflicts.length) {
+      setConflicts(body.conflicts)
+      return
+    }
+    const detail = body?.cart_snapshot || body?.expires_at || body?.msg || body?.detail
+    notify.error((Array.isArray(detail) ? detail[0] : detail) || fallback)
+  }
+  const holdChoice = data?.can_create_hold ? holdCapacity : undefined
+  const holdOption = data?.can_create_hold && <label className="mt-3 flex min-h-11 items-center gap-2 text-sm">
+    <input type="checkbox" checked={holdCapacity} onChange={event => { setHoldCapacity(event.target.checked); setConflicts([]) }} />
+    先保留名額（私人課）
+  </label>
+  const conflictList = conflicts.length > 0 && <div role="alert" className="mt-3 rounded-lg border border-red-200 p-3 text-sm text-red-700 dark:text-red-300">
+    <p className="font-semibold">以下堂次無法保留</p>
+    <ul className="mt-1 list-disc space-y-1 pl-5">{conflicts.map((slot, index) =>
+      <li key={index}>{slot.template_name} · {slot.message_zh}</li>,
+    )}</ul>
+  </div>
+  const create = useMutation({
+    mutationFn: () => createStaffBookingLink({
+      campus: Number(form.campus), title: form.title, expires_at: new Date(form.expires_at).toISOString(),
+      cart_snapshot: cart, hold_capacity: holdChoice,
+    }),
+    onMutate: () => setConflicts([]),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: linksKey })
+      clearCart()
+      setHoldCapacity(true)
+      setForm(current => ({ ...current, title: '' }))
+      notify.success('已建立含課程明細的訂課連結')
+    },
+    onError: error => showLinkError(error, '建立連結失敗'),
+  })
   const editPayload = { cart_snapshot: cart, snapshot_version: editing?.snapshot_version ?? 0 }
-  const showEditError = (error: any) => {
-    const data = error?.response?.data
-    const detail = data?.cart_snapshot || data?.msg || data?.detail
-    notify.error((Array.isArray(detail) ? detail[0] : detail) || '修改連結失敗')
-    qc.invalidateQueries({ queryKey: ['admin', 'staff-booking-links'] })
+  const showEditError = (error: unknown) => {
+    showLinkError(error, '修改連結失敗')
+    qc.invalidateQueries({ queryKey: linksKey })
   }
   const preview = useMutation({
     mutationFn: async () => ({ cart, price: await previewStaffBookingLink(editing!.id, editPayload) }),
@@ -516,10 +553,12 @@ function BookingLinksPanel() {
   })
   const quote = preview.data?.cart === cart ? preview.data.price : undefined
   const update = useMutation({
-    mutationFn: () => updateStaffBookingLink(editing!.id, editPayload, quote!),
+    mutationFn: () => updateStaffBookingLink(editing!.id, { ...editPayload, hold_capacity: holdChoice }, quote!),
+    onMutate: () => setConflicts([]),
     onSuccess: () => {
       clearCart()
-      qc.invalidateQueries({ queryKey: ['admin', 'staff-booking-links'] })
+      qc.invalidateQueries({ queryKey: linksKey })
+      setHoldCapacity(true)
       setSearchParams({}, { replace: true })
       notify.success('已更新代客訂課連結，客人可使用原連結')
     },
@@ -528,14 +567,23 @@ function BookingLinksPanel() {
       showEditError(error)
     },
   })
+  const release = useMutation({
+    mutationFn: releaseStaffBookingLinkHold,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: linksKey })
+      notify.success('已釋放名額保留')
+    },
+    onError: error => showLinkError(error, '釋放名額保留失敗'),
+  })
   const editHref = (key: string) => `${prepareUrl}&staff_edit=${encodeURIComponent(key)}`
   const startEdit = (row: StaffBookingLink) => {
     const key = `${row.id}:${row.snapshot_version}`
-    getStaffBookingDraftStore(clientCode, key).getState().replaceCart(
-      row.cart_snapshot.map((group, index) => ({
+    getStaffBookingDraftStore(clientCode, key).setState({
+      staffLinkToken: row.token,
+      cart: row.cart_snapshot.map((group, index) => ({
         ...group, id: group.id || `staff-${row.id}-${index}`, campusId: row.campus,
       })),
-    )
+    })
   }
   const amount = (value: number) => `NT$ ${value.toLocaleString()}`
   const difference = (value: number) => `${value > 0 ? '+' : ''}${value.toLocaleString()}`
@@ -564,6 +612,8 @@ function BookingLinksPanel() {
           {cart.map(group => <li key={group.id}>{group.resortName} · {group.courses.map(course => `${course.courseTemplateName} ${course.date}`).join('、')} · {group.peopleCount} 人</li>)}
         </ul>
         {cart.length > 0 && !validEditCart && <p role="alert" className="mt-2 text-sm text-red-600">請選擇原校區且有課程的組別。</p>}
+        {holdOption}
+        {conflictList}
         {quote && <div role="status" className="mt-4 rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-900">
           {quote.previous_subtotal !== null && <p>原小計 {amount(quote.previous_subtotal)}</p>}
           <p>新小計 {amount(quote.subtotal)}{quote.subtotal_difference !== null && `（差額 ${difference(quote.subtotal_difference)}）`}</p>
@@ -595,14 +645,31 @@ function BookingLinksPanel() {
         <Field label="連結失效時間"><input className={inputClass} type="datetime-local" value={form.expires_at} onChange={e => setForm({ ...form, expires_at: e.target.value })} /></Field>
         <button disabled={!cartCampusMatches || Number(form.campus) !== selectedCartCampus || !form.title || create.isPending} onClick={() => create.mutate()} className="flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}><Plus size={16} />建立連結</button>
       </div>
+      {holdOption}
+      {conflictList}
     </section>}
     <section className={cardClass}>
       <div className="space-y-3">
         {rows.map(row => <div key={row.id} className="flex flex-col gap-3 rounded-lg border border-gray-100 p-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
-          <div><b>{row.title}</b><p className="text-xs text-gray-500 dark:text-gray-400">{row.is_available ? '可使用' : '已失效'} · 到期 {new Date(row.expires_at).toLocaleString()}</p></div>
+          <div>
+            <b>{row.title}</b><p className="text-xs text-gray-500 dark:text-gray-400">{row.is_available ? '可使用' : '已失效'} · 到期 {new Date(row.expires_at).toLocaleString()}</p>
+            {!!row.capacity_holds?.length && <details className="mt-2 text-sm">
+              <summary className="cursor-pointer font-semibold text-violet-700 dark:text-violet-300">
+                已保留名額 · {row.capacity_holds.length} 堂 · 保留至 {new Date(row.capacity_holds[0].expires_at).toLocaleString()}
+              </summary>
+              <ul className="mt-1 space-y-1">
+                {row.capacity_holds.map(hold => <li key={hold.id}>
+                  {hold.date} {hold.start_time}–{hold.end_time} · {hold.resort_name} · {hold.template_name}
+                </li>)}
+              </ul>
+            </details>}
+          </div>
           <div className="flex flex-wrap gap-2">
             {row.can_edit && <a href={editHref(`${row.id}:${row.snapshot_version}`)} onClick={() => startEdit(row)} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600">修改</a>}
             <button disabled={!row.is_available} onClick={() => copy(row.url)} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600 disabled:opacity-40">複製連結</button>
+            {data?.can_release_hold && !!row.capacity_holds?.length && <button type="button" disabled={release.isPending} onClick={() => {
+              if (window.confirm('確定釋放這個連結保留的名額？釋放後，其他客人可以預訂這些時段。')) release.mutate(row.id)
+            }} className="min-h-11 rounded-lg border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-800 disabled:opacity-40 dark:text-amber-200">釋放保留</button>}
           </div>
         </div>)}
         {!rows.length && <Empty text="尚未建立連結。" />}
