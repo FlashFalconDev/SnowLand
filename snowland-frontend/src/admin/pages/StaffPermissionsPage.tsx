@@ -442,6 +442,10 @@ function StaffPositionManager({ onClose }: { onClose: () => void }) {
       labels.push(page.label)
       permissions.set(page.access, labels)
     }
+
+    if (group.id === 'members' && choices.has('insurance_ledger_deduct')) {
+      permissions.set('insurance_ledger_deduct', ['保險預付保費扣款'])
+    }
     return { label: group.label, permissions: Array.from(permissions) }
   }).filter(group => group.permissions.length)
   const activeCampuses = (campuses.data ?? []).filter(campus => campus.is_active)

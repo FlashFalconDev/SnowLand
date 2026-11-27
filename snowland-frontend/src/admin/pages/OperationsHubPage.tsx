@@ -23,6 +23,8 @@ import { useSiteLink } from '@/hooks/useSiteBasePath'
 import ManualNotificationComposer from '../components/ManualNotificationComposer'
 import InsuranceCalendar, { insuranceDayRecords } from '../components/InsuranceCalendar'
 import InsuranceReminderDialog from '../components/InsuranceReminderDialog'
+import InsuranceLedgerPanel from '../components/InsuranceLedgerPanel'
+import { useInsuranceRequestKey } from '../components/useInsuranceRequestKey'
 import PayRuleEditor from '../components/PayRuleEditor'
 import StaffIncentiveRulesPanel from '../components/StaffIncentiveRulesPanel'
 import StaffIncentiveStatementsPanel from '../components/StaffIncentiveStatementsPanel'
@@ -37,7 +39,7 @@ import { SkillReviewFields, SkillSnapshotSummary } from '../components/SkillRevi
 import { CoachCourseAlbum, EvaluationLearnerLink } from '../components/LearnerCourseTools'
 
 const PRIMARY = '#8b5cf6'
-type Tab = 'notifications' | 'payroll' | 'payroll-rules' | 'staff-incentives' | 'payroll-documents' | 'evaluations' | 'insurance' | 'links'
+type Tab = 'notifications' | 'payroll' | 'payroll-rules' | 'staff-incentives' | 'payroll-documents' | 'evaluations' | 'insurance' | 'insurance-ledger' | 'links'
 
 const tabs: { id: Tab; label: string; icon: typeof Bell }[] = [
   { id: 'notifications', label: '自動通知', icon: Bell },
@@ -47,6 +49,7 @@ const tabs: { id: Tab; label: string; icon: typeof Bell }[] = [
   { id: 'payroll-documents', label: '薪資文件設定', icon: Calculator },
   { id: 'evaluations', label: '學習評量', icon: ClipboardCheck },
   { id: 'insurance', label: '保險與聲明書', icon: ClipboardCheck },
+  { id: 'insurance-ledger', label: '保險預付保費帳本', icon: Calculator },
   { id: 'links', label: '代客訂課連結', icon: Link2 },
 ]
 
@@ -58,6 +61,7 @@ const descriptions: Record<Tab, string> = {
   'payroll-documents': '維護薪資文件。',
   evaluations: '記錄學員進度、教練評語與課程媒體。',
   insurance: '查核學員保險、課前聲明與法定代理人資料，追蹤待補項目。',
+  'insurance-ledger': '登錄保費儲值、查閱分錄與確認每月對帳。',
   links: '建立有校區歸屬的連結，協助客人完成訂課。',
 }
 
@@ -94,7 +98,7 @@ export default function OperationsHubPage({ initialTab = 'notifications', fixed 
   const [tab, setTab] = useState<Tab>(initialTab)
   // Fixed Console routes reuse this component instance; the route prop must win over stale tab state.
   const activeTab = fixed ? initialTab : tab
-  const visibleTabs = fixed ? tabs.filter(item => item.id === initialTab) : tabs
+  const visibleTabs = fixed ? tabs.filter(item => item.id === initialTab) : tabs.filter(item => item.id !== 'insurance-ledger')
   const currentTab = tabs.find(item => item.id === activeTab) || tabs[0]
   return (
     <div className="space-y-6">
@@ -112,6 +116,7 @@ export default function OperationsHubPage({ initialTab = 'notifications', fixed 
       {activeTab === 'payroll-documents' && <PayrollDocumentSettingsPanel />}
       {activeTab === 'evaluations' && <EvaluationsPanel coachView={coachView} />}
       {activeTab === 'insurance' && <InsurancePanel />}
+      {activeTab === 'insurance-ledger' && <InsuranceLedgerPanel />}
       {activeTab === 'links' && <BookingLinksPanel />}
     </div>
   )
@@ -606,6 +611,8 @@ const canProcessInsurance = (row: { can_process_insurance?: boolean; can_mark_co
 
 function InsurancePanel() {
   const qc = useQueryClient(); const notify = useNotification()
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
+  const ledgerUrl = useSiteLink('/console/insurance/ledger')
   const [status, setStatus] = useState('all')
   const [processingStatus, setProcessingStatus] = useState('all')
   const [selectedDate, setSelectedDate] = useState('')
@@ -632,6 +639,7 @@ function InsurancePanel() {
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
       <div><h2 className="font-semibold text-gray-900 dark:text-white">保險與聲明書資料</h2><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">先核對學員資料，再開啟「查看資料」更新投保進度。資料填齊不等於已投保；紙本確認也不等於線上簽署。</p></div>
       <div className="flex flex-col flex-wrap gap-2 sm:flex-row">
+        {hasAdminPermission(adminMe?.user, 'insurance_ledger_finance') && <Link className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-sm font-semibold text-violet-700 dark:text-violet-300" to={ledgerUrl}>保費帳本</Link>}
         <label className="sr-only" htmlFor="insurance-status">資料完成狀態</label>
         <select id="insurance-status" className={`${inputClass} sm:w-auto`} value={status} onChange={event => { setStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="missing">待補資料</option><option value="all">全部資料</option><option value="completed">已標記完成</option></select>
         <select aria-label="投保作業狀態" className={`${inputClass} sm:w-auto`} value={processingStatus} onChange={event => { setProcessingStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="all">全部投保進度</option>{Object.entries(insuranceStatuses).filter(([value]) => value !== 'ineligible' || showIneligible).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -704,6 +712,7 @@ function InsuranceDetail({ id }: { id: number }) {
       </div>
       <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">以上為會員填寫及簽署的唯讀紀錄，不會因後台標記完成而修改簽名或文件內容。</p>
       {Boolean(data.document_history?.length) && <details className="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-600"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看改期／換課的簽署與投保留底（{data.document_history.length} 筆）</summary>{data.document_history.map(row=><section key={row.id} className="mt-3 space-y-2 border-t border-gray-200 pt-3 text-sm dark:border-gray-600"><p>第 {row.version} 版 · {new Date(row.created_at).toLocaleString('zh-TW')}</p><p className="break-words">原因：{row.reason}</p><p>原課程：{row.snapshot.previous_courses.map(course=>course.date).join('、')}</p><p>原簽署：{row.snapshot.waiver_signature || '無線上簽名'} · {row.snapshot.waiver_document_version || '無版本'}</p><p>原投保：{insuranceStatusLabel(row.snapshot.insurance_processing_status)} · {row.snapshot.insurance_premium_amount===null?'無原保費':`${row.snapshot.insurance_premium_currency} ${row.snapshot.insurance_premium_amount}`}</p><details><summary className="min-h-11 cursor-pointer py-3">查看原簽署文件</summary><p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">{row.snapshot.waiver_document_snapshot || '無線上文件'}</p></details></section>)}</details>}
+      {data.insurance_processing_status === 'ineligible' && data.premium_policy?.has_unreversed_deduction && <p className="mt-4 rounded-lg bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">帳本仍有此學員未沖正的扣款，需由財務確認是否沖正。</p>}
       {canProcessInsurance(data) && (data.insurance_processing_status !== 'ineligible' || data.insurance_eligibility?.can_restore) && <InsuranceProcessingForm key={`${data.id}-${data.insurance_processing_updated_at || 'new'}`} row={data} />}
     </>}
   </div>
@@ -715,19 +724,45 @@ function InsuranceProcessingForm({ row }: { row: InsuranceRecordDetail }) {
   const [amount, setAmount] = useState(row.insurance_premium_amount ?? '')
   const [currency, setCurrency] = useState(row.insurance_premium_currency)
   const [confirmed, setConfirmed] = useState(false)
+  const [correctionNote, setCorrectionNote] = useState('')
+  const key = useInsuranceRequestKey()
+  const policy = row.premium_policy
+  const canEditPremium = policy?.can_edit ?? true
   const markingIneligible = status === 'ineligible'
+  const wasIneligible = row.insurance_processing_status === 'ineligible'
+  const eligibilityOnly = markingIneligible || wasIneligible
   const options = Object.entries(insuranceStatuses).filter(([value]) => {
-    if (row.insurance_processing_status === 'ineligible') {
+    if (wasIneligible) {
       return value === 'ineligible' || (value === 'checking' && row.insurance_eligibility?.can_restore)
     }
     return value !== 'ineligible' || row.insurance_eligibility?.can_mark
   })
   const needsConfirmation = status === 'insured' && row.insurance_processing_status !== 'insured'
-  const changed = status !== row.insurance_processing_status || (!markingIneligible && (amount !== (row.insurance_premium_amount ?? '') || currency !== row.insurance_premium_currency))
+  const oldAmount = row.insurance_premium_amount ?? ''
+  const premiumChanged = !eligibilityOnly && (
+    (amount === '' || oldAmount === '' ? amount !== oldAmount : Number(amount) !== Number(oldAmount))
+    || currency !== row.insurance_premium_currency
+  )
+  const changed = status !== row.insurance_processing_status || premiumChanged
+  const willDeduct = !!policy?.enabled && premiumChanged && Number(amount) > 0
+  const needsCorrection = willDeduct && policy?.correction_required
   const validPremium = (!currency || /^[A-Z]{3}$/.test(currency)) && (!amount || (Number.isFinite(Number(amount)) && Number(amount) >= 0 && Number(amount) <= 99999999.99 && /^[A-Z]{3}$/.test(currency)))
-  const valid = options.some(([value]) => value === status) && (markingIneligible || validPremium) && (!needsConfirmation || confirmed)
-  const save = useMutation({ mutationFn: () => saveInsuranceProcessing(row.id, { status, premium_amount: markingIneligible || amount === '' ? null : amount, currency: markingIneligible ? '' : currency, expected_updated_at: row.insurance_processing_updated_at, confirm_insured: confirmed }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin','insurance-records'] }); qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); notify.success('投保作業紀錄已儲存；系統不會自動投保') },
+  const valid = options.some(([value]) => value === status) && (eligibilityOnly || validPremium)
+    && (!needsConfirmation || confirmed) && (!needsCorrection || correctionNote.trim()) && (!premiumChanged || canEditPremium)
+  const save = useMutation({
+    mutationFn: () => {
+      const data = {
+        status,
+        premium_amount: markingIneligible ? null : wasIneligible ? row.insurance_premium_amount : amount || null,
+        currency: markingIneligible ? '' : wasIneligible ? row.insurance_premium_currency : currency,
+        expected_updated_at: row.insurance_processing_updated_at,
+        confirm_insured: confirmed,
+      }
+      if (!willDeduct) return saveInsuranceProcessing(row.id, data)
+      const request = { ...data, correction_note: correctionNote.trim() }
+      return saveInsuranceProcessing(row.id, { ...request, idempotency_key: key.forPayload(request) })
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin','insurance-records'] }); qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); qc.invalidateQueries({ queryKey: ['admin','insurance-ledger'] }); notify.success('投保作業紀錄已儲存；系統不會自動投保') },
     onError: (error: any) => { if (error?.response?.status === 409) qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); notify.error(String(error?.response?.data?.msg || Object.values(error?.response?.data || {})[0] || '儲存失敗，請重新核對')) },
   })
   return <form onSubmit={event => { event.preventDefault(); if (changed && valid && !save.isPending) save.mutate() }} className="mt-5 rounded-lg border border-gray-200 p-4 dark:border-gray-600">
@@ -738,9 +773,19 @@ function InsuranceProcessingForm({ row }: { row: InsuranceRecordDetail }) {
         {!options.some(([value]) => value === status) && <option value={status} disabled>{insuranceStatusLabel(status)}</option>}
         {options.map(([value,label]) => <option key={value} value={value}>{label}</option>)}
       </select></Field>
-      <Field label="投保金額（選填）"><input className={`${inputClass} min-h-11`} type="number" min="0" max="99999999.99" step="0.01" disabled={markingIneligible} value={markingIneligible ? row.insurance_premium_amount ?? '' : amount} onChange={event => setAmount(event.target.value)} /></Field>
-      <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder="例如 TWD、JPY" disabled={markingIneligible} required={!markingIneligible && amount !== ''} value={markingIneligible ? row.insurance_premium_currency : currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
+      <Field label="投保金額（選填）"><input className={`${inputClass} min-h-11`} type="number" min="0" max="99999999.99" step="0.01" disabled={eligibilityOnly || !canEditPremium} value={eligibilityOnly ? oldAmount : amount} onChange={event => {
+        setAmount(event.target.value)
+        if (policy?.enabled) setCurrency(event.target.value === '' ? '' : policy.currency)
+      }} /></Field>
+      <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder={policy?.currency || '例如 TWD、JPY'} required={!eligibilityOnly && amount !== ''} disabled={eligibilityOnly || !canEditPremium || policy?.enabled} value={eligibilityOnly ? row.insurance_premium_currency : currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
     </fieldset>
+    {!canEditPremium && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">目前只能更新投保進度。保費請由具扣款權限的人員在帳本可用時更新。</p>}
+    {!eligibilityOnly && policy?.retained_deduction && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">帳本仍有此學員未沖正的扣款。請核對是否有新支出，再登錄新保費。</p>}
+    {policy?.deduction_reversed && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">這筆保費原扣款已由帳本沖正，保費紀錄仍保留供核對。</p>}
+    {willDeduct && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{needsCorrection
+      ? '儲存後將沖正原扣款，並以更正金額重新扣款。'
+      : policy?.legacy_premium ? '將以新金額全額扣款，不會只扣差額。' : '儲存後將自預付保費帳本扣款。'}</p>}
+    {needsCorrection && <Field label="更正原因"><input className={inputClass} required maxLength={1000} disabled={save.isPending} value={correctionNote} onChange={event => setCorrectionNote(event.target.value)} /></Field>}
     {needsConfirmation && <label className="mt-4 flex min-h-11 items-center gap-2 text-sm text-gray-700 dark:text-gray-200"><input type="checkbox" checked={confirmed} disabled={save.isPending} onChange={event => setConfirmed(event.target.checked)} />我已在保險公司完成投保，本次僅記錄結果</label>}
     <button type="submit" disabled={!changed || !valid || save.isPending} className="mt-4 min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{save.isPending ? '儲存中…' : '儲存投保進度'}</button>
     {row.insurance_processing_updated_at && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">最後更新：{new Date(row.insurance_processing_updated_at).toLocaleString('zh-TW')}</p>}

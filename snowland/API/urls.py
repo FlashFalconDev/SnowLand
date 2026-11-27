@@ -63,6 +63,7 @@ from .frontend_cli_publish import PublisherJobView, PublisherUploadView
 from .staff_positions import staff_positions, staff_position_detail
 from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet, ManagerCourseAlbumAPI
 from .vehicle_views import VehicleDesk, VehicleFile
+from .insurance_ledger import InsuranceLedgerAdminViewSet
 
 
 # 後台 ViewSet router
@@ -99,6 +100,7 @@ admin_router.register(r'staff-incentive-statements', StaffIncentiveStatementAdmi
 admin_router.register(r'payroll-statements', PayrollStatementAdminViewSet, basename='admin-payroll-statements')
 admin_router.register(r'coach/payroll', CoachPayrollViewSet, basename='coach-payroll')
 admin_router.register(r'staff-booking-links', StaffBookingLinkAdminViewSet, basename='admin-staff-booking-links')
+admin_router.register(r'insurance-ledger', InsuranceLedgerAdminViewSet, basename='admin-insurance-ledger')
 admin_router.register(r'insurance-records', InsuranceRecordAdminViewSet, basename='admin-insurance-records')
 admin_router.register(r'bookings', BookingScheduleAdminViewSet, basename='admin-bookings')
 admin_router.register(r'chat-support', ChatSupportViewSet, basename='admin-chat-support')

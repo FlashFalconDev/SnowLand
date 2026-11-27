@@ -20,6 +20,7 @@ function render(states, editable=true, processing, overrides={}) {
     useQuery:()=>({data:record,isLoading:false,isError:false}),
     useState:initial=>[states ? states[index++] : initial,()=>{}],
     useMutation:options=>{mutation=options;return {isPending:false,mutate(){}}},
+    useInsuranceRequestKey:()=>({forPayload:()=>'qa-request-key'}),
     saveInsuranceProcessing:async (...args)=>calls.push(args),
     Field:({label,children})=>React.createElement('label',null,label,children),
   })
@@ -40,6 +41,12 @@ async function main(){
   assert.match(assistant.html,/QA原學員/)
   assert.doesNotMatch(assistant.html,/<option value="ineligible"/)
   assert.doesNotMatch(render(null,true,false).html,/投保作業回報|儲存投保進度/)
+  const retained=render(['checking','','',false,''],true,true,{
+    premium_policy:{enabled:true,can_edit:false,retained_deduction:true},
+  })
+  assert.match(retained.html,/帳本仍有此學員未沖正的扣款/)
+  assert.match(retained.html,/<input[^>]*type="number"[^>]*disabled=""/)
+  assert.doesNotMatch(retained.html,/<button[^>]* disabled=""/)
   const valid=render(['processing','350.50','JPY',false])
   assert.doesNotMatch(valid.html,/<button[^>]* disabled=""/)
   await valid.save()
@@ -58,6 +65,7 @@ async function main(){
   const marking=render(['ineligible','99','TWD',false],true,true,{
     insurance_eligibility:{can_mark:true,can_restore:false},
     insurance_premium_amount:'15.50', insurance_premium_currency:'JPY',
+    premium_policy:{enabled:true,can_edit:true,currency:'JPY',correction_required:true},
   })
   assert.match(marking.html,/<option value="ineligible" selected="">不符投保資格/)
   assert.match(marking.html,/<input[^>]* type="number"[^>]* disabled=""[^>]* value="15.50"/)
@@ -66,18 +74,37 @@ async function main(){
   assert.equal(marking.calls[0][1].status,'ineligible')
   assert.equal(marking.calls[0][1].premium_amount,null)
   assert.equal(marking.calls[0][1].currency,'')
+  assert.equal(marking.calls[0][1].idempotency_key,undefined)
+  assert.doesNotMatch(marking.html,/更正原因|儲存後將/)
   assert.doesNotMatch(render(null,true,true,{insurance_processing_status:'insured',
     insurance_eligibility:{can_mark:false,can_restore:false}}).html,/<option value="ineligible"/)
   const ineligible={insurance_processing_status:'ineligible',insurance_eligibility:{can_mark:false,can_restore:true}}
-  const restoring=render(['checking','','',false],true,true,ineligible)
+  const chargedIneligible={...ineligible,insurance_premium_amount:'15.50',insurance_premium_currency:'JPY',
+    premium_policy:{enabled:true,can_edit:true,currency:'JPY',has_unreversed_deduction:true,correction_required:true}}
+  const restoring=render(['checking','99','JPY',false,''],true,true,chargedIneligible)
   assert.match(restoring.html,/<option value="checking" selected="">對資料中/)
   assert.doesNotMatch(restoring.html,/<option value="(?:pending|processing|insured)"/)
+  assert.match(restoring.html,/<input[^>]* type="number"[^>]* disabled=""[^>]* value="15.50"/)
   assert.doesNotMatch(restoring.html,/<button[^>]* disabled=""/)
   await restoring.save()
   assert.equal(restoring.calls[0][1].status,'checking')
+  assert.equal(restoring.calls[0][1].premium_amount,'15.50')
+  assert.equal(restoring.calls[0][1].idempotency_key,undefined)
+  assert.match(render(null,false,false,chargedIneligible).html,/需由財務確認是否沖正/)
+  assert.doesNotMatch(render(null,true,true,ineligible).html,/需由財務確認是否沖正/)
   assert.doesNotMatch(render(null,false,true,{...ineligible,insurance_eligibility:{can_mark:false,can_restore:false}})
     .html,/儲存投保進度/)
   assert.match(render(null,true,true,{insurance_processing_status:'unknown'}).html,/待行政確認/)
+  const legacy={insurance_premium_amount:'15.50',insurance_premium_currency:'JPY',
+    premium_policy:{enabled:true,can_edit:true,currency:'JPY',legacy_premium:true}}
+  const fullCharge=/將以新金額全額扣款，不會只扣差額/
+  const changedLegacy=render(['checking','20','JPY',false,''],true,true,legacy)
+  assert.match(changedLegacy.html,fullCharge)
+  await changedLegacy.save()
+  assert.equal(changedLegacy.calls[0][1].premium_amount,'20')
+  assert.equal(changedLegacy.calls[0][1].idempotency_key,'qa-request-key')
+  assert.doesNotMatch(render(['checking','15.5','JPY',false,''],true,true,legacy).html,fullCharge)
+  assert.doesNotMatch(render(['checking','0','JPY',false,''],true,true,legacy).html,fullCharge)
   console.log('PASS insurance form: permissions, legal status options, preservation of saved premiums, restore and fallback')
 }
 main().catch(error=>{console.error(error);process.exitCode=1})

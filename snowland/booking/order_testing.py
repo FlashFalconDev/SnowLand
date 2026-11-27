@@ -31,16 +31,22 @@ def _has_financial_history(group):
     )
 
 
+class InsuranceLedgerTestOrderError(ValueError):
+    pass
+
+
 @transaction.atomic
 def set_order_test_status(group, *, is_test, actor, reason):
     """Call while holding the tenant and order locks, in that order."""
     from .discount_usage import rebuild_discount_usage
     from .loyalty import rebuild_loyalty_account
-    from .models import MemberLoyaltyAccount, MemberLoyaltyEntry, OrderDiscountUsage
+    from .models import InsuranceLedgerEntry, MemberLoyaltyAccount, MemberLoyaltyEntry, OrderDiscountUsage
     from .operations import record_order_revision
 
     if group.is_test == is_test:
         return
+    if is_test and InsuranceLedgerEntry.objects.filter(account__client_id=group.client_id, order_id=group.pk).exists():
+        raise InsuranceLedgerTestOrderError('此訂單已有預付保費分錄，不能標記為測試訂單。')
     if is_test and _has_financial_history(group):
         raise ValueError('此訂單已有付款、退款、差額或薪獎出帳紀錄，請先由主管依既有流程更正，再標記為測試訂單。')
 

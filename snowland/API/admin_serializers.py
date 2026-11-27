@@ -2090,11 +2090,13 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
     currency = serializers.CharField(max_length=3, allow_blank=True)
     expected_updated_at = serializers.DateTimeField(allow_null=True)
     confirm_insured = serializers.BooleanField(default=False)
+    idempotency_key = serializers.UUIDField(required=False)
+    correction_note = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     def to_internal_value(self, data):
         if not isinstance(data, dict) or set(data) - set(self.fields):
             raise serializers.ValidationError({'non_field_errors': ['只能更新投保作業欄位，不能修改學員、監護人或簽署資料']})
-        if data.get('status') == 'ineligible' and data.get('premium_amount') == '':
+        if data.get('premium_amount') == '':
             data = {**data, 'premium_amount': None}
         return super().to_internal_value(data)
 
@@ -2186,7 +2188,35 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     member_email = serializers.SerializerMethodField()
     document_history = serializers.SerializerMethodField()
     online_signatures = serializers.SerializerMethodField()
+    premium_policy = serializers.SerializerMethodField()
     insurance_eligibility = serializers.SerializerMethodField()
+
+    def get_premium_policy(self, obj):
+        from booking.insurance_ledger import Kind, ledger_writable
+        from booking.models import InsurancePrepaidAccount
+        from Client.tenant_settings import insurance_ledger_settings
+
+        request = self.context['request']
+        config = insurance_ledger_settings(request.tenant)
+        account = InsurancePrepaidAccount.objects.filter(client=request.tenant).first()
+        can_deduct = user_has_admin_permission(request.user, 'insurance_ledger_deduct', request.tenant)
+        deductions = account.entries.filter(kind=Kind.DEDUCTION, member_record_id=obj.pk) if account else None
+        linked = deductions.filter(idempotency_key=obj.insurance_premium_ledger_key).select_related('reversal').first() if (
+            deductions is not None and obj.insurance_premium_ledger_key
+        ) else None
+        linked_reversed = bool(linked and hasattr(linked, 'reversal'))
+        has_unreversed_deduction = bool(deductions is not None and deductions.filter(reversal__isnull=True).exists())
+        return {
+            'enabled': config.enabled,
+            'can_edit': bool(can_deduct and account and ledger_writable(config, account)) if config.enabled
+                        else not bool(account and account.version),
+            'currency': config.currency,
+            'correction_required': bool(linked and not linked_reversed),
+            'deduction_reversed': linked_reversed,
+            'retained_deduction': bool(not obj.insurance_premium_amount and has_unreversed_deduction),
+            'has_unreversed_deduction': has_unreversed_deduction,
+            'legacy_premium': bool(obj.insurance_premium_amount and not obj.insurance_premium_ledger_key),
+        }
 
     def get_insurance_eligibility(self, obj):
         from Client.tenant_settings import insurance_eligibility_settings
@@ -2219,7 +2249,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
 
     class Meta(InsuranceRecordAdminSerializer.Meta):
         fields = InsuranceRecordAdminSerializer.Meta.fields + [
-            'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
+            'premium_policy', 'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
             'waiver_document_snapshot', 'media_consent', 'document_history', 'online_signatures', 'pre_course_answers',
             'insurance_eligibility',
         ]

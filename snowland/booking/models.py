@@ -521,6 +521,7 @@ class MemberDetail(SoftDeleteModel):
     ]
     insurance_processing_status = models.CharField(max_length=12, default='pending', choices=INSURANCE_PROCESSING_CHOICES, verbose_name='投保作業狀態')
     insurance_premium_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name='投保金額')
+    insurance_premium_ledger_key = models.UUIDField(null=True, blank=True, editable=False)
     insurance_premium_currency = models.CharField(max_length=3, blank=True, default='', verbose_name='投保金額幣別')
     insurance_processing_updated_at = models.DateTimeField(null=True, blank=True, verbose_name='投保作業更新時間')
     insurance_processing_updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
@@ -1109,3 +1110,8 @@ def get_booked_slots(self):
             "course_type": booking.course_type
         })
     return booked_slots
+
+
+from .insurance_ledger_models import (  # noqa: E402,F401
+    InsuranceLedgerEntry, InsurancePrepaidAccount, InsuranceReconciliation,
+)

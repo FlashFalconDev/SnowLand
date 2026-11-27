@@ -13,6 +13,10 @@ export function canUseFrontendSupport(basePath: string, user?: AdminUser | null)
 
 export function hasAdminPermission(user: AdminUser | null | undefined, permission?: string): boolean {
   if (!permission) return !!user?.is_manager || !!user?.is_superuser
+  if (permission === 'insurance_ledger_finance') {
+    return !!user?.is_manager && user.role === 'hq_admin' && !!user.can_view_all_campuses
+      && (user.permissions || []).includes(permission)
+  }
   if (user?.is_superuser) return true
   if (!user?.is_manager) return false
   if (permission === 'vehicle_review' && !['hq_admin', 'campus_principal', 'campus_manager'].includes(user.role || '')) return false

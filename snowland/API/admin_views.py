@@ -52,7 +52,7 @@ from booking.models import (
     StaffBookingLink,
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
-from booking.order_testing import exclude_test_orders, set_order_test_status
+from booking.order_testing import InsuranceLedgerTestOrderError, exclude_test_orders, set_order_test_status
 from booking.course_documents import INSURANCE_RECHECK_STATUSES
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.marketing_source import display_marketing_source
@@ -1991,6 +1991,8 @@ class OrderAdminViewSet(ModelViewSet):
         group = get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk=scoped.pk, client=request.tenant)
         try:
             set_order_test_status(group, is_test=data['is_test'], actor=request.user, reason=data['reason'].strip())
+        except InsuranceLedgerTestOrderError as exc:
+            return Response({'code': 400, 'msg': str(exc)}, status=400)
         except ValueError as exc:
             return Response({'code': 409, 'msg': str(exc)}, status=409)
         msg = '已標記為測試訂單' if group.is_test else '已取消測試標記'
@@ -3165,16 +3167,29 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
         serializer = InsuranceProcessingInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        from Client.tenant_settings import insurance_ledger_settings
+        from booking.insurance_ledger import account_for_update, record_premium, replay_entry
+        from .order_amendments import amendment_digest
+
         with transaction.atomic():
-            # Use the same group→member lock order as order/participant changes.
-            ReservationGroup.objects.live().select_for_update().get(pk=member.reservation.group_id)
-            member = get_object_or_404(self.get_queryset().select_for_update(), pk=member.pk)
+            # Match order amendments and test marking: tenant → order → learner → account.
+            client = Client.objects.select_for_update().get(pk=request.tenant.pk)
+            get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk=member.reservation.group_id, client=client)
+            get_object_or_404(self.get_queryset(), pk=member.pk)
+            member = get_object_or_404(MemberDetail.objects.live().select_for_update(), pk=member.pk)
             previous_status = member.insurance_processing_status
             next_status = data['status']
             if 'ineligible' in (previous_status, next_status):
-                enabled, allow_admin = insurance_eligibility_settings(request.tenant)
-                if not can_change_insurance_eligibility(request.user, request.tenant, allow_admin):
+                enabled, allow_admin = insurance_eligibility_settings(client)
+                if not can_change_insurance_eligibility(request.user, client, allow_admin):
                     raise PermissionDenied('沒有標記或復原不符投保資格的權限')
+            can_deduct = user_has_admin_permission(request.user, 'insurance_ledger_deduct', client)
+            fingerprint = amendment_digest({'member': member.pk, 'actor': request.user.pk, 'data': data})
+            previous = replay_entry(client, data.get('idempotency_key'), fingerprint)
+            if previous:
+                if not can_deduct:
+                    raise PermissionDenied('沒有保費帳本扣款權限。')
+                return Response({'code': 200, 'msg': '此筆保費已入帳', 'data': self.get_serializer(member).data})
             if member.insurance_processing_updated_at != data['expected_updated_at']:
                 return Response({'code': 409, 'msg': '投保紀錄已被更新，請重新載入後核對'}, status=409)
             if next_status == 'ineligible':
@@ -3190,12 +3205,14 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
                 return Response({'code': 400, 'msg': '不符投保資格僅能復原為對資料中'}, status=400)
             if next_status == 'insured' and previous_status != 'insured' and not data['confirm_insured']:
                 return Response({'code': 400, 'msg': '請確認已在保險公司完成投保；系統只記錄狀態，不會自動投保'}, status=400)
-            member.insurance_processing_status = next_status
             fields = ['insurance_processing_status', 'insurance_processing_updated_at', 'insurance_processing_updated_by']
             if next_status != 'ineligible':
+                record_premium(member, account_for_update(client), insurance_ledger_settings(client),
+                               request.user, data, fingerprint, can_deduct=can_deduct)
                 member.insurance_premium_amount = data['premium_amount']
                 member.insurance_premium_currency = data['currency']
-                fields.extend(['insurance_premium_amount', 'insurance_premium_currency'])
+                fields.extend(['insurance_premium_amount', 'insurance_premium_currency', 'insurance_premium_ledger_key'])
+            member.insurance_processing_status = next_status
             member.insurance_processing_updated_at = timezone.now()
             member.insurance_processing_updated_by = request.user
             member.save(update_fields=fields)

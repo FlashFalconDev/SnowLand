@@ -14,6 +14,7 @@ function harness(patch={}, eligibilityEnabled=false, additionalRows=[]){
   useQueryClient:()=>({invalidateQueries(){}}),useNotification:()=>({success(){},error(){}}),
   useState:initial=>{const slot=cursor++;if(!(slot in states))states[slot]=initial;return[states[slot],value=>states[slot]=typeof value==='function'?value(states[slot]):value]},
   useMemo:callback=>callback(),useQuery:()=>({data:{rows:[row,...additionalRows],eligibilityEnabled},isLoading:false,isError:false,refetch(){}}),
+  fetchAdminMe:()=>{}, useSiteLink:path=>path, hasAdminPermission:()=>false,
   useMutation:()=>({isPending:false,mutate(){}}),InsuranceCalendar:()=>null,InsuranceDetail:()=>null,
   InsuranceReminderDialog:Dialog,insuranceDayRecords:rows=>rows,Empty:()=>null,Loader2:()=>null,
  })

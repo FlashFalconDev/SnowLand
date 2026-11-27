@@ -54,6 +54,7 @@ const pages: Record<ConsolePath, ReactElement> = {
   'notifications': <OperationsHubPage initialTab="notifications" fixed />,
   'customers': <CustomersPage />,
   'insurance': <OperationsHubPage initialTab="insurance" fixed />,
+  'insurance/ledger': <OperationsHubPage initialTab="insurance-ledger" fixed />,
   'customers/loyalty': <CustomersPage key="loyalty" loyalty />,
   'cms/membership': <SiteContentPage initialGroup="membership" section="course_documents" />,
   'scheduling': <SchedulingPage />,

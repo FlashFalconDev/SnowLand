@@ -2,6 +2,46 @@
   "version": 1,
   "features": [
     {
+      "id": "insurance-prepaid-ledger",
+      "name": "保險預付保費帳本",
+      "routes": {
+        "console": "/{client_code}/console/insurance/ledger",
+        "insuranceConsole": "/{client_code}/console/insurance",
+        "adminLedgerApi": "/api/admin/{client_code}/insurance-ledger/",
+        "adminProcessingApi": "/api/admin/{client_code}/insurance-records/{member_id}/processing/"
+      },
+      "permission": "insurance_ledger_finance",
+      "processingPermissions": ["insurance_records", "insurance_ledger_deduct"],
+      "locationKey": "operations.insurance-ledger",
+      "testEnvironment": "SQLite 使用記憶體測試庫。MySQL 使用本任務專屬隔離庫。瀏覽器使用合成帳本及財務帳號。",
+      "checks": [
+        {
+          "id": "api-ledger-permissions-and-atomicity",
+          "commands": [
+            "cd snowland; python manage.py test API.tests_insurance_ledger API.tests_insurance_processing API.tests_test_orders API.tests_order_amendment_confirm --settings=snowland.test_settings",
+            "cd snowland; python manage.py test API.tests_insurance_ledger --settings=snowland.test_settings_mysql"
+          ],
+          "expected": "期初、儲值、扣款、更正、選擇性沖正及對帳一致。只有具備權限的同租戶人員可依範圍操作。停用只能查帳並保護已掛帳保費。不符資格時拒絕新扣款，標記保留既有分錄。Django Admin 的學員保費與進度唯讀。MySQL 兩連線驗證餘額不足及 UUID 重送。"
+        },
+        {
+          "id": "frontend-ledger-controls",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-insurance-ledger.cjs", "tests/test-insurance-processing-controls.cjs"],
+          "expected": "財務可登錄期初／儲值、依月看分錄和核對期末。低餘額提示在門檻出現。停用時保留明細，隱藏寫入操作。投保表單依扣款權限鎖定保費，進度仍可回報。不符資格且有未沖正扣款時提示由財務確認，舊保費改值時提示全額扣款。"
+        },
+        {
+          "id": "browser-insurance-ledger",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "以合成的全校區財務帳號開啟帳本，確認餘額、低餘額提示與分錄。",
+            "核對儲值表單，選另一個月份，查看並確認月對帳快照。",
+            "關閉帳本後確認只有查閱入口。以沒有財務權限的帳號直接開帳本網址，確認無法存取。"
+          ],
+          "expected": "桌機與手機均可操作指定入口。分錄保持可查，停用狀態與角色權限正確。"
+        }
+      ]
+    },
+    {
       "id": "pre-course-insurance-notice",
       "name": "會員課前資料的保險說明",
       "routes": {

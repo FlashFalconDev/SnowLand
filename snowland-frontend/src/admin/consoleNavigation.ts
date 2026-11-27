@@ -12,6 +12,7 @@ export const consoleNavigation = [
   { id: 'members', label: '會員與課前資料', icon: Users, pages: [
     { path: 'customers', label: '會員名單', access: 'member_directory' },
     { path: 'insurance', label: '保險與聲明書紀錄', access: 'insurance_records' },
+    { path: 'insurance/ledger', label: '保險預付保費帳本', access: 'insurance_ledger_finance' },
     { path: 'customers/loyalty', label: '會員制度與舊生審核', access: 'member_loyalty' },
     { path: 'cms/membership', label: '課前聲明書與表單', access: 'course_documents' },
   ] },
