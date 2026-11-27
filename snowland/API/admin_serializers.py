@@ -2660,17 +2660,37 @@ class StaffBookingLinkAdminSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     is_available = serializers.BooleanField(read_only=True)
     can_edit = serializers.SerializerMethodField()
+    hold_capacity = serializers.BooleanField(required=False, write_only=True)
+    capacity_holds = serializers.SerializerMethodField()
 
     class Meta:
         model = StaffBookingLink
         fields = ['id', 'token', 'campus', 'title', 'cart_snapshot', 'snapshot_version', 'quoted_total',
                   'expires_at', 'used_by', 'used_at', 'is_active', 'is_available', 'can_edit',
-                  'created_by_name', 'url', 'created_at']
+                  'created_by_name', 'url', 'created_at', 'hold_capacity', 'capacity_holds']
         read_only_fields = ['id', 'token', 'snapshot_version', 'quoted_total', 'used_by', 'used_at',
                             'created_by_name', 'url', 'created_at']
 
     def get_can_edit(self, obj):
         return self.context.get('staff_link_edit_enabled', False) and obj.is_open
+
+    def get_capacity_holds(self, obj):
+        from booking.capacity import active_staff_link_holds
+
+        holds = getattr(obj, 'active_capacity_holds', None)
+        if holds is None:
+            holds = active_staff_link_holds(client_id=obj.client_id).filter(staff_link=obj).select_related(
+                'course_template', 'resort',
+            ).order_by('date', 'start_time', 'pk')
+        return [{
+            'id': hold.pk,
+            'template_name': hold.course_template.name,
+            'resort_name': hold.resort.display_name,
+            'date': hold.date.isoformat(),
+            'start_time': hold.start_time.strftime('%H:%M'),
+            'end_time': hold.end_time.strftime('%H:%M'),
+            'expires_at': serializers.DateTimeField().to_representation(hold.expires_at),
+        } for hold in holds]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

@@ -69,8 +69,13 @@ export async function uploadPayrollSignature(id: number, file: File, name: strin
 
 export interface StaffBookingLink {
   id: number; campus: number; title: string; url: string; expires_at: string
+  token: string
   is_active: boolean; is_available: boolean; created_by_name: string
   can_edit: boolean; cart_snapshot: CartItem[]; snapshot_version: number
+  capacity_holds: {
+    id: number; template_name: string; resort_name: string; date: string
+    start_time: string; end_time: string; expires_at: string
+  }[]
 }
 
 export interface StaffBookingPricePreview {
@@ -83,7 +88,7 @@ export interface StaffBookingPricePreview {
   total_difference: number | null
 }
 
-type StaffBookingLinkEdit = { cart_snapshot: CartItem[]; snapshot_version: number }
+type StaffBookingLinkEdit = { cart_snapshot: CartItem[]; snapshot_version: number; hold_capacity?: boolean }
 
 export type InsuranceProcessingStatus = 'pending' | 'checking' | 'processing' | 'insured' | 'ineligible'
 
@@ -204,7 +209,12 @@ export interface EvaluationPage {
 export const fetchEvaluations = async (params: Partial<EvaluationDateFilters> & { booking?: string; search?: string; page: number }): Promise<EvaluationPage> =>
   (await adminApi.get('/evaluations/', { params }) as unknown as DetailResponse<EvaluationPage>).data
 export const fetchCoachEvaluations = () => list<Evaluation>('/coach/evaluations/')
-export const fetchStaffBookingLinks = () => list<StaffBookingLink>('/staff-booking-links/')
+export async function fetchStaffBookingLinks() {
+  const { data } = await adminApi.get('/staff-booking-links/') as unknown as DetailResponse<{
+    list: StaffBookingLink[]; can_create_hold: boolean; can_release_hold: boolean
+  }>
+  return data
+}
 export async function fetchInsuranceRecords(status = 'missing') {
   const { data } = await adminApi.get('/insurance-records/', { params: { status } }) as unknown as DetailResponse<{
     list: InsuranceRecord[]; insurance_eligibility_enabled?: boolean
@@ -266,9 +276,12 @@ export async function payrollReviewAction(id: number, action: 'publish' | 'withd
   return (response as unknown as DetailResponse<PayrollStatement>).data
 }
 
-export async function createStaffBookingLink(data: { campus: number; title: string; expires_at: string; cart_snapshot?: unknown[] }) {
-  const response = await adminApi.post('/staff-booking-links/', { ...data, cart_snapshot: data.cart_snapshot || [] })
-  return (response as unknown as DetailResponse<StaffBookingLink>).data
+export async function createStaffBookingLink(data: { campus: number; title: string; expires_at: string; cart_snapshot: CartItem[]; hold_capacity?: boolean }) {
+  return await adminApi.post('/staff-booking-links/', data) as unknown as StaffBookingLink
+}
+
+export async function releaseStaffBookingLinkHold(id: number) {
+  return await adminApi.post(`/staff-booking-links/${id}/release-hold/`) as unknown as StaffBookingLink
 }
 
 export async function previewStaffBookingLink(id: number, data: StaffBookingLinkEdit): Promise<StaffBookingPricePreview> {

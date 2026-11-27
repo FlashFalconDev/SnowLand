@@ -775,6 +775,7 @@ export default function BookingFlowPage() {
   const [staffOperator, setStaffOperator] = useState(false)
   const [staffOperatorLoading, setStaffOperatorLoading] = useState(staffPreparing)
   const staffPrepareMode = staffPreparing && staffOperator
+  const staffHoldToken = staffPrepareMode ? staffDraft?.getState().staffLinkToken : undefined
 
   useEffect(() => {
     if (!staffPreparing) return
@@ -1107,6 +1108,7 @@ export default function BookingFlowPage() {
       const levels = Object.entries(abilityLevelCounts).filter(([, count]) => Number(count) > 0)
       fetchCourseSessions(selectedCourseTemplate, selectedDate || undefined, {
         campus_id: selectedCampusId, resort: selectedResort,
+        staff_link: staffHoldToken,
         ability_level: levels.length === 1 ? levels[0][0] : null,
         language: selectedLanguage || 'zh', people_count: peopleCount,
       })
@@ -1118,7 +1120,7 @@ export default function BookingFlowPage() {
         .catch((e) => { if (!cancelled) { console.error(e); setSessions([]) } })
     }
     return () => { cancelled = true }
-  }, [selectedCourseTemplate, selectedDate, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage, peopleCount, sessionReloadKey])
+  }, [selectedCourseTemplate, selectedDate, selectedCampusId, selectedResort, abilityLevelCounts, selectedLanguage, peopleCount, sessionReloadKey, staffHoldToken])
 
   // 載入可預約日期資訊（當模板或日曆月份改變）
   useEffect(() => {
@@ -1863,7 +1865,7 @@ export default function BookingFlowPage() {
           : equipmentOption
         const fetchedSessions = courseDate === selectedDate
           ? sessions
-          : await fetchCourseSessions(selectedCourseTemplate, courseDate, { resort: selectedResort })
+          : await fetchCourseSessions(selectedCourseTemplate, courseDate, { resort: selectedResort, staff_link: staffHoldToken })
         const daySessions = Array.isArray(fetchedSessions)
           ? fetchedSessions
           : ((fetchedSessions as any)?.data || [])
@@ -2286,7 +2288,7 @@ export default function BookingFlowPage() {
 
         for (const course of group.courses) {
           const targetDate = addDaysToDateKey(suggested.date, getDateKeyOffset(course.date, baseDate))
-          const fetchedSessions = await fetchCourseSessions(course.courseTemplateId, targetDate, { resort: group.resort })
+          const fetchedSessions = await fetchCourseSessions(course.courseTemplateId, targetDate, { resort: group.resort, staff_link: staffHoldToken })
           const daySessions = Array.isArray(fetchedSessions)
             ? fetchedSessions
             : ((fetchedSessions as any)?.data || [])
