@@ -46,6 +46,7 @@ function harness({rulesError=false}={}){
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='homepage.courses')),'custom CMS structure must still offer homepage course management')
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='course.areas')),'custom CMS structure must retain course area management')
   assert.ok(normalized.some(g=>g.locations.some(l=>l.key==='membership.waiver')),'custom CMS structure must retain waiver management')
+  assert.ok(normalized.some(g=>g.id==='membership'&&g.locations.some(l=>l.key==='membership.insurance-notice')),'custom CMS structure must retain insurance management')
   for(const key of ['policy.membership-terms','policy.privacy-policy','policy.cancellation-policy'])assert.ok(normalized.some(g=>g.locations.some(l=>l.key===key)),'custom CMS must retain checkout policy management')
   assert.equal(normalized[0].locations[0].key,'custom.page');assert.equal(custom.groups.length,1)
   return{block:ctx.exports.DraftBlock,preview:ctx.exports.preview,render:props=>{cursor=0;return ctx.exports.default(props)},drawer:props=>{states.length=0;cursor=0;return ctx.exports.Drawer(props)},drawerAgain:props=>{cursor=0;return ctx.exports.Drawer(props)},refetched:()=>refetched}
@@ -75,6 +76,42 @@ waiverTree=waiverApp.drawerAgain(waiverProps)
 find(waiverTree,n=>n.type==='form').props.onSubmit({preventDefault(){}})
 assert.equal(waiverSaved.body,'QA新全文\n維持換行','Legal body must not be overwritten from stale generic blocks')
 assert.equal(harness().preview({...waiverProps.item,body:'新正文',metadata:{blocks:[{id:'old',type:'paragraph',text:'舊區塊'}]}}),'新正文')
+let insuranceSaved
+const insuranceApp = harness()
+const insuranceProps = {
+  ...waiverProps, item: null, initialLocation: 'membership.insurance-notice',
+  groups: [{id: 'membership', label: '會員文件', locations: [
+    {key: 'membership.waiver', label: '課前聲明書', type: 'page'},
+    {key: 'membership.insurance-notice', label: '保險說明', type: 'page'},
+  ]}],
+  onSubmit: data => { insuranceSaved = data },
+}
+let insuranceTree = insuranceApp.drawer(insuranceProps)
+const insuranceEditor = find(insuranceTree, node => node.props['aria-label'] === '保險說明內容與版本')
+const titleInput = find(insuranceEditor, node => node.type === 'input' && node.props.required)
+const bodyInput = find(insuranceEditor, node => node.type === 'textarea')
+assert.equal(titleInput.props.value, '')
+assert.equal(bodyInput.props.value, '')
+assert.ok(!find(insuranceTree, node => node.type?.name === 'WaiverDocumentFields'))
+titleInput.props.onChange({target: {value: 'QA 保險標題'}})
+bodyInput.props.onChange({target: {value: 'QA 保險正文\n第二段'}})
+const legalReview = tree => find(find(tree, node => node.props['aria-label'] === '保險說明內容與版本'),
+  node => node.type === 'input' && node.props.type === 'checkbox')
+legalReview(insuranceTree).props.onChange({target: {checked: true}})
+insuranceTree = insuranceApp.drawerAgain(insuranceProps)
+assert.equal(find(insuranceTree, node => node.type === 'option' && node.props.value === 'active').props.disabled, true)
+find(insuranceTree, node => node.type === 'form').props.onSubmit({preventDefault() {}})
+assert.equal(insuranceSaved.status, 'draft')
+assert.equal(insuranceSaved.metadata.is_draft, true)
+legalReview(insuranceTree).props.onChange({target: {checked: false}})
+insuranceTree = insuranceApp.drawerAgain(insuranceProps)
+find(insuranceTree, node => node.type === 'select' && node.props.value === 'draft').props.onChange({target: {value: 'active'}})
+insuranceTree = insuranceApp.drawerAgain(insuranceProps)
+find(insuranceTree, node => node.type === 'form').props.onSubmit({preventDefault() {}})
+assert.equal(insuranceSaved.status, 'active')
+assert.equal(insuranceSaved.location_key, 'membership.insurance-notice')
+assert.equal(insuranceSaved.title, 'QA 保險標題')
+assert.equal(insuranceSaved.body, 'QA 保險正文\n第二段')
 assert.equal(harness().preview({location_key:'site.footer',metadata:{company_name:'QA公司',email:'qa@example.test',social_links:{line:'https://line.me/qa',instagram:''}}}),'QA公司 · qa@example.test · 1個社群連結')
 assert.equal(harness().preview({location_key:'photography.gallery',metadata:{location:'富良野',section:'森林',shoot_types:['情侶']},tags:['不使用的舊標籤']}),'照片 · 富良野 · 森林 · 情侶')
 const photo=harness(),photoDrawer=photo.drawer({groups:[{id:'photography',label:'攝影',locations:[{key:'photography.winter',label:'冬季',type:'page'}]}],group:'photography',initialLocation:'photography.winter',item:null,galleryItems:[],resortOptions:[],onClose(){},onSubmit(){},isSaving:false,saveError:'QA儲存失敗必須持續顯示'})

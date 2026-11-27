@@ -24,7 +24,7 @@ def course_rows(client, kind):
 
 def editable_content(query):
     return query.filter(content_type__in=CONTENT_KINDS).exclude(
-        location_key__in=('membership.waiver', 'membership.assessment-rubric'),
+        location_key__in=('membership.waiver', 'membership.insurance-notice', 'membership.assessment-rubric'),
     ).exclude(location_key__startswith='policy.').exclude(location_key__startswith='internal.')
 
 

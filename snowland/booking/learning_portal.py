@@ -1,7 +1,9 @@
 """Learner identities and authorization shared by course records and albums."""
-from django.db.models import F, Q
+from django.db.models import BooleanField, Exists, F, OuterRef, Q, Value
 from django.urls import reverse
 from django.utils import timezone
+
+from Client.tenant_settings import learner_rename_policy
 
 from .assessment import learning_reports
 from .coach_pre_course_summary import configured_summary_fields, member_pre_course_summary, summary_settings
@@ -23,8 +25,18 @@ def scoped_profiles(client, owner_id):
     return LearnerProfile.objects.filter(client=client, owner_id=owner_id)
 
 
-def profile_options(client, owner_id):
-    return list(scoped_profiles(client, owner_id).order_by('name', 'pk').values('id', 'name'))
+def profile_rename_permission(client):
+    policy = learner_rename_policy(client)
+    if policy == 'unlinked_only':
+        return ~Exists(MemberDetail.objects.live().filter(learner_id=OuterRef('pk')))
+    return Value(policy == 'owner_all', output_field=BooleanField())
+
+
+def profile_options(client, owner_id, *, include_rename=False):
+    profiles = scoped_profiles(client, owner_id).order_by('name', 'pk')
+    if include_rename:
+        return list(profiles.annotate(can_rename=profile_rename_permission(client)).values('id', 'name', 'can_rename'))
+    return list(profiles.values('id', 'name'))
 
 
 def profile_id(value):

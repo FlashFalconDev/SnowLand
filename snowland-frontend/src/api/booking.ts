@@ -170,6 +170,7 @@ export interface CreateReservationParams {
   currency?: import('../utils/settlementPreview').PaymentCurrency
   currency_rate?: string
   staff_link?: string
+  staff_link_version?: number
   accepted_policy?: boolean
   policy_acceptance?: CheckoutPolicyAcceptance | null
   contact?: {
@@ -224,8 +225,18 @@ export interface CreateReservationParams {
   }>
 }
 
-export async function resolveStaffBookingLink(token: string): Promise<{ token: string; title: string; campus: { id: number; name: string }; created_by: string; cart_snapshot: import('@/types/booking').CartItem[] }> {
-  return await api.get(`/staff-booking-link/${token}/`) as unknown as { token: string; title: string; campus: { id: number; name: string }; created_by: string; cart_snapshot: import('@/types/booking').CartItem[] }
+export interface ResolvedStaffBookingLink {
+  token: string
+  title: string
+  campus: { id: number; name: string }
+  created_by: string
+  cart_snapshot: import('@/types/booking').CartItem[]
+  snapshot_version: number
+  quoted_total: number | null
+}
+
+export async function resolveStaffBookingLink(token: string): Promise<ResolvedStaffBookingLink> {
+  return await api.get(`/staff-booking-link/${token}/`) as unknown as ResolvedStaffBookingLink
 }
 
 export interface DiscountPreviewDiscount {

@@ -9,6 +9,7 @@ export type ReservationStatus =
   | 'pending_coach_confirmation' | 'completed' | 'auto_assignment_failed'
   | 'manual_assignment_needed' | 'form_filled' | 'deleted'
 export type PaymentStatus = 'unpaid' | 'pending' | 'paid' | 'expired' | 'refunded'
+export type ManualPaymentPostingDateMode = 'optional' | 'required' | 'disabled'
 
 export interface OrderBooking {
   id: number
@@ -24,6 +25,12 @@ export interface OrderAvailableCoach {
   name: string
   availability_status: 'active' | 'passive'
   requires_confirmation: boolean
+}
+
+export interface OrderUnavailableCoach {
+  id: number
+  name: string
+  reason_codes: string[]
 }
 
 export interface OrderReservation {
@@ -43,7 +50,9 @@ export interface OrderReservation {
   number_of_people: number
   status: ReservationStatus
   total_fee: number
-  available_coaches?: OrderAvailableCoach[]
+  candidate_status?: 'ok' | 'error'
+  available_coaches?: OrderAvailableCoach[] | null
+  unavailable_coaches?: OrderUnavailableCoach[] | null
   bookings: OrderBooking[]
 }
 
@@ -68,6 +77,8 @@ export interface Order {
   received_settlement?: OrderSettlement | null
   id: number
   sn: string
+  is_test?: boolean
+  can_mark_test?: boolean
   name: string
   user: number | null
   user_name: string
@@ -79,15 +90,19 @@ export interface Order {
   amendment_balance?: { amount: number; statuses: string[];settlement?:{currency:ForeignPaymentCurrency;amount:number} } | null
   payment_method: string
   bank_account?: string | null
+  bank_posted_date?: string | null
+  manual_payment_posting_date_mode?: ManualPaymentPostingDateMode
   created_at: string
   order_number?: string
   campus?: number | null
   campus_name?: string
   marketing_source?: string
   marketing_source_detail?: string
+  marketing_source_override?: string | null
+  marketing_source_options?: string[]
   line_group_url?: string
   line_group_qr_url?: string
-  revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string; snapshot?: OrderRevisionSnapshot }[]
+  revisions?: { id: number; version: number; change_type: string; difference_amount: number; reason: string; created_at: string; created_by_name?: string; snapshot?: OrderRevisionSnapshot }[]
   cancellation?: { id: number; status: string; reason: string; refund_amount: number | null; refund_percent: string; handling_fee_percent: string; calculation_mode: 'auto' | 'rule' | 'manual'; selected_rule_days_before: number | null; requires_cash_review:boolean;actual_received_amount:number|null;cash_review_note:string;currency_snapshot?:CancellationSettlement;refund_bank_name?:string;refund_account_number?:string;refund_account_holder?:string;refund_overseas_details?:string } | null
 }
 
@@ -100,6 +115,7 @@ interface ActionResp { code: number; msg: string }
 export interface CampusManagerOrder {
   id: number
   sn: string
+  is_test?: boolean
   campus_name: string
   student_alias: string
   number_of_people: number
@@ -119,6 +135,7 @@ export type OrderWorkflow = 'edit' | 'payments' | 'refunds'
 
 export interface OrdersQuery {
   workflow?: OrderWorkflow
+  include_test?: boolean
   page?: number
   page_size?: number
   search?: string
@@ -140,6 +157,7 @@ export async function fetchOrdersPaged(query: OrdersQuery = {}): Promise<OrdersP
     page_size: query.page_size ?? 10,
   }
   if (query.workflow) params.workflow = query.workflow
+  if (query.include_test) params.include_test = '1'
   if (query.search) params.search = query.search
   if (query.status) params.status = query.status
   if (query.payment_status) params.payment_status = query.payment_status
@@ -155,12 +173,13 @@ export async function fetchOrdersPaged(query: OrdersQuery = {}): Promise<OrdersP
 }
 
 /** 校區主管專用：只讀近期課程摘要。 */
-export async function fetchCampusManagerOrdersPaged(query: Pick<OrdersQuery, 'page' | 'page_size' | 'search' | 'workflow'> = {}) {
+export async function fetchCampusManagerOrdersPaged(query: Pick<OrdersQuery, 'page' | 'page_size' | 'search' | 'workflow' | 'include_test'> = {}) {
   const res = (await adminApi.get('/orders/', { params: {
     page: query.page ?? 1,
     page_size: query.page_size ?? 10,
     ...(query.search ? { search: query.search } : {}),
     ...(query.workflow ? { workflow: query.workflow } : {}),
+    ...(query.include_test ? { include_test: '1' } : {}),
   } })) as unknown as {
     data: { list: CampusManagerOrder[]; total: number; page: number; total_pages: number }
   }
@@ -176,6 +195,16 @@ export async function fetchOrders(): Promise<Order[]> {
 export async function fetchOrder(id: number, workflow?: OrderWorkflow): Promise<Order> {
   const res = (await adminApi.get(`/orders/${id}/`, { params: { workflow } })) as any
   return res.data || res
+}
+
+export async function changeOrderTestStatus(id: number, isTest: boolean, reason: string): Promise<ActionResp> {
+  return await adminApi.post(`/orders/${id}/test-status/`, { is_test: isTest, reason }) as unknown as ActionResp
+}
+
+export async function saveOrderMarketingSource(id: number, source: string | null): Promise<ActionResp> {
+  return (await adminApi.put(`/orders/${id}/marketing-source/`, {
+    marketing_source_override: source,
+  })) as unknown as ActionResp
 }
 
 export async function fetchGuestPaymentLink(id: number): Promise<{ path: string; valid_days: number }> {
@@ -195,6 +224,7 @@ export async function updateOrder(
   payload: {
     action: 'save' | 'schedule'
     payment_status?: PaymentStatus
+    bank_posted_date?: string | null
     payment_currency?: PaymentCurrency
     payment_received_amount?: number
     reservation_updates?: { reservation_id: number; coach_id: number | null }[]
@@ -341,7 +371,7 @@ export async function processOrderCancellation(cancellationId: number, status: '
 
 export async function exportOrders(params: {
   date_basis: 'created' | 'lesson'; start: string; end: string; sort: 'asc' | 'desc'
-  search?: string; status?: string; payment_status?: string
+  search?: string; status?: string; payment_status?: string; include_test?: '1'
 }): Promise<Blob> {
   return await adminApi.get('/orders/export/', { params, responseType: 'blob' }) as unknown as Blob
 }

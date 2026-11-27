@@ -10,13 +10,13 @@ from Client.models import Client
 from Control.models import TenantStaffPosition, UserProfile
 from Resorts.models import Campus
 
-from .admin_permissions import ADMIN_PERMISSION_KEYS, ROLE_DEFAULT_PERMISSIONS, normalize_admin_permissions, user_has_admin_permission
+from .admin_permissions import DEFAULT_ALL_ADMIN_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS, normalize_admin_permissions, user_has_admin_permission
 from .admin_views import IsTenantManager, _require_headquarters
 
 
 COACH_POSITION_ID = 0
 RESTRICTED_ROLES = {'hq_admin', 'campus_principal', 'campus_manager', 'assistant', 'photographer', 'coach'}
-HEADQUARTERS_ONLY = {'member_loyalty', 'social_sync', 'staff', 'order_export', 'site_tracking', 'checkout_policies'}
+HEADQUARTERS_ONLY = {'insurance_ledger_finance', 'member_loyalty', 'social_sync', 'staff', 'order_export', 'site_tracking', 'checkout_policies'}
 CAMPUS_ORDER_RESTRICTIONS = {'order_edit', 'order_payments', 'order_refunds'}
 
 
@@ -40,7 +40,7 @@ def usable_permissions(permissions, role, all_campuses):
 def position_permissions(position):
     permissions = position.permissions
     if permissions is None:
-        permissions = ADMIN_PERMISSION_KEYS if position.role in ('', 'hq_admin') else ROLE_DEFAULT_PERMISSIONS.get(position.role, [])
+        permissions = DEFAULT_ALL_ADMIN_PERMISSIONS if position.role in ('', 'hq_admin') else ROLE_DEFAULT_PERMISSIONS.get(position.role, [])
     return usable_permissions(permissions, position.role, position.all_campuses)
 
 

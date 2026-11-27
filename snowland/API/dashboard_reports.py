@@ -30,7 +30,7 @@ def dashboard_report(data, *, file_format, start, end, date_basis, resort_name):
         ['開始日期', start], ['結束日期（含當日）', end],
         ['日期依據', '訂單建立日期' if date_basis == 'created' else '最後有效課程完成日期'],
         ['雪場', resort_name],
-        ['說明', '營業額僅計最新付款為已付款、且整筆有效課程已完成；不含未付款、取消與已退款訂單。'],
+        ['說明', '全表排除測試訂單。營業額僅計最新付款為已付款、且整筆有效課程已完成；不含未付款、取消與已退款訂單。'],
         [], ['統計項目', '數值'],
     ]
     for key, label in (

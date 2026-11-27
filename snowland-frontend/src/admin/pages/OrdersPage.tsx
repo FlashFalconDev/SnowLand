@@ -6,7 +6,7 @@ import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Search, X, Eye, Edit2, Calendar, User, CreditCard, MapPin, Loader2, AlertCircle, Save, Zap, Mail, Link2, ChevronLeft, ChevronRight } from 'lucide-react'
-import { fetchOrder, fetchOrdersPaged, fetchCampusManagerOrdersPaged, fetchGuestPaymentLink, updateOrder, completeOrderCourse, saveClassGroupLink, previewOrderRefund, requestOrderCancellation, type Order, type PaymentStatus } from '../api/orders'
+import { fetchOrder, fetchOrdersPaged, fetchCampusManagerOrdersPaged, fetchGuestPaymentLink, updateOrder, completeOrderCourse, saveClassGroupLink, previewOrderRefund, requestOrderCancellation, changeOrderTestStatus, type Order, type PaymentStatus } from '../api/orders'
 import { fetchAdminMe } from '../api/auth'
 import { useSearchParams } from 'react-router-dom'
 import { fetchOrderEmailMode, sendOrderEmail } from '../api/extras'
@@ -20,12 +20,17 @@ import OrderExportForm from '../components/OrderExportForm'
 import OrderAmendmentDialog from '../components/OrderAmendmentDialog'
 import AmendmentBalancesPanel from '../components/AmendmentBalancesPanel'
 import OrderCurrencySummary from '../components/OrderCurrencySummary'
+import OrderMarketingSource from '../components/OrderMarketingSource'
+import OrderCoachAvailability from '../components/OrderCoachAvailability'
 import { OrderCardPaymentPanel } from '../components/NewebpaySettingsPanel'
 import { settlementAmount } from '../../components/booking/SettlementSummary'
 import { formatPaymentValue, quoteJpyPreview } from '../../utils/settlementPreview'
 import { useAdminDialog } from '../hooks/useAdminDialog'
 
 const PRIMARY = '#8b5cf6'
+const taipeiDate = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+})
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   created: { label: '已建立', cls: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' },
@@ -54,7 +59,11 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
   newebpay: '藍新支付', TT: '銀行匯款', bank_transfer: '銀行匯款', credit_card: '信用卡', apple_pay: 'Apple Pay', google_pay: 'Google Pay',
 }
 const LANGUAGE_LABEL: Record<string, string> = { zh: '中文', en: '英文', ja: '日文' }
-const REVISION_LABEL: Record<string, string> = { create: '建立訂單', update: '修改訂單', modify: '修改訂單', cancellation: '取消訂單', cancel: '取消申請' }
+const REVISION_LABEL: Record<string, string> = { create: '建立訂單', update: '修改訂單', modify: '修改訂單', cancellation: '取消訂單', cancel: '取消申請', mark_test: '標記測試訂單', unmark_test: '取消測試標記' }
+
+function TestOrderBadge() {
+  return <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100">測試</span>
+}
 const CANCELLATION_REASON_LABEL: Record<string, string> = { schedule: '行程變更', health: '健康因素', weather: '天候因素', duplicate: '重複訂單', other: '其他' }
 const formatTime = (time?: string | null) => (time || '').slice(0, 5)
 const formatCreatedAt = (value: string) => {
@@ -152,10 +161,11 @@ function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boole
   const [searchParams] = useSearchParams()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
+  const [includeTest, setIncludeTest] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const { data, isLoading, error } = useQuery({
-    queryKey: ['admin', 'campus-orders', isPrincipal, page, search, workflow],
-    queryFn: () => fetchCampusManagerOrdersPaged({ workflow, page, page_size: PAGE_SIZE, search }),
+    queryKey: ['admin', 'campus-orders', isPrincipal, page, search, workflow, includeTest],
+    queryFn: () => fetchCampusManagerOrdersPaged({ workflow, page, page_size: PAGE_SIZE, search, include_test: includeTest }),
   })
   return <div className="space-y-5">
     <div>
@@ -166,6 +176,9 @@ function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boole
       <label className="sr-only" htmlFor="campus-order-search">搜尋訂單</label>
       <input id="campus-order-search" value={search} onChange={event => { setSearch(event.target.value); setPage(1) }}
         placeholder="搜尋訂單編號或學員暱稱" className="min-h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+      <label className="flex min-h-11 items-center gap-2 text-sm dark:text-gray-100">
+        <input type="checkbox" checked={includeTest} onChange={event => { setIncludeTest(event.target.checked); setPage(1) }} />顯示測試訂單
+      </label>
     </div>
     {isLoading && <div className="flex justify-center py-16"><Loader2 className="animate-spin text-purple-500" /></div>}
     {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">訂單載入失敗，請確認連線後重新整理。</div>}
@@ -176,7 +189,7 @@ function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boole
     {!isLoading && !error && data?.list.map(order => <section key={order.id} className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="font-mono text-sm font-semibold text-purple-600 dark:text-purple-400">{order.sn}</div>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-sm font-semibold text-purple-600 dark:text-purple-400">{order.sn}{order.is_test && <TestOrderBadge />}</div>
           <div className="mt-1 font-medium text-gray-900 dark:text-white">{order.student_alias || '未填暱稱'} · {order.number_of_people} 人</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">{order.campus_name} · {order.course_dates.join('、')}</div>
         </div>
@@ -207,6 +220,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   const [searchInput, setSearchInput] = useState(querySearch)
   const [statusFilter, setStatusFilter] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('')
+  const [includeTest, setIncludeTest] = useState(false)
   const [page, setPage] = useState(1)
   const [viewingId, setViewingId] = useState<number | null>(null)
 
@@ -219,16 +233,17 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   }, [searchInput])
 
   // 搜尋 / 過濾條件變動 → 強制回到第一頁(避免在第 5 頁但條件過濾後只剩 2 頁的空畫面)
-  useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter])
+  useEffect(() => { setPage(1) }, [search, statusFilter, paymentFilter, includeTest])
 
   const { data: pageData, isLoading, error, isFetching, isPlaceholderData } = useQuery({
-    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, workflow }],
+    queryKey: ['admin', 'orders', { page, page_size: PAGE_SIZE, search, status: statusFilter, payment_status: paymentFilter, workflow, includeTest }],
     queryFn: () => fetchOrdersPaged({
       page,
       page_size: PAGE_SIZE,
       search: search || undefined,
       status: statusFilter || undefined,
       payment_status: paymentFilter || undefined,
+      include_test: includeTest,
       workflow,
     }),
     placeholderData: keepPreviousData,  // 翻頁時保留舊資料避免畫面閃白
@@ -286,6 +301,9 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
             <option value="">全部付款狀態</option>
             {Object.entries(PAYMENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
+          <label className="flex min-h-11 items-center gap-2 text-sm dark:text-gray-100">
+            <input type="checkbox" checked={includeTest} onChange={event => setIncludeTest(event.target.checked)} />顯示測試訂單
+          </label>
         </div>
         {!workflow && hasAdminPermission(adminMe?.user, 'order_export') && <OrderExportForm search={search} status={statusFilter} paymentStatus={paymentFilter} />}
       </div>
@@ -318,12 +336,14 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                   <div className="min-w-0">
                     <div className="text-xs text-gray-500 dark:text-gray-400">訂單編號</div>
                     <div className="break-all font-mono text-sm" style={{ color: PRIMARY }}>{order.sn}</div>
+                    {order.is_test && <TestOrderBadge />}
                   </div>
                   <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusPill.cls}`}>{statusPill.label}</span>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div className="min-w-0"><div className="text-xs text-gray-500 dark:text-gray-400">學員</div><div className="truncate font-medium text-gray-900 dark:text-white">{order.user_name}</div></div>
                     <div><div className="text-xs text-gray-500 dark:text-gray-400">金額</div><div className="font-medium text-gray-900 dark:text-white">{settlementAmount(order.settlement,order.total_fee || 0)}</div>{order.settlement&&order.settlement.currency!=='TWD'&&<div className="text-xs text-gray-500 dark:text-gray-400">台幣計價基準 NT$ {(order.total_fee || 0).toLocaleString()}</div>}</div>
+                  {workflow === 'payments' && <div><div className="text-xs text-gray-500 dark:text-gray-400">入帳日期</div>{order.bank_posted_date}</div>}
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${paymentPill.cls}`}>{paymentPill.label}</span>
@@ -358,6 +378,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                     <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <td className="px-5 py-3 font-mono whitespace-nowrap" style={{ color: PRIMARY }}>
                         {order.sn}
+                        {order.is_test && <div className="mt-1"><TestOrderBadge /></div>}
                         {order.cancellation?.status === 'requested' && <div className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">申請取消・待審核</div>}
                       </td>
                       <td className="px-5 py-3 text-gray-600 dark:text-gray-300 hidden md:table-cell whitespace-nowrap">
@@ -387,6 +408,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                       </td>
                       <td className="px-5 py-3 hidden md:table-cell whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
+                        {workflow === 'payments' && order.bank_posted_date && <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">入帳日期 {order.bank_posted_date}</div>}
                         {order.amendment_balance && <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</div>}
                       </td>
                       <td className="px-5 py-2 text-right">
@@ -550,11 +572,27 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
   const [amending, setAmending] = useState(false)
   const { data: noticeAdmin } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
   const canEdit = !readOnly && (!workflow || workflow === 'edit') && hasAdminPermission(noticeAdmin?.user, 'order_edit')
-  const canReconcile = !readOnly && (!workflow || workflow === 'payments') && hasAdminPermission(noticeAdmin?.user, 'order_payments')
+  const mayReconcile = hasAdminPermission(noticeAdmin?.user, 'order_payments')
+  const canReconcile = !readOnly && !order.is_test && (!workflow || workflow === 'payments') && mayReconcile
   const mayRefund = hasAdminPermission(noticeAdmin?.user, 'order_refunds')
-  const canRefund = !readOnly && (!workflow || workflow === 'refunds') && mayRefund
-  const canNotify = !readOnly && !workflow && hasAdminPermission(noticeAdmin?.user, 'notifications') && hasAdminPermission(noticeAdmin?.user, 'order_view')
+  const canRefund = !readOnly && !order.is_test && (!workflow || workflow === 'refunds') && mayRefund
+  const canNotify = !readOnly && !order.is_test && !workflow && hasAdminPermission(noticeAdmin?.user, 'notifications') && hasAdminPermission(noticeAdmin?.user, 'order_view')
     && !['campus_manager', 'campus_principal'].includes(noticeAdmin?.user?.role || '')
+  const [testReason, setTestReason] = useState<string | null>(null)
+  const [testStatusError, setTestStatusError] = useState('')
+  const testAction = order.is_test ? '取消測試標記' : '標記為測試訂單'
+  const testStatusMutation = useMutation({
+    mutationFn: (reason: string) => changeOrderTestStatus(order.id, !order.is_test, reason),
+    onSuccess: async (response) => {
+      await qc.invalidateQueries({ queryKey: ['admin', 'orders'] })
+      setTestReason(null)
+      notify.success(response.msg)
+    },
+    onError: (error: { response?: { data?: { msg?: string; detail?: string } } }) => {
+      const data = error.response?.data
+      setTestStatusError(data?.msg || data?.detail || '無法更新測試標記，請再試一次。')
+    },
+  })
 
   // 編輯狀態（reservation id → 教練 id 或 null）
   const [coachAssignments, setCoachAssignments] = useState<Record<number, number | null>>(() => {
@@ -578,7 +616,22 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     return init
   })
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(order.payment_status)
+  const [bankPostedDate, setBankPostedDate] = useState(order.bank_posted_date ?? '')
   const [editing, setEditing] = useState(false)
+  const sharedPaymentHeld = order.reservations.some((r) => r.shared_course_class_id && r.shared_class_status === 'collecting')
+  const postingDateMode = order.manual_payment_posting_date_mode
+  const canEnterPostingDate = editing && canReconcile && !sharedPaymentHeld && paymentStatus === 'paid'
+    && (postingDateMode === 'optional' || postingDateMode === 'required')
+  const postingDateChanged = canEnterPostingDate && bankPostedDate !== (order.bank_posted_date ?? '')
+  const hasPaymentChanges = paymentStatus !== order.payment_status || postingDateChanged
+  const postingDateRequired = canEnterPostingDate && postingDateMode === 'required' && hasPaymentChanges
+  const todayInTaipei = taipeiDate.format(new Date())
+  let postingDateError = ''
+  if (postingDateRequired && !bankPostedDate) {
+    postingDateError = '核對為已付款時，請填寫入帳日期'
+  } else if (canEnterPostingDate && bankPostedDate > todayInTaipei) {
+    postingDateError = '入帳日期不可晚於今天（台北時間）'
+  }
   const [jpyReceiptConfirmed,setJpyReceiptConfirmed]=useState(false)
   const requiresJpyReceipt=paymentStatus==='paid'&&order.payment_status!=='paid'&&order.settlement&&order.settlement.currency!=='TWD'
   useEffect(()=>{setJpyReceiptConfirmed(false)},[order.id,order.payment_status,order.settlement?.amount,editing])
@@ -609,6 +662,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     setCoachAssignments(assignments)
     setBookingEdits(bookings)
     setPaymentStatus(order.payment_status)
+    setBankPostedDate(order.bank_posted_date ?? '')
   }
 
   const [emailOpen, setEmailOpen] = useState(false)
@@ -734,7 +788,8 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
       }))
       return updateOrder(order.id, {
         action,
-        payment_status: paymentStatus !== order.payment_status ? paymentStatus : undefined,
+        payment_status: hasPaymentChanges ? paymentStatus : undefined,
+        bank_posted_date: postingDateChanged ? bankPostedDate || null : undefined,
         payment_currency:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.currency:undefined,
         payment_received_amount:requiresJpyReceipt&&jpyReceiptConfirmed?order.settlement?.amount:undefined,
         reservation_updates: updates,
@@ -754,7 +809,6 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     onError: (e: any) => notify.error(e.response?.data?.msg || '更新失敗'),
   })
   const firstR = order.reservations[0]
-  const sharedPaymentHeld = order.reservations.some((r) => r.shared_course_class_id && r.shared_class_status === 'collecting')
   const statusPill = firstR ? getStatusPill(firstR.status) : { label: '無', cls: '' }
   const paymentPill = getPaymentPill(order.payment_status)
   const courseBookings = order.reservations.flatMap((r) => r.bookings)
@@ -774,7 +828,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
     !reservation.is_preferred_coach &&
     coachAssignments[reservation.id] !== (reservation.preferred_coach_id ?? null),
   )
-  const hasOrderChanges = hasBookingChanges || hasCoachChanges || paymentStatus !== order.payment_status
+  const hasOrderChanges = hasBookingChanges || hasCoachChanges || hasPaymentChanges
   const canScheduleUnassigned = order.reservations.some(reservation =>
     reservation.status === 'created' && !reservation.preferred_coach_id &&
     !reservation.shared_course_class_id && reservation.bookings.length > 0,
@@ -805,7 +859,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                   <Edit2 size={12} />{canEdit && canReconcile ? '付款／排課' : canEdit ? '修改排課' : '核對付款'}
                 </button>}
                 {canEdit && <button onClick={() => setAmending(true)} className="min-h-10 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30">修改課程／人數與差額</button>}
-                {canEdit && <button
+                {canEdit && !order.is_test && <button
                   onClick={openOrderEmail}
                   className="flex min-h-10 items-center gap-1 rounded-md bg-white/20 px-3 py-2 text-xs font-medium hover:bg-white/30"
                 >
@@ -822,11 +876,33 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
           {canRefund && cancellationExpired && <p role="status" className="text-sm">首堂課已開始，無法新增取消申請。</p>}
           {canRefund && refundPreviewError && <p role="alert" className="text-sm">無法確認取消資格。 <button type="button" className="underline" onClick={() => reloadRefundPreview()}>重試</button></p>}
           <div className="flex flex-wrap gap-2">
+            {order.is_test && <TestOrderBadge />}
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${statusPill.cls}`}>{statusPill.label}</span>
             <span className={`inline-flex items-center px-3 py-1 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
           </div>
-          {order.amendment_balance && <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"><h3 className="font-semibold">訂單修改差額尚未結清</h3><p className="mt-2">{order.amendment_balance.amount>0?'待補款':'待退款'} {formatPaymentValue(Math.abs(order.amendment_balance.settlement?.amount??order.amendment_balance.amount),order.amendment_balance.settlement?.currency)}</p><p className="mt-1 text-xs leading-6">{['requested','approved'].includes(order.cancellation?.status||'')?'取消流程已暫停這筆差額，請至下方「取消與退款處理」核對實收款。':'上方付款狀態是原訂單付款，不代表這筆差額已收退。請在下方「差額回報與核對」處理；未核對前不視為結清。'}</p></section>}
-          {canReconcile&&<AmendmentBalancesPanel orderId={order.id} cancellationStatus={order.cancellation?.status}/>}
+          {!readOnly && !editing && order.can_mark_test && (!workflow || workflow === 'edit') && (
+            testReason === null ? <button type="button" onClick={() => { setTestStatusError(''); setTestReason('') }} className="min-h-11 rounded-lg border border-amber-300 px-3 text-sm font-medium text-amber-800 dark:border-amber-700 dark:text-amber-200">{testAction}</button> :
+              <form className="space-y-2 rounded-lg border border-amber-300 p-3 text-sm dark:border-amber-700 dark:text-gray-100" onSubmit={event => {
+                event.preventDefault()
+                if (testStatusMutation.isPending || !testReason.trim()) return
+                setTestStatusError('')
+                testStatusMutation.mutate(testReason.trim())
+              }}>
+                <label className="block font-medium" htmlFor="test-order-reason">{testAction}的原因</label>
+                <textarea id="test-order-reason" required maxLength={1000} value={testReason} onChange={event => setTestReason(event.target.value)}
+                  disabled={testStatusMutation.isPending} className="w-full rounded-lg border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-700" rows={2} />
+                {testStatusError && <p role="alert" className="text-red-700 dark:text-red-300">{testStatusError}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <button type="submit" disabled={testStatusMutation.isPending || !testReason.trim()} className="min-h-11 rounded-lg bg-violet-700 px-3 font-medium text-white disabled:opacity-50">{testStatusMutation.isPending ? '儲存中…' : testAction}</button>
+                  <button type="button" disabled={testStatusMutation.isPending} onClick={() => setTestReason(null)} className="min-h-11 rounded-lg border border-gray-300 px-3 dark:border-gray-600">返回</button>
+                </div>
+              </form>
+          )}
+          {(order.amendment_balance || canReconcile) && <AmendmentBalancesPanel key={order.id} order={order}
+            canReconcile={canReconcile} canRefund={canRefund}
+            paymentsHref={!order.is_test && mayReconcile && !canReconcile ? `/${currentClientCode()}/console/orders/payments?search=${encodeURIComponent(order.sn)}` : undefined}
+            refundsHref={!order.is_test && mayRefund && !canRefund ? `/${currentClientCode()}/console/orders/refunds?search=${encodeURIComponent(order.sn)}` : undefined}
+          />}
 
           <section>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><User size={14} style={{ color: PRIMARY }} />訂單聯絡資料</h3>
@@ -852,11 +928,18 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
 
           <section>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">訂單歸屬與歷程</h3>
-            <div className="rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-700"><div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">校區</span><b>{order.campus_name || '未設定'}</b></div><div className="mt-2 flex justify-between"><span className="text-gray-500 dark:text-gray-400">行銷來源</span><span>{order.marketing_source || '未填寫'}{order.marketing_source_detail ? ` · ${order.marketing_source_detail}` : ''}</span></div></div>
+            <div className="rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-700">
+              <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">校區</span><b>{order.campus_name || '未設定'}</b></div>
+              <div className="mt-2 flex justify-between gap-3"><span className="shrink-0 text-gray-500 dark:text-gray-400">原始來源</span><span className="min-w-0 break-words text-right">{order.marketing_source || '未填寫'}{order.marketing_source_detail ? ` · ${order.marketing_source_detail}` : ''}</span></div>
+              <OrderMarketingSource key={order.id}
+                orderId={order.id} source={order.marketing_source_override ?? null}
+                options={canEdit ? order.marketing_source_options : undefined} />
+            </div>
             <div className="mt-3 space-y-2">{order.revisions?.map(revision => <details key={revision.id} className="rounded-lg border border-gray-100 text-xs dark:border-gray-700">
               <summary className="min-h-11 cursor-pointer px-3 py-3 text-gray-900 dark:text-gray-100">
                 <span className="ml-1 break-words">第 {revision.version} 版 · {REVISION_LABEL[revision.change_type] || revision.change_type}{revision.reason ? ` · ${revision.change_type === 'cancel' ? (CANCELLATION_REASON_LABEL[revision.reason] || revision.reason) : revision.reason}` : ''}</span>
                 <b className={`ml-2 inline-block ${revision.difference_amount > 0 ? 'text-red-600 dark:text-red-400' : revision.difference_amount < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>{revision.difference_amount ? `${revision.difference_amount > 0 ? '+' : ''}NT$ ${revision.difference_amount.toLocaleString()}` : '無差額'}</b>
+                {revision.created_by_name && <span className="mt-1 block text-gray-500 dark:text-gray-400">{revision.created_by_name} · {new Date(revision.created_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}</span>}
                 <span className="mt-1 block text-gray-500 dark:text-gray-400">點選查看當時課程內容</span>
               </summary>
               <div className="space-y-3 border-t border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
@@ -873,7 +956,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
           </section>
 
           {order.reservations.map((r, idx) => {
-            const availableCoaches = r.available_coaches || []
+            const availableCoaches = r.candidate_status === 'error' ? [] : r.available_coaches ?? []
             const selectedCoachId = coachAssignments[r.id] ?? null
             const selectedCoachMissing = !!selectedCoachId && !availableCoaches.some((coach) => coach.id === selectedCoachId)
             const reservationStatusPill = getStatusPill(r.status)
@@ -924,7 +1007,9 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                       <option value="">不指定（等待排課）</option>
                       {selectedCoachMissing && (
                         <option value={selectedCoachId} disabled>
-                          {selectedCoachId === r.preferred_coach_id ? `${r.preferred_coach || '原指派教練'}（目前不在可排清單）` : '所選教練已不可排，請重新選擇'}
+                          {selectedCoachId === r.preferred_coach_id
+                            ? `${r.preferred_coach || '原指派教練'}（${r.candidate_status === 'error' ? '目前指派' : '目前不在可排清單'}）`
+                            : '所選教練已不可排，請重新選擇'}
                         </option>
                       )}
                       {availableCoaches.map((coach) => (
@@ -944,6 +1029,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                     </div>
                   )}
                 </div>
+                {canEditCourse && !isStudentSpecifiedCoach && <OrderCoachAvailability reservation={r} />}
                 <div className="flex justify-between"><span className="text-gray-500">語言</span><span className="text-gray-900 dark:text-white">{LANGUAGE_LABEL[r.language] || r.language || '未填寫'}</span></div>
                 {r.equipment_assistance_time_label && (
                   <div className="flex justify-between"><span className="text-gray-500">裝備協助時段</span><span className="text-gray-900 dark:text-white">{r.equipment_assistance_time_label}</span></div>
@@ -1011,6 +1097,28 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                   <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${paymentPill.cls}`}>{paymentPill.label}</span>
                 )}
               </div>
+              {canEnterPostingDate ? (
+                <div className="space-y-1">
+                  <label className="flex flex-wrap items-center justify-between gap-2 text-gray-500 dark:text-gray-300">
+                    <span>入帳日期{postingDateRequired && '（必填）'}</span>
+                    <input
+                      type="date"
+                      value={bankPostedDate}
+                      max={todayInTaipei}
+                      required={postingDateRequired}
+                      disabled={saveMutation.isPending}
+                      aria-invalid={Boolean(postingDateError)}
+                      aria-describedby="order-bank-posted-date-help"
+                      onChange={event => setBankPostedDate(event.target.value)}
+                      className="min-h-11 rounded border border-gray-200 bg-white px-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                    />
+                  </label>
+                  <p id="order-bank-posted-date-help" className="text-xs text-gray-500 dark:text-gray-300">請填寫銀行紀錄上的實際入帳日。</p>
+                  {postingDateError && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{postingDateError}</p>}
+                </div>
+              ) : (
+                <div className="flex justify-between"><span className="text-gray-500">入帳日期</span><span>{order.bank_posted_date}</span></div>
+              )}
               <div className="flex justify-between"><span className="text-gray-500">付款方式</span><span className="text-gray-900 dark:text-white">{PAYMENT_METHOD_LABEL[order.payment_method] || order.payment_method || '未設定'}</span></div>
               {order.payment_method === 'TT' && (
                 <div className="flex justify-between">
@@ -1023,7 +1131,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
                 <span className="font-medium text-gray-900 dark:text-white">總金額</span>
                 <span className="text-lg font-bold" style={{ color: PRIMARY }}>NT$ {(order.total_fee || 0).toLocaleString()}</span>
               </div>
-              {canEdit && !editing && paymentStatus === 'unpaid' && <OrderCardPaymentPanel key={`${currentClientCode()}:${order.id}`} orderId={order.id} />}
+              {canEdit && !order.is_test && !editing && paymentStatus === 'unpaid' && <OrderCardPaymentPanel key={`${currentClientCode()}:${order.id}`} orderId={order.id} />}
               {canReconcile && !editing && !sharedPaymentHeld && order.user === null && ['unpaid', 'pending'].includes(paymentStatus) && (
                 <div className="border-t border-gray-200 pt-3 dark:border-gray-600">
                   <button type="button" onClick={() => paymentLinkMutation.mutate()} disabled={paymentLinkMutation.isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-2 font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:border-violet-600 dark:bg-gray-800 dark:text-violet-300 dark:hover:bg-gray-700">
@@ -1062,7 +1170,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
               </button>
               <button
                 onClick={() => saveMutation.mutate('save')}
-                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
+                disabled={saveMutation.isPending || !hasOrderChanges || Boolean(invalidBooking) || Boolean(postingDateError) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 bg-white dark:bg-gray-700 border border-[#8b5cf6] text-sm font-medium rounded-lg hover:bg-[#8b5cf6]/5 disabled:opacity-50 flex items-center gap-2"
                 style={{ color: PRIMARY }}
               >
@@ -1071,7 +1179,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
               </button>
               {canEdit && <button
                 onClick={() => saveMutation.mutate('schedule')}
-                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
+                disabled={saveMutation.isPending || (!hasOrderChanges && !canScheduleUnassigned) || Boolean(invalidBooking) || Boolean(postingDateError) || (requiresJpyReceipt&&!jpyReceiptConfirmed)}
                 className="min-h-11 px-4 py-2 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 style={{ backgroundColor: PRIMARY }}
               >

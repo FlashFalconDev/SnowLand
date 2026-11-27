@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from Client.models import SiteContent
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -10,6 +11,7 @@ from .participant_forms import GUARDIAN_AGE_LIMIT
 
 
 WAIVER_LOCATION_KEY = 'membership.waiver'
+INSURANCE_NOTICE_LOCATION_KEY = 'membership.insurance-notice'
 WAIVER_DEFAULT_VERSION = 'V0-2026-10-08'
 WAIVER_SOURCE_URL = (
     'https://docs.google.com/document/d/'
@@ -46,6 +48,35 @@ def waiver_document_time(item):
     except ValueError:
         parsed = None
     return parsed if parsed and timezone.is_aware(parsed) else item.updated_at
+
+
+def versioned_insurance_notice_metadata(attrs, instance=None):
+    previous = instance.metadata if instance and isinstance(instance.metadata, dict) else {}
+    metadata = dict(attrs.get('metadata', previous))
+    changed = instance is None or any(
+        field in attrs and attrs[field] != getattr(instance, field) for field in ('title', 'body')
+    )
+    publishing = instance is not None and instance.status != 'active' and attrs.get('status') == 'active'
+    if changed or publishing or not previous.get('version'):
+        metadata['version'] = 'V' + timezone.now().strftime('%Y%m%d%H%M%S') + '-' + uuid4().hex[:10]
+    else:
+        metadata['version'] = previous['version']
+    return metadata
+
+
+def get_current_insurance_notice(client):
+    item = SiteContent.objects.filter(
+        Q(metadata__is_draft__isnull=True) | Q(metadata__is_draft=False),
+        client=client, content_type='page', location_key=INSURANCE_NOTICE_LOCATION_KEY, status='active',
+    ).order_by('-updated_at', '-pk').first()
+    if item is None:
+        return {'title': '', 'body': '', 'version': '', 'status': '', 'is_draft': False}
+    metadata = item.metadata if isinstance(item.metadata, dict) else {}
+    return {
+        'title': item.title, 'body': item.body,
+        'version': str(metadata.get('version') or item.updated_at.strftime('%Y%m%d%H%M%S')),
+        'status': 'active', 'is_draft': False,
+    }
 
 
 def waiver_requires_resign(member, document):

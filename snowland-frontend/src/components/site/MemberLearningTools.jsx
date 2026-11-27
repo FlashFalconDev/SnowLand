@@ -21,12 +21,56 @@ export function MemberLearnerFilter({ account, value, onChange }) {
   </section>;
 }
 
-export function ManageLearnerProfiles({ account }) {
+function LearnerProfileRow({ profile, queryKey, onSaved }) {
+  const { t } = useSiteLocale();
+  const cache = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState('');
+  const rename = useMutation({
+    mutationFn: () => bookingApi.post('/learner-profiles/', { action: 'rename', profile_id: profile.id, name }),
+    onSuccess: async updated => {
+      await cache.cancelQueries({ queryKey, exact: true });
+      cache.setQueryData(queryKey, previous => previous?.map(row => row.id === updated.id ? updated : row));
+      setEditing(false);
+      void onSaved?.();
+      return cache.invalidateQueries({ queryKey, exact: true });
+    },
+  });
+  return <li className="py-2">
+    <div className="flex flex-wrap items-center justify-between gap-x-4">
+      <span className="min-w-0 break-all text-sm font-semibold">{profile.name}</span>
+      {profile.can_rename === true && !editing && <button type="button" disabled={rename.isPending} className="min-h-11 text-sm font-semibold text-[#2b5f8f] disabled:opacity-50"
+        onClick={() => { setName(profile.name); rename.reset(); setEditing(true); }}>{t('修改姓名')}</button>}
+    </div>
+    {profile.can_rename === true && editing && <form onSubmit={event => {
+      event.preventDefault();
+      if (name.trim() && !rename.isPending) rename.mutate();
+    }} className="flex flex-wrap items-end gap-2">
+      <label className="min-w-0 text-sm font-semibold">{t('學員姓名')}
+        <input value={name} maxLength={120} required disabled={rename.isPending}
+          onChange={event => { setName(event.target.value); rename.reset(); }}
+          className="mt-1 block min-h-11 max-w-full rounded border border-slate-300 px-3" />
+      </label>
+      <button type="submit" disabled={!name.trim() || rename.isPending} className="min-h-11 rounded-full bg-[#2b5f8f] px-4 text-sm font-semibold text-white disabled:opacity-50">{t('儲存姓名')}</button>
+      <button type="button" disabled={rename.isPending} onClick={() => { setEditing(false); rename.reset(); }} className="min-h-11 px-2 text-sm font-semibold text-[#2b5f8f] disabled:opacity-50">{t('取消修改')}</button>
+    </form>}
+    {rename.isError && <p role="alert" className="mt-2 text-sm text-red-700">{t(rename.error?.response?.data?.error || '無法修改姓名，請再試一次')}</p>}
+    {rename.isSuccess && <p role="status" className="mt-2 text-sm text-green-700">{t('已修改學員姓名')}</p>}
+  </li>;
+}
+
+export function ManageLearnerProfiles({ account, onSaved }) {
   const { t } = useSiteLocale();
   const query = useLearnerProfiles(currentClientCode(), account);
   return <details className="mt-4 rounded border border-slate-200 bg-white p-3">
     <summary className="cursor-pointer text-sm font-semibold">{t('管理學員檔案')}</summary>
-    {query.isSuccess && <AddLearnerProfile queryKey={query.queryKey} />}
+    <p className="mt-2 text-sm text-slate-600">{t('改名後，使用學員檔案姓名的歷史頁面會顯示新姓名。保險用姓名與已簽署資料不會改變。')}</p>
+    {query.isSuccess && <>
+      {query.data.length > 0 && <ul className="mt-2 divide-y divide-slate-200">
+        {query.data.map(profile => <LearnerProfileRow key={profile.id} profile={profile} queryKey={query.queryKey} onSaved={onSaved} />)}
+      </ul>}
+      <AddLearnerProfile queryKey={query.queryKey} />
+    </>}
     {query.isError && <p role="alert">{t('無法載入學員檔案')} <button type="button" className="underline" onClick={() => void query.refetch()}>{t('重新載入')}</button></p>}
   </details>;
 }

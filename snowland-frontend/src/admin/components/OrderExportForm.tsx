@@ -8,6 +8,7 @@ export default function OrderExportForm({ search, status, paymentStatus }: {
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [sort, setSort] = useState<'asc' | 'desc'>('asc')
+  const [includeTest, setIncludeTest] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fieldClass = 'block min-h-11 rounded-lg border border-gray-300 bg-white px-2 dark:border-gray-600 dark:bg-gray-800'
@@ -19,7 +20,8 @@ export default function OrderExportForm({ search, status, paymentStatus }: {
       setBusy(true)
       setError('')
       try {
-        const file = await exportOrders({ date_basis: basis, start, end, sort, search, status, payment_status: paymentStatus })
+        const file = await exportOrders({ date_basis: basis, start, end, sort, search, status,
+          payment_status: paymentStatus, include_test: includeTest ? '1' : undefined })
         const url = URL.createObjectURL(file)
         const link = document.createElement('a')
         link.href = url
@@ -39,6 +41,7 @@ export default function OrderExportForm({ search, status, paymentStatus }: {
       <label>開始日期<input className={fieldClass} required type="date" value={start} max={end || undefined} onChange={event => setStart(event.target.value)} /></label>
       <label>結束日期<input className={fieldClass} required type="date" value={end} min={start || undefined} onChange={event => setEnd(event.target.value)} /></label>
       <label>匯出排序<select className={fieldClass} value={sort} onChange={event => setSort(event.target.value === 'desc' ? 'desc' : 'asc')}><option value="asc">早到晚</option><option value="desc">晚到早</option></select></label>
+      <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={includeTest} onChange={event => setIncludeTest(event.target.checked)} />匯出含測試訂單</label>
       <button type="submit" disabled={busy || !start || !end} className="min-h-11 rounded-lg bg-violet-700 px-4 font-medium text-white disabled:opacity-50">{busy ? '匯出中…' : '匯出訂單 CSV'}</button>
     </div>
     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">每堂課列一筆，含開始及結束時間。依下單日期匯出時，也會保留尚未排課的訂單。</p>

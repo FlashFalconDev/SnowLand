@@ -7,6 +7,7 @@ from django.db.models.functions import Coalesce
 from Coach.models import Coach, CoachCourseLevel, CoachLeaveRequest, CoachResort, normalize_ability_levels
 from Resorts.models import Campus, Resorts
 from booking.models import Booking, Payment
+from booking.order_testing import exclude_test_orders
 
 
 def photography_booking_filter():
@@ -42,7 +43,7 @@ def coach_workload(*, tenant, campus_ids, start, end, resort, schedule_statuses,
     latest_payment = Payment.objects.live().filter(
         reservation_group_id=OuterRef('reservation__group_id'),
     ).order_by('-created_at', '-pk').values('status')[:1]
-    lessons = Booking.objects.live().filter(
+    lessons = exclude_test_orders(Booking.objects.live(), 'reservation__group').filter(
         Q(is_scheduled=True) | Q(reservation__status='completed'),
         date__range=(start, end),
         reservation__group__client=tenant,

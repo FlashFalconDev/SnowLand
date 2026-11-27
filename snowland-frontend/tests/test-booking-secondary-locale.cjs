@@ -2,7 +2,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const root=path.resolve(__dirname,'..'),req=Module.createRequire(path.join(root,'package.json')),React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-dom/server')
 const source=fs.readFileSync(path.join(root,'src/pages/BookingFlowPage.tsx'),'utf8'),ast=ts.createSourceFile('booking.tsx',source,99,true,ts.ScriptKind.TSX)
 let recovery,prepare,coachHint,coachEmpty
-function walk(node){if(ts.isJsxElement(node)){const text=node.getText(ast);if(text.startsWith('<div role="alert"')&&text.includes('retryPaymentInfo'))recovery=text;if(text.startsWith('<section className="mx-auto max-w-2xl space-y-4')&&text.includes('staffConsoleUrl'))prepare=text}ts.forEachChild(node,walk)}walk(ast)
+function walk(node){if(ts.isJsxElement(node)){const text=node.getText(ast);if(text.startsWith('<div role="alert"')&&text.includes('retryPaymentInfo'))recovery=text;if(text.startsWith('<section className="mx-auto max-w-2xl space-y-4')&&text.includes('staffReturnUrl'))prepare=text}ts.forEachChild(node,walk)}walk(ast)
 assert.ok(recovery&&prepare,'Extract actual product JSX, not a separate implementation')
 function coachCopy(node){if(ts.isJsxElement(node)&&node.openingElement.tagName.getText(ast)==='p'){const text=node.getText(ast);if(text.includes('由系統依照時間、等級與雪場'))coachHint=text;if(text.includes('目前沒有符合篩選條件'))coachEmpty=text}ts.forEachChild(node,coachCopy)}coachCopy(ast)
 assert.ok(coachHint&&coachEmpty)
@@ -12,7 +12,7 @@ for(const language of ['en','ja']){
  const locale=require('./helpers/site-locale-harness.cjs')(React,language),t=(text,values)=>locale.translateSiteText(language,text,values),events=[]
  const context=vm.createContext({React,exports:{},useSiteLocale:locale.useSiteLocale,useEffect(){},ChevronLeft:()=>null,ChevronRight:()=>null,t,siteText:(_scope,_key,source)=>source,
   paymentInfoError:'',createdReservationIds:[101,102],isSubmitting:false,membershipUrl:'/snowland/membership/orders',retryPaymentInfo:()=>events.push('retry'),
-  cart:[{id:'qa',resortName:'QA雪場',peopleCount:2,totalPrice:9000,courses:[{courseTemplateId:1,courseTemplateName:'QA課程',date:'2026-11-20',timeSlotStart:'09:00',timeSlotEnd:'12:00'}]}],formatCurrency:value=>'NT$ '+value.toLocaleString(),handleEditCartGroup:id=>events.push(id),handleAddCartGroup:()=>events.push('add'),staffConsoleUrl:'/snowland/console/booking-links'})
+  cart:[{id:'qa',resortName:'QA雪場',peopleCount:2,totalPrice:9000,courses:[{courseTemplateId:1,courseTemplateName:'QA課程',date:'2026-11-20',timeSlotStart:'09:00',timeSlotEnd:'12:00'}]}],formatCurrency:value=>'NT$ '+value.toLocaleString(),handleEditCartGroup:id=>events.push(id),handleAddCartGroup:()=>events.push('add'),staffEditKey:null,staffReturnUrl:'/snowland/console/booking-links'})
  vm.runInContext(ts.transpileModule(declarations+`\nexports.recovery=()=>(${recovery});exports.prepare=()=>(${prepare});`,{fileName:'secondary.tsx',compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context)
  let tree=context.exports.recovery(),html=renderToStaticMarkup(tree)
  assert.ok(html.includes(t('請勿再次送出訂單。'))&&html.includes('101、102'))
@@ -22,6 +22,8 @@ for(const language of ['en','ja']){
  assert.ok(renderToStaticMarkup(tree).includes(language==='en'?'Loading…':'読み込み中…'),'Busy retry copy is translated')
  html=renderToStaticMarkup(context.exports.prepare());assert.ok(html.includes('QA雪場')&&html.includes('QA課程')&&html.includes('9,000'))
  assert.ok(html.includes(t('回後台建立連結'))&&!html.includes(' 人'))
+ context.staffEditKey='1:0';context.staffReturnUrl += '?staff_edit=1%3A0'
+ html=renderToStaticMarkup(context.exports.prepare());assert.ok(html.includes(t('回後台試算並儲存'))&&html.includes('staff_edit=1%3A0'))
  find(context.exports.prepare(),n=>n.type==='button'&&n.props.children===t('修改這組課程')).props.onClick();assert.ok(events.includes('qa'))
  const selected=[],months=[],date='2026-11-20'
  const props={field:'date',courseCategories:[],courseTypes:[],resorts:[],coaches:[],templates:[{id:7,shared_class_enabled:true}],sessions:[],state:{selectedCourseTemplate:7,peopleCount:1,calendarMonth:new Date(2026,10,1),selectedCourseDates:[date]},actions:{toggleCourseDate:value=>selected.push(value),setCalendarMonth:value=>months.push(value)},dateInfo:{course_start_date:'2026-11-20',course_end_date:'2027-04-30',shared_class_dates:{[date]:[{status:'collecting',registered_students:1,minimum_students:3,remaining_capacity:2}]}}}

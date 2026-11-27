@@ -1,7 +1,7 @@
 import { currentClientCode, campusScopeKey } from '@/utils/tenant'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Bell, Calculator, ClipboardCheck, Link2, Loader2, Plus, Save } from 'lucide-react'
 import { fetchCampuses } from '../api/campuses'
@@ -10,18 +10,21 @@ import { hasAdminPermission } from '../permissions'
 import {
   calculatePayroll, createStaffBookingLink, fetchEvaluations, fetchNotificationDeliveries,
   fetchNotificationTemplates, fetchNotificationCourseOptions, fetchPayrollStatements, fetchPayrollCoaches, fetchStaffBookingLinks, fetchPayRules, saveNotificationTemplate, addPayrollAdjustment, editPayrollAdjustment, removePayrollAdjustment, deletePayrollDraft,
-  fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceRecordDetail, type PreCourseFormSnapshot,
+  fetchInsuranceRecords, fetchInsuranceRecord, completeInsuranceRecord, fetchCoachEvaluations, saveInsuranceProcessing, type InsuranceProcessingStatus, type InsuranceRecordDetail, type PreCourseFormSnapshot,
   fetchCourseUploadLimits, uploadCourseFile,
-  updateEvaluation, type Evaluation,
+  previewStaffBookingLink, updateStaffBookingLink, type StaffBookingLink,
+  updateEvaluation, type Evaluation, type EvaluationDateFilters, type EvaluationPage,
 } from '../api/operations'
 import { useNotification } from '../context'
 import { learningProgressFromText, learningProgressToText } from '@/utils/learningProgress'
 import { payrollMonthRange } from '@/utils/payrollDates'
-import { useBookingStore } from '@/store/bookingStore'
+import { getStaffBookingDraftStore, useBookingStore } from '@/store/bookingStore'
 import { useSiteLink } from '@/hooks/useSiteBasePath'
 import ManualNotificationComposer from '../components/ManualNotificationComposer'
 import InsuranceCalendar, { insuranceDayRecords } from '../components/InsuranceCalendar'
 import InsuranceReminderDialog from '../components/InsuranceReminderDialog'
+import InsuranceLedgerPanel from '../components/InsuranceLedgerPanel'
+import { useInsuranceRequestKey } from '../components/useInsuranceRequestKey'
 import PayRuleEditor from '../components/PayRuleEditor'
 import StaffIncentiveRulesPanel from '../components/StaffIncentiveRulesPanel'
 import StaffIncentiveStatementsPanel from '../components/StaffIncentiveStatementsPanel'
@@ -36,7 +39,7 @@ import { SkillReviewFields, SkillSnapshotSummary } from '../components/SkillRevi
 import { CoachCourseAlbum, EvaluationLearnerLink } from '../components/LearnerCourseTools'
 
 const PRIMARY = '#8b5cf6'
-type Tab = 'notifications' | 'payroll' | 'payroll-rules' | 'staff-incentives' | 'payroll-documents' | 'evaluations' | 'insurance' | 'links'
+type Tab = 'notifications' | 'payroll' | 'payroll-rules' | 'staff-incentives' | 'payroll-documents' | 'evaluations' | 'insurance' | 'insurance-ledger' | 'links'
 
 const tabs: { id: Tab; label: string; icon: typeof Bell }[] = [
   { id: 'notifications', label: '自動通知', icon: Bell },
@@ -46,6 +49,7 @@ const tabs: { id: Tab; label: string; icon: typeof Bell }[] = [
   { id: 'payroll-documents', label: '薪資文件設定', icon: Calculator },
   { id: 'evaluations', label: '學習評量', icon: ClipboardCheck },
   { id: 'insurance', label: '保險與聲明書', icon: ClipboardCheck },
+  { id: 'insurance-ledger', label: '保險預付保費帳本', icon: Calculator },
   { id: 'links', label: '代客訂課連結', icon: Link2 },
 ]
 
@@ -57,6 +61,7 @@ const descriptions: Record<Tab, string> = {
   'payroll-documents': '維護薪資文件。',
   evaluations: '記錄學員進度、教練評語與課程媒體。',
   insurance: '查核學員保險、課前聲明與法定代理人資料，追蹤待補項目。',
+  'insurance-ledger': '登錄保費儲值、查閱分錄與確認每月對帳。',
   links: '建立有校區歸屬的連結，協助客人完成訂課。',
 }
 
@@ -93,7 +98,7 @@ export default function OperationsHubPage({ initialTab = 'notifications', fixed 
   const [tab, setTab] = useState<Tab>(initialTab)
   // Fixed Console routes reuse this component instance; the route prop must win over stale tab state.
   const activeTab = fixed ? initialTab : tab
-  const visibleTabs = fixed ? tabs.filter(item => item.id === initialTab) : tabs
+  const visibleTabs = fixed ? tabs.filter(item => item.id === initialTab) : tabs.filter(item => item.id !== 'insurance-ledger')
   const currentTab = tabs.find(item => item.id === activeTab) || tabs[0]
   return (
     <div className="space-y-6">
@@ -111,6 +116,7 @@ export default function OperationsHubPage({ initialTab = 'notifications', fixed 
       {activeTab === 'payroll-documents' && <PayrollDocumentSettingsPanel />}
       {activeTab === 'evaluations' && <EvaluationsPanel coachView={coachView} />}
       {activeTab === 'insurance' && <InsurancePanel />}
+      {activeTab === 'insurance-ledger' && <InsuranceLedgerPanel />}
       {activeTab === 'links' && <BookingLinksPanel />}
     </div>
   )
@@ -251,30 +257,99 @@ function PayrollPanel() {
   </div>
 }
 
+type EvaluationSearch = EvaluationDateFilters & { search: string }
+const evaluationDateLabels = { ordered: '下單日期', lesson: '上課日期' }
+
+function EvaluationFilterForm({ dateFilters, search, apply, reset }: {
+  dateFilters: EvaluationDateFilters
+  search: string
+  apply: (filters: EvaluationSearch) => void
+  reset: () => void
+}) {
+  const [start, setStart] = useState(dateFilters.date_from || '')
+  const [end, setEnd] = useState(dateFilters.date_to || '')
+  return <form className="mb-4 grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap" onSubmit={event => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    apply({ date_field: form.get('date_field') === 'lesson' ? 'lesson' : 'ordered',
+      date_from: start || null, date_to: end || null, search: String(form.get('search') || '').trim() })
+  }} onReset={() => {
+    setStart(dateFilters.date_from || '')
+    setEnd(dateFilters.date_to || '')
+    reset()
+  }}>
+    <label className="col-span-2 text-sm font-medium text-gray-900 dark:text-white">日期依據
+      <select name="date_field" defaultValue={dateFilters.date_field} className={`${inputClass} mt-1 block min-h-11`}>
+        <option value="ordered">下單日期</option><option value="lesson">上課日期</option>
+      </select>
+    </label>
+    <label className="text-sm font-medium text-gray-900 dark:text-white">開始日期
+      <input type="date" required max={end || undefined} value={start} onChange={event => setStart(event.target.value)} className={`${inputClass} mt-1 block min-h-11`} />
+    </label>
+    <label className="text-sm font-medium text-gray-900 dark:text-white">結束日期
+      <input type="date" required min={start || undefined} value={end} onChange={event => setEnd(event.target.value)} className={`${inputClass} mt-1 block min-h-11`} />
+    </label>
+    <label className="col-span-2 min-w-0 text-sm font-medium text-gray-900 dark:text-white">訂單編號或學員姓名
+      <input type="search" name="search" defaultValue={search} className={`${inputClass} mt-1 block min-h-11`} />
+    </label>
+    <button type="submit" className="min-h-11 rounded-lg bg-violet-700 px-3 py-2 text-sm font-semibold text-white">套用篩選</button>
+    <button type="reset" className="min-h-11 rounded-lg border px-3 py-2 text-sm dark:border-gray-600">恢復預設</button>
+  </form>
+}
+
 function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
-  const myEvaluationsUrl = useSiteLink('/console/my/evaluations')
-  const booking = coachView ? searchParams.get('booking') : null
+  const evaluationsUrl = useSiteLink(coachView ? '/console/my/evaluations' : '/console/evaluations')
+  const booking = searchParams.get('booking')
   const [evaluationDate, setEvaluationDate] = useState('')
+  const [filters, setFilters] = useState<EvaluationSearch>()
+  const [pagination, setPagination] = useState({ booking, page: 1 })
+  const page = pagination.booking === booking ? pagination.page : 1
   const client = currentClientCode()
-  const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations', client], queryFn: coachView ? fetchCoachEvaluations : fetchEvaluations })
+  const campus = window.localStorage.getItem(campusScopeKey(client)) || 'all'
+  const params = booking ? { booking, page } : { ...filters, page }
+  const { data, isLoading, isPlaceholderData, isError, refetch } = useQuery<EvaluationPage>({
+    queryKey: [coachView ? 'coach' : 'admin', 'evaluations', client, campus, coachView ? null : params],
+    queryFn: async () => coachView ? { list: await fetchCoachEvaluations() } : fetchEvaluations(params),
+    placeholderData: coachView ? undefined : keepPreviousData,
+  })
   const rubricKey = ['assessment-rubric', client, coachView]
   const rubric = useQuery({ queryKey: rubricKey, queryFn: () => fetchAssessmentRubric(coachView) })
-  const visibleRows = rows.filter(row => (!booking || String(row.booking) === booking)
+  const visibleRows = (isPlaceholderData ? [] : data?.list || []).filter(row => (!booking || String(row.booking) === booking)
     && (!coachView || booking || !evaluationDate || row.course_date?.slice(0, 10) === evaluationDate))
+  const dateFilters = !coachView && !booking ? data?.date_filters : undefined
+  const dateGroups = new Map<string, Evaluation[]>()
+  if (dateFilters) {
+    for (const row of visibleRows) {
+      const date = dateFilters.date_field === 'ordered' ? row.order_date || '日期未提供' : row.course_date
+      const group = dateGroups.get(date)
+      if (group) group.push(row)
+      else dateGroups.set(date, [row])
+    }
+  }
   const emptyText = booking ? '這堂課目前沒有可查看的學員評量。' : coachView
     ? evaluationDate ? '選擇的上課日期沒有學員評量。' : '目前沒有自己的已完課學員評量。'
-    : '尚無課程評量。課程建立學員資料後即可開始填寫。'
+    : dateFilters ? '這個日期範圍與搜尋條件沒有符合的學員評量。' : '尚無課程評量。課程建立學員資料後即可開始填寫。'
+  const currentPage = data?.page || 1
+  const totalPages = data?.total_pages || 0
+  const renderCards = (rows: Evaluation[]) => <div className="grid gap-3 xl:grid-cols-2">{rows.map(row =>
+    <EvaluationCard key={row.id} row={row} coachView={coachView} rubric={rubric.data}
+      albumUrl={dateFilters ? `${evaluationsUrl}?booking=${row.booking}` : undefined} />)}</div>
   return <section className={cardClass}>
     <h2 className="font-semibold text-gray-900 dark:text-white">{booking ? '這堂課的學員評量' : '學員進度與課程紀錄'}</h2>
     <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">{coachView ? '只顯示自己已完成授課的學員，填寫後會同步到會員學習紀錄。' : '評量依角色開放填寫；行政可查看內容並補上照片／影片，不更改教學紀錄。'}</p>
-    {booking && <Link to={myEvaluationsUrl} className="mb-3 inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">查看全部評量</Link>}
-    {booking && /^\d+$/.test(booking) && <CoachCourseAlbum key={booking} bookingId={Number(booking)} />}
-    {coachView && !booking && visibleRows.length > 0 && <div className="mb-3 flex flex-wrap gap-2">
+    {booking && <Link to={evaluationsUrl} className="mb-3 inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">查看全部評量</Link>}
+    {booking && /^\d+$/.test(booking) && <CoachCourseAlbum key={booking} bookingId={Number(booking)} coachView={coachView} />}
+    {dateFilters && <EvaluationFilterForm
+      key={JSON.stringify([client, campus, dateFilters, filters?.search])}
+      dateFilters={dateFilters} search={filters?.search || ''}
+      apply={value => { setFilters(value); setPagination({ booking, page: 1 }) }}
+      reset={() => { setFilters(undefined); setPagination({ booking, page: 1 }) }} />}
+    {!booking && !dateFilters && visibleRows.length > 0 && <div className="mb-3 flex flex-wrap gap-2">
       {[...new Map(visibleRows.map(row => [row.booking, row])).values()].map(row =>
         <Link key={row.booking} className="inline-flex min-h-11 items-center rounded-lg border border-violet-200 px-3 text-sm font-semibold text-violet-700 dark:text-violet-200"
-          to={`${myEvaluationsUrl}?booking=${row.booking}`}>課程相簿：{row.course_date} · {row.order_number}</Link>)}
+          to={`${evaluationsUrl}?booking=${row.booking}`}>課程相簿：{row.course_date} · {row.order_number}</Link>)}
     </div>}
     {coachView && !booking && <div className="mb-4 flex flex-wrap items-end gap-2">
       <label className="text-sm font-medium text-gray-900 dark:text-white">依上課日期找評量
@@ -284,11 +359,25 @@ function EvaluationsPanel({ coachView = false }: { coachView?: boolean }) {
     </div>}
     {rubric.data?.can_edit && <AssessmentSettings config={rubric.data} onSaved={value => qc.setQueryData(rubricKey, value)} reload={rubric.refetch} />}
     {rubric.isError && <p role="alert" className="mb-3 text-sm text-red-700 dark:text-red-300">技術評量設定載入失敗。<button type="button" onClick={() => void rubric.refetch()} className="ml-2 min-h-11 underline">重試</button></p>}
-    {isLoading ? <Loader2 className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <div className="grid gap-3 xl:grid-cols-2">{visibleRows.map(r => <EvaluationCard key={r.id} row={r} coachView={coachView} rubric={rubric.data} />)}{!visibleRows.length && <Empty text={emptyText} />}</div>}
+    {isLoading || isPlaceholderData ? <Loader2 aria-label="載入評量" className="animate-spin" /> : isError ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"><p>評量載入失敗，請重新載入。</p><button type="button" onClick={() => void refetch()} className="mt-3 min-h-11 rounded-lg border border-red-300 px-3 py-2 font-semibold dark:border-red-700">重新載入</button></div> : <>
+      {!visibleRows.length ? <Empty text={emptyText} /> : dateFilters ? <div className="space-y-5">{[...dateGroups].map(([date, rows]) =>
+        <section key={date}>
+          <h3 className="mb-2 border-b border-gray-200 pb-2 text-sm font-semibold text-gray-900 dark:border-gray-700 dark:text-white">{evaluationDateLabels[dateFilters.date_field]} {date}</h3>
+          {renderCards(rows)}
+        </section>)}</div> : renderCards(visibleRows)}
+      {data?.page && <nav aria-label="評量分頁" className="mt-4 flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <span>共 {data.total} 筆評量</span>
+        {totalPages > 1 && <>
+          <button type="button" disabled={currentPage <= 1} onClick={() => setPagination({ booking, page: currentPage - 1 })} className="min-h-11 rounded-lg border px-3 py-1.5 disabled:opacity-40">上一頁</button>
+          <span>{currentPage} / {totalPages}</span>
+          <button type="button" disabled={currentPage >= totalPages} onClick={() => setPagination({ booking, page: currentPage + 1 })} className="min-h-11 rounded-lg border px-3 py-1.5 disabled:opacity-40">下一頁</button>
+        </>}
+      </nav>}
+    </>}
   </section>
 }
 
-function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; coachView?: boolean; rubric?: RubricConfig }) {
+function EvaluationCard({ row, coachView = false, rubric, albumUrl }: { row: Evaluation; coachView?: boolean; rubric?: RubricConfig; albumUrl?: string }) {
   const qc = useQueryClient(); const notify = useNotification()
   const canEditAssessment = row.can_edit_assessment === true
   const rating = Number(row.self_assessment?.satisfaction_rating)
@@ -322,7 +411,17 @@ function EvaluationCard({ row, coachView = false, rubric }: { row: Evaluation; c
     const skills = skillChanged && skillConfig ? { skill_review: { revision: skillConfig.revision, entries: skillEntries } } : {}
     await updateEvaluation(row.id, canEditAssessment ? { coach_notes: notes, learning_progress, trail_names: trails, completed_at: new Date().toISOString(), ...skills, ...media } : media, coachView)
   }, onSuccess: () => { qc.invalidateQueries({ queryKey: [coachView ? 'coach' : 'admin', 'evaluations'] }); setEditing(false); setMediaUrl(''); setSelectedTrails(trails); setExtraTrails(''); notify.success(canEditAssessment ? '評量已儲存' : '課程附件已加入，評量內容未變更') }, onError: (e: any) => notify.error(e?.response?.data?.new_media?.url?.[0] || e?.response?.data?.skill_review?.[0] || e?.response?.data?.completed_at?.[0] || e?.response?.data?.detail || e?.response?.data?.msg || '資料未儲存，請稍後再試') })
-  return <article className="rounded-xl border border-gray-100 p-4 dark:border-gray-700"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="break-words">{row.member_name}{row.member_nickname && `（${row.member_nickname}）`}</b><p className="mt-1 break-all text-xs text-violet-700 dark:text-violet-300">{row.order_number}</p><p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{row.course_date} · {row.course_name || '未設定課程'}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.campus_name || '未指定校區'} · {row.resort_name || '未指定雪場'} · 教練：{row.coach_name || '尚未指定'}</p></div><button disabled={uploading || save.isPending} onClick={() => setEditing(!editing)} className="min-h-11 shrink-0 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300">{editing ? '收起' : canEditAssessment ? '填寫評量' : '管理課程附件'}</button></div>
+  return <article className="rounded-xl border border-gray-100 p-4 dark:border-gray-700">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <b className="break-words">{row.member_name}{row.member_nickname && `（${row.member_nickname}）`}</b>
+        <p className="mt-1 break-all text-xs text-violet-700 dark:text-violet-300">{row.order_number}</p>
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{!coachView && row.order_date ? `下單日期 ${row.order_date} · 上課日期 ${row.course_date}` : row.course_date} · {row.course_name || '未設定課程'}</p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.campus_name || '未指定校區'} · {row.resort_name || '未指定雪場'} · 教練：{row.coach_name || '尚未指定'}</p>
+      </div>
+      <button disabled={uploading || save.isPending} onClick={() => setEditing(!editing)} className="min-h-11 shrink-0 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300">{editing ? '收起' : canEditAssessment ? '填寫評量' : '管理課程附件'}</button>
+    </div>
+    {albumUrl && <Link to={albumUrl} aria-label={`開啟課程相簿，${row.course_date}，${row.order_number}`} className="inline-flex min-h-11 items-center text-sm font-semibold text-violet-700 hover:underline dark:text-violet-300">開啟課程相簿</Link>}
     {(!editing || !canEditAssessment) && <><p className="mt-3 whitespace-pre-wrap break-words text-sm text-gray-600 dark:text-gray-300">{row.coach_notes || '尚無評語'}</p>{learningProgressToText(row.learning_progress || {}) && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">學習進度：{learningProgressToText(row.learning_progress || {})}</p>}{row.trail_names?.length > 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">完成雪道：{row.trail_names.join('、')}</p>}<p className="mt-2 text-xs text-gray-500 dark:text-gray-400">媒體 {row.media?.length || 0} 個 · {row.completed_at ? '已完成' : '待填寫'}{!canEditAssessment && ' · 評量僅供查看，可另外加入課程附件'}</p></>}
     {(!editing || !canEditAssessment) && row.skill_snapshot && <SkillSnapshotSummary snapshot={row.skill_snapshot} />}
     {editing && <div className="mt-4 space-y-3">
@@ -375,11 +474,17 @@ function CourseFileUploader({ evaluationId, coachView, onBusyChange }: { evaluat
 
 function BookingLinksPanel() {
   const qc = useQueryClient(); const notify = useNotification()
-  const cart = useBookingStore(state => state.cart)
-  const clearCart = useBookingStore(state => state.clearCart)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const clientCode = currentClientCode()
+  const editKey = searchParams.get('staff_edit')
+  const consoleUrl = `/${clientCode}/console/booking-links`
+  const prepareUrl = `/${clientCode}/booking?staff_prepare=1`
+  const useCart = editKey ? getStaffBookingDraftStore(clientCode, editKey) : useBookingStore
+  const { cart, clearCart } = useCart()
   const { campuses, selectedCampus } = useScopedCampuses()
   const activeCampuses = campuses.filter(campus => campus.is_active)
   const { data: rows = [], isLoading, isFetching, error, refetch } = useQuery({ queryKey: ['admin', 'staff-booking-links'], queryFn: fetchStaffBookingLinks })
+  const editing = rows.find(row => `${row.id}:${row.snapshot_version}` === editKey && row.can_edit)
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 16)
   const [form, setForm] = useState({ campus: selectedCampus, title: '', expires_at: tomorrow })
   const selectedCartCampus = cart[0]?.campusId
@@ -390,6 +495,42 @@ function BookingLinksPanel() {
     }
   }, [selectedCartCampus, activeCampuses.map(campus => campus.id).join(',')])
   const create = useMutation({ mutationFn: () => createStaffBookingLink({ campus: Number(form.campus), title: form.title, expires_at: new Date(form.expires_at).toISOString(), cart_snapshot: cart }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'staff-booking-links'] }); clearCart(); setForm({ ...form, title: '' }); notify.success('已建立含課程明細的訂課連結') }, onError: (e: any) => notify.error(e?.response?.data?.cart_snapshot?.[0] || e?.response?.data?.msg || '建立失敗') })
+  const editPayload = { cart_snapshot: cart, snapshot_version: editing?.snapshot_version ?? 0 }
+  const showEditError = (error: any) => {
+    const data = error?.response?.data
+    const detail = data?.cart_snapshot || data?.msg || data?.detail
+    notify.error((Array.isArray(detail) ? detail[0] : detail) || '修改連結失敗')
+    qc.invalidateQueries({ queryKey: ['admin', 'staff-booking-links'] })
+  }
+  const preview = useMutation({
+    mutationFn: async () => ({ cart, price: await previewStaffBookingLink(editing!.id, editPayload) }),
+    onError: showEditError,
+  })
+  const quote = preview.data?.cart === cart ? preview.data.price : undefined
+  const update = useMutation({
+    mutationFn: () => updateStaffBookingLink(editing!.id, editPayload, quote!),
+    onSuccess: () => {
+      clearCart()
+      qc.invalidateQueries({ queryKey: ['admin', 'staff-booking-links'] })
+      setSearchParams({}, { replace: true })
+      notify.success('已更新代客訂課連結，客人可使用原連結')
+    },
+    onError: error => {
+      preview.reset()
+      showEditError(error)
+    },
+  })
+  const editHref = (key: string) => `${prepareUrl}&staff_edit=${encodeURIComponent(key)}`
+  const startEdit = (row: StaffBookingLink) => {
+    const key = `${row.id}:${row.snapshot_version}`
+    getStaffBookingDraftStore(clientCode, key).getState().replaceCart(
+      row.cart_snapshot.map((group, index) => ({
+        ...group, id: group.id || `staff-${row.id}-${index}`, campusId: row.campus,
+      })),
+    )
+  }
+  const amount = (value: number) => `NT$ ${value.toLocaleString()}`
+  const difference = (value: number) => `${value > 0 ? '+' : ''}${value.toLocaleString()}`
   const copy = async (url: string) => {
     const bookingUrl = new URL(url, window.location.origin)
     const publicUrl = new URL(`${bookingUrl.pathname}${bookingUrl.search}${bookingUrl.hash}`, window.location.origin)
@@ -405,21 +546,82 @@ function BookingLinksPanel() {
     <p className="text-sm text-red-700 dark:text-red-300">代客連結狀態載入失敗，請重新載入後再操作，不代表沒有建立過連結。</p>
     <button type="button" disabled={isFetching} aria-busy={isFetching} onClick={() => refetch()} className="mt-3 min-h-11 rounded-lg border border-violet-300 px-4 text-sm font-semibold text-violet-700 disabled:cursor-wait disabled:opacity-60 dark:text-violet-300">{isFetching ? '正在重新載入…' : '重新載入連結狀態'}</button>
   </section>
-  return <div className="space-y-5"><section className={cardClass}><h2 className="font-semibold text-gray-900 dark:text-white">建立代客訂課連結</h2><p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">先幫客人選好課程，再建立連結。客人登入後會直接看到訂單明細，填完資料即可送出及付款。</p><a href={`/${window.location.pathname.split('/')[1] || 'snowland'}/booking?staff_prepare=1`} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-700 dark:text-violet-300"><Plus size={16} />先幫客人選課</a><div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">{cart.length ? <><b>已選 {cart.length} 組課程</b><ul className="mt-2 space-y-1">{cart.map(group => <li key={group.id}>{group.resortName} · {group.courses.map(course => `${course.courseTemplateName} ${course.date}`).join('、')} · {group.peopleCount} 人</li>)}</ul></> : '尚未選課。按「先幫客人選課」，完成後回到此頁建立連結。'}</div>{cart.length > 0 && !cartCampusMatches && <p role="alert" className="mb-3 text-sm text-red-600">同一連結只能包含同一校區且有課程的組別，請回選課畫面調整。</p>}<div className="grid items-end gap-3 md:grid-cols-4"><Field label="訂單歸屬校區"><select className={inputClass} value={form.campus} onChange={e => setForm({ ...form, campus: e.target.value })}><option value="">請選校區</option>{activeCampuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="用途／客人名稱"><input className={inputClass} placeholder="例如：王小姐三日課" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></Field><Field label="連結失效時間"><input className={inputClass} type="datetime-local" value={form.expires_at} onChange={e => setForm({ ...form, expires_at: e.target.value })} /></Field><button disabled={!cartCampusMatches || Number(form.campus) !== selectedCartCampus || !form.title || create.isPending} onClick={() => create.mutate()} className="flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}><Plus size={16} />建立連結</button></div></section><section className={cardClass}><div className="space-y-3">{rows.map(r => <div key={r.id} className="flex flex-col gap-3 rounded-lg border border-gray-100 p-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between"><div><b>{r.title}</b><p className="text-xs text-gray-500 dark:text-gray-400">{r.is_available ? '可使用' : '已失效'} · 到期 {new Date(r.expires_at).toLocaleString()}</p></div><button disabled={!r.is_available} onClick={() => copy(r.url)} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600 disabled:opacity-40">複製連結</button></div>)}{!rows.length && <Empty text="尚未建立連結。" />}</div></section></div>
+  const validEditCart = editing && cartCampusMatches && selectedCartCampus === editing.campus
+  return <div className="space-y-5">
+    {editKey ? <section className={cardClass}>
+      {editing ? <>
+        <h2 className="font-semibold text-gray-900 dark:text-white">修改代客訂課連結</h2>
+        <p className="mt-2 text-sm">{editing.title} · 已選 {cart.length} 組課程</p>
+        <ul className="mt-2 space-y-1 text-sm">
+          {cart.map(group => <li key={group.id}>{group.resortName} · {group.courses.map(course => `${course.courseTemplateName} ${course.date}`).join('、')} · {group.peopleCount} 人</li>)}
+        </ul>
+        {cart.length > 0 && !validEditCart && <p role="alert" className="mt-2 text-sm text-red-600">請選擇原校區且有課程的組別。</p>}
+        {quote && <div role="status" className="mt-4 rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-900">
+          {quote.previous_subtotal !== null && <p>原小計 {amount(quote.previous_subtotal)}</p>}
+          <p>新小計 {amount(quote.subtotal)}{quote.subtotal_difference !== null && `（差額 ${difference(quote.subtotal_difference)}）`}</p>
+          <p>自動折扣 {amount(quote.discount_total)}</p>
+          {quote.previous_total !== null && <p>原試算金額 {amount(quote.previous_total)}</p>}
+          <p className="font-semibold">新試算金額 {amount(quote.total)}{quote.total_difference !== null && `（差額 ${difference(quote.total_difference)}）`}</p>
+        </div>}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <a href={editHref(editKey)} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600">回選課畫面</a>
+          <button type="button" disabled={!validEditCart || preview.isPending || update.isPending} onClick={() => preview.mutate()} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600 disabled:opacity-40">{preview.isPending ? '試算中…' : '試算金額'}</button>
+          <button type="button" disabled={!validEditCart || !quote || preview.isPending || update.isPending} onClick={() => update.mutate()} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}>{update.isPending ? '儲存中…' : '儲存修改'}</button>
+          <Link to={consoleUrl} onClick={clearCart} className="px-3 py-2 text-sm underline">取消修改</Link>
+        </div>
+      </> : <div role="alert">
+        <p>連結已更新或無法修改，請從下方清單重新開啟。</p>
+        <Link to={consoleUrl} onClick={clearCart} className="mt-2 inline-block text-sm underline">返回連結清單</Link>
+      </div>}
+    </section> : <section className={cardClass}>
+      <h2 className="font-semibold text-gray-900 dark:text-white">建立代客訂課連結</h2>
+      <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">先幫客人選好課程，再建立連結。客人登入後會直接看到訂單明細，填完資料即可送出及付款。</p>
+      <a href={prepareUrl} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-700 dark:text-violet-300"><Plus size={16} />先幫客人選課</a>
+      <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
+        {cart.length ? <><b>已選 {cart.length} 組課程</b><ul className="mt-2 space-y-1">{cart.map(group => <li key={group.id}>{group.resortName} · {group.courses.map(course => `${course.courseTemplateName} ${course.date}`).join('、')} · {group.peopleCount} 人</li>)}</ul></> : '尚未選課。按「先幫客人選課」，完成後回到此頁建立連結。'}
+      </div>
+      {cart.length > 0 && !cartCampusMatches && <p role="alert" className="mb-3 text-sm text-red-600">同一連結只能包含同一校區且有課程的組別，請回選課畫面調整。</p>}
+      <div className="grid items-end gap-3 md:grid-cols-4">
+        <Field label="訂單歸屬校區"><select className={inputClass} value={form.campus} onChange={e => setForm({ ...form, campus: e.target.value })}><option value="">請選校區</option>{activeCampuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+        <Field label="用途／客人名稱"><input className={inputClass} placeholder="例如：王小姐三日課" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></Field>
+        <Field label="連結失效時間"><input className={inputClass} type="datetime-local" value={form.expires_at} onChange={e => setForm({ ...form, expires_at: e.target.value })} /></Field>
+        <button disabled={!cartCampusMatches || Number(form.campus) !== selectedCartCampus || !form.title || create.isPending} onClick={() => create.mutate()} className="flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PRIMARY }}><Plus size={16} />建立連結</button>
+      </div>
+    </section>}
+    <section className={cardClass}>
+      <div className="space-y-3">
+        {rows.map(row => <div key={row.id} className="flex flex-col gap-3 rounded-lg border border-gray-100 p-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
+          <div><b>{row.title}</b><p className="text-xs text-gray-500 dark:text-gray-400">{row.is_available ? '可使用' : '已失效'} · 到期 {new Date(row.expires_at).toLocaleString()}</p></div>
+          <div className="flex flex-wrap gap-2">
+            {row.can_edit && <a href={editHref(`${row.id}:${row.snapshot_version}`)} onClick={() => startEdit(row)} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600">修改</a>}
+            <button disabled={!row.is_available} onClick={() => copy(row.url)} className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600 disabled:opacity-40">複製連結</button>
+          </div>
+        </div>)}
+        {!rows.length && <Empty text="尚未建立連結。" />}
+      </div>
+    </section>
+  </div>
 }
 
-const insuranceStatuses = { pending: '尚未投保', checking: '對資料中', processing: '處理中', insured: '已投保完成' }
-const insuranceStatusColors = { pending: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200', checking: 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-200', processing: 'bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-200', insured: 'bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-200' }
+const insuranceStatuses = { pending: '尚未投保', checking: '對資料中', processing: '處理中', insured: '已投保完成', ineligible: '不符投保資格' } satisfies Record<InsuranceProcessingStatus, string>
+const insuranceStatusColors = { pending: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200', checking: 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-200', processing: 'bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-200', insured: 'bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-200', ineligible: 'bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-200' }
+const insuranceStatusLabel = (status: string) => Object.prototype.hasOwnProperty.call(insuranceStatuses, status)
+  ? insuranceStatuses[status as InsuranceProcessingStatus] : '待行政確認'
 const canProcessInsurance = (row: { can_process_insurance?: boolean; can_mark_complete: boolean }) => row.can_process_insurance ?? row.can_mark_complete
 
 function InsurancePanel() {
   const qc = useQueryClient(); const notify = useNotification()
+  const { data: adminMe } = useQuery({ queryKey: ['admin', 'me'], queryFn: fetchAdminMe })
+  const ledgerUrl = useSiteLink('/console/insurance/ledger')
   const [status, setStatus] = useState('all')
   const [processingStatus, setProcessingStatus] = useState('all')
   const [selectedDate, setSelectedDate] = useState('')
   const [reminder, setReminder] = useState<{id:number;field:'insurance'|'waiver'}|null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  const { data: rows = [], isLoading, isError, refetch } = useQuery({ queryKey: ['admin', 'insurance-records', status], queryFn: () => fetchInsuranceRecords(status) })
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['admin', 'insurance-records', status], queryFn: () => fetchInsuranceRecords(status) })
+  const rows = data?.rows ?? []
+  const showIneligible = data?.eligibilityEnabled || processingStatus === 'ineligible'
+    || rows.some(row => row.insurance_processing_status === 'ineligible')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const filteredRows = useMemo(() => {
@@ -437,20 +639,21 @@ function InsurancePanel() {
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
       <div><h2 className="font-semibold text-gray-900 dark:text-white">保險與聲明書資料</h2><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">先核對學員資料，再開啟「查看資料」更新投保進度。資料填齊不等於已投保；紙本確認也不等於線上簽署。</p></div>
       <div className="flex flex-col flex-wrap gap-2 sm:flex-row">
+        {hasAdminPermission(adminMe?.user, 'insurance_ledger_finance') && <Link className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-sm font-semibold text-violet-700 dark:text-violet-300" to={ledgerUrl}>保費帳本</Link>}
         <label className="sr-only" htmlFor="insurance-status">資料完成狀態</label>
         <select id="insurance-status" className={`${inputClass} sm:w-auto`} value={status} onChange={event => { setStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="missing">待補資料</option><option value="all">全部資料</option><option value="completed">已標記完成</option></select>
-        <select aria-label="投保作業狀態" className={`${inputClass} sm:w-auto`} value={processingStatus} onChange={event => { setProcessingStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="all">全部投保進度</option>{Object.entries(insuranceStatuses).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
+        <select aria-label="投保作業狀態" className={`${inputClass} sm:w-auto`} value={processingStatus} onChange={event => { setProcessingStatus(event.target.value); setPage(1); setExpandedId(null) }}><option value="all">全部投保進度</option>{Object.entries(insuranceStatuses).filter(([value]) => value !== 'ineligible' || showIneligible).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
         <input aria-label="搜尋學員、訂單或校區" className={`${inputClass} sm:max-w-xs`} placeholder="搜尋學員、訂單或校區" value={search} onChange={event => { setSearch(event.target.value); setPage(1); setExpandedId(null) }} />
       </div>
     </div>
     {isLoading ? <Loader2 aria-label="載入資料中" className="mt-4 animate-spin" /> : isError ? <div role="alert" className="mt-4 text-sm text-red-600 dark:text-red-400">資料載入失敗，請稍後重試。<button className="ml-3 min-h-11 underline" onClick={() => refetch()}>重新載入</button></div> : <>
-      <InsuranceCalendar rows={filteredRows} selectedDate={selectedDate} onSelect={date=>{setSelectedDate(date);setPage(1);setExpandedId(null)}} />
+      <InsuranceCalendar rows={filteredRows} showIneligible={showIneligible} selectedDate={selectedDate} onSelect={date=>{setSelectedDate(date);setPage(1);setExpandedId(null)}} />
       <div className="mt-4 space-y-3">{visibleRows.map(row => <div key={row.id} className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0"><b className="text-gray-900 dark:text-white">{row.member_name}</b><p className="break-words text-xs text-gray-500 dark:text-gray-400">{[row.sn || row.order_number, row.campus_name, row.course_dates.join('、')].filter(Boolean).join(' · ')}</p><p className="mt-2 text-xs text-gray-600 dark:text-gray-300">保險資料：{row.insurance_requires_update ? '題目已更新，待補' : row.insurance_completed_at ? '已填寫／已確認' : '待補'}　聲明書：{row.waiver_requires_resign ? '需重新簽署（課程或文件已更新）' : row.waiver_completed_at ? '已完成／已確認' : '待補'}</p><p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><span className={`rounded px-2 py-1 ${insuranceStatusColors[row.insurance_processing_status]}`}>{insuranceStatuses[row.insurance_processing_status]}</span><span>投保金額：{row.insurance_premium_amount === null ? '尚未填寫' : `${row.insurance_premium_currency} ${row.insurance_premium_amount}`}</span></p></div>
+          <div className="min-w-0"><b className="text-gray-900 dark:text-white">{row.member_name}</b><p className="break-words text-xs text-gray-500 dark:text-gray-400">{[row.sn || row.order_number, row.campus_name, row.course_dates.join('、')].filter(Boolean).join(' · ')}</p><p className="mt-2 text-xs text-gray-600 dark:text-gray-300">保險資料：{row.insurance_requires_update ? '題目已更新，待補' : row.insurance_completed_at ? '已填寫／已確認' : '待補'}　聲明書：{row.waiver_requires_resign ? '需重新簽署（課程或文件已更新）' : row.waiver_completed_at ? '已完成／已確認' : '待補'}</p><p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><span className={`rounded px-2 py-1 ${insuranceStatusColors[row.insurance_processing_status] ?? ''}`}><span className="sr-only">投保進度：</span>{insuranceStatusLabel(row.insurance_processing_status)}</span><span>投保金額：{row.insurance_premium_amount === null ? '尚未填寫' : `${row.insurance_premium_currency} ${row.insurance_premium_amount}`}</span></p></div>
           <div className="flex flex-wrap gap-2">
             <button aria-expanded={expandedId === row.id} aria-controls={`insurance-detail-${row.id}`} onClick={() => setExpandedId(expandedId === row.id ? null : row.id)} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200">{expandedId === row.id ? '收合資料' : '查看資料'}</button>
-            {row.can_remind && (!row.insurance_completed_at || row.insurance_requires_update) && <button onClick={()=>setReminder({id:row.id,field:'insurance'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">提醒補保險資料</button>}
+            {row.can_remind && row.insurance_processing_status !== 'ineligible' && (!row.insurance_completed_at || row.insurance_requires_update) && <button onClick={()=>setReminder({id:row.id,field:'insurance'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">提醒補保險資料</button>}
             {row.can_remind && (!row.waiver_completed_at || row.waiver_requires_resign) && <button onClick={()=>setReminder({id:row.id,field:'waiver'})} className="min-h-11 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700 dark:border-violet-500 dark:text-violet-200">{row.waiver_requires_resign ? '提醒重新簽署' : '提醒補聲明書'}</button>}
             {row.can_mark_complete && !row.insurance_completed_at && <button disabled={complete.isPending} onClick={() => complete.mutate({ id: row.id, field: 'insurance' })} className="min-h-11 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">標記保險資料已確認</button>}
             {row.can_mark_complete && !row.waiver_completed_at && !row.waiver_requires_resign && <button disabled={complete.isPending} onClick={() => complete.mutate({ id: row.id, field: 'waiver' })} className="min-h-11 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">標記聲明書完成</button>}
@@ -508,8 +711,9 @@ function InsuranceDetail({ id }: { id: number }) {
         {data.waiver_document_snapshot && <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看當時簽署的聲明書內容</summary><div className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white p-4 leading-7 dark:border-gray-700 dark:bg-gray-800">{data.waiver_document_snapshot}</div></details>}
       </div>
       <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">以上為會員填寫及簽署的唯讀紀錄，不會因後台標記完成而修改簽名或文件內容。</p>
-      {Boolean(data.document_history?.length) && <details className="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-600"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看改期／換課的簽署與投保留底（{data.document_history.length} 筆）</summary>{data.document_history.map(row=><section key={row.id} className="mt-3 space-y-2 border-t border-gray-200 pt-3 text-sm dark:border-gray-600"><p>第 {row.version} 版 · {new Date(row.created_at).toLocaleString('zh-TW')}</p><p className="break-words">原因：{row.reason}</p><p>原課程：{row.snapshot.previous_courses.map(course=>course.date).join('、')}</p><p>原簽署：{row.snapshot.waiver_signature || '無線上簽名'} · {row.snapshot.waiver_document_version || '無版本'}</p><p>原投保：{row.snapshot.insurance_processing_status==='insured'?'已投保完成':row.snapshot.insurance_processing_status} · {row.snapshot.insurance_premium_amount===null?'無原保費':`${row.snapshot.insurance_premium_currency} ${row.snapshot.insurance_premium_amount}`}</p><details><summary className="min-h-11 cursor-pointer py-3">查看原簽署文件</summary><p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">{row.snapshot.waiver_document_snapshot || '無線上文件'}</p></details></section>)}</details>}
-      {canProcessInsurance(data) && <InsuranceProcessingForm key={`${data.id}-${data.insurance_processing_updated_at || 'new'}`} row={data} />}
+      {Boolean(data.document_history?.length) && <details className="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-600"><summary className="min-h-11 cursor-pointer py-3 font-semibold">查看改期／換課的簽署與投保留底（{data.document_history.length} 筆）</summary>{data.document_history.map(row=><section key={row.id} className="mt-3 space-y-2 border-t border-gray-200 pt-3 text-sm dark:border-gray-600"><p>第 {row.version} 版 · {new Date(row.created_at).toLocaleString('zh-TW')}</p><p className="break-words">原因：{row.reason}</p><p>原課程：{row.snapshot.previous_courses.map(course=>course.date).join('、')}</p><p>原簽署：{row.snapshot.waiver_signature || '無線上簽名'} · {row.snapshot.waiver_document_version || '無版本'}</p><p>原投保：{insuranceStatusLabel(row.snapshot.insurance_processing_status)} · {row.snapshot.insurance_premium_amount===null?'無原保費':`${row.snapshot.insurance_premium_currency} ${row.snapshot.insurance_premium_amount}`}</p><details><summary className="min-h-11 cursor-pointer py-3">查看原簽署文件</summary><p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">{row.snapshot.waiver_document_snapshot || '無線上文件'}</p></details></section>)}</details>}
+      {data.insurance_processing_status === 'ineligible' && data.premium_policy?.has_unreversed_deduction && <p className="mt-4 rounded-lg bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">帳本仍有此學員未沖正的扣款，需由財務確認是否沖正。</p>}
+      {canProcessInsurance(data) && (data.insurance_processing_status !== 'ineligible' || data.insurance_eligibility?.can_restore) && <InsuranceProcessingForm key={`${data.id}-${data.insurance_processing_updated_at || 'new'}`} row={data} />}
     </>}
   </div>
 }
@@ -520,21 +724,68 @@ function InsuranceProcessingForm({ row }: { row: InsuranceRecordDetail }) {
   const [amount, setAmount] = useState(row.insurance_premium_amount ?? '')
   const [currency, setCurrency] = useState(row.insurance_premium_currency)
   const [confirmed, setConfirmed] = useState(false)
+  const [correctionNote, setCorrectionNote] = useState('')
+  const key = useInsuranceRequestKey()
+  const policy = row.premium_policy
+  const canEditPremium = policy?.can_edit ?? true
+  const markingIneligible = status === 'ineligible'
+  const wasIneligible = row.insurance_processing_status === 'ineligible'
+  const eligibilityOnly = markingIneligible || wasIneligible
+  const options = Object.entries(insuranceStatuses).filter(([value]) => {
+    if (wasIneligible) {
+      return value === 'ineligible' || (value === 'checking' && row.insurance_eligibility?.can_restore)
+    }
+    return value !== 'ineligible' || row.insurance_eligibility?.can_mark
+  })
   const needsConfirmation = status === 'insured' && row.insurance_processing_status !== 'insured'
-  const changed = status !== row.insurance_processing_status || amount !== (row.insurance_premium_amount ?? '') || currency !== row.insurance_premium_currency
-  const valid = (!currency || /^[A-Z]{3}$/.test(currency)) && (!amount || (Number.isFinite(Number(amount)) && Number(amount) >= 0 && Number(amount) <= 99999999.99 && /^[A-Z]{3}$/.test(currency))) && (!needsConfirmation || confirmed)
-  const save = useMutation({ mutationFn: () => saveInsuranceProcessing(row.id, { status, premium_amount: amount === '' ? null : amount, currency, expected_updated_at: row.insurance_processing_updated_at, confirm_insured: confirmed }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin','insurance-records'] }); qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); notify.success('投保作業紀錄已儲存；系統不會自動投保') },
+  const oldAmount = row.insurance_premium_amount ?? ''
+  const premiumChanged = !eligibilityOnly && (
+    (amount === '' || oldAmount === '' ? amount !== oldAmount : Number(amount) !== Number(oldAmount))
+    || currency !== row.insurance_premium_currency
+  )
+  const changed = status !== row.insurance_processing_status || premiumChanged
+  const willDeduct = !!policy?.enabled && premiumChanged && Number(amount) > 0
+  const needsCorrection = willDeduct && policy?.correction_required
+  const validPremium = (!currency || /^[A-Z]{3}$/.test(currency)) && (!amount || (Number.isFinite(Number(amount)) && Number(amount) >= 0 && Number(amount) <= 99999999.99 && /^[A-Z]{3}$/.test(currency)))
+  const valid = options.some(([value]) => value === status) && (eligibilityOnly || validPremium)
+    && (!needsConfirmation || confirmed) && (!needsCorrection || correctionNote.trim()) && (!premiumChanged || canEditPremium)
+  const save = useMutation({
+    mutationFn: () => {
+      const data = {
+        status,
+        premium_amount: markingIneligible ? null : wasIneligible ? row.insurance_premium_amount : amount || null,
+        currency: markingIneligible ? '' : wasIneligible ? row.insurance_premium_currency : currency,
+        expected_updated_at: row.insurance_processing_updated_at,
+        confirm_insured: confirmed,
+      }
+      if (!willDeduct) return saveInsuranceProcessing(row.id, data)
+      const request = { ...data, correction_note: correctionNote.trim() }
+      return saveInsuranceProcessing(row.id, { ...request, idempotency_key: key.forPayload(request) })
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin','insurance-records'] }); qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); qc.invalidateQueries({ queryKey: ['admin','insurance-ledger'] }); notify.success('投保作業紀錄已儲存；系統不會自動投保') },
     onError: (error: any) => { if (error?.response?.status === 409) qc.invalidateQueries({ queryKey: ['admin','insurance-detail',row.id] }); notify.error(String(error?.response?.data?.msg || Object.values(error?.response?.data || {})[0] || '儲存失敗，請重新核對')) },
   })
   return <form onSubmit={event => { event.preventDefault(); if (changed && valid && !save.isPending) save.mutate() }} className="mt-5 rounded-lg border border-gray-200 p-4 dark:border-gray-600">
     <h3 className="font-semibold text-gray-900 dark:text-white">投保作業回報</h3>
     <p className="mb-4 mt-1 text-xs text-gray-500 dark:text-gray-400">這是人工作業紀錄，不會向保險公司送件，也不會改動學員資料或聲明書。金額未知可留空，不會當作0元。</p>
     <fieldset disabled={save.isPending} className="grid gap-3 sm:grid-cols-3">
-      <Field label="投保進度"><select className={`${inputClass} min-h-11`} value={status} onChange={event => { setStatus(event.target.value as typeof status); setConfirmed(false) }}>{Object.entries(insuranceStatuses).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-      <Field label="投保金額（選填）"><input className={`${inputClass} min-h-11`} type="number" min="0" max="99999999.99" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} /></Field>
-      <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder="例如 TWD、JPY" required={amount !== ''} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
+      <Field label="投保進度"><select className={`${inputClass} min-h-11`} value={status} onChange={event => { setStatus(event.target.value as typeof status); setConfirmed(false) }}>
+        {!options.some(([value]) => value === status) && <option value={status} disabled>{insuranceStatusLabel(status)}</option>}
+        {options.map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+      </select></Field>
+      <Field label="投保金額（選填）"><input className={`${inputClass} min-h-11`} type="number" min="0" max="99999999.99" step="0.01" disabled={eligibilityOnly || !canEditPremium} value={eligibilityOnly ? oldAmount : amount} onChange={event => {
+        setAmount(event.target.value)
+        if (policy?.enabled) setCurrency(event.target.value === '' ? '' : policy.currency)
+      }} /></Field>
+      <Field label="幣別代碼"><input className={`${inputClass} min-h-11`} maxLength={3} pattern="[A-Z]{3}" placeholder={policy?.currency || '例如 TWD、JPY'} required={!eligibilityOnly && amount !== ''} disabled={eligibilityOnly || !canEditPremium || policy?.enabled} value={eligibilityOnly ? row.insurance_premium_currency : currency} onChange={event => setCurrency(event.target.value.toUpperCase())} /></Field>
     </fieldset>
+    {!canEditPremium && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">目前只能更新投保進度。保費請由具扣款權限的人員在帳本可用時更新。</p>}
+    {!eligibilityOnly && policy?.retained_deduction && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">帳本仍有此學員未沖正的扣款。請核對是否有新支出，再登錄新保費。</p>}
+    {policy?.deduction_reversed && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">這筆保費原扣款已由帳本沖正，保費紀錄仍保留供核對。</p>}
+    {willDeduct && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{needsCorrection
+      ? '儲存後將沖正原扣款，並以更正金額重新扣款。'
+      : policy?.legacy_premium ? '將以新金額全額扣款，不會只扣差額。' : '儲存後將自預付保費帳本扣款。'}</p>}
+    {needsCorrection && <Field label="更正原因"><input className={inputClass} required maxLength={1000} disabled={save.isPending} value={correctionNote} onChange={event => setCorrectionNote(event.target.value)} /></Field>}
     {needsConfirmation && <label className="mt-4 flex min-h-11 items-center gap-2 text-sm text-gray-700 dark:text-gray-200"><input type="checkbox" checked={confirmed} disabled={save.isPending} onChange={event => setConfirmed(event.target.checked)} />我已在保險公司完成投保，本次僅記錄結果</label>}
     <button type="submit" disabled={!changed || !valid || save.isPending} className="mt-4 min-h-11 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{save.isPending ? '儲存中…' : '儲存投保進度'}</button>
     {row.insurance_processing_updated_at && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">最後更新：{new Date(row.insurance_processing_updated_at).toLocaleString('zh-TW')}</p>}

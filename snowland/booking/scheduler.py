@@ -2,6 +2,7 @@ from .tenant_scope import resort_for_course
 import random
 from collections import defaultdict
 from datetime import datetime, time, timedelta
+from dataclasses import dataclass
 from .models import Reservation, Booking, Payment
 from Coach.models import (
     Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest,
@@ -566,34 +567,141 @@ def get_feasible_coaches(language, resort, course_type, max_ability_level, rejec
     
     return final_coaches
 
-def get_manual_assignment_coaches(reservation, bookings):
-    """The picker and save endpoint must agree on every lesson's qualifications."""
-    if not bookings or not reservation.resort_id:
-        return []
-    template_ids = list(dict.fromkeys(booking.course_template_id or reservation.course_template_id for booking in bookings))
-    templates = {template.pk: template for template in CourseTemplate.objects.filter(
-        pk__in=[pk for pk in template_ids if pk]).select_related('course_type__category')}
-    rejected_ids = list(reservation.rejected_coaches.values_list('pk', flat=True))
-    qualified = None
+class ManualAssignmentReason:
+    TENANT_MISMATCH = 'tenant_mismatch'
+    CAMPUS_MISMATCH = 'campus_mismatch'
+    MISSING_RESORT = 'missing_resort'
+    MISSING_LANGUAGE = 'missing_language'
+    UNAVAILABLE_STATUS = 'unavailable_status'
+    COURSE_TYPE = 'course_type'
+    ABILITY_LEVEL = 'ability_level'
+    TEMPLATE_ROSTER = 'template_roster'
+    MIN_COACH_LEVEL = 'min_coach_level'
+    REJECTED = 'rejected'
+    ON_LEAVE = 'on_leave'
+    SCHEDULE_CONFLICT = 'schedule_conflict'
+    MISSING_BOOKINGS = 'missing_bookings'
+
+
+@dataclass
+class ManualAssignmentCandidate:
+    coach: Coach
+    reason_codes: list[str]
+
+
+def manual_assignment_occupancy(coach_ids, dates, *, released_reservations=(), released_bookings=()):
+    # A live, scheduled booking occupies its coach even for legacy reservation
+    # statuses such as form_filled. The resort and campus do not limit occupancy.
+    occupied = Booking.objects.live().filter(
+        is_scheduled=True, date__in=dates, reservation__preferred_coach_id__in=coach_ids,
+    ).exclude(reservation__status__in=('cancelled', 'deleted')).exclude(
+        reservation_id__in=released_reservations,
+    ).exclude(pk__in=released_bookings)
+    busy = defaultdict(list)
+    for coach_id, reservation_id, date, start, end in occupied.values_list(
+        'reservation__preferred_coach_id', 'reservation_id', 'date', 'start_time', 'end_time',
+    ):
+        busy[coach_id].append((reservation_id, (date, start, end)))
+    return busy
+
+
+def check_manual_assignment(reservation, bookings, coaches, busy, *, slots):
+    """Check every lesson, using the saved or proposed slots supplied by the caller."""
+    reason = ManualAssignmentReason
+    client_id = reservation.group.client_id
+    campus_id = reservation.group.campus_id
+    coach_ids = [coach.pk for coach in coaches]
+    dates = {date for date, _, _ in slots}
+    template_ids = list(dict.fromkeys(b.course_template_id or reservation.course_template_id for b in bookings))
+    templates = {
+        template.pk: template for template in CourseTemplate.objects.filter(pk__in=template_ids)
+        .select_related('course_type__category').prefetch_related('allowed_coaches')
+    }
+    courses = []
+    missing_course = False
     for template_id in template_ids:
         template = templates.get(template_id)
-        if template_id and template is None:
-            return []
         kind = template.course_type if template else reservation.course_type
-        if not kind or kind.category.client_id != reservation.group.client_id:
-            return []
-        candidates = get_feasible_coaches(
-            reservation.language, reservation.resort, kind.pk, reservation.max_ability_level,
-            rejected_coach_ids=rejected_ids, course_template=template,
-        )
-        if qualified is None:
-            qualified = candidates
+        if (template_id and template is None) or not kind or kind.category.client_id != client_id:
+            missing_course = True
+            continue
+        roster = {coach.pk for coach in template.allowed_coaches.all()} if template else set()
+        courses.append((kind.pk, roster, template.minimum_coach_price_level if template else None))
+
+    levels = {}
+    for level in CoachCourseLevel.objects.filter(
+        coach_id__in=coach_ids, course_type_id__in={kind_id for kind_id, _, _ in courses},
+    ).order_by('pk'):
+        levels.setdefault((level.coach_id, level.course_type_id), level)
+    scores = {}
+    if reservation.resort_id and reservation.resort.client_id in (None, client_id):
+        for link in CoachResort.objects.filter(coach_id__in=coach_ids, resort_id=reservation.resort_id).order_by('pk'):
+            scores.setdefault(link.coach_id, link.assignment_score)
+    campus_coaches = set()
+    if campus_id:
+        campus_coaches = set(Coach.objects.filter(
+            pk__in=coach_ids, campuses__pk=campus_id, campuses__client_id=client_id,
+        ).values_list('pk', flat=True))
+    rejected = {coach.pk for coach in reservation.rejected_coaches.all()}
+    on_leave = set()
+    if dates:
+        for coach_id, start, end in CoachLeaveRequest.objects.filter(
+            coach_id__in=coach_ids, status='approved', start_date__lte=max(dates), end_date__gte=min(dates),
+        ).values_list('coach_id', 'start_date', 'end_date'):
+            if any(start <= date <= end for date in dates):
+                on_leave.add(coach_id)
+
+    desired_level = ability_level_index(reservation.max_ability_level)
+    available, unavailable = [], []
+    for coach in coaches:
+        coach_id = coach.pk
+        reasons = []
+        if not client_id or coach.client_id != client_id:
+            reasons.append(reason.TENANT_MISMATCH)
+        if campus_id and coach_id not in campus_coaches:
+            reasons.append(reason.CAMPUS_MISMATCH)
+        if coach_id not in scores:
+            reasons.append(reason.MISSING_RESORT)
+        if reservation.language and reservation.language not in _normalize_multiselect(coach.languages):
+            reasons.append(reason.MISSING_LANGUAGE)
+        if coach.availability_status == 'unavailable':
+            reasons.append(reason.UNAVAILABLE_STATUS)
+        if not slots:
+            reasons.append(reason.MISSING_BOOKINGS)
+        if missing_course:
+            reasons.append(reason.COURSE_TYPE)
+        for kind_id, roster, minimum in courses:
+            level = levels.get((coach_id, kind_id))
+            if level is None:
+                reasons.append(reason.COURSE_TYPE)
+            elif not any(ability_level_index(lv) >= desired_level for lv in _normalize_multiselect(level.ability_levels)):
+                reasons.append(reason.ABILITY_LEVEL)
+            if roster and coach_id not in roster:
+                reasons.append(reason.TEMPLATE_ROSTER)
+            if minimum and (level is None or _price_level_rank(level.price_level) < _price_level_rank(minimum)):
+                reasons.append(reason.MIN_COACH_LEVEL)
+        if coach_id in rejected:
+            reasons.append(reason.REJECTED)
+        if coach_id in on_leave:
+            reasons.append(reason.ON_LEAVE)
+        busy_slots = [slot for pk, slot in busy.get(coach_id, ()) if pk != reservation.pk]
+        for slot in slots:
+            if is_conflict(*slot, busy_slots):
+                reasons.append(reason.SCHEDULE_CONFLICT)
+                break
+            # Proposed lessons in the same save must also fit together.
+            busy_slots.append(slot)
+
+        candidate = ManualAssignmentCandidate(coach, list(dict.fromkeys(reasons)))
+        if reasons:
+            unavailable.append(candidate)
         else:
-            ids = {coach.pk for coach in candidates}
-            qualified = [coach for coach in qualified if coach.pk in ids]
-        if not qualified:
-            return []
-    return qualified or []
+            first_kind_id = courses[0][0]
+            priority = (_coach_assignment_status_rank(coach), levels[coach_id, first_kind_id].course_order,
+                        scores[coach_id], coach_id)
+            available.append((priority, candidate))
+    available.sort(key=lambda item: item[0])
+    return [candidate for _, candidate in available] + unavailable
 
 
 def coach_can_teach_course(coach, desired_course_type):
