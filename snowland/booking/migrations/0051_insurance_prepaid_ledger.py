@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('Client', '0019_frontend_deployment_cli_request_id'),
-        ('booking', '0049_staff_booking_link_snapshot_version'),
+        ('booking', '0050_memberdetail_insurance_ineligible'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

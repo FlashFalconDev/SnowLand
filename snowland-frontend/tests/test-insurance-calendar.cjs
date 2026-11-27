@@ -17,6 +17,11 @@ const tree=Calendar({rows,selectedDate:'2026-10-17',onSelect:date=>selected.push
 assert.match(html,/2026-10-17，2 位學員，資料待補 1 位，資料已填 1 位，尚未投保或處理中 1 位，已投保 1 位/)
 assert.match(html,/清除日期篩選/)
 assert.match(html,/aria-pressed="true"/)
+const flagged={id:4,course_dates:['2026-10-17'],insurance_completed_at:null,insurance_processing_status:'ineligible'}
+const withFlagged=renderToStaticMarkup(Calendar({rows:[...rows,flagged],selectedDate:'',onSelect(){}}))
+assert.match(withFlagged,/2026-10-17，3 位學員，資料待補 2 位，資料已填 1 位，尚未投保或處理中 1 位，已投保 1 位，不符投保資格 1 位/)
+assert.match(withFlagged,/>不符<\/span>/)
+assert.match(renderToStaticMarkup(Calendar({rows,showIneligible:true,selectedDate:'',onSelect(){}})),/不符投保資格 0 位/)
 const buttons=[]
 function walk(node){if(!node||typeof node!=='object')return;if(node.type==='button')buttons.push(node);React.Children.forEach(node.props?.children,walk)}
 walk(tree)

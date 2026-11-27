@@ -39,6 +39,8 @@ def reminder_preview(member, field):
         raise serializers.ValidationError({'field':'請選擇保險資料或聲明書'})
     if member.reservation.status in {'cancelled','deleted'}:
         raise NotificationConflict('課程已取消或刪除，不發送課前資料提醒')
+    if field == 'insurance' and member.insurance_processing_status == 'ineligible':
+        raise NotificationConflict('不符投保資格的學員不發送保險資料提醒')
     group = member.reservation.group
     document = get_current_waiver(group.client)
     requires_resign = field == 'waiver' and waiver_requires_resign(member, document)

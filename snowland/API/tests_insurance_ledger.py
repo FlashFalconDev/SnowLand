@@ -13,6 +13,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import close_old_connections, connection, connections, models, transaction
 from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
+from django.urls import reverse
 from rest_framework.exceptions import ValidationError as ApiValidationError
 from rest_framework.test import APIClient
 
@@ -202,6 +203,52 @@ class InsuranceLedgerTests(LedgerFixtures, TestCase):
         self.assertEqual(InsuranceLedgerEntry.objects.filter(kind=KIND.REVERSAL).count(), 0)
         self.assert_balance('75')
 
+    def test_ineligible_rejects_new_deductions_and_preserves_existing_charge(self):
+        self.change_settings(insurance_eligibility_enabled=True)
+        self.deposit()
+        first = self.submit('25')
+        self.assertEqual(first.status_code, 200, first.data)
+        deduction = InsuranceLedgerEntry.objects.get(kind=KIND.DEDUCTION)
+        version = first.data['data']['insurance_processing_updated_at']
+
+        invalid_mark = self.submit('30', status='ineligible', expected=version, correction_note='QA')
+        self.assertEqual(invalid_mark.status_code, 400, invalid_mark.data)
+        self.assertIn('不符投保資格時無法新增投保金額', invalid_mark.data['msg'])
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.insurance_processing_status, 'processing')
+
+        marked = self.submit(None, status='ineligible', expected=version)
+        self.assertEqual(marked.status_code, 200, marked.data)
+        detail = self.insurance.get(processing_url(self.member).removesuffix('processing/')).data
+        self.assertTrue(detail['premium_policy']['has_unreversed_deduction'])
+        self.assertFalse(detail['premium_policy']['legacy_premium'])
+        version = detail['insurance_processing_updated_at']
+        self.member.refresh_from_db()
+        updated_at = self.member.insurance_processing_updated_at
+
+        for next_status in ('ineligible', 'checking'):
+            with self.subTest(next_status=next_status):
+                rejected = self.submit('30', status=next_status, expected=version, correction_note='QA')
+                self.assertEqual(rejected.status_code, 400, rejected.data)
+                self.assertIn('不符投保資格時無法新增投保金額', rejected.data['msg'])
+                self.member.refresh_from_db()
+                self.assertEqual(self.member.insurance_processing_status, 'ineligible')
+                self.assertEqual(self.member.insurance_processing_updated_at, updated_at)
+                self.assertEqual(self.member.insurance_premium_amount, Decimal('25'))
+                self.assertEqual(self.member.insurance_premium_currency, 'JPY')
+                self.assertEqual(self.member.insurance_premium_ledger_key, deduction.idempotency_key)
+                self.assertEqual(InsuranceLedgerEntry.objects.filter(kind=KIND.DEDUCTION).count(), 1)
+                self.assertFalse(InsuranceLedgerEntry.objects.filter(kind=KIND.REVERSAL).exists())
+                self.assert_balance('75')
+
+        restored = self.submit('25', status='checking', expected=version)
+        self.assertEqual(restored.status_code, 200, restored.data)
+        self.assert_balance('75')
+        corrected = self.submit('30', expected=restored.data['data']['insurance_processing_updated_at'], correction_note='QA')
+        self.assertEqual(corrected.status_code, 200, corrected.data)
+        self.assertEqual(InsuranceLedgerEntry.objects.get(kind=KIND.REVERSAL).reverses_id, deduction.pk)
+        self.assert_balance('70')
+
     def test_preexisting_preserved_premium_is_not_back_charged(self):
         self.change_settings(insurance_ledger_enabled=False)
         old = self.submit('25')
@@ -210,8 +257,44 @@ class InsuranceLedgerTests(LedgerFixtures, TestCase):
         self.deposit()
         new = self.submit('25', expected=old.data['data']['insurance_processing_updated_at'], status='checking')
         self.assertEqual(new.status_code, 200, new.data)
+        detail = self.insurance.get(processing_url(self.member).removesuffix('processing/')).data
+        self.assertTrue(detail['premium_policy']['legacy_premium'])
         self.assertFalse(InsuranceLedgerEntry.objects.filter(kind=KIND.DEDUCTION).exists())
         self.assert_balance('100')
+        changed = self.submit('30', expected=new.data['data']['insurance_processing_updated_at'])
+        self.assertEqual(changed.status_code, 200, changed.data)
+        self.assertEqual(InsuranceLedgerEntry.objects.get(kind=KIND.DEDUCTION).amount, Decimal('30'))
+        self.assertFalse(InsuranceLedgerEntry.objects.filter(kind=KIND.REVERSAL).exists())
+        self.assert_balance('70')
+
+    def test_member_detail_admin_post_cannot_change_premium_fields(self):
+        self.deposit()
+        result = self.submit('25')
+        self.assertEqual(result.status_code, 200, result.data)
+        self.member.refresh_from_db()
+        ledger_key = self.member.insurance_premium_ledger_key
+        admin_user = User.objects.create_superuser(username='ledger-qa-admin')
+        self.client.force_login(admin_user)
+        url = reverse('admin:booking_memberdetail_change', args=[self.member.pk])
+        new_age = next(value for value, _ in MemberDetail.AGE_CHOICES if value != self.member.age_range)
+        response = self.client.post(url, {
+            'reservation': self.member.reservation_id,
+            'filled_by': self.member.filled_by,
+            'age_range': new_age,
+            'insurance_premium_amount': '99',
+            'insurance_premium_currency': 'TWD',
+            'insurance_processing_status': 'ineligible',
+            'insurance_premium_ledger_key': str(uuid4()),
+            '_save': 'Save',
+        })
+        self.assertEqual(response.status_code, 302)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.age_range, new_age)
+        self.assertEqual(self.member.insurance_premium_amount, Decimal('25'))
+        self.assertEqual(self.member.insurance_premium_currency, 'JPY')
+        self.assertEqual(self.member.insurance_processing_status, 'processing')
+        self.assertEqual(self.member.insurance_premium_ledger_key, ledger_key)
+        self.assert_balance('75')
 
     def test_deduction_requires_both_permissions_and_uses_member_scope(self):
         self.deposit()

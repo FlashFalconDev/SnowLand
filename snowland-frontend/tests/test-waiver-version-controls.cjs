@@ -4,7 +4,7 @@ const React=req('react'),ts=req('typescript'),{renderToStaticMarkup}=req('react-
 const source=fs.readFileSync(path.join(root,'src/admin/pages/OperationsHubPage.tsx'),'utf8')
 const compile=code=>ts.transpileModule(code,{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
 function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=find(child,p);if(found)return found}return null}
-function harness(patch={}){
+function harness(patch={}, eligibilityEnabled=false, additionalRows=[]){
  const row={id:42,member_name:'QA學員',sn:'QA-SN',order_number:'QA-ORDER',campus_name:'QA校區',course_dates:[],
   insurance_completed_at:'2026-10-01',waiver_completed_at:'2026-10-01',waiver_requires_resign:true,
   can_remind:true,can_mark_complete:true,insurance_processing_status:'pending',insurance_premium_amount:null,insurance_premium_currency:'',...patch}
@@ -13,7 +13,7 @@ function harness(patch={}){
  const context=vm.createContext({React,exports:{},cardClass:'',inputClass:'',
   useQueryClient:()=>({invalidateQueries(){}}),useNotification:()=>({success(){},error(){}}),
   useState:initial=>{const slot=cursor++;if(!(slot in states))states[slot]=initial;return[states[slot],value=>states[slot]=typeof value==='function'?value(states[slot]):value]},
-  useMemo:callback=>callback(),useQuery:()=>({data:[row],isLoading:false,isError:false,refetch(){}}),
+  useMemo:callback=>callback(),useQuery:()=>({data:{rows:[row,...additionalRows],eligibilityEnabled},isLoading:false,isError:false,refetch(){}}),
   fetchAdminMe:()=>{}, useSiteLink:path=>path, hasAdminPermission:()=>false,
   useMutation:()=>({isPending:false,mutate(){}}),InsuranceCalendar:()=>null,InsuranceDetail:()=>null,
   InsuranceReminderDialog:Dialog,insuranceDayRecords:rows=>rows,Empty:()=>null,Loader2:()=>null,
@@ -35,6 +35,21 @@ html=renderToStaticMarkup(harness({waiver_requires_resign:false,waiver_completed
 assert.ok(html.includes('提醒補聲明書'));assert.ok(html.includes('標記聲明書完成'),'Keep the existing explicit paper acknowledgement workflow')
 html=renderToStaticMarkup(harness({can_remind:false,can_mark_complete:false}).render())
 assert.ok(html.includes('需重新簽署'));assert.ok(!html.includes('提醒重新簽署'));assert.ok(!html.includes('標記聲明書完成'))
+assert.doesNotMatch(renderToStaticMarkup(harness().render()),/<option value="ineligible"/)
+assert.match(renderToStaticMarkup(harness({},true).render()),/<option value="ineligible">不符投保資格/)
+app=harness({insurance_processing_status:'ineligible',insurance_completed_at:null,waiver_completed_at:null,
+  waiver_requires_resign:false},false,[{id:43,member_name:'QA 其他學員',course_dates:[],insurance_processing_status:'pending'}])
+tree=app.render();html=renderToStaticMarkup(tree)
+assert.match(html,/全部投保進度/)
+assert.match(html,/QA 其他學員/)
+assert.match(html,/<option value="ineligible">不符投保資格/)
+assert.match(html,/投保進度：<\/span>不符投保資格/)
+assert.doesNotMatch(html,/提醒補保險資料/)
+assert.match(html,/提醒補聲明書/)
+find(tree,node=>node.type==='select'&&node.props['aria-label']==='投保作業狀態').props.onChange({target:{value:'ineligible'}})
+html=renderToStaticMarkup(app.render())
+assert.match(html,/QA學員/)
+assert.doesNotMatch(html,/QA 其他學員/)
 async function testDialogRejections(){
  const dialogSource=fs.readFileSync(path.join(root,'src/admin/components/InsuranceReminderDialog.tsx'),'utf8')
  for(const status of [400,401,403,404,409,502,undefined]){

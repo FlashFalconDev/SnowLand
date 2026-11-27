@@ -127,3 +127,23 @@ def console_permissions_for_user(user, tenant):
     grants = set(permissions)
     # An older frontend may remain cached during a backend-first release.
     return [*permissions, *(key for key, children in LEGACY_PERMISSIONS.items() if set(children) <= grants)]
+
+
+def can_change_insurance_eligibility(user, tenant, allow_admin: bool) -> bool:
+    from Control.models import TenantStaffMembership
+    from Control.tenant_memberships import staff_profile
+
+    if not user_has_admin_permission(user, 'insurance_records', tenant):
+        return False
+    if user.is_superuser:
+        return True
+    profile = staff_profile(user, tenant)
+    if not profile or not profile.is_manager:
+        return False
+    if profile.role in {'insurance', 'hq_admin'}:
+        return True
+    # Combining positions can give the membership an administrative role
+    # while retaining an insurance position and its effective page permission.
+    if isinstance(profile, TenantStaffMembership) and profile.positions.filter(client=tenant, role='insurance').exists():
+        return True
+    return allow_admin and profile.role in {'', 'assistant', 'campus_manager', 'campus_principal'}

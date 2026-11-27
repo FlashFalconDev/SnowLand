@@ -107,6 +107,8 @@ def record_premium(member, account, config, actor, data, fingerprint, *, can_ded
     previous = member.insurance_premium_amount
     if (amount, data['currency']) == (previous, member.insurance_premium_currency):
         return
+    if amount and (member.insurance_processing_status == 'ineligible' or data['status'] == 'ineligible'):
+        raise ValidationError({'msg': '不符投保資格時無法新增投保金額，請先復原為對資料中。'})
     if not config.enabled:
         if amount or previous:
             guard_paused_premium(config, has_history=bool(account and account.version))

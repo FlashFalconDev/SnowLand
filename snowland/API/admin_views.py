@@ -34,6 +34,7 @@ from Client.models import Client, SiteContent
 from Client.tenant_settings import (
     coach_course_payroll_summary_enabled,
     evaluation_date_filter_defaults,
+    insurance_eligibility_settings,
     manual_payment_posting_date_mode,
     order_source_override_enabled,
     staff_booking_link_edit_enabled,
@@ -52,6 +53,7 @@ from booking.models import (
 )
 from booking.payment_access import PAYMENT_LINK_MAX_AGE, payment_url_for_group
 from booking.order_testing import InsuranceLedgerTestOrderError, exclude_test_orders, set_order_test_status
+from booking.course_documents import INSURANCE_RECHECK_STATUSES
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.marketing_source import display_marketing_source
 from booking.scheduling_metrics import (
@@ -3112,13 +3114,20 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
             qs = qs.filter(Q(insurance_completed_at__isnull=True) | Q(waiver_completed_at__isnull=True) | stale_signature | stale_insurance)
         elif status_filter == 'completed':
             qs = qs.filter(insurance_completed_at__isnull=False, waiver_completed_at__isnull=False).exclude(stale_signature | stale_insurance)
+        if self.action == 'list':
+            processing_status = self.request.query_params.get('processing_status')
+            if processing_status in dict(MemberDetail.INSURANCE_PROCESSING_CHOICES):
+                qs = qs.filter(insurance_processing_status=processing_status)
         # Ordering by a related booking date makes SQL include that date in the
         # DISTINCT result, so one member appears once per course day.  The
         # serializer already returns all course dates; keep one row per member.
         return qs.order_by('id').distinct()
 
     def list(self, request, *args, **kwargs):
-        return wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+        response = wrap_list(self.get_queryset(), self.get_serializer_class(), request)
+        enabled, _ = insurance_eligibility_settings(request.tenant)
+        response.data['data']['insurance_eligibility_enabled'] = enabled
+        return response
 
     @action(detail=True, methods=['get','post'], url_path='reminder')
     def reminder(self, request, *args, **kwargs):
@@ -3152,6 +3161,8 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
 
     @action(detail=True, methods=['post'], url_path='processing')
     def processing(self, request, *args, **kwargs):
+        from .admin_permissions import can_change_insurance_eligibility
+
         member = self.get_object()
         serializer = InsuranceProcessingInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -3166,7 +3177,12 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
             get_object_or_404(ReservationGroup.objects.live().select_for_update(), pk=member.reservation.group_id, client=client)
             get_object_or_404(self.get_queryset(), pk=member.pk)
             member = get_object_or_404(MemberDetail.objects.live().select_for_update(), pk=member.pk)
-            config = insurance_ledger_settings(client)
+            previous_status = member.insurance_processing_status
+            next_status = data['status']
+            if 'ineligible' in (previous_status, next_status):
+                enabled, allow_admin = insurance_eligibility_settings(client)
+                if not can_change_insurance_eligibility(request.user, client, allow_admin):
+                    raise PermissionDenied('沒有標記或復原不符投保資格的權限')
             can_deduct = user_has_admin_permission(request.user, 'insurance_ledger_deduct', client)
             fingerprint = amendment_digest({'member': member.pk, 'actor': request.user.pk, 'data': data})
             previous = replay_entry(client, data.get('idempotency_key'), fingerprint)
@@ -3176,17 +3192,30 @@ class InsuranceRecordAdminViewSet(PayrollCsrfMixin, RetrieveModelMixin, UpdateMo
                 return Response({'code': 200, 'msg': '此筆保費已入帳', 'data': self.get_serializer(member).data})
             if member.insurance_processing_updated_at != data['expected_updated_at']:
                 return Response({'code': 409, 'msg': '投保紀錄已被更新，請重新載入後核對'}, status=409)
-            if data['status'] == 'insured' and member.insurance_processing_status != 'insured' and not data['confirm_insured']:
+            if next_status == 'ineligible':
+                if previous_status == 'insured':
+                    return Response({'code': 400, 'msg': '已投保完成的紀錄不能直接標記為不符投保資格，請先核對原投保紀錄'}, status=400)
+                if previous_status not in {'pending', 'checking', 'processing', 'ineligible'}:
+                    return Response({'code': 400, 'msg': '目前的投保進度無法標記為不符投保資格，請先核對投保紀錄'}, status=400)
+                if previous_status != 'ineligible' and not enabled:
+                    return Response({'code': 400, 'msg': '此租戶尚未開啟不符投保資格標記'}, status=400)
+                if data['premium_amount'] is not None and data['premium_amount'] > 0:
+                    return Response({'code': 400, 'msg': '不符投保資格時無法新增投保金額'}, status=400)
+            elif previous_status == 'ineligible' and next_status != 'checking':
+                return Response({'code': 400, 'msg': '不符投保資格僅能復原為對資料中'}, status=400)
+            if next_status == 'insured' and previous_status != 'insured' and not data['confirm_insured']:
                 return Response({'code': 400, 'msg': '請確認已在保險公司完成投保；系統只記錄狀態，不會自動投保'}, status=400)
-            record_premium(member, account_for_update(client), config, request.user, data, fingerprint,
-                           can_deduct=can_deduct)
-            member.insurance_processing_status = data['status']
-            member.insurance_premium_amount = data['premium_amount']
-            member.insurance_premium_currency = data['currency']
+            fields = ['insurance_processing_status', 'insurance_processing_updated_at', 'insurance_processing_updated_by']
+            if next_status != 'ineligible':
+                record_premium(member, account_for_update(client), insurance_ledger_settings(client),
+                               request.user, data, fingerprint, can_deduct=can_deduct)
+                member.insurance_premium_amount = data['premium_amount']
+                member.insurance_premium_currency = data['currency']
+                fields.extend(['insurance_premium_amount', 'insurance_premium_currency', 'insurance_premium_ledger_key'])
+            member.insurance_processing_status = next_status
             member.insurance_processing_updated_at = timezone.now()
             member.insurance_processing_updated_by = request.user
-            member.save(update_fields=['insurance_processing_status', 'insurance_premium_amount', 'insurance_premium_currency',
-                'insurance_processing_updated_at', 'insurance_processing_updated_by', 'insurance_premium_ledger_key'])
+            member.save(update_fields=fields)
         return Response({'code': 200, 'msg': '投保作業紀錄已儲存（不會自動投保）', 'data': self.get_serializer(member).data})
 
     @action(detail=True, methods=['post'], url_path='complete')
@@ -4229,7 +4258,9 @@ class BookingScheduleAdminViewSet(ReadOnlyModelViewSet):
                     'affected_orders': len({reservation.group_id for reservation in reservations}),
                     'waiver_resign_count': MemberDetail.objects.live().filter(reservation__in=reservations).filter(
                         Q(waiver_completed_at__isnull=False) | (~Q(waiver_signature='') & Q(waiver_signature__isnull=False))).count(),
-                    'insurance_recheck_count': MemberDetail.objects.live().filter(reservation__in=reservations,insurance_processing_status='insured').count(),
+                    'insurance_recheck_count': MemberDetail.objects.live().filter(
+                        reservation__in=reservations, insurance_processing_status__in=INSURANCE_RECHECK_STATUSES,
+                    ).count(),
                 }
                 if request.method == 'GET':
                     return Response({'code': 200, 'msg': 'OK', 'data': data})

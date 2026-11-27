@@ -2107,7 +2107,7 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        if attrs['premium_amount'] is not None and not attrs['currency']:
+        if attrs['status'] != 'ineligible' and attrs['premium_amount'] is not None and not attrs['currency']:
             raise serializers.ValidationError({'currency': '填寫金額時請同時填寫幣別'})
         return attrs
 
@@ -2189,6 +2189,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     document_history = serializers.SerializerMethodField()
     online_signatures = serializers.SerializerMethodField()
     premium_policy = serializers.SerializerMethodField()
+    insurance_eligibility = serializers.SerializerMethodField()
 
     def get_premium_policy(self, obj):
         from booking.insurance_ledger import Kind, ledger_writable
@@ -2204,6 +2205,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
             deductions is not None and obj.insurance_premium_ledger_key
         ) else None
         linked_reversed = bool(linked and hasattr(linked, 'reversal'))
+        has_unreversed_deduction = bool(deductions is not None and deductions.filter(reversal__isnull=True).exists())
         return {
             'enabled': config.enabled,
             'can_edit': bool(can_deduct and account and ledger_writable(config, account)) if config.enabled
@@ -2211,8 +2213,21 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
             'currency': config.currency,
             'correction_required': bool(linked and not linked_reversed),
             'deduction_reversed': linked_reversed,
-            'retained_deduction': bool(not obj.insurance_premium_amount and deductions is not None
-                                       and deductions.filter(reversal__isnull=True).exists()),
+            'retained_deduction': bool(not obj.insurance_premium_amount and has_unreversed_deduction),
+            'has_unreversed_deduction': has_unreversed_deduction,
+            'legacy_premium': bool(obj.insurance_premium_amount and not obj.insurance_premium_ledger_key),
+        }
+
+    def get_insurance_eligibility(self, obj):
+        from Client.tenant_settings import insurance_eligibility_settings
+        from .admin_permissions import can_change_insurance_eligibility
+
+        request = self.context['request']
+        enabled, allow_admin = insurance_eligibility_settings(request.tenant)
+        allowed = can_change_insurance_eligibility(request.user, request.tenant, allow_admin)
+        return {
+            'can_mark': enabled and allowed and obj.insurance_processing_status in {'pending', 'checking', 'processing'},
+            'can_restore': allowed and obj.insurance_processing_status == 'ineligible',
         }
 
     def get_online_signatures(self, obj):
@@ -2236,6 +2251,7 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
         fields = InsuranceRecordAdminSerializer.Meta.fields + [
             'premium_policy', 'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
             'waiver_document_snapshot', 'media_consent', 'document_history', 'online_signatures', 'pre_course_answers',
+            'insurance_eligibility',
         ]
         read_only_fields = fields
 
