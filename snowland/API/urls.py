@@ -42,6 +42,7 @@ from .admin_views import (
     coach_pending_confirmations,
     coach_confirm_course,
     coach_my_courses,
+    coach_my_course_summary,
     coach_my_calendar,
     coach_my_leaves,
     coach_apply_leave,
@@ -60,8 +61,9 @@ from .instagram_sync import InstagramSyncViewSet, meta_callback
 from .frontend_releases import FrontendReleaseViewSet
 from .frontend_cli_publish import PublisherJobView, PublisherUploadView
 from .staff_positions import staff_positions, staff_position_detail
-from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet
+from .learning_views import CoachCourseAlbumAPI, CoachLearnerHistoryAPI, EvaluationLearnerLinkViewSet, ManagerCourseAlbumAPI
 from .vehicle_views import VehicleDesk, VehicleFile
+from .insurance_ledger import InsuranceLedgerAdminViewSet
 
 
 # 後台 ViewSet router
@@ -98,6 +100,7 @@ admin_router.register(r'staff-incentive-statements', StaffIncentiveStatementAdmi
 admin_router.register(r'payroll-statements', PayrollStatementAdminViewSet, basename='admin-payroll-statements')
 admin_router.register(r'coach/payroll', CoachPayrollViewSet, basename='coach-payroll')
 admin_router.register(r'staff-booking-links', StaffBookingLinkAdminViewSet, basename='admin-staff-booking-links')
+admin_router.register(r'insurance-ledger', InsuranceLedgerAdminViewSet, basename='admin-insurance-ledger')
 admin_router.register(r'insurance-records', InsuranceRecordAdminViewSet, basename='admin-insurance-records')
 admin_router.register(r'bookings', BookingScheduleAdminViewSet, basename='admin-bookings')
 admin_router.register(r'chat-support', ChatSupportViewSet, basename='admin-chat-support')
@@ -132,8 +135,10 @@ urlpatterns = [
     path('admin/<str:client_code>/coach/pending/', coach_pending_confirmations, name='admin-coach-pending'),
     path('admin/<str:client_code>/coach/confirm/<int:reservation_id>/', coach_confirm_course, name='admin-coach-confirm'),
     path('admin/<str:client_code>/coach/my-courses/', coach_my_courses, name='admin-coach-my-courses'),
+    path('admin/<str:client_code>/coach/my-courses/summary/', coach_my_course_summary, name='admin-coach-my-course-summary'),
     path('admin/<str:client_code>/coach/learner-history/<int:reservation_id>/', CoachLearnerHistoryAPI.as_view(), name='coach-learner-history'),
     path('admin/<str:client_code>/coach/course-albums/<int:booking_id>/', CoachCourseAlbumAPI.as_view(), name='coach-course-album'),
+    path('admin/<str:client_code>/course-albums/<int:booking_id>/', ManagerCourseAlbumAPI.as_view(), name='manager-course-album'),
     path('admin/<str:client_code>/evaluations/<int:pk>/learner-profile/',
          EvaluationLearnerLinkViewSet.as_view({'get': 'profile_choices', 'patch': 'profile_choices'}), name='evaluation-learner-link'),
     path('admin/<str:client_code>/coach/my-calendar/', coach_my_calendar, name='admin-coach-my-calendar'),

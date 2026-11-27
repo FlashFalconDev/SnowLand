@@ -632,15 +632,15 @@ class SharedCourseBookingTests(TestCase):
         learners=[]
         for index,reservation in enumerate(shared_class.reservations.order_by('pk')):
             member=reservation.members.first() or MemberDetail.objects.create(reservation=reservation)
-            member.waiver_signature=f'QA整班舊簽名{index}'
-            member.insurance_processing_status='insured' if index==0 else 'pending'
+            member.waiver_signature=f'QA整班舊簽名{index}' if index != 1 else ''
+            member.insurance_processing_status=('insured', 'ineligible', 'pending')[index]
             member.insurance_premium_amount=100 if index==0 else None
             member.insurance_premium_currency='JPY' if index==0 else ''
             member.save();learners.append(member)
         url = f'/api/admin/snowland/bookings/shared-classes/{shared_class.id}/schedule/'
         options=admin.get(url)
         self.assertEqual(options.status_code, 200)
-        self.assertEqual((options.data['data']['waiver_resign_count'],options.data['data']['insurance_recheck_count']),(3,1))
+        self.assertEqual((options.data['data']['waiver_resign_count'],options.data['data']['insurance_recheck_count']),(2,2))
         new_date = (shared_class.date + timedelta(days=2)).isoformat()
         response = admin.post(url, {
             'date': new_date, 'start_time': '09:00', 'end_time': '13:00',
@@ -656,14 +656,17 @@ class SharedCourseBookingTests(TestCase):
                          {shared_class.date - timedelta(days=2)})
         self.assertTrue(all(group.revisions.count() >= 3 for group in groups))
         self.assertEqual(MemberCourseDocumentRevision.objects.count(),3)
-        for member in learners:
-            member.refresh_from_db();self.assertTrue(member.waiver_resign_required)
+        for index, member in enumerate(learners):
+            member.refresh_from_db()
+            self.assertEqual(member.waiver_resign_required, index != 1)
             history=member.course_document_revisions.get()
             self.assertEqual(history.revision.group_id,member.reservation.group_id)
             self.assertEqual(history.snapshot['previous_courses'][0]['date'],self.date)
         learners[0].refresh_from_db()
         self.assertEqual(learners[0].insurance_processing_status,'checking')
         self.assertIsNone(learners[0].insurance_premium_amount)
+        self.assertEqual(learners[1].insurance_processing_status, 'checking')
+        self.assertEqual(learners[1].course_document_revisions.get().snapshot['insurance_processing_status'], 'ineligible')
 
     def test_shared_class_time_only_change_preserves_signed_document_state(self):
         for _ in range(3):
@@ -671,7 +674,7 @@ class SharedCourseBookingTests(TestCase):
         shared=SharedCourseClass.objects.get()
         reservation=shared.reservations.first()
         member=reservation.members.first() or MemberDetail.objects.create(reservation=reservation)
-        member.waiver_signature='QA整班時間調整';member.insurance_processing_status='insured';member.save()
+        member.waiver_signature='QA整班時間調整';member.insurance_processing_status='ineligible';member.save()
         CourseSession.objects.create(template=self.template,start_time='14:00',end_time='18:00')
         admin=APIClient();admin.force_authenticate(User.objects.create_superuser('time-hq','time@example.test','test-password'))
         response=admin.post(f'/api/admin/snowland/bookings/shared-classes/{shared.pk}/schedule/',
@@ -679,7 +682,7 @@ class SharedCourseBookingTests(TestCase):
         self.assertEqual(response.status_code,200,response.data)
         member.refresh_from_db()
         self.assertFalse(member.waiver_resign_required)
-        self.assertEqual(member.insurance_processing_status,'insured')
+        self.assertEqual(member.insurance_processing_status,'ineligible')
         self.assertFalse(member.course_document_revisions.exists())
 
     def test_shared_class_date_change_rejects_inconsistent_foreign_company_order(self):

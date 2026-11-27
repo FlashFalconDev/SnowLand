@@ -64,6 +64,8 @@ def call_back(request, tunnel):
     if group.is_deleted:
         logger.warning('Authenticated payment callback for archived order %s requires reconciliation', group.pk)
         return HttpResponse('Archived order requires reconciliation', status=409)
+    if group.is_test:
+        return HttpResponse('Test order requires reconciliation', status=409)
     payment=Payment.objects.live().select_for_update().filter(reservation_group=group).order_by('-created_at','-pk').first()
     if not payment:
         return HttpResponse('Payment not found',status=404)

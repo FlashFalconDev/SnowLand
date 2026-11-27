@@ -46,6 +46,7 @@ for(const status of ['created','manually_assigned','completed','cancelled','dele
 const disabled=scheduleButton.openingElement.attributes.properties.find(prop=>prop.name?.text==='disabled').initializer.expression
 ctx.saveMutation={isPending:false};ctx.hasOrderChanges=false;ctx.invalidBooking=null;ctx.canScheduleUnassigned=true
 ctx.requiresJpyReceipt=false;ctx.jpyReceiptConfirmed=false
+ctx.postingDateError=''
 vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,false,'An unassigned saved course can be scheduled without a fake edit')
 ctx.canScheduleUnassigned=false;vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,true)
 ctx.canScheduleUnassigned=true;ctx.saveMutation.isPending=true;vm.runInContext('exports.disabled='+disabled.getText(ast),ctx);assert.equal(ctx.exports.disabled,true)

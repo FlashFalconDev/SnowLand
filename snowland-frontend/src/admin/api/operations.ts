@@ -1,4 +1,5 @@
 import adminApi from './axios'
+import type { CartItem } from '@/types/booking'
 import type { SkillEntries, SkillSnapshot } from './assessment'
 
 interface ListResponse<T> { data?: { list?: T[] } }
@@ -50,7 +51,7 @@ export interface Evaluation {
   can_edit_assessment: boolean
   skill_snapshot?: SkillSnapshot | null
   id: number; booking: number; member_name: string; member_nickname?: string; coach_name: string; course_date: string
-  order_number: string; course_name: string; campus_name: string; resort_name: string
+  order_date?: string; order_number: string; course_name: string; campus_name: string; resort_name: string
   coach_notes: string; self_assessment: Record<string, unknown>; coach_assessment: Record<string, unknown>
   learning_progress: Record<string, unknown>; trail_names: string[]; available_trails?: string[]; completed_at: string | null
   media: { id: number; media_type: 'photo' | 'video'; url: string; caption: string; is_public: boolean }[]
@@ -69,7 +70,22 @@ export async function uploadPayrollSignature(id: number, file: File, name: strin
 export interface StaffBookingLink {
   id: number; campus: number; title: string; url: string; expires_at: string
   is_active: boolean; is_available: boolean; created_by_name: string
+  can_edit: boolean; cart_snapshot: CartItem[]; snapshot_version: number
 }
+
+export interface StaffBookingPricePreview {
+  previous_subtotal: number | null
+  subtotal: number
+  subtotal_difference: number | null
+  discount_total: number
+  total: number
+  previous_total: number | null
+  total_difference: number | null
+}
+
+type StaffBookingLinkEdit = { cart_snapshot: CartItem[]; snapshot_version: number }
+
+export type InsuranceProcessingStatus = 'pending' | 'checking' | 'processing' | 'insured' | 'ineligible'
 
 export interface InsuranceRecord {
   can_remind: boolean
@@ -77,12 +93,18 @@ export interface InsuranceRecord {
   can_process_insurance?: boolean
   id: number; member_name: string; order_number: string; sn: string; campus_name: string; age_range: string
   insurance_completed_at: string | null; insurance_requires_update?: boolean; waiver_completed_at: string | null; waiver_requires_resign: boolean; course_dates: string[]
-  insurance_processing_status: 'pending' | 'checking' | 'processing' | 'insured'
+  insurance_processing_status: InsuranceProcessingStatus
   insurance_premium_amount: string | null; insurance_premium_currency: string
   insurance_processing_updated_at: string | null
 }
 
 export interface InsuranceRecordDetail extends InsuranceRecord {
+  premium_policy?: {
+    enabled: boolean; can_edit: boolean; currency: string; correction_required: boolean
+    deduction_reversed: boolean; retained_deduction: boolean
+    has_unreversed_deduction: boolean; legacy_premium: boolean
+  }
+  insurance_eligibility?: { can_mark: boolean; can_restore: boolean }
   member_email: string
   insurance_data: Record<string, string>
   waiver_signature: string; waiver_document_version: string; waiver_document_snapshot: string
@@ -165,14 +187,35 @@ export const updateStaffIncentive = async (id: number, action: 'recalculate' | '
   (await adminApi.post(`/staff-incentive-statements/${id}/${action}/`, data) as unknown as DetailResponse<StaffIncentiveStatement>).data
 export const deleteStaffIncentiveDraft = async (id: number): Promise<void> => { await adminApi.delete(`/staff-incentive-statements/${id}/`) }
 export const fetchPayrollStatements = () => list<PayrollStatement>('/payroll-statements/')
-export const fetchEvaluations = () => list<Evaluation>('/evaluations/')
+export interface EvaluationDateFilters {
+  date_field: 'ordered' | 'lesson'
+  date_from: string | null
+  date_to: string | null
+}
+
+export interface EvaluationPage {
+  list: Evaluation[]
+  total?: number
+  page?: number
+  total_pages?: number
+  date_filters?: EvaluationDateFilters | null
+}
+
+export const fetchEvaluations = async (params: Partial<EvaluationDateFilters> & { booking?: string; search?: string; page: number }): Promise<EvaluationPage> =>
+  (await adminApi.get('/evaluations/', { params }) as unknown as DetailResponse<EvaluationPage>).data
 export const fetchCoachEvaluations = () => list<Evaluation>('/coach/evaluations/')
 export const fetchStaffBookingLinks = () => list<StaffBookingLink>('/staff-booking-links/')
-export const fetchInsuranceRecords = (status = 'missing') => list<InsuranceRecord>(`/insurance-records/?status=${status}`)
+export async function fetchInsuranceRecords(status = 'missing') {
+  const { data } = await adminApi.get('/insurance-records/', { params: { status } }) as unknown as DetailResponse<{
+    list: InsuranceRecord[]; insurance_eligibility_enabled?: boolean
+  }>
+  return { rows: data?.list ?? [], eligibilityEnabled: data?.insurance_eligibility_enabled === true }
+}
 
 export async function saveInsuranceProcessing(id: number, data: {
   status: InsuranceRecord['insurance_processing_status']; premium_amount: string | null; currency: string
   expected_updated_at: string | null; confirm_insured: boolean
+  idempotency_key?: string; correction_note?: string
 }) {
   await adminApi.post(`/insurance-records/${id}/processing/`, data)
 }
@@ -226,6 +269,16 @@ export async function payrollReviewAction(id: number, action: 'publish' | 'withd
 export async function createStaffBookingLink(data: { campus: number; title: string; expires_at: string; cart_snapshot?: unknown[] }) {
   const response = await adminApi.post('/staff-booking-links/', { ...data, cart_snapshot: data.cart_snapshot || [] })
   return (response as unknown as DetailResponse<StaffBookingLink>).data
+}
+
+export async function previewStaffBookingLink(id: number, data: StaffBookingLinkEdit): Promise<StaffBookingPricePreview> {
+  return await adminApi.post(`/staff-booking-links/${id}/preview/`, data) as unknown as StaffBookingPricePreview
+}
+
+export async function updateStaffBookingLink(id: number, data: StaffBookingLinkEdit, preview: StaffBookingPricePreview): Promise<StaffBookingLink> {
+  return await adminApi.patch(`/staff-booking-links/${id}/`, {
+    ...data, expected_quote: { subtotal: preview.subtotal, total: preview.total },
+  }) as unknown as StaffBookingLink
 }
 
 export async function completeInsuranceRecord(id: number, field: 'insurance' | 'waiver') {

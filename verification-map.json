@@ -1,0 +1,363 @@
+{
+  "version": 1,
+  "features": [
+    {
+      "id": "insurance-prepaid-ledger",
+      "name": "保險預付保費帳本",
+      "routes": {
+        "console": "/{client_code}/console/insurance/ledger",
+        "insuranceConsole": "/{client_code}/console/insurance",
+        "adminLedgerApi": "/api/admin/{client_code}/insurance-ledger/",
+        "adminProcessingApi": "/api/admin/{client_code}/insurance-records/{member_id}/processing/"
+      },
+      "permission": "insurance_ledger_finance",
+      "processingPermissions": ["insurance_records", "insurance_ledger_deduct"],
+      "locationKey": "operations.insurance-ledger",
+      "testEnvironment": "SQLite 使用記憶體測試庫。MySQL 使用本任務專屬隔離庫。瀏覽器使用合成帳本及財務帳號。",
+      "checks": [
+        {
+          "id": "api-ledger-permissions-and-atomicity",
+          "commands": [
+            "cd snowland; python manage.py test API.tests_insurance_ledger API.tests_insurance_processing API.tests_test_orders API.tests_order_amendment_confirm --settings=snowland.test_settings",
+            "cd snowland; python manage.py test API.tests_insurance_ledger --settings=snowland.test_settings_mysql"
+          ],
+          "expected": "期初、儲值、扣款、更正、選擇性沖正及對帳一致。只有具備權限的同租戶人員可依範圍操作。停用只能查帳並保護已掛帳保費。不符資格時拒絕新扣款，標記保留既有分錄。Django Admin 的學員保費與進度唯讀。MySQL 兩連線驗證餘額不足及 UUID 重送。"
+        },
+        {
+          "id": "frontend-ledger-controls",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-insurance-ledger.cjs", "tests/test-insurance-processing-controls.cjs"],
+          "expected": "財務可登錄期初／儲值、依月看分錄和核對期末。低餘額提示在門檻出現。停用時保留明細，隱藏寫入操作。投保表單依扣款權限鎖定保費，進度仍可回報。不符資格且有未沖正扣款時提示由財務確認，舊保費改值時提示全額扣款。"
+        },
+        {
+          "id": "browser-insurance-ledger",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "以合成的全校區財務帳號開啟帳本，確認餘額、低餘額提示與分錄。",
+            "核對儲值表單，選另一個月份，查看並確認月對帳快照。",
+            "關閉帳本後確認只有查閱入口。以沒有財務權限的帳號直接開帳本網址，確認無法存取。"
+          ],
+          "expected": "桌機與手機均可操作指定入口。分錄保持可查，停用狀態與角色權限正確。"
+        }
+      ]
+    },
+    {
+      "id": "pre-course-insurance-notice",
+      "name": "會員課前資料的保險說明",
+      "routes": {
+        "member": "/{client_code}/membership/pre-course-forms",
+        "console": "/{client_code}/console/cms/membership",
+        "memberApi": "/booking/{client_code}/api/member-center/",
+        "adminCurrentApi": "/api/admin/{client_code}/site-content/insurance-notice-current/",
+        "adminCrudApi": "/api/admin/{client_code}/site-content/"
+      },
+      "permission": "course_documents",
+      "locationKey": "membership.insurance-notice",
+      "testEnvironment": "Django snowland.test_settings 使用記憶體 SQLite。瀏覽器元件驗證使用合成資料，實際服務驗收須使用核准的本機測試環境與合成帳號。",
+      "checks": [
+        {
+          "id": "api-publication-and-tenant-scope",
+          "command": "cd snowland; python manage.py test API.tests_insurance_notice API.tests_waiver_content API.tests_console_permissions booking.tests_waiver_signatures booking.tests_participants --settings=snowland.test_settings",
+          "expected": "兩份公開文件可同時讀取。任一未公開時只回傳已公開的正文，SnowLand 聲明書 V0 相容行為保留。保險說明取租戶內最新公開頁面，只有具課前文件權限的編輯者可以管理。更新保險說明後原聲明書版本、簽署時間與快照仍有效。"
+        },
+        {
+          "id": "frontend-document-controls",
+          "command": "cd snowland-frontend; npm test",
+          "tests": ["tests/test-pre-course-insurance-notice.cjs", "tests/test-review-content-controls.cjs"],
+          "expected": "後台可分開編輯保險說明的標題、正文、狀態與法務確認。會員課前保險資料保留原欄位及題目，聲明書與簽名板各自照常顯示。"
+        },
+        {
+          "id": "browser-course-documents",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "以具課前文件權限的測試帳號開啟課前聲明書與表單，選擇保險說明並新增內容。",
+            "勾選法務確認並儲存草稿，確認只有後台可讀取草稿。取消勾選後選擇進行中並儲存。",
+            "以有課程的測試學員開啟課前資料，點選填寫／修改資料。確認保險說明和聲明書都可閱讀，各自保持完整，原保險欄位、題目與簽名板均可使用。",
+            "以不同視窗尺寸重複檢查，確認長文可換行、可捲動至聲明書，頁面無水平溢出。"
+          ],
+          "expected": "兩個入口與文件正文獨立，長文在桌機及手機均不遮擋表單。"
+        },
+        {
+          "id": "project-regressions",
+          "commands": ["cd snowland; python manage.py test --settings=snowland.test_settings", "cd snowland-frontend; npm run build", "git diff --check"],
+          "expected": "Django 全套測試、前端建置與差異格式檢查通過。"
+        }
+      ]
+    },
+    {
+      "id": "insurance-ineligible",
+      "name": "保險與聲明書資料的不符投保資格",
+      "routes": {
+        "console": "/{client_code}/console/insurance",
+        "scheduling": "/{client_code}/console/scheduling",
+        "member": "/{client_code}/membership/pre-course-forms",
+        "adminApi": "/api/admin/{client_code}/insurance-records/",
+        "processingApi": "/api/admin/{client_code}/insurance-records/{id}/processing/",
+        "reminderApi": "/api/admin/{client_code}/insurance-records/{id}/reminder/",
+        "memberApi": "/booking/{client_code}/api/member-center/"
+      },
+      "permission": "insurance_records、租戶與校區範圍，以及有權限的保險職位或總部管理員。行政職位另須租戶授權。",
+      "testEnvironment": "Django snowland.test_settings 的記憶體 SQLite、snowland.test_settings_mysql 的隔離 MySQL 8.4，以及使用合成資料的本機前端。",
+      "checks": [
+        {
+          "id": "api-eligibility-and-recheck",
+          "command": "cd snowland; python manage.py test API.tests_insurance_processing API.tests_insurance_reminders API.tests_order_amendment_confirm API.tests_staff_positions API.tests_console_permissions booking.tests_shared_course_booking --settings=snowland.test_settings",
+          "expected": "租戶開關、職位與校區範圍控制標記及復原，舊版本回 409。標記時保留已填保費並拒絕新正保費。保險提醒預覽與寄送皆被拒，聲明書提醒可用。需重核的改期或換課留底並回對資料中，會員 API 回傳待行政確認的通用狀態。"
+        },
+        {
+          "id": "frontend-insurance-eligibility",
+          "commands": ["cd snowland-frontend; cmd /c npm test", "cd snowland-frontend; cmd /c npm run build"],
+          "tests": ["tests/test-insurance-processing-controls.cjs", "tests/test-insurance-calendar.cjs", "tests/test-waiver-version-controls.cjs", "tests/test-pre-course-insurance-notice.cjs"],
+          "expected": "授權者依狀態看到標記或復原選項。舊標記仍在全部、篩選與獨立月曆計數中。會員只看到待行政確認。"
+        },
+        {
+          "id": "browser-insurance-eligibility",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "以有權限的測試帳號開啟保險與聲明書資料，展開未投保學員並選不符投保資格，確認金額唯讀。",
+            "儲存後檢查獨立徽章、月曆計數、投保進度篩選，以及保險資料和聲明書提醒按鈕。",
+            "關閉測試租戶的新增開關，重新載入後篩選舊標記並復原為對資料中。以未授權的行政測試帳號檢查標記與復原選項。",
+            "在會員課前資料檢查待行政確認的提示。"
+          ],
+          "expected": "桌機與手機可辨識不符計數、操作篩選及表單，會員畫面只顯示通用狀態。"
+        }
+      ]
+    },
+    {
+      "id": "manual-payment-bank-posted-date",
+      "name": "已付款核對的銀行入帳日期",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "reconciliation": "/{client_code}/console/orders/payments",
+        "export": "/{client_code}/console/orders/export",
+        "ordersApi": "/api/admin/{client_code}/orders/",
+        "detailApi": "/api/admin/{client_code}/orders/{id}/",
+        "exportApi": "/api/admin/{client_code}/orders/export/"
+      },
+      "permission": "order_payments, order_export",
+      "testEnvironment": "使用 snowland.test_settings 的記憶體 SQLite 與合成租戶。實際畫面驗收使用隔離的本機服務及測試帳號。",
+      "checks": [
+        {
+          "id": "api-modes-and-export",
+          "command": "cd snowland; python manage.py test API.tests_order_bank_posted_date API.tests_order_payment_history_updates API.tests_order_feedback API.tests_customer_journey --settings=snowland.test_settings",
+          "expected": "三種模式依租戶套用，拒絕格式錯誤與台北時間未來日。台幣與外幣可核對、舊已付款單可補填，匯出遵循既有權限，舊單未填日期維持空白。"
+        },
+        {
+          "id": "frontend-posting-date",
+          "commands": ["cd snowland-frontend; cmd /c npm test", "cd snowland-frontend; cmd /c npm run build"],
+          "tests": ["tests/test-order-bank-posted-date.cjs"],
+          "expected": "已付款可依 API 模式編輯入帳日期，必填缺日期及未來日期皆依既有規則阻擋付款變更，停用時仍可查已存日期。缺入帳日期的舊已付款單仍可儲存非付款編輯。"
+        },
+        {
+          "id": "browser-reconciliation",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "在必填租戶開啟待確認付款的測試訂單，編輯付款狀態並選已付款。",
+            "確認缺日期時顯示提示且無法儲存，填入合法日期後按只儲存。",
+            "確認對帳列表與訂單明細均顯示已存日期，並核對有權限匯出的 CSV 欄位。",
+            "將測試租戶改為停用輸入，確認已存日期在明細唯讀顯示。"
+          ],
+          "expected": "入帳日期和付款狀態一起儲存，在桌機與手機可讀，頁面無水平溢出。"
+        }
+      ]
+    },
+    {
+      "id": "order-amendment-balance-entry",
+      "name": "訂單修改差額回報與核對入口",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "edit": "/{client_code}/console/orders/edit",
+        "payments": "/{client_code}/console/orders/payments",
+        "refunds": "/{client_code}/console/orders/refunds",
+        "scheduling": "/{client_code}/console/scheduling"
+      },
+      "permission": "order_payments 核對差額，order_refunds 核對取消實收款",
+      "testEnvironment": "瀏覽器使用合成訂單與權限回應。後端回歸使用 snowland.test_settings 的記憶體 SQLite。",
+      "checks": [
+        {
+          "id": "frontend-balance-entry",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-amendment-balance-entry.cjs", "tests/test-amendment-balance-controls.cjs", "tests/test-order-bank-posted-date.cjs"],
+          "expected": "待結差額橫幅與面板同時出現，入口可捲動並聚焦同名面板。無待結差額時隱藏入口，舊差額紀錄仍可查。讀取中、失敗、空清單和取消中皆保留面板。核對權限與入帳日期編輯規則照常。"
+        },
+        {
+          "id": "browser-balance-entry",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "在對帳與差額開啟有待結差額的訂單，使用滑鼠或鍵盤啟用「差額回報與核對」，確認區塊捲到可見位置並取得焦點。",
+            "在修改與排課、取消與退款或排課月曆開啟訂單明細，確認入口可定位。具付款權限但目前流程無法核對時，可前往依該單號篩選的對帳與差額頁。缺付款權限時顯示處理提示。",
+            "檢查取消中、等待會員回報、已回報、差額紀錄讀取中或失敗、空清單，以及無待結差額的訂單。"
+          ],
+          "expected": "橫幅入口與面板標題一致，桌機與手機可操作，取消中的差額仍暫停核對，會員回報後才可核對補款。"
+        }
+      ]
+    },
+    {
+      "id": "staff-booking-link-edit",
+      "name": "代客訂課連結送出前可修改",
+      "routes": {
+        "console": "/{client_code}/console/booking-links",
+        "customer": "/{client_code}/booking?staff_link={token}",
+        "adminApi": "/api/admin/{client_code}/staff-booking-links/{id}/",
+        "resolveApi": "/booking/{client_code}/api/staff-booking-link/{token}/"
+      },
+      "permission": "連結仍有效且租戶啟用功能時，建立人及有權限的管理員可修改，修改受租戶與校區限制。",
+      "testEnvironment": "後端使用 snowland.test_settings 的記憶體 SQLite。前端測試使用合成資料。",
+      "checks": [
+        {
+          "id": "api-staff-booking-link-edit",
+          "command": "cd snowland; python manage.py test API.tests_staff_booking_link_edit --settings=snowland.test_settings",
+          "tests": ["snowland/API/tests_staff_booking_link_edit.py"],
+          "expected": "驗證編輯權限、試算金額及連結限用一次。課程快照內容變更才遞增版本，舊頁面須重新載入最新快照。"
+        },
+        {
+          "id": "frontend-staff-booking-link-edit",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-staff-booking-link-edit.cjs"],
+          "expected": "由後台載入原課程，顯示試算與差額後可儲存。客人沿用原連結，遇到舊快照時可重新載入。"
+        }
+      ]
+    },
+    {
+      "id": "test-order-isolation",
+      "name": "測試訂單標記與帳務統計排除",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "edit": "/{client_code}/console/orders/edit",
+        "payments": "/{client_code}/console/orders/payments",
+        "refunds": "/{client_code}/console/orders/refunds",
+        "export": "/{client_code}/console/orders/export",
+        "markApi": "/api/admin/{client_code}/orders/{id}/test-status/",
+        "exportApi": "/api/admin/{client_code}/orders/export/",
+        "dashboardApi": "/api/admin/{client_code}/dashboard/"
+      },
+      "permission": "總部管理員及 order_edit 可標記。查詢及匯出沿用既有訂單、租戶與校區權限。",
+      "testEnvironment": "後端使用 snowland.test_settings 的記憶體 SQLite。瀏覽器使用合成訂單與權限回應。",
+      "checks": [
+        {
+          "id": "api-marking-and-accounting-isolation",
+          "command": "cd snowland; python manage.py test API.tests_test_orders --settings=snowland.test_settings",
+          "expected": "交易或已送出的薪獎阻擋標記。標記及取消均留稽核，並改變訂單、營運統計、報表、教練薪獎、行政月結及紅利的計入結果。訂單 CSV 預設排除，可指定含測試訂單。跨租戶無法操作。"
+        },
+        {
+          "id": "frontend-test-order-requests",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-order-test-status.cjs"],
+          "expected": "預設查詢排除，勾選才送出顯示或匯出的條件。標記與取消送出布林值及原因，校區查詢保留既有權限範圍。"
+        },
+        {
+          "id": "browser-test-order-controls",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "在訂單管理確認預設隱藏測試單，勾選顯示後核對測試標籤。",
+            "以總部帳號開啟未付款訂單，確認原因空白時不能送出。標記後核對標籤及歷程，再填原因取消測試標記。",
+            "嘗試標記已核款訂單，確認顯示更正流程提示。以唯讀權限確認看不到標記操作。",
+            "在訂單匯出確認含測試訂單預設關閉，勾選後檢查 CSV 有測試訂單欄。"
+          ],
+          "expected": "桌機與手機可讀取標籤、原因、操作錯誤及匯出設定，畫面無水平溢出。"
+        }
+      ]
+    },
+    {
+      "id": "order-marketing-source-override",
+      "name": "訂單補登客人來源",
+      "routes": {
+        "orders": "/{client_code}/console/orders",
+        "edit": "/{client_code}/console/orders/edit",
+        "options": "/{client_code}/console/booking-form-settings",
+        "dashboard": "/{client_code}/console",
+        "sourceApi": "/api/admin/{client_code}/orders/{id}/marketing-source/",
+        "reportApi": "/api/admin/{client_code}/dashboard/"
+      },
+      "permission": "order_edit 在授權校區補登，booking_form_options 管理租戶選項，analytics 查看統計及匯出",
+      "testEnvironment": "使用 snowland.test_settings 的記憶體 SQLite 與合成租戶、訂單及帳號。",
+      "checks": [
+        {
+          "id": "api-source-scope-audit-and-report",
+          "command": "cd snowland; python manage.py test API.tests_order_marketing_source --settings=snowland.test_settings",
+          "expected": "拒絕無改單權限、跨校區、跨租戶及無效選項。更新與清除逐次留痕，原始來源、匯入標記與付款資料持續保存。營運總覽、CSV 與 Excel 優先按補登來源分組。"
+        },
+        {
+          "id": "frontend-source-controls",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-order-marketing-source.cjs"],
+          "expected": "顯示租戶選項，支援清除、唯讀、選項停用、儲存中及失敗狀態。儲存後更新訂單與營運總覽快取。"
+        },
+        {
+          "id": "browser-order-marketing-source",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "用具修改與排課權限的測試帳號開啟已付款導入訂單，確認訂單歸屬與歷程顯示原始來源。",
+            "從租戶選項選擇並儲存補登來源，確認重開後補登值及原始來源皆可見，營運總覽按補登值分組。",
+            "選擇沿用原始來源並儲存，確認報表恢復依原始來源分組。",
+            "關閉租戶補登設定或改用只有查看權限的帳號，確認已補登值以唯讀方式顯示。"
+          ],
+          "expected": "桌機與手機皆能操作下拉選單，來源文字在明細內可讀且無水平溢出。"
+        }
+      ]
+    },
+    {
+      "id": "shared-course-album-management",
+      "name": "共用課程相簿多檔上傳與刪除",
+      "routes": {
+        "coach": "/{client_code}/console/my/evaluations?booking={booking_id}",
+        "console": "/{client_code}/console/evaluations?booking={booking_id}",
+        "member": "/{client_code}/membership/my-skiing-journey",
+        "coachApi": "/api/admin/{client_code}/coach/course-albums/{booking_id}/",
+        "adminApi": "/api/admin/{client_code}/course-albums/{booking_id}/",
+        "memberApi": "/booking/{client_code}/api/course-albums/",
+        "fileApi": "/booking/{client_code}/api/course-album-files/{asset_id}/"
+      },
+      "permission": "同租戶現任授課教練可管理可見的已結束堂次相簿，預設只能刪除本人上傳的附件，租戶可關閉教練刪除。具 evaluations 權限的管理者依校區範圍讀取與刪除，行政角色唯讀，會員依堂次與學員關聯存取。",
+      "testEnvironment": "Django snowland.test_settings 使用記憶體 SQLite。前端元件測試及瀏覽器驗收使用合成堂次、學員及檔案。",
+      "checks": [
+        {
+          "id": "album-upload-and-delete-permissions",
+          "command": "cd snowland; python manage.py test booking.tests_course_album_management --settings=snowland.test_settings",
+          "expected": "依每檔驗證格式和容量，刪除遵守現任教練、上傳者、管理者、校區與租戶範圍。刪除成功後移除附件及標籤，儲存失敗時保留以供重試。"
+        },
+        {
+          "id": "frontend-album-controls",
+          "command": "cd snowland-frontend; cmd /c npm test",
+          "tests": ["tests/test-course-album-controls.cjs"],
+          "expected": "可多選並逐檔上傳，顯示各檔進度及失敗原因，且只重試失敗檔案。刪除按權限顯示並要求確認，成功後更新預覽。"
+        }
+      ]
+    },
+    {
+      "id": "admin-evaluation-date-filters",
+      "name": "後台學習評量依下單日期篩選與分組",
+      "routes": {
+        "console": "/{client_code}/console/evaluations",
+        "booking": "/{client_code}/console/evaluations?booking={booking_id}",
+        "adminApi": "/api/admin/{client_code}/evaluations/",
+        "coachApi": "/api/admin/{client_code}/coach/evaluations/"
+      },
+      "permission": "evaluations，沿用租戶、校區及行政只能查看評量和加入課程附件的權限。",
+      "testEnvironment": "後端以 snowland.test_settings 的記憶體 SQLite 與合成租戶測試。相簿連結可用較早訂單的合成堂次驗證。",
+      "checks": [
+        {
+          "id": "evaluation-date-search-scope-and-pages",
+          "command": "cd snowland; python manage.py test API.tests_evaluation_dates API.tests_assistant_evaluations API.tests_coach_evaluations --settings=snowland.test_settings",
+          "expected": "預設最近 30 個台北下單日，日期區間含首尾日，可切換上課日期。依日期倒序和穩定順序分頁，搜尋及總筆數皆依既有校區和租戶範圍。堂次連結可看歷史評量，租戶可調整預設或關閉篩選。"
+        },
+        {
+          "id": "frontend-evaluation-date-controls",
+          "commands": ["cd snowland-frontend; cmd /c npm test", "cd snowland-frontend; cmd /c npm run build"],
+          "tests": ["tests/test-evaluation-date-filters.cjs", "tests/test-evaluation-role-controls.cjs"],
+          "expected": "評量清單依日期分組、可調整區間及搜尋、切換條件回第一頁。卡片顯示下單日及上課日。教練原本的上課日篩選與填寫流程可用。"
+        },
+        {
+          "id": "browser-evaluation-date-filters",
+          "viewports": ["1440x1000", "390x844"],
+          "steps": [
+            "開啟後台學習評量，核對預設日期範圍、日期分組與卡片的下單日和上課日。",
+            "換到下一頁後，切換上課日期並調整區間，確認回第一頁。輸入訂單編號或學員姓名並套用篩選。",
+            "檢查無符合條件的提示，恢復預設。從評量卡片開啟課程相簿，並以較早訂單的堂次連結確認歷史評量仍可查看。"
+          ],
+          "expected": "每頁依所選日期顯示群組，搜尋與分頁可在桌機及手機操作，頁面無水平溢出。"
+        }
+      ]
+    }
+  ]
+}

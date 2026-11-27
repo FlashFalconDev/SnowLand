@@ -10,9 +10,12 @@ from django.contrib.auth.models import User
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from django.utils.functional import cached_property
 from datetime import timedelta
 from copy import deepcopy
+import logging
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 from Client.models import Client, SiteContent
 from Coach.models import (
     Coach, CoachResort, CoachCourseLevel, CoachLeaveRequest, normalize_ability_levels,
@@ -31,8 +34,12 @@ from booking.models import (
 from booking.staff_link_snapshot import public_staff_cart_snapshot
 from booking.assessment import RUBRIC_LOCATION, TECHNICAL_KEY, school_rubric, technical_snapshot, validate_review
 from booking.coach_pre_course_summary import COACH_SUMMARY_LOCATION, summary_settings, validate_summary_fields
+from booking.legal_documents import INSURANCE_NOTICE_LOCATION_KEY, WAIVER_LOCATION_KEY, versioned_insurance_notice_metadata, versioned_waiver_metadata
 from booking.marketing_source import display_marketing_source
 from .admin_permissions import user_has_admin_permission
+
+
+logger = logging.getLogger(__name__)
 
 
 class TenantRelationValidationMixin:
@@ -279,8 +286,10 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'location_key': '請到學習評量管理技術設定'})
         if previous_location in POLICY_PAGES.values() and location != previous_location:
             raise serializers.ValidationError({'location_key': '條款文件不能移至其他位置'})
-        if previous_location == 'membership.waiver' and location != previous_location:
+        if previous_location == WAIVER_LOCATION_KEY and location != previous_location:
             raise serializers.ValidationError({'location_key': '聲明書不能移至其他位置'})
+        if self.instance is not None and location != previous_location and INSURANCE_NOTICE_LOCATION_KEY in (location, previous_location):
+            raise serializers.ValidationError({'location_key': '不可變更保險說明的內容位置'})
         if self.instance is not None and location != previous_location and COACH_SUMMARY_LOCATION in (location, previous_location):
             raise serializers.ValidationError({'location_key': '不可變更課前摘要設定的位置'})
         if location == COACH_SUMMARY_LOCATION:
@@ -299,7 +308,13 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             for field in ('title', 'body'):
                 if not attrs.get(field, getattr(self.instance, field, '')).strip():
                     raise serializers.ValidationError({field: '請填寫完整條款內容'})
-        if location == 'membership.waiver':
+        if location == INSURANCE_NOTICE_LOCATION_KEY:
+            if content_type != 'page':
+                raise serializers.ValidationError({'content_type': '保險說明請使用頁面內容類型'})
+            for field in ('title', 'body'):
+                if not attrs.get(field, getattr(self.instance, field, '')).strip():
+                    raise serializers.ValidationError({field: '請填寫保險說明的標題及正文'})
+        if location == WAIVER_LOCATION_KEY:
             if content_type != 'page':
                 raise serializers.ValidationError({'content_type':'聲明書請使用頁面內容類型'})
             if not attrs.get('body', getattr(self.instance, 'body', '')).strip():
@@ -408,12 +423,22 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'end_at': '結束時間不能早於開始時間'})
         return attrs
 
+    @staticmethod
+    def _insurance_notice_metadata(attrs, instance=None):
+        metadata = versioned_insurance_notice_metadata(attrs, instance)
+        if 'is_draft' in metadata and not isinstance(metadata['is_draft'], bool):
+            raise serializers.ValidationError({'metadata': '法務確認中必須是勾選或取消勾選'})
+        if metadata.get('is_draft') and attrs.get('status', getattr(instance, 'status', 'draft')) == 'active':
+            raise serializers.ValidationError({'status': '請先取消法務確認中，再公開保險說明'})
+        return metadata
+
     def create(self, validated_data):
         request = self.context.get('request')
         client = getattr(request, 'tenant', None) if request else None
-        if validated_data.get('location_key') == 'membership.waiver':
-            from booking.legal_documents import versioned_waiver_metadata
-            validated_data['metadata'] = versioned_waiver_metadata(validated_data)
+        location = validated_data.get('location_key')
+        if location in (WAIVER_LOCATION_KEY, INSURANCE_NOTICE_LOCATION_KEY):
+            version_metadata = self._insurance_notice_metadata if location == INSURANCE_NOTICE_LOCATION_KEY else versioned_waiver_metadata
+            validated_data['metadata'] = version_metadata(validated_data)
             with transaction.atomic():
                 Client.objects.select_for_update().get(pk=client.pk)
                 return SiteContent.objects.create(client=client, **validated_data)
@@ -433,14 +458,16 @@ class SiteContentAdminSerializer(serializers.ModelSerializer):
                 if current is None:
                     raise NotFound('找不到此課前摘要設定')
                 return super().update(current, validated_data)
-        if location != 'membership.waiver':
+        if location not in (WAIVER_LOCATION_KEY, INSURANCE_NOTICE_LOCATION_KEY):
             return super().update(instance, validated_data)
-        from booking.legal_documents import versioned_waiver_metadata
         with transaction.atomic():
             # Match reminder publishing: client first, then the document row.
             Client.objects.select_for_update().get(pk=instance.client_id)
-            current = SiteContent.objects.select_for_update().get(pk=instance.pk)
-            validated_data['metadata'] = versioned_waiver_metadata(validated_data, current)
+            current = SiteContent.objects.select_for_update().filter(pk=instance.pk).first()
+            if current is None:
+                raise NotFound('找不到此課前文件')
+            version_metadata = self._insurance_notice_metadata if location == INSURANCE_NOTICE_LOCATION_KEY else versioned_waiver_metadata
+            validated_data['metadata'] = version_metadata(validated_data, current)
             return super().update(current, validated_data)
 
 
@@ -1657,7 +1684,7 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReservationGroup
-        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions']
+        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions', 'is_test']
         read_only_fields = fields
 
     def _visible_bookings(self, obj):
@@ -1728,6 +1755,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     payment_status = serializers.SerializerMethodField()
     payment_method = serializers.SerializerMethodField()
     bank_account = serializers.SerializerMethodField()
+    bank_posted_date = serializers.DateField(source='latest_live_payment.bank_posted_date', read_only=True, allow_null=True)
     total_fee = serializers.SerializerMethodField()
     sn = serializers.SerializerMethodField()
     campus_name = serializers.CharField(source='campus.name', read_only=True, default='')
@@ -1746,7 +1774,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
             'id', 'sn', 'order_number', 'name', 'user', 'user_name', 'user_email', 'booking_contact',
             'campus', 'campus_name', 'marketing_source', 'marketing_source_detail', 'line_group_url', 'line_group_qr_url',
             'reservations', 'total_fee', 'payment_status', 'payment_method',
-            'bank_account', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at',
+            'bank_account', 'bank_posted_date', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at', 'is_test',
         ]
         read_only_fields = fields
 
@@ -1773,6 +1801,8 @@ class OrderAdminSerializer(serializers.ModelSerializer):
                 'difference_amount': revision.difference_amount,
                 'reason': revision.reason,
                 'created_at': revision.created_at,
+                **({'created_by_name': revision.snapshot.get('test_actor_name', '')}
+                   if revision.change_type in ('mark_test', 'unmark_test') else {}),
                 **({'snapshot': revision.snapshot} if is_detail else {}),
             }
             for revision in revisions
@@ -1824,8 +1854,9 @@ class OrderAdminSerializer(serializers.ModelSerializer):
 
     def get_reservations(self, obj):
         items = []
-        include_available_coaches = self.context.get('include_available_coaches', False)
+        candidate_coaches = self.context.get('candidate_coaches')
         for r in obj.reservations.live().all():
+            bookings = list(r.bookings.live().all())
             item = {
                 'id': r.id,
                 'resort': r.resort.display_name if r.resort else '',
@@ -1861,67 +1892,48 @@ class OrderAdminSerializer(serializers.ModelSerializer):
                         'start_time': b.start_time,
                         'end_time': b.end_time,
                         'course_name': b.course_name,
-                    } for b in r.bookings.live().all()
+                    } for b in bookings
                 ],
             }
-            if include_available_coaches:
-                item['available_coaches'] = self.get_available_coaches(r)
+            if candidate_coaches is not None:
+                item.update(self.get_coach_candidates(r, bookings, candidate_coaches))
             items.append(item)
         return items
 
-    def get_available_coaches(self, reservation):
+    def get_coach_candidates(self, reservation, bookings, coaches):
         try:
-            from collections import defaultdict
-            from booking.scheduler import get_manual_assignment_coaches, can_assign_all_bookings
+            from booking.scheduler import check_manual_assignment, manual_assignment_occupancy
 
-            bookings = list(reservation.bookings.live().all())
-            feasible_coaches = get_manual_assignment_coaches(reservation, bookings)
-
-            coach_busy_map = defaultdict(list)
-            busy_bookings = self.context.get('_coach_busy_bookings')
-            if busy_bookings is None:
-                busy_bookings = list(Booking.objects.live().filter(
-                    reservation__preferred_coach__isnull=False,
-                    reservation__status__in=[
-                        'auto_assigned',
-                        'manually_assigned',
-                        'pending_coach_confirmation',
-                        'completed',
-                    ],
-                    is_scheduled=True,
-                ).select_related('reservation'))
-                self.context['_coach_busy_bookings'] = busy_bookings
-
-            for booking in busy_bookings:
-                if booking.reservation_id == reservation.id:
-                    continue
-                coach_id = booking.reservation.preferred_coach_id
-                if coach_id:
-                    coach_busy_map[coach_id].append((booking.date, booking.start_time, booking.end_time))
-
-            return [
-                {
-                    'id': coach.id,
-                    'name': coach.name,
-                    'availability_status': coach.availability_status,
-                    'requires_confirmation': coach.availability_status == 'passive',
-                }
-                for coach in feasible_coaches
-                if can_assign_all_bookings(bookings, coach.id, coach_busy_map)
-            ]
-        except Exception:
-            return []
+            slots = [(booking.date, booking.start_time, booking.end_time) for booking in bookings]
+            busy = manual_assignment_occupancy([coach.pk for coach in coaches], {date for date, _, _ in slots})
+            available = []
+            unavailable = []
+            for candidate in check_manual_assignment(reservation, bookings, coaches, busy, slots=slots):
+                coach = candidate.coach
+                item = {'id': coach.pk, 'name': coach.name or f'教練 #{coach.pk}'}
+                if candidate.reason_codes:
+                    unavailable.append({**item, 'reason_codes': candidate.reason_codes})
+                else:
+                    available.append({
+                        **item,
+                        'availability_status': coach.availability_status,
+                        'requires_confirmation': coach.availability_status == 'passive',
+                    })
+            return {'candidate_status': 'ok', 'available_coaches': available, 'unavailable_coaches': unavailable}
+        except Exception as exc:
+            logger.warning('Coach candidates failed for reservation %s (%s)', reservation.pk, type(exc).__name__)
+            return {'candidate_status': 'error', 'available_coaches': None, 'unavailable_coaches': None}
 
     def get_payment_status(self, obj):
-        p = obj.payments.live().last()
+        p = obj.latest_live_payment()
         return p.status if p else 'unpaid'
 
     def get_payment_method(self, obj):
-        p = obj.payments.live().last()
+        p = obj.latest_live_payment()
         return p.payment_method if p else 'TT'
 
     def get_bank_account(self, obj):
-        p = obj.payments.live().last()
+        p = obj.latest_live_payment()
         return p.bank_account if p else ''
 
     def get_total_fee(self, obj):
@@ -2078,10 +2090,14 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
     currency = serializers.CharField(max_length=3, allow_blank=True)
     expected_updated_at = serializers.DateTimeField(allow_null=True)
     confirm_insured = serializers.BooleanField(default=False)
+    idempotency_key = serializers.UUIDField(required=False)
+    correction_note = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     def to_internal_value(self, data):
         if not isinstance(data, dict) or set(data) - set(self.fields):
             raise serializers.ValidationError({'non_field_errors': ['只能更新投保作業欄位，不能修改學員、監護人或簽署資料']})
+        if data.get('premium_amount') == '':
+            data = {**data, 'premium_amount': None}
         return super().to_internal_value(data)
 
     def validate_currency(self, value):
@@ -2091,7 +2107,7 @@ class InsuranceProcessingInputSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        if attrs['premium_amount'] is not None and not attrs['currency']:
+        if attrs['status'] != 'ineligible' and attrs['premium_amount'] is not None and not attrs['currency']:
             raise serializers.ValidationError({'currency': '填寫金額時請同時填寫幣別'})
         return attrs
 
@@ -2172,6 +2188,47 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
     member_email = serializers.SerializerMethodField()
     document_history = serializers.SerializerMethodField()
     online_signatures = serializers.SerializerMethodField()
+    premium_policy = serializers.SerializerMethodField()
+    insurance_eligibility = serializers.SerializerMethodField()
+
+    def get_premium_policy(self, obj):
+        from booking.insurance_ledger import Kind, ledger_writable
+        from booking.models import InsurancePrepaidAccount
+        from Client.tenant_settings import insurance_ledger_settings
+
+        request = self.context['request']
+        config = insurance_ledger_settings(request.tenant)
+        account = InsurancePrepaidAccount.objects.filter(client=request.tenant).first()
+        can_deduct = user_has_admin_permission(request.user, 'insurance_ledger_deduct', request.tenant)
+        deductions = account.entries.filter(kind=Kind.DEDUCTION, member_record_id=obj.pk) if account else None
+        linked = deductions.filter(idempotency_key=obj.insurance_premium_ledger_key).select_related('reversal').first() if (
+            deductions is not None and obj.insurance_premium_ledger_key
+        ) else None
+        linked_reversed = bool(linked and hasattr(linked, 'reversal'))
+        has_unreversed_deduction = bool(deductions is not None and deductions.filter(reversal__isnull=True).exists())
+        return {
+            'enabled': config.enabled,
+            'can_edit': bool(can_deduct and account and ledger_writable(config, account)) if config.enabled
+                        else not bool(account and account.version),
+            'currency': config.currency,
+            'correction_required': bool(linked and not linked_reversed),
+            'deduction_reversed': linked_reversed,
+            'retained_deduction': bool(not obj.insurance_premium_amount and has_unreversed_deduction),
+            'has_unreversed_deduction': has_unreversed_deduction,
+            'legacy_premium': bool(obj.insurance_premium_amount and not obj.insurance_premium_ledger_key),
+        }
+
+    def get_insurance_eligibility(self, obj):
+        from Client.tenant_settings import insurance_eligibility_settings
+        from .admin_permissions import can_change_insurance_eligibility
+
+        request = self.context['request']
+        enabled, allow_admin = insurance_eligibility_settings(request.tenant)
+        allowed = can_change_insurance_eligibility(request.user, request.tenant, allow_admin)
+        return {
+            'can_mark': enabled and allowed and obj.insurance_processing_status in {'pending', 'checking', 'processing'},
+            'can_restore': allowed and obj.insurance_processing_status == 'ineligible',
+        }
 
     def get_online_signatures(self, obj):
         return list(obj.online_waiver_signatures.order_by('-pk').values(
@@ -2192,8 +2249,9 @@ class InsuranceRecordDetailAdminSerializer(InsuranceRecordAdminSerializer):
 
     class Meta(InsuranceRecordAdminSerializer.Meta):
         fields = InsuranceRecordAdminSerializer.Meta.fields + [
-            'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
+            'premium_policy', 'member_email', 'insurance_data', 'waiver_signature', 'waiver_document_version',
             'waiver_document_snapshot', 'media_consent', 'document_history', 'online_signatures', 'pre_course_answers',
+            'insurance_eligibility',
         ]
         read_only_fields = fields
 
@@ -2225,6 +2283,7 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
     member_name = serializers.SerializerMethodField()
     coach_name = serializers.CharField(source='coach.name', read_only=True, default='')
     course_date = serializers.DateField(source='booking.date', read_only=True)
+    order_date = serializers.SerializerMethodField()
     order_number = serializers.SerializerMethodField()
     course_name = serializers.SerializerMethodField()
     campus_name = serializers.SerializerMethodField()
@@ -2232,7 +2291,7 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CourseEvaluation
-        fields = ['id', 'booking', 'member', 'member_name', 'coach', 'coach_name', 'course_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'self_assessment', 'coach_assessment', 'skill_review', 'skill_snapshot', 'learning_progress', 'trail_names', 'available_trails', 'coach_notes', 'completed_at', 'media', 'new_media', 'created_at', 'updated_at', 'can_edit_assessment']
+        fields = ['id', 'booking', 'member', 'member_name', 'coach', 'coach_name', 'course_date', 'order_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'self_assessment', 'coach_assessment', 'skill_review', 'skill_snapshot', 'learning_progress', 'trail_names', 'available_trails', 'coach_notes', 'completed_at', 'media', 'new_media', 'created_at', 'updated_at', 'can_edit_assessment']
         read_only_fields = ['id', 'member_name', 'coach_name', 'course_date', 'order_number', 'course_name', 'campus_name', 'resort_name', 'media', 'created_at', 'updated_at']
 
     def validate_new_media(self, value):
@@ -2243,6 +2302,10 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
         return serializer.validated_data
 
     def get_can_edit_assessment(self, obj):
+        return self._can_edit_assessment
+
+    @cached_property
+    def _can_edit_assessment(self):
         request = self.context.get('request')
         if not request:
             return False
@@ -2290,6 +2353,9 @@ class CourseEvaluationAdminSerializer(serializers.ModelSerializer):
 
     def get_member_name(self, obj):
         return obj.member.display_name
+
+    def get_order_date(self, obj):
+        return timezone.localdate(obj.booking.reservation.group.created_at, ZoneInfo('Asia/Taipei')).isoformat()
 
     def get_order_number(self, obj):
         return obj.booking.reservation.group.order_number or f'訂單 #{obj.booking.reservation.group_id}'
@@ -2524,11 +2590,23 @@ class StaffBookingLinkAdminSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     url = serializers.SerializerMethodField()
     is_available = serializers.BooleanField(read_only=True)
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = StaffBookingLink
-        fields = ['id', 'token', 'campus', 'title', 'cart_snapshot', 'expires_at', 'used_by', 'used_at', 'is_active', 'is_available', 'created_by_name', 'url', 'created_at']
-        read_only_fields = ['id', 'token', 'used_by', 'used_at', 'created_by_name', 'url', 'created_at']
+        fields = ['id', 'token', 'campus', 'title', 'cart_snapshot', 'snapshot_version', 'quoted_total',
+                  'expires_at', 'used_by', 'used_at', 'is_active', 'is_available', 'can_edit',
+                  'created_by_name', 'url', 'created_at']
+        read_only_fields = ['id', 'token', 'snapshot_version', 'quoted_total', 'used_by', 'used_at',
+                            'created_by_name', 'url', 'created_at']
+
+    def get_can_edit(self, obj):
+        return self.context.get('staff_link_edit_enabled', False) and obj.is_open
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['cart_snapshot'] = public_staff_cart_snapshot(instance.cart_snapshot)
+        return data
 
     def get_url(self, obj):
         request = self.context.get('request')
@@ -2547,10 +2625,15 @@ class StaffBookingLinkAdminSerializer(serializers.ModelSerializer):
             raise PermissionDenied('不能為其他校區建立或修改訂課連結')
         return value
 
+    def validate_expires_at(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError('連結失效時間必須晚於現在')
+        return value
+
     def validate(self, attrs):
         snapshot = attrs.get('cart_snapshot', self.instance.cart_snapshot if self.instance else [])
         if not snapshot:
-            if self.instance is None:
+            if self.instance is None or 'cart_snapshot' in attrs:
                 raise serializers.ValidationError({'cart_snapshot': '請先為客人選好至少一堂課'})
             return attrs
         campus = attrs.get('campus', self.instance.campus if self.instance else None)

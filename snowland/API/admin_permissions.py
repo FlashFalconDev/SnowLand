@@ -3,7 +3,7 @@ ADMIN_PERMISSION_DEFINITIONS = [
     {'key': 'vehicle_review', 'label': '車輛排班與用車審核', 'group': '營運總覽', 'description': '核准借車並審核授權校區的用車紀錄'},
     {'key': 'vehicle_finance', 'label': '車輛費率與費用核准', 'group': '營運總覽', 'description': '設定車輛、費率與匯率，核准用車費用'},
     {'key': 'order_view', 'label': '訂單列表與明細', 'group': '訂單', 'description': '查看授權校區的訂單'},
-    {'key': 'order_edit', 'label': '修改與排課', 'group': '訂單', 'description': '修改課程、人數與教練，或完成課程'},
+    {'key': 'order_edit', 'label': '修改與排課', 'group': '訂單', 'description': '修改課程、人數與教練、完成課程或補登客人來源'},
     {'key': 'order_payments', 'label': '對帳與差額', 'group': '訂單', 'description': '核對收款及補退差額'},
     {'key': 'order_refunds', 'label': '取消與退款', 'group': '訂單', 'description': '處理取消申請及記錄退款'},
     {'key': 'booking_links', 'label': '代客訂課連結', 'group': '訂單', 'description': '建立與管理代客訂課連結'},
@@ -12,6 +12,8 @@ ADMIN_PERMISSION_DEFINITIONS = [
     {'key': 'chat_support', 'label': 'LINE／AI 客服', 'group': '客服與通知', 'description': '查看對話及人工回覆'},
     {'key': 'notifications', 'label': '通知範本與發送紀錄', 'group': '客服與通知', 'description': '管理通知範本及發送紀錄'},
     {'key': 'member_directory', 'label': '會員名單與預約紀錄', 'group': '會員與課前資料', 'description': '查看會員資料與訂課紀錄'},
+    {'key': 'insurance_ledger_deduct', 'label': '保險預付保費扣款', 'group': '會員與課前資料', 'description': '需搭配保險與聲明書紀錄權限'},
+    {'key': 'insurance_ledger_finance', 'label': '保險預付保費帳本', 'group': '財務', 'description': '僅限明確指派的全校區總部人員，處理期初、儲值、沖正與月對帳'},
     {'key': 'insurance_records', 'label': '保險與聲明書紀錄', 'group': '會員與課前資料', 'description': '查看及處理學員課前資料'},
     {'key': 'member_loyalty', 'label': '會員制度與舊生審核', 'group': '會員與課前資料', 'description': '管理會員制度、舊生及點數'},
     {'key': 'course_documents', 'label': '課前聲明書與表單', 'group': '會員與課前資料', 'description': '設定聲明書與課前問題'},
@@ -61,10 +63,13 @@ LEGACY_PERMISSIONS = {
 
 ADMIN_PERMISSION_KEYS = [item['key'] for item in ADMIN_PERMISSION_DEFINITIONS]
 
+EXPLICIT_LEDGER_PERMISSIONS = {'insurance_ledger_deduct', 'insurance_ledger_finance'}
+DEFAULT_ALL_ADMIN_PERMISSIONS = [key for key in ADMIN_PERMISSION_KEYS if key not in EXPLICIT_LEDGER_PERMISSIONS]
+
 ROLE_DEFAULT_PERMISSIONS = {
     'marketing': ['analytics', 'discounts'],
     'web_editor': ['cms', 'reviews'],
-    'insurance': ['insurance_records'],
+    'insurance': ['insurance_records', 'insurance_ledger_deduct'],
     'assistant': ['orders', 'scheduling', 'insurance_records', 'evaluations', 'coaches', 'cms', 'reviews', 'contact_inbox', 'vehicle_finance'],
     'campus_principal': ['analytics', 'orders', 'scheduling', 'coaches', 'evaluations', 'payroll', 'vehicle_review'],
     'campus_manager': ['orders', 'scheduling', 'coaches', 'evaluations', 'vehicle_review'],
@@ -83,15 +88,16 @@ def normalize_admin_permissions(value):
 def get_user_admin_permissions(user, tenant=None):
     if not user or not getattr(user, 'is_authenticated', False):
         return []
-    if getattr(user, 'is_superuser', False):
-        return list(ADMIN_PERMISSION_KEYS)
     from Control.tenant_memberships import staff_profile
     profile = staff_profile(user, tenant)
+    if getattr(user, 'is_superuser', False):
+        explicit = normalize_admin_permissions(profile.admin_permissions) if profile and profile.is_manager else []
+        return [key for key in ADMIN_PERMISSION_KEYS if key not in EXPLICIT_LEDGER_PERMISSIONS or key in explicit]
     if not profile or not profile.is_manager:
         return []
     stored = profile.admin_permissions
     if stored is None:
-        permissions = list(ADMIN_PERMISSION_KEYS) if profile.role in ('', 'hq_admin') else normalize_admin_permissions(ROLE_DEFAULT_PERMISSIONS.get(profile.role, []))
+        permissions = DEFAULT_ALL_ADMIN_PERMISSIONS if profile.role in ('', 'hq_admin') else normalize_admin_permissions(ROLE_DEFAULT_PERMISSIONS.get(profile.role, []))
     else:
         permissions = normalize_admin_permissions(stored)
     if tenant is not None:
@@ -121,3 +127,23 @@ def console_permissions_for_user(user, tenant):
     grants = set(permissions)
     # An older frontend may remain cached during a backend-first release.
     return [*permissions, *(key for key, children in LEGACY_PERMISSIONS.items() if set(children) <= grants)]
+
+
+def can_change_insurance_eligibility(user, tenant, allow_admin: bool) -> bool:
+    from Control.models import TenantStaffMembership
+    from Control.tenant_memberships import staff_profile
+
+    if not user_has_admin_permission(user, 'insurance_records', tenant):
+        return False
+    if user.is_superuser:
+        return True
+    profile = staff_profile(user, tenant)
+    if not profile or not profile.is_manager:
+        return False
+    if profile.role in {'insurance', 'hq_admin'}:
+        return True
+    # Combining positions can give the membership an administrative role
+    # while retaining an insurance position and its effective page permission.
+    if isinstance(profile, TenantStaffMembership) and profile.positions.filter(client=tenant, role='insurance').exists():
+        return True
+    return allow_admin and profile.role in {'', 'assistant', 'campus_manager', 'campus_principal'}

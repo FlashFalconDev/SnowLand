@@ -53,8 +53,15 @@ class ReservationGroup(SoftDeleteModel):
         verbose_name='訂單校區',
     )
     order_number = models.CharField(max_length=40, blank=True, default='', db_index=True, verbose_name='訂單編號')
+    is_test = models.BooleanField(default=False, db_default=False, db_index=True, editable=False, verbose_name='測試訂單')
+    test_marked_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, editable=False,
+        related_name='marked_test_orders', verbose_name='測試標記人',
+    )
+    test_marked_at = models.DateTimeField(null=True, blank=True, editable=False, verbose_name='測試標記時間')
     marketing_source = models.CharField(max_length=60, blank=True, default='', verbose_name='行銷來源')
     marketing_source_detail = models.CharField(max_length=200, blank=True, default='', verbose_name='行銷來源說明')
+    marketing_source_override = models.TextField(null=True, blank=True, editable=False, verbose_name='補登客人來源')
     referral_user = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='referred_reservation_groups', verbose_name='介紹人'
     )
@@ -69,6 +76,11 @@ class ReservationGroup(SoftDeleteModel):
 
     def __str__(self):
         return self.name or self.order_number or f"ReservationGroup #{self.pk}"
+
+    def latest_live_payment(self):
+        if hasattr(self, 'payments_by_recency'):
+            return next(iter(self.payments_by_recency), None)
+        return self.payments.live().order_by('-created_at', '-pk').first()
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -503,9 +515,13 @@ class MemberDetail(SoftDeleteModel):
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='guarded_member_details', verbose_name='家長帳號'
     )
     insurance_data = models.JSONField(default=dict, blank=True, verbose_name='保險資料')
-    INSURANCE_PROCESSING_CHOICES = [('pending', '尚未投保'), ('checking', '對資料中'), ('processing', '處理中'), ('insured', '已投保完成')]
+    INSURANCE_PROCESSING_CHOICES = [
+        ('pending', '尚未投保'), ('checking', '對資料中'), ('processing', '處理中'),
+        ('insured', '已投保完成'), ('ineligible', '不符投保資格'),
+    ]
     insurance_processing_status = models.CharField(max_length=12, default='pending', choices=INSURANCE_PROCESSING_CHOICES, verbose_name='投保作業狀態')
     insurance_premium_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name='投保金額')
+    insurance_premium_ledger_key = models.UUIDField(null=True, blank=True, editable=False)
     insurance_premium_currency = models.CharField(max_length=3, blank=True, default='', verbose_name='投保金額幣別')
     insurance_processing_updated_at = models.DateTimeField(null=True, blank=True, verbose_name='投保作業更新時間')
     insurance_processing_updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
@@ -665,6 +681,7 @@ class Payment(SoftDeleteModel):
         related_name='payments', verbose_name='收款帳戶'
     )
     expires_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name='付款保留到期時間')
+    bank_posted_date = models.DateField(null=True, blank=True, verbose_name='入帳日期')
     DataJSON = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='建立時間')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新時間')
@@ -801,7 +818,10 @@ class TenantOrderArchiveBatch(models.Model):
 class OrderRevision(SoftDeleteModel):
     soft_delete_parents = ('group',)
 
-    CHANGE_CHOICES = [('create', '建立'), ('modify', '修改'), ('add', '追加'), ('reduce', '追減'), ('cancel', '取消')]
+    CHANGE_CHOICES = [
+        ('create', '建立'), ('modify', '修改'), ('add', '追加'), ('reduce', '追減'), ('cancel', '取消'),
+        ('mark_test', '標記測試訂單'), ('unmark_test', '取消測試標記'),
+    ]
     group = models.ForeignKey(ReservationGroup, on_delete=models.CASCADE, related_name='revisions', verbose_name='訂單')
     version = models.PositiveIntegerField(verbose_name='版本')
     change_type = models.CharField(max_length=20, choices=CHANGE_CHOICES, default='modify')
@@ -1022,6 +1042,8 @@ class StaffBookingLink(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='staff_booking_links')
     title = models.CharField(max_length=120, blank=True, default='')
     cart_snapshot = models.JSONField(default=list)
+    snapshot_version = models.PositiveIntegerField(default=0, db_default=0)
+    quoted_total = models.PositiveIntegerField(null=True, blank=True)
     expires_at = models.DateTimeField()
     used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='used_staff_booking_links')
     used_at = models.DateTimeField(null=True, blank=True)
@@ -1029,8 +1051,15 @@ class StaffBookingLink(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property
+    def is_open(self):
+        return (
+            self.is_active and self.campus.is_active and self.campus.client_id == self.client_id
+            and not self.used_at and self.expires_at > timezone.now()
+        )
+
+    @property
     def is_available(self):
-        if not (self.is_active and self.campus.is_active and not self.used_at and self.expires_at > timezone.now()):
+        if not self.is_open:
             return False
         from .staff_link_snapshot import staff_cart_is_current
         return staff_cart_is_current(self)
@@ -1081,3 +1110,8 @@ def get_booked_slots(self):
             "course_type": booking.course_type
         })
     return booked_slots
+
+
+from .insurance_ledger_models import (  # noqa: E402,F401
+    InsuranceLedgerEntry, InsurancePrepaidAccount, InsuranceReconciliation,
+)

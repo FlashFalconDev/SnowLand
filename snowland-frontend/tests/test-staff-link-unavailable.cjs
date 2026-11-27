@@ -17,7 +17,7 @@ const panelSource=fs.readFileSync(path.join(root,'src/admin/pages/OperationsHubP
 const panel=panelAst.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='BookingLinksPanel')
 for(const status of ['loading','error','retrying']){
  let retries=0
- const ctx=vm.createContext({React,exports:{},useQueryClient:()=>({}),useNotification:()=>({}),useBookingStore:fn=>fn({cart:[],clearCart(){}}),useScopedCampuses:()=>({campuses:[],selectedCampus:''}),useQuery:()=>({data:[],isLoading:status==='loading',isFetching:status==='retrying',error:status!=='loading'?Error('QA'):null,refetch(){retries++}}),useState:initial=>[initial,()=>{}],useEffect(){},useMutation:()=>({isPending:false}),fetchStaffBookingLinks(){},cardClass:'qa-card'})
+ const ctx=vm.createContext({React,exports:{},useQueryClient:()=>({}),useNotification:()=>({}),useSearchParams:()=>[new URLSearchParams(),()=>{}],currentClientCode:()=> 'snowland',useBookingStore:()=>({cart:[],clearCart(){}}),useScopedCampuses:()=>({campuses:[],selectedCampus:''}),useQuery:()=>({data:[],isLoading:status==='loading',isFetching:status==='retrying',error:status!=='loading'?Error('QA'):null,refetch(){retries++}}),useState:initial=>[initial,()=>{}],useEffect(){},useMutation:()=>({isPending:false}),fetchStaffBookingLinks(){},cardClass:'qa-card'})
  vm.runInContext(ts.transpileModule(panel.getText(panelAst),{compilerOptions:{jsx:ts.JsxEmit.React,module:ts.ModuleKind.CommonJS}}).outputText,ctx)
  const tree=ctx.BookingLinksPanel(),html=renderToStaticMarkup(tree)
  assert.ok(!html.includes('尚未建立連結'),'Loading or errors must not masquerade as an empty link list')

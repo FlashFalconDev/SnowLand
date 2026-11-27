@@ -1,20 +1,22 @@
-from datetime import datetime, time, timedelta
+from collections import defaultdict
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Case, F, Prefetch, Q, Value, When
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from Client.models import Client
+from Client.tenant_settings import vehicle_calendar_visible_to_coaches, vehicle_conflict_mode
 from Coach.models import Coach
 from Coach.payroll_settlement import number
 from Coach.vehicle_models import Vehicle, VehicleCharge, VehicleExpense, VehiclePolicy, VehicleTrip
@@ -30,6 +32,40 @@ from .payroll_security import PayrollCsrfMixin
 
 REVIEW_ROLES = {'hq_admin', 'campus_principal', 'campus_manager'}
 FINANCE_ROLES = {'hq_admin', 'assistant'}
+OCCUPYING_STATUSES = ('approved', 'driving')
+HISTORICAL_OCCUPANCY_STATUSES = ('returned', 'reviewed', 'settled')
+CALENDAR_SPAN = timedelta(days=13)  # Both dates are included.
+
+
+def trips_overlapping_dates(trips, start, end):
+    if start:
+        trips = trips.filter(ends_at__gt=datetime.combine(start, time.min, JAPAN_TIME))
+    if end:
+        trips = trips.filter(starts_at__lte=datetime.combine(end, time.max, JAPAN_TIME))
+    return trips
+
+
+def occupying_trips(tenant, vehicle_ids, trips):
+    """Fetch a batch of possible conflicts for the combined request window."""
+    occupied = defaultdict(list)
+    if trips and vehicle_ids:
+        candidates = VehicleTrip.objects.live().filter(
+            campus__client=tenant, vehicle_id__in=vehicle_ids, status__in=OCCUPYING_STATUSES,
+            starts_at__lte=max(trip.ends_at for trip in trips),
+            ends_at__gte=min(trip.starts_at for trip in trips),
+        ).select_related('driver').order_by('starts_at', 'pk')
+        for candidate in candidates:
+            occupied[candidate.vehicle_id].append(candidate)
+    return occupied
+
+
+def overlapping_trips(trip, candidates):
+    return [candidate for candidate in candidates
+            if candidate.starts_at < trip.ends_at and candidate.ends_at > trip.starts_at]
+
+
+def can_revoke_private_trip(trip):
+    return trip.purpose == 'private' and trip.status == 'approved' and trip.departed_at is None
 
 
 class TripRequest(serializers.Serializer):
@@ -120,13 +156,17 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             })
         owner = not self.personal or trip.driver_id == self.coach.pk
         charges = trip.charges.all() if not self.personal else (charge for charge in trip.charges.all() if charge.coach_id == self.coach.pk)
+        # A supervisor reviews revocations, while ordinary rejections leave reviewed_by empty.
+        revoked = trip.purpose == 'private' and trip.status == 'rejected' and trip.reviewed_by_id is not None
+        expenses = getattr(trip, 'live_expenses', None)
         return {
             'id': trip.pk, 'campus': trip.campus_id, 'campus_name': trip.campus.name,
             'driver': trip.driver.name, 'vehicle': trip.vehicle_id,
             'vehicle_name': trip.vehicle.name if trip.vehicle_id else '',
             'purpose': trip.purpose, 'status': trip.status, 'starts_at': trip.starts_at, 'ends_at': trip.ends_at,
             'resort': trip.resort.display_name if trip.resort_id else '', 'note': trip.note,
-            'decision_note': trip.decision_note, 'owner': owner,
+            'decision_note': trip.decision_note, 'owner': owner, 'revoked': revoked,
+            'can_revoke': not self.personal and self.review and can_revoke_private_trip(trip),
             'participants': [coach.name for coach in trip.participants.all()],
             'departure_km': trip.departure_km, 'return_km': trip.return_km,
             'departure_photo': photo_url(trip.departure_photo, 'departure'),
@@ -134,7 +174,8 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             'amount_yen': trip.amount_yen, 'amount_twd': trip.amount_twd,
             'expenses': [{'id': item.pk, 'kind': item.kind, 'amount_yen': item.amount_yen, 'note': item.note,
                           'reimbursable': trip.purpose != 'private' or item.kind == 'fuel',
-                          'receipt': photo_url(item.receipt, str(item.pk))} for item in trip.expenses.live()] if owner else [],
+                          'receipt': photo_url(item.receipt, str(item.pk))}
+                         for item in (trip.expenses.live() if expenses is None else expenses)] if owner else [],
             'charges': [{'id': charge.pk, 'coach': charge.coach.name, 'amount_twd': charge.amount_twd,
                          'balance': charge_balance(charge, include_drafts=False), 'first_month': charge.first_month,
                          'last_month': charge.last_month, 'manual_due': self.manual_due(charge)}
@@ -145,23 +186,87 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
     def manual_due(charge):
         return timezone.localdate(timezone=JAPAN_TIME) > payroll_cutoff(charge.last_month, charge.trip.payroll_day or 1)
 
+    def vehicle_options(self, trips, vehicles, campus_ids):
+        eligible = defaultdict(list)
+        for vehicle in vehicles:
+            if vehicle.active:
+                for campus_id in {vehicle.campus_id, *(campus.pk for campus in vehicle.shared_campuses.all())} & campus_ids:
+                    eligible[campus_id].append(vehicle.pk)
+        pending = [trip for trip in trips if trip.status == 'pending']
+        vehicle_ids = {vehicle_id for trip in pending for vehicle_id in eligible[trip.campus_id]}
+        occupied = occupying_trips(self.tenant, vehicle_ids, pending)
+        options = {}
+        for trip in pending:
+            options[trip.pk] = []
+            for vehicle_id in eligible[trip.campus_id]:
+                conflicts = overlapping_trips(trip, occupied.get(vehicle_id, ()))
+                options[trip.pk].append({
+                    'vehicle': vehicle_id,
+                    'occupied_outside_scope': any(conflict.campus_id not in campus_ids for conflict in conflicts),
+                    'conflicts': [{
+                        'trip': conflict.pk, 'purpose': conflict.purpose, 'driver': conflict.driver.name,
+                        'starts_at': conflict.starts_at, 'ends_at': conflict.ends_at,
+                        'can_revoke': can_revoke_private_trip(conflict),
+                    } for conflict in conflicts if conflict.campus_id in campus_ids],
+                })
+        return options
+
+    def coach_calendar(self, campus_ids, start, end):
+        if not vehicle_calendar_visible_to_coaches(self.tenant):
+            return None
+        if start is None:
+            start = max(end, date.min + CALENDAR_SPAN) - CALENDAR_SPAN if end else timezone.localdate(timezone=JAPAN_TIME)
+        if end is None:
+            end = min(start, date.max - CALENDAR_SPAN) + CALENDAR_SPAN
+
+        vehicles = list(self.vehicles().values('id', 'name', 'plate'))
+        trips = VehicleTrip.objects.live().filter(
+            Q(status__in=OCCUPYING_STATUSES)
+            | Q(status__in=HISTORICAL_OCCUPANCY_STATUSES, starts_at__lt=timezone.now()),
+            campus_id__in=campus_ids, vehicle_id__in=[vehicle['id'] for vehicle in vehicles],
+        )
+        # Only project occupancy and the permitted destination, even for the coach's own trips.
+        trips = trips_overlapping_dates(trips, start, end).order_by('starts_at', 'ends_at', 'pk').values(
+            'vehicle_id', 'starts_at', 'ends_at',
+            resort_name=Case(
+                When(purpose='lesson', resort__client=self.tenant, then=F('resort__display_name')),
+                default=Value(''),
+            ),
+        )
+        occupancy = defaultdict(list)
+        for trip in trips:
+            interval = {'starts_at': trip['starts_at'], 'ends_at': trip['ends_at']}
+            if trip['resort_name']:
+                interval['resort'] = trip['resort_name']
+            occupancy[trip['vehicle_id']].append(interval)
+        return {
+            'from': start, 'to': end,
+            'vehicles': [{**vehicle, 'occupancy': occupancy[vehicle['id']]} for vehicle in vehicles],
+        }
+
     def get(self, request, client_code, personal=False):
         campuses = self.campuses()
         policy = self.policy()
         resorts = Resorts.objects.filter(client=self.tenant).prefetch_related('campuses')
         campus_ids = {campus.pk for campus in campuses}
         exempt = list(self.exempt_resorts(policy).values_list('pk', flat=True))
-        trips = self.trips().live().select_related('campus', 'driver', 'vehicle', 'resort').prefetch_related('participants', 'charges__coach')
+        trips = self.trips().live().select_related('campus', 'driver', 'vehicle', 'resort').prefetch_related(
+            'participants', 'charges__coach', Prefetch('expenses', queryset=VehicleExpense.objects.live(), to_attr='live_expenses'),
+        )
         start = serializers.DateField().run_validation(request.query_params['from']) if request.query_params.get('from') else None
         end = serializers.DateField().run_validation(request.query_params['to']) if request.query_params.get('to') else None
         if start and end and end < start:
             raise ValidationError('結束日不能早於開始日')
-        if start:
-            trips = trips.filter(ends_at__gt=datetime.combine(start, time.min, JAPAN_TIME))
-        if end:
-            trips = trips.filter(starts_at__lt=datetime.combine(end + timedelta(days=1), time.min, JAPAN_TIME))
+        trips = list(trips_overlapping_dates(trips, start, end).order_by('-starts_at', '-pk'))
+        vehicles = list(self.vehicles().prefetch_related('shared_campuses')) if not self.personal else []
+        trip_payloads = [self.trip_payload(trip) for trip in trips]
+        conflict_mode = None if self.personal else vehicle_conflict_mode(self.tenant)
         demands = []
         if self.review and not self.personal:
+            options = self.vehicle_options(trips, vehicles, campus_ids)
+            for payload in trip_payloads:
+                if payload['id'] in options:
+                    payload['vehicle_options'] = options[payload['id']]
             today = timezone.localdate(timezone=JAPAN_TIME)
             bookings = Booking.objects.live().filter(
                 reservation__group__campus__in=campuses, reservation__group__client=self.tenant,
@@ -173,6 +278,8 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
                                            'reservation__resort__display_name').order_by('date').distinct()[:150])
         return Response({'data': {
             'review': self.review and not self.personal, 'finance': self.finance and not self.personal,
+            'conflict_mode': conflict_mode,
+            'vehicle_calendar': self.coach_calendar(campus_ids, start, end) if self.personal else None,
             'campuses': list(campuses.values('id', 'name')),
             'settings_campuses': list(Campus.objects.filter(client=self.tenant, is_active=True).values('id', 'name')) if not self.personal and self.finance and request.can_view_all_campuses else list(campuses.values('id', 'name')),
             'resorts': [{'id': resort.pk, 'name': resort.display_name, 'exempt': resort.pk in exempt,
@@ -184,10 +291,10 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             'eligible': not self.personal or self.eligible().filter(pk=self.coach.pk).exists(),
             'vehicles': [{'id': vehicle.pk, 'campus': vehicle.campus_id, 'name': vehicle.name, 'plate': vehicle.plate,
                           'active': vehicle.active, 'shared_campuses': [c.pk for c in vehicle.shared_campuses.all()]}
-                         for vehicle in self.vehicles().prefetch_related('shared_campuses')] if not self.personal else [],
+                         for vehicle in vehicles],
             'policy': {'yen_per_km': policy.yen_per_km, 'yen_per_twd': policy.yen_per_twd,
                        'payroll_day': policy.payroll_day, 'exempt_resorts': exempt} if policy and self.finance and not self.personal else None,
-            'trips': [self.trip_payload(trip) for trip in trips.order_by('-starts_at', '-pk')],
+            'trips': trip_payloads,
             'demands': demands,
         }})
 
@@ -205,8 +312,11 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
             return self.save_settings(action, request.data)
         trip_id = serializers.IntegerField(min_value=1).run_validation(request.data.get('trip'))
         # Avoid SELECT FOR UPDATE on a DISTINCT result or on nullable joined tables.
-        trip = get_object_or_404(self.trips().live(), pk=trip_id)
-        trip = VehicleTrip.objects.live().select_for_update().get(pk=trip.pk)
+        try:
+            scoped_trip = self.trips().live().get(pk=trip_id)
+            trip = VehicleTrip.objects.live().select_for_update().get(pk=scoped_trip.pk)
+        except VehicleTrip.DoesNotExist as exc:
+            raise NotFound('找不到可操作的用車行程') from exc
         if self.personal:
             if trip.driver_id != self.coach.pk:
                 raise PermissionDenied('僅駕駛可登記及修正用車資料')
@@ -288,11 +398,13 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
 
     def review_trip(self, action, trip):
         request = self.request
-        if action in {'approve', 'reject', 'review'}:
+        if action in {'approve', 'reject', 'revoke', 'review'}:
             if not self.review:
                 raise PermissionDenied('沒有排車或審核用車紀錄權限')
             if action == 'review' and trip.status == 'returned':
                 trip.status, trip.reviewed_by = 'reviewed', request.user
+            elif action == 'revoke' or (action == 'reject' and trip.purpose == 'private' and trip.status == 'approved'):
+                self.revoke_trip(trip, request.data.get('note'))
             elif action == 'reject' and trip.status in {'pending', 'approved'}:
                 trip.status, trip.approved_by = 'rejected', request.user
                 trip.decision_note = serializers.CharField(max_length=500).run_validation(request.data.get('note'))
@@ -320,15 +432,34 @@ class VehicleDesk(PayrollCsrfMixin, APIView):
         trip.save()
         return Response({'data': self.trip_payload(trip)})
 
+    def revoke_trip(self, trip, note):
+        if trip.purpose != 'private':
+            raise ValidationError('僅可撤銷私用行程')
+        if trip.departed_at or trip.status in {'driving', 'returned', 'reviewed', 'settled'}:
+            raise ValidationError('此私用行程已出車，無法撤銷')
+        if not can_revoke_private_trip(trip):
+            raise ValidationError('僅可撤銷已排車且尚未出車的私用行程')
+        reason = note.strip() if isinstance(note, str) else ''
+        if not 1 <= len(reason) <= 500:
+            raise ValidationError('請填寫 1 至 500 字的撤銷原因')
+        trip.status, trip.reviewed_by, trip.decision_note = 'rejected', self.request.user, reason
+
     def assign_vehicle(self, trip, raw_id):
         vehicle_id = serializers.IntegerField(min_value=1).run_validation(raw_id)
-        vehicle = get_object_or_404(self.vehicles(), pk=vehicle_id, active=True)
+        vehicle = self.vehicles().filter(pk=vehicle_id, active=True).first()
+        if vehicle is None:
+            raise NotFound('找不到可安排的車輛')
         if vehicle.campus_id != trip.campus_id and not vehicle.shared_campuses.filter(pk=trip.campus_id).exists():
             raise ValidationError('此車輛未開放給申請校區')
-        if vehicle.trips.filter(
-            status__in=['approved', 'driving'], starts_at__lt=trip.ends_at, ends_at__gt=trip.starts_at,
-        ).exists():
-            raise ValidationError('這輛車在所選時段已有安排，請先處理原用車紀錄或選擇其他車輛')
+        occupied = occupying_trips(self.tenant, [vehicle.pk], [trip])
+        conflicts = overlapping_trips(trip, occupied.get(vehicle.pk, ()))
+        if conflicts:
+            visible = next((item for item in conflicts if item.campus_id in self.request.campus_ids), None)
+            if visible:
+                start, end = (timezone.localtime(value, JAPAN_TIME).strftime('%Y/%m/%d %H:%M')
+                              for value in (visible.starts_at, visible.ends_at))
+                raise ValidationError(f'此車已由{visible.get_purpose_display()}占用（{start} ～ {end}，日本時間），請改選其他車輛')
+            raise ValidationError('此車在所選時段已有其他校區的行程，請改選其他車輛')
         if trip.purpose != 'lesson' and VehicleTrip.objects.live().filter(
             Q(campus_id=vehicle.campus_id) | Q(campus__shared_vehicles=vehicle),
             campus__client=self.tenant, status='pending', purpose='lesson',

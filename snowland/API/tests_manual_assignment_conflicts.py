@@ -27,29 +27,78 @@ class ManualAssignmentConflictTests(TestCase):
         self.assertEqual(self.payment.status, 'pending')
         self.assertFalse(OrderRevision.objects.filter(group=self.group).exists())
 
-    def test_existing_course_conflict_is_rejected_without_payment_or_revision(self):
+    def assert_candidate(self, coach, reason=None):
+        response = self.api.get(self.url)
+        self.assertEqual(response.status_code, 200, response.data)
+        result = response.data['data']['reservations'][0]
+        self.assertEqual(result['candidate_status'], 'ok')
+        if reason:
+            self.assertNotIn(coach.pk, {row['id'] for row in result['available_coaches']})
+            unavailable = {row['id']: row['reason_codes'] for row in result['unavailable_coaches']}
+            self.assertEqual(unavailable[coach.pk], [reason])
+        else:
+            self.assertIn(coach.pk, {row['id'] for row in result['available_coaches']})
+
+    def test_form_filled_conflict_across_campuses_and_resorts_blocks_picker_and_save(self):
         coach = self.coach()
         # A coach can serve two campuses, but not teach both at the same time.
         coach.campuses.add(self.other_campus)
+        coach.coachresort_set.create(resort=self.other_resort)
+        self.booking.start_time, self.booking.end_time = time(8), time(12)
+        self.booking.save(update_fields=['start_time', 'end_time'])
         other = Reservation.objects.create(
             group=ReservationGroup.objects.create(client=self.tenant, campus=self.other_campus),
-            resort=self.resort, preferred_coach=coach, status='manually_assigned',
+            resort=self.other_resort, preferred_coach=coach, status='form_filled',
         )
-        Booking.objects.create(reservation=other, date=self.booking.date,
-                               start_time=time(12), end_time=time(15), is_scheduled=True)
+        occupied = Booking.objects.create(reservation=other, date=self.booking.date,
+                                          start_time=time(11), end_time=time(15), is_scheduled=True)
+        self.assert_candidate(coach, 'schedule_conflict')
         response = self.assign(coach)
         self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data['reason_codes'], ['schedule_conflict'])
         self.assert_unchanged()
+
+        occupied.start_time = time(12)
+        occupied.save(update_fields=['start_time'])
+        self.assert_candidate(coach)
+        response = self.assign(coach)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assert_candidate(coach)  # Its own scheduled booking is skipped by the picker.
+
+    def test_unscheduled_cancelled_deleted_and_archived_bookings_do_not_occupy(self):
+        coach = self.coach()
+        other = Reservation.objects.create(group=self.group, resort=self.resort, preferred_coach=coach,
+                                           status='form_filled')
+        slot = Booking.objects.create(reservation=other, date=self.booking.date,
+                                      start_time=time(9), end_time=time(13))
+        self.assert_candidate(coach)
+
+        slot.is_scheduled = True
+        slot.save(update_fields=['is_scheduled'])
+        for status in ('cancelled', 'deleted'):
+            with self.subTest(status=status):
+                other.status = status
+                other.save(update_fields=['status'])
+                self.assert_candidate(coach)
+        other.status = 'form_filled'
+        other.is_deleted = True
+        other.save(update_fields=['status', 'is_deleted'])
+        self.assert_candidate(coach)
+        response = self.assign(coach)
+        self.assertEqual(response.status_code, 200, response.data)
 
     def test_approved_leave_is_rejected_but_cancelled_leave_does_not_block(self):
         coach = self.coach()
         leave = CoachLeaveRequest.objects.create(coach=coach, start_date=self.booking.date,
                                                  end_date=self.booking.date, status='approved', reason='QA')
+        self.assert_candidate(coach, 'on_leave')
         response = self.assign(coach)
         self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data['reason_codes'], ['on_leave'])
         self.assert_unchanged()
         leave.status = 'cancelled'
         leave.save(update_fields=['status'])
+        self.assert_candidate(coach)
         response = self.assign(coach)
         self.assertEqual(response.status_code, 200, response.data)
 
@@ -57,6 +106,7 @@ class ManualAssignmentConflictTests(TestCase):
         coach = self.coach()
         Booking.objects.create(reservation=self.reservation, date=self.booking.date,
                                start_time=time(12), end_time=time(15))
+        self.assert_candidate(coach, 'schedule_conflict')
         response = self.assign(coach)
         self.assertEqual(response.status_code, 400, response.data)
         self.assert_unchanged()
@@ -140,6 +190,26 @@ class ManualAssignmentConflictTests(TestCase):
         self.assertEqual(response.status_code, 400, response.data)
         self.assert_unchanged()
         self.assertEqual((self.booking.start_time, self.booking.end_time), (time(9), time(13)))
+
+    def test_editing_one_form_filled_lesson_preserves_occupancy_of_its_unchanged_sibling(self):
+        coach = self.coach()
+        occupied = Reservation.objects.create(group=self.group, resort=self.resort,
+                                               preferred_coach=coach, status='form_filled')
+        edited = Booking.objects.create(reservation=occupied, date=self.booking.date,
+                                         start_time=time(13), end_time=time(17), is_scheduled=True)
+        unchanged = Booking.objects.create(reservation=occupied, date=self.booking.date,
+                                            start_time=time(9), end_time=time(13), is_scheduled=True)
+        self.assert_candidate(coach, 'schedule_conflict')
+        response = self.assign(coach, booking_updates=[{
+            'booking_id': edited.pk, 'start_time': '14:00', 'end_time': '18:00',
+        }])
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data['reason_codes'], ['schedule_conflict'])
+        self.assert_unchanged()
+        edited.refresh_from_db()
+        unchanged.refresh_from_db()
+        self.assertEqual(edited.start_time, time(13))
+        self.assertTrue(unchanged.is_scheduled)
 
     def test_removal_in_same_batch_releases_coach_for_another_reservation(self):
         coach = self.coach()

@@ -81,6 +81,8 @@ ALB 健康檢查設定為 `/healthz/`，成功碼僅 `200`。路由不要求登�
 
 ## Migration 與發布
 
+部署前核對、健康等待與程式回退見 [後端 EB 發布與回退手冊](backend-eb-release-rollback.md)。
+
 `.ebextensions/02_migrate.config` 使用 EB 虛擬環境，並以 `leader_only: true` 執行 `migrate --noinput`。此設定適用單次環境部署，不是跨環境／跨部署的全域鎖；不要同時部署多個環境操作同一資料庫。
 
 執行前備份並檢查 migration 與舊版本相容性；有失敗不得忽略錯誤。新增主機、擴容與一般啟動不應另外執行 migration。

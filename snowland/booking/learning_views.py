@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from .learning_portal import (
     CONFIRMED_COURSE_STATES, album_asset_payload, bind_profile, ended_sessions,
-    owned_places, profile_id, profile_options,
+    owned_places, profile_id, profile_options, profile_rename_permission, scoped_profiles,
 )
 from .media_files import private_file_response
 from .models import Booking, CourseAlbumAsset, LearnerProfile, MemberDetail, Reservation
@@ -46,19 +46,27 @@ class PrivateLearningAPI(APIView):
 
 class LearnerProfileAPI(PrivateLearningAPI):
     def get(self, request, client_code):
-        return Response({'profiles': profile_options(tenant_for(client_code), request.user.pk)})
+        return Response({'profiles': profile_options(tenant_for(client_code), request.user.pk, include_rename=True)})
 
     @transaction.atomic
     def post(self, request, client_code):
-        tenant = tenant_for(client_code)
         if not isinstance(request.data, Mapping):
             return Response({'error': '學員資料格式錯誤'}, status=400)
         action = request.data.get('action')
-        if action == 'create':
+        try:
+            tenant = tenant_for(client_code)
+        except Http404:
+            if action == 'rename':
+                return Response({'error': '找不到可使用的學員檔案'}, status=404)
+            raise
+        if action in ('create', 'rename'):
             name = request.data.get('name')
-            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 120:
+            name = name.strip() if isinstance(name, str) else ''
+            if not 1 <= len(name) <= 120:
                 return Response({'error': '請填寫學員姓名（最多 120 字）'}, status=400)
-            profile = LearnerProfile.objects.create(client=tenant, owner=request.user, name=name.strip())
+            if action == 'rename':
+                return self._rename(tenant, request.user.pk, request.data.get('profile_id'), name)
+            profile = LearnerProfile.objects.create(client=tenant, owner=request.user, name=name)
             return Response({'id': profile.pk, 'name': profile.name}, status=201)
         if action != 'bind':
             return Response({'error': '不支援的學員操作'}, status=400)
@@ -76,6 +84,21 @@ class LearnerProfileAPI(PrivateLearningAPI):
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
         return Response({'id': place.learner_id})
+
+    def _rename(self, tenant, owner_id, value, name):
+        try:
+            target_id = profile_id(value)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=400)
+        profiles = scoped_profiles(tenant, owner_id).filter(pk=target_id)
+        profile = profiles.select_for_update().first()
+        if profile is None:
+            return Response({'error': '找不到可使用的學員檔案'}, status=404)
+        if not profiles.filter(profile_rename_permission(tenant)).exists():
+            return Response({'error': '目前無法修改此學員檔案的姓名'}, status=403)
+        profile.name = name
+        profile.save(update_fields=['name'])
+        return Response({'id': profile.pk, 'name': profile.name, 'can_rename': True})
 
 
 class MemberCourseAlbumsAPI(PrivateLearningAPI):
@@ -111,7 +134,7 @@ class MemberCourseAlbumsAPI(PrivateLearningAPI):
                 raise ValueError('請選擇認領或取消認領')
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
-        asset = get_object_or_404(CourseAlbumAsset.objects.select_related('booking'), pk=asset_id,
+        asset = get_object_or_404(CourseAlbumAsset.objects.select_for_update(), pk=asset_id,
                                   booking__in=member_album_bookings(tenant, request.user))
         place = get_object_or_404(MemberDetail.objects.select_for_update().filter(owned_places(request.user)),
                                    pk=member_id, reservation_id=asset.booking.reservation_id)
@@ -123,19 +146,23 @@ class MemberCourseAlbumsAPI(PrivateLearningAPI):
 
 
 class CourseAlbumFileAPI(PrivateLearningAPI):
+    permission_key = 'evaluations'
+
     def get(self, request, client_code, asset_id):
         tenant = tenant_for(client_code)
         asset = get_object_or_404(CourseAlbumAsset.objects.select_related('booking__reservation'),
                                   pk=asset_id, booking__reservation__group__client=tenant)
-        from API.admin_views import IsTenantCoach
+        from API.admin_views import IsTenantCoach, IsTenantManager
+        from API.learning_views import coach_album_bookings, manager_album_bookings
+
         booking = asset.booking
         allowed = member_album_bookings(tenant, request.user).filter(pk=booking.pk).exists()
         if not allowed:
-            from API.learning_views import coach_album_bookings
-
             allowed = IsTenantCoach().has_permission(request, self) and coach_album_bookings(request).filter(
                 pk=booking.pk,
             ).exists()
+        if not allowed and IsTenantManager().has_permission(request, self):
+            allowed = manager_album_bookings(request).filter(pk=booking.pk).exists()
         if not allowed:
             raise Http404
         try:

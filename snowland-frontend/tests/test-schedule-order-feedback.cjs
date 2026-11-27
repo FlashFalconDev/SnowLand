@@ -25,7 +25,7 @@ function run(source){return vm.runInContext(ts.transpileModule(source,{compilerO
 run(message.getText(orders)+'\n'+component.getText(orders))
 ctx.rescheduleDate='2026-10-30';ctx.candidate={date:'2026-10-29'};ctx.scheduleOptions={waiver_resign_count:2,insurance_recheck_count:1}
 run('exports.documentReview=()=> <>{'+documentReview.getText(schedule)+'}</>')
-assert.match(renderToStaticMarkup(ctx.exports.documentReview()),/改期須重新簽署：2 位；已投保重核：1 位/)
+assert.match(renderToStaticMarkup(ctx.exports.documentReview()),/改期須重新簽署：2 位；投保重新核對：1 位/)
 ctx.rescheduleDate='2026-10-29'
 assert.equal(renderToStaticMarkup(ctx.exports.documentReview()),'','A time-only change must not claim date-based invalidation')
 run('exports.preview=()=> <>{'+statusGuard.getText(schedule)+'}{'+dataGuard.getText(schedule)+'}</>')

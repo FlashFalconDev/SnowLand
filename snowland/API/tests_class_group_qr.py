@@ -50,7 +50,7 @@ class ClassGroupQRTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'image/png')
         self.assertEqual(response['Cache-Control'], 'private, no-store')
-        response.close()
+        self.assertEqual(b''.join(response.streaming_content), self.image().read())
         self.assertEqual(APIClient().get(url).status_code, 401)
         self.assertEqual(self.reader(self.coach_user).get(url).status_code, 404)
         self.assertEqual(self.reader(self.user).get(url).status_code, 404)
@@ -62,7 +62,8 @@ class ClassGroupQRTests(TestCase):
         Payment.objects.create(reservation_group=self.group, user=self.user, status='paid')
         for user in [self.user, adult, parent]:
             response = self.reader(user).get(url)
-            self.assertEqual(response.status_code, 200); response.close()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(b''.join(response.streaming_content), self.image().read())
         member.guardian = None; member.user = self.user; member.save()
         self.assertEqual(self.reader(parent).get(url).status_code, 404)
         self.assertEqual(self.reader(adult).get(url).status_code, 404)
