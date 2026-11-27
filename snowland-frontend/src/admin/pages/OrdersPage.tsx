@@ -61,6 +61,22 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 const LANGUAGE_LABEL: Record<string, string> = { zh: '中文', en: '英文', ja: '日文' }
 const REVISION_LABEL: Record<string, string> = { create: '建立訂單', update: '修改訂單', modify: '修改訂單', cancellation: '取消訂單', cancel: '取消申請', mark_test: '標記測試訂單', unmark_test: '取消測試標記' }
 
+function CapacityConflictBanner({ conflict }: { conflict: Order['capacity_conflict'] }) {
+  if (!conflict?.conflicts.length) return null
+  return (
+    <div role="alert" className="rounded-lg border border-amber-400 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-100">
+      <p className="font-semibold">付款後發現時段已滿，需主管跟進</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5">
+        {conflict.conflicts.map(slot => (
+          <li key={`${slot.template_id}-${slot.date}-${slot.start_time}-${slot.end_time}`}>
+            {slot.date} {slot.start_time}–{slot.end_time} · {slot.template_name}（其他訂單佔 {slot.occupied} 堂，上限 {slot.capacity} 堂）
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function TestOrderBadge() {
   return <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100">測試</span>
 }
@@ -190,6 +206,7 @@ function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boole
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <div className="flex flex-wrap items-center gap-2 font-mono text-sm font-semibold text-purple-600 dark:text-purple-400">{order.sn}{order.is_test && <TestOrderBadge />}</div>
+          {order.capacity_conflict && <span className="text-xs font-medium text-amber-700 dark:text-amber-300">需主管跟進</span>}
           <div className="mt-1 font-medium text-gray-900 dark:text-white">{order.student_alias || '未填暱稱'} · {order.number_of_people} 人</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">{order.campus_name} · {order.course_dates.join('、')}</div>
         </div>
@@ -199,6 +216,7 @@ function CampusManagerOrdersPage({ isPrincipal, workflow }: { isPrincipal: boole
         </button>
       </div>
       {expandedId === order.id && <div className="mt-4 space-y-2 border-t border-gray-100 pt-4 dark:border-gray-700">
+        <CapacityConflictBanner conflict={order.capacity_conflict} />
         {order.sessions.map((session, index) => <div key={`${session.date}-${index}`} className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700 dark:bg-gray-700 dark:text-gray-200">
           <div className="font-medium">{session.date}　{session.start_time.slice(0, 5)}–{session.end_time.slice(0, 5)} · {session.course_type || '課程'}</div>
           <div className="mt-1 text-xs text-gray-500 dark:text-gray-300">{session.number_of_people} 人 · 程度：{formatAbilityLevel(session.ability_level)} · 年齡：{session.age_ranges.filter(Boolean).join('、') || '未填'}</div>
@@ -354,6 +372,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                     <div className="text-xs text-gray-500 dark:text-gray-400">訂單編號</div>
                     <div className="break-all font-mono text-sm" style={{ color: PRIMARY }}>{order.sn}</div>
                     {order.is_test && <TestOrderBadge />}
+                    {order.capacity_conflict && <span className="text-xs font-medium text-amber-700 dark:text-amber-300">需主管跟進</span>}
                   </div>
                   <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusPill.cls}`}>{statusPill.label}</span>
                 </div>
@@ -396,6 +415,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                       <td className="px-5 py-3 font-mono whitespace-nowrap" style={{ color: PRIMARY }}>
                         {order.sn}
                         {order.is_test && <div className="mt-1"><TestOrderBadge /></div>}
+                        {order.capacity_conflict && <div className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">需主管跟進</div>}
                         {order.cancellation?.status === 'requested' && <div className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">申請取消・待審核</div>}
                       </td>
                       <td className="px-5 py-3 text-gray-600 dark:text-gray-300 hidden md:table-cell whitespace-nowrap">
@@ -896,6 +916,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <CapacityConflictBanner conflict={order.capacity_conflict} />
           {canRefund && cancellationExpired && <p role="status" className="text-sm">首堂課已開始，無法新增取消申請。</p>}
           {canRefund && refundPreviewError && <p role="alert" className="text-sm">無法確認取消資格。 <button type="button" className="underline" onClick={() => reloadRefundPreview()}>重試</button></p>}
           <div className="flex flex-wrap gap-2">

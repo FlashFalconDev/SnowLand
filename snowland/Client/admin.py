@@ -134,6 +134,8 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
                 '共用相簿可在 booking 設定加入 "course_album_coach_delete_enabled": false，'
                 '關閉現任授課教練刪除本人上傳附件的權限。預設開啟。'
                 '在 booking 設定加入 "test_order_marking_enabled": false 可停用測試訂單標記操作。預設開啟。'
+                '私人課在送單與付款時預設重查容量。可在 booking 設定加入 '
+                '"booking_capacity_recheck_enabled": false 關閉重查與付款後衝突標記。'
                 '後台學習評量的 booking 設定可用 "evaluation_date_filters_enabled": false 還原原清單。'
                 '"evaluation_default_date_field" 可填 "ordered"（下單日期，預設）或 "lesson"（上課日期）。'
                 '"evaluation_default_date_range_days" 可填 1 至 366 的整數，預設 30 天（含今天）。'

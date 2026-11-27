@@ -268,6 +268,24 @@ export const previewDiscounts = async (data: CreateReservationParams): Promise<D
   return api.post('/discount-preview/', data, { timeout: DISCOUNT_PREVIEW_TIMEOUT_MS })
 }
 
+export interface SlotUnavailable {
+  code: string
+  message_zh: string
+  date: string
+  start_time: string
+  end_time: string
+  template_id: number
+  template_name: string
+  occupied: number
+  capacity: number
+}
+
+export interface SlotFullResponse {
+  code: 'slot_full'
+  message: string
+  conflicts: SlotUnavailable[]
+}
+
 export interface CreateReservationResponse {
   code: number
   msg: string

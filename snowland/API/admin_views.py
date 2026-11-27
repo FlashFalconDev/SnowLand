@@ -2090,7 +2090,10 @@ class OrderAdminViewSet(ModelViewSet):
         if not group.reservations.live().exclude(status__in=('cancelled', 'deleted')).exists():
             return Response({'code': 400, 'msg': '此訂單已沒有可付款的課程'}, status=400)
         from booking.api_views import get_group_payment_hold
-        hold_message, _ = get_group_payment_hold(group)
+        from booking.capacity import PAYMENT_CAPACITY_CODE
+        hold_message, hold_code = get_group_payment_hold(group)
+        if hold_code == PAYMENT_CAPACITY_CODE:
+            return Response({'code': hold_code, 'message': hold_message, 'msg': hold_message}, status=409)
         if hold_message:
             return Response({'code': 400, 'msg': hold_message}, status=400)
         return Response({'code': 200, 'data': {
@@ -2423,6 +2426,9 @@ class OrderAdminViewSet(ModelViewSet):
                 confirmations.append(foreign_receipt)
                 current.DataJSON={**payload,'settlement':foreign_receipt,'settlement_confirmations':confirmations}
             current.save()
+            if payment_status == 'paid' and not was_paid:
+                from booking.capacity import record_paid_capacity_conflict
+                record_paid_capacity_conflict(instance, current, user=request.user)
             if payment_status == 'paid' and not (was_paid and posting_date_supplied):
                 from booking.currency import settlement_summary
                 from booking.loyalty import sync_order_loyalty

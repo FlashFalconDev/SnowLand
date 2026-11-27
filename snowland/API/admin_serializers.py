@@ -1673,6 +1673,13 @@ class BookingAdminSerializer(serializers.ModelSerializer):
         read_only_fields = ['course_template']
 
 
+def order_capacity_conflict(group):
+    payment = group.latest_live_payment()
+    if payment and isinstance(payment.DataJSON, dict):
+        return payment.DataJSON.get('capacity_conflict')
+    return None
+
+
 class CampusManagerOrderSerializer(serializers.ModelSerializer):
     """校區主管與校長僅取得排課必需的訂單資訊。"""
     sn = serializers.SerializerMethodField()
@@ -1681,10 +1688,11 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
     number_of_people = serializers.SerializerMethodField()
     course_dates = serializers.SerializerMethodField()
     sessions = serializers.SerializerMethodField()
+    capacity_conflict = serializers.SerializerMethodField()
 
     class Meta:
         model = ReservationGroup
-        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions', 'is_test']
+        fields = ['id', 'sn', 'campus_name', 'student_alias', 'number_of_people', 'course_dates', 'sessions', 'is_test', 'capacity_conflict']
         read_only_fields = fields
 
     def _visible_bookings(self, obj):
@@ -1718,6 +1726,20 @@ class CampusManagerOrderSerializer(serializers.ModelSerializer):
 
     def get_course_dates(self, obj):
         return sorted({booking.date.isoformat() for _, booking in self._visible_bookings(obj)})
+
+    def get_capacity_conflict(self, obj):
+        marker = order_capacity_conflict(obj)
+        if not marker:
+            return None
+        visible_slots = {
+            (booking.date.isoformat(), booking.start_time.strftime('%H:%M'), booking.end_time.strftime('%H:%M'))
+            for _, booking in self._visible_bookings(obj)
+        }
+        conflicts = [
+            slot for slot in marker['conflicts']
+            if (slot['date'], slot['start_time'], slot['end_time']) in visible_slots
+        ]
+        return {**marker, 'conflicts': conflicts} if conflicts else None
 
     def get_sessions(self, obj):
         sessions = []
@@ -1754,6 +1776,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
     reservations = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
     payment_method = serializers.SerializerMethodField()
+    capacity_conflict = serializers.SerializerMethodField()
     bank_account = serializers.SerializerMethodField()
     bank_posted_date = serializers.DateField(source='latest_live_payment.bank_posted_date', read_only=True, allow_null=True)
     total_fee = serializers.SerializerMethodField()
@@ -1773,7 +1796,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sn', 'order_number', 'name', 'user', 'user_name', 'user_email', 'booking_contact',
             'campus', 'campus_name', 'marketing_source', 'marketing_source_detail', 'line_group_url', 'line_group_qr_url',
-            'reservations', 'total_fee', 'payment_status', 'payment_method',
+            'reservations', 'total_fee', 'payment_status', 'payment_method', 'capacity_conflict',
             'bank_account', 'bank_posted_date', 'settlement', 'received_settlement', 'revisions', 'cancellation', 'amendment_balance', 'created_at', 'is_test',
         ]
         read_only_fields = fields
@@ -1927,6 +1950,9 @@ class OrderAdminSerializer(serializers.ModelSerializer):
         except Exception as exc:
             logger.warning('Coach candidates failed for reservation %s (%s)', reservation.pk, type(exc).__name__)
             return {'candidate_status': 'error', 'available_coaches': None, 'unavailable_coaches': None}
+
+    def get_capacity_conflict(self, obj):
+        return order_capacity_conflict(obj)
 
     def get_payment_status(self, obj):
         p = obj.latest_live_payment()
