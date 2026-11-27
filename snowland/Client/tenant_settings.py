@@ -32,6 +32,13 @@ def manual_payment_posting_date_mode(client):
     return mode if mode in ('optional', 'required', 'disabled') else 'optional'
 
 
+def order_import_enabled(client):
+    config = ModuleSetting.objects.filter(
+        client=client, module__module_sid='booking', module__is_active=True, is_active=True,
+    ).values_list('settings', flat=True).first()
+    return not isinstance(config, dict) or config.get('order_import_enabled') is not False
+
+
 def order_refund_charge_enabled(client):
     config = ModuleSetting.objects.filter(
         client=client, module__module_sid='booking', module__is_active=True, is_active=True,

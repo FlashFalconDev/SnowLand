@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from booking.models import Booking, CourseEvaluation, NotificationDelivery, NotificationTemplate, Payment, ReservationGroup
@@ -14,6 +14,7 @@ from booking.operations import notification_template_matches_group, schedule_gro
 from booking.order_testing import exclude_test_orders
 from booking.notification_recipients import COURSE_RECIPIENT_EVENTS, channel_recipient, course_notification_recipients, email_notification_account_ids, group_documents_missing
 from booking.tasks import auto_cancel_unpaid_reservations
+from booking.order_import.service import purge_expired_previews
 
 
 MISSING_PAYMENT_URL_ERROR = 'SNOWLAND_PUBLIC_PAYMENT_URL 未設定，無法寄送團體班付款連結'
@@ -35,6 +36,7 @@ class Command(BaseCommand):
         expired_count = expired.count()
         if not dry_run:
             auto_cancel_unpaid_reservations()
+            purge_expired_previews(now=now)
 
         evaluation_count = 0
         completed_groups = ReservationGroup.objects.live().filter(
@@ -56,9 +58,11 @@ class Command(BaseCommand):
             is_active=True,
             event__in=['pre_course', 'missing_documents', 'line_group', 'evaluation_due'],
         ).values_list('client_id', 'event').distinct()
+        # Importing an already-paid order must not start automatic customer notices.
+        imported = Payment.all_objects.filter(reservation_group_id=OuterRef('pk'), DataJSON__import_batch_id__isnull=False)
         for client_id, event in events:
             for group in exclude_test_orders(ReservationGroup.objects.live()).filter(
-                client_id=client_id, payments__is_deleted=False, payments__status='paid',
+                ~Exists(imported), client_id=client_id, payments__is_deleted=False, payments__status='paid',
             ).distinct():
                 if dry_run:
                     continue

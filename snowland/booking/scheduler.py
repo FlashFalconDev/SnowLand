@@ -642,7 +642,7 @@ def check_manual_assignment(reservation, bookings, coaches, busy, *, slots):
         campus_coaches = set(Coach.objects.filter(
             pk__in=coach_ids, campuses__pk=campus_id, campuses__client_id=client_id,
         ).values_list('pk', flat=True))
-    rejected = {coach.pk for coach in reservation.rejected_coaches.all()}
+    rejected = {coach.pk for coach in reservation.rejected_coaches.all()} if reservation.pk else set()
     on_leave = set()
     if dates:
         for coach_id, start, end in CoachLeaveRequest.objects.filter(

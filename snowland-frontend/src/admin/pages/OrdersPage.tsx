@@ -243,7 +243,19 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   const [paymentFilter, setPaymentFilter] = useState('')
   const [includeTest, setIncludeTest] = useState(() => searchParams.get('include_test') === '1')
   const [page, setPage] = useState(1)
-  const [viewingId, setViewingId] = useState<number | null>(null)
+  const [selectedOrderId, setViewingId] = useState<number | null>(null)
+  const orderIdParam = Number(searchParams.get('order_id'))
+  const directOrderId = Number.isSafeInteger(orderIdParam) && orderIdParam > 0 ? orderIdParam : null
+  const viewingId = directOrderId ?? selectedOrderId
+
+  function closeOrderDetail() {
+    setViewingId(null)
+    if (directOrderId) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('order_id')
+      setSearchParams(next, { replace: true })
+    }
+  }
 
   // 搜尋 debounce 300ms,避免每打一個字就打一次 API
   const [search, setSearch] = useState(querySearch)
@@ -287,8 +299,8 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
   }, [isPlaceholderData, page, pageData?.page])
 
   const { data: viewing, isFetching: isViewingLoading, error: viewingError, refetch: refetchViewing } = useQuery({
-    queryKey: ['admin', 'orders', 'detail', viewingId, workflow],
-    queryFn: () => fetchOrder(viewingId as number, workflow),
+    queryKey: ['admin', 'orders', 'detail', viewingId, workflow, Boolean(directOrderId)],
+    queryFn: () => fetchOrder(viewingId as number, workflow, Boolean(directOrderId)),
     enabled: viewingId !== null,
     retry: false,
     staleTime: 0,
@@ -528,10 +540,10 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
           error={viewingError}
           isRetrying={isViewingLoading}
           onRetry={() => refetchViewing()}
-          onClose={() => setViewingId(null)}
+          onClose={closeOrderDetail}
         />
       )}
-      {viewingId !== null && viewing && (viewingError as { response?: { status?: number } } | null)?.response?.status !== 404 && <div className={isViewingLoading || viewingError ? 'invisible' : undefined} aria-hidden={Boolean(isViewingLoading || viewingError)}><OrderDetailDrawer order={viewing} workflow={workflow} onClose={() => setViewingId(null)} /></div>}
+      {viewingId !== null && viewing && (viewingError as { response?: { status?: number } } | null)?.response?.status !== 404 && <div className={isViewingLoading || viewingError ? 'invisible' : undefined} aria-hidden={Boolean(isViewingLoading || viewingError)}><OrderDetailDrawer order={viewing} workflow={workflow} onClose={closeOrderDetail} /></div>}
     </div>
   )
 }

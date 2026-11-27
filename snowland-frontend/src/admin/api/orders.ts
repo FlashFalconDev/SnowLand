@@ -205,8 +205,10 @@ export async function fetchOrders(): Promise<Order[]> {
   return page.items
 }
 
-export async function fetchOrder(id: number, workflow?: OrderWorkflow): Promise<Order> {
-  const res = (await adminApi.get(`/orders/${id}/`, { params: { workflow } })) as any
+export async function fetchOrder(id: number, workflow?: OrderWorkflow, allCampuses = false): Promise<Order> {
+  const res = (await adminApi.get(`/orders/${id}/`, {
+    params: { workflow }, headers: allCampuses ? { 'X-Campus-ID': 'all' } : undefined,
+  })) as any
   return res.data || res
 }
 

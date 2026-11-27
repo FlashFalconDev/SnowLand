@@ -134,6 +134,7 @@ class ModuleSettingAdmin(PlatformOnlyAdmin):
                 '共用相簿可在 booking 設定加入 "course_album_coach_delete_enabled": false，'
                 '關閉現任授課教練刪除本人上傳附件的權限。預設開啟。'
                 '在 booking 設定加入 "test_order_marking_enabled": false 可停用測試訂單標記操作。預設開啟。'
+                '加入 "order_import_enabled": false 可停用已購訂單匯入。預設開啟，限總部訂單管理員。'
                 '私人課在送單與付款時預設重查容量。可在 booking 設定加入 '
                 '"booking_capacity_recheck_enabled": false 關閉重查與付款後衝突標記。'
                 '加入 "test_order_financial_override_enabled": false 可停用總部管理員覆寫已有帳務的測試標記。預設開啟。'

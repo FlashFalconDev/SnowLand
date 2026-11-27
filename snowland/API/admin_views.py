@@ -32,7 +32,7 @@ import json
 
 from Client.models import Client, SiteContent
 from Client.tenant_settings import (
-    booking_closures_enabled,
+    booking_closures_enabled, order_import_enabled,
     coach_course_payroll_summary_enabled,
     evaluation_date_filter_defaults,
     insurance_eligibility_settings,
@@ -5883,6 +5883,7 @@ def admin_me(request, client_code):
             'permissions': console_permissions_for_user(request.user, request.tenant) if (is_superuser or is_manager) else [],
             'permission_definitions': ADMIN_PERMISSION_DEFINITIONS,
             'order_refund_charge_enabled': order_refund_charge_enabled(tenant),
+            'order_import_enabled': order_import_enabled(tenant),
         },
     })
 
