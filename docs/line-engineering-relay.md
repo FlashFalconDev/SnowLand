@@ -4,7 +4,9 @@ LINE 群組中含「工程」的文字會觸發一筆 Cursor Automation POST。W
 
 ## 儲存與設定
 
-- KV 綁定 `CHAT_HISTORY` 以群組和台北日期索引文字與附件資訊，記錄寫入後保留 48 小時。文字及其中的網址會原樣保存。
+- KV 綁定 `CHAT_HISTORY` 以群組和台北日期索引文字與附件資訊，記錄寫入後保留 48 小時（172800 秒）。文字及其中的網址會原樣保存。
+- 新寫入使用 `msgr:<清理後群組 ID>:<台北日期>:<15 位反向時間>:<清理後訊息 ID>`。反向時間是 `999999999999999 - Unix 毫秒時間戳`，左側補零到 15 位。KV 依字典序列舉，同一群組和台北日期會先讀到最新時間。
+- 過渡期併讀同群組、同日的舊 `msg:`。同一 `messageId` 優先採用新 key，當前 POST 的記憶體資料優先於 KV。所有舊版寫入者停止寫入 `msg:` 後滿 48 小時，且沒有回滾至舊寫入方式，才可移除相容讀取。
 - `wrangler.toml` 將私有 R2 bucket `snowland-line-relay-media` 綁定為 `MEDIA_BUCKET`。部署前確認整個 bucket 的物件自建立起 2 天到期，並維持 `r2.dev` 與自訂公開網域停用。單檔大小由 `MEDIA_MAX_BYTES` 設定，預設 52428800 位元組（50 MiB）。
 - `LINE_CHANNEL_SECRET` 驗證 LINE webhook，`RELAY_SIGNING_SECRET` 簽署轉發內容與下載網址。啟用媒體暫存時，另以 `LINE_CHANNEL_ACCESS_TOKEN` 下載 LINE 媒體。LINE secrets 由小陌本人在互動提示中輸入。 [Worker 設定與測試步驟](../tools/line-engineering-relay/README.md)
 
@@ -20,7 +22,13 @@ LINE 群組中含「工程」的文字會觸發一筆 Cursor Automation POST。W
 | 文字 | `text` 原文，含其中的連結 |
 | 附件 | 若有檔名則提供 `fileName`。 `media` 提供 `type`、`contentType`、`size`（位元組）、`duration`（沿用 LINE 毫秒值）及 `status`。成功儲存且 `MEDIA_BUCKET` 仍綁定時，項目另帶 `downloadUrl`。 |
 
-觸發訊息的 `isTrigger` 為 `true`。`contextCount` 為實際送出的項目數。KV 歷史最多讀取 20 頁、每頁 100 筆，讀取受限或失敗時標記 `truncated: true`。轉發 JSON 以 UTF-8 計算，預設上限 512 KiB。超過時依序移除最舊的非觸發項目並標記 `truncated: true`。若光是必要欄位與觸發項目便超出上限，Worker 跳過這次轉發。
+每次轉發保留觸發訊息（`isTrigger: true`），並從併讀後的唯一訊息選取時間最新的至多 50 則非觸發項目。可在 Worker 環境變數（例如 Wrangler 的 `[vars]`）設定 `RELAY_HISTORY_LIMIT = "75"`。接受正安全整數，無效時採預設。兩種 key 各最多掃 20 頁、每頁最多 100 個 key。新 key 讀滿上限即停止列舉，舊 key 依舊到新掃描，保留已成功取得的資料。
+
+`contextCount` 為實際送出的項目數。`truncated: true` 時附上 `truncatedReasons` 陣列，多個原因可並存，順序如下。`truncated: false` 時省略該欄位。
+
+1. `read_interrupted` 表示任一 prefix 的 KV 讀取發生例外、分頁中斷或達 20 頁後仍有下一頁。
+2. `history_limit` 表示非觸發項目達筆數上限，剛好達上限時也回傳。
+3. `payload_limit` 表示 UTF-8 JSON 超過傳送上限。預設 512 KiB，可用 `RELAY_MAX_PAYLOAD_BYTES` 覆寫。Worker 從最舊的非觸發項目開始整則移除，保留項目的中文與 emoji 原文完整。必要欄位與觸發項目仍超限時，Worker 跳過轉發。
 
 媒體 `status` 可為 `stored`、`skipped_missing_token`、`skipped_no_bucket`、`skipped_too_large`、`download_failed` 或 `storage_failed`。大小或內容類型尚未知時以 `null` 表示。
 

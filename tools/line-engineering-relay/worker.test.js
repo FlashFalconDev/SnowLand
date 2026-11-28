@@ -80,6 +80,21 @@ function savedMessages(kv) {
   return [...kv.values.values()].map((value) => JSON.parse(value));
 }
 
+function listedPages(kv, format) {
+  return kv.list.mock.calls.map(({ arguments: [options] }) => options)
+    .filter(({ prefix }) => prefix.startsWith(`${format}:`));
+}
+
+function moveToLegacyHistory(kv) {
+  for (const [key, value] of [...kv.values]) {
+    if (!key.startsWith("msgr:")) continue;
+    const [, group, date, , id] = key.split(":");
+    const time = String(JSON.parse(value).timestampMs).padStart(15, "0");
+    kv.values.set(`msg:${group}:${date}:${time}:${id}`, value);
+    kv.values.delete(key);
+  }
+}
+
 function callsTo(fetch, url) {
   return fetch.mock.calls.filter(({ arguments: [target] }) => target === url);
 }
@@ -377,7 +392,8 @@ test("saves ordinary text verbatim in KV for 48 hours without contacting the rou
   assert.equal(fetch.mock.callCount(), 0);
   assert.equal(kv.list.mock.callCount(), 0);
   assert.equal(kv.put.mock.callCount(), 1);
-  const key = `msg:group____:${DAY}:${String(note.timestamp).padStart(15, "0")}:msg_1__`;
+  const reversedTime = String(999_999_999_999_999 - note.timestamp).padStart(15, "0");
+  const key = `msgr:group____:${DAY}:${reversedTime}:msg_1__`;
   assert.deepEqual(JSON.parse(kv.values.get(key)), {
     messageId: note.message.id,
     webhookEventId: note.webhookEventId,
@@ -439,8 +455,9 @@ test("stores private media and relays prioritized same-day history across KV pag
   assert.deepEqual(payload.context.filter(({ isTrigger }) => isTrigger).map(({ messageId }) => messageId), [trigger.message.id]);
   assert.equal(payload.context[0].text, updatedNote.message.text);
   assert.equal(payload.context[1].text, link.message.text);
-  assert.equal(kv.list.mock.callCount(), 2);
-  assert.deepEqual(kv.list.mock.calls.map(({ arguments: [options] }) => options.cursor), [undefined, "2"]);
+  const newestPages = listedPages(kv, "msgr");
+  assert.equal(newestPages.length, 2);
+  assert.deepEqual(newestPages.map(({ cursor }) => cursor), [undefined, "2"]);
   assert.equal(r2.put.mock.callCount(), 3);
   assert.equal(fetch.mock.callCount(), 4);
 
@@ -730,10 +747,239 @@ test("marks partial history at the page cap and still includes the current trigg
   const trigger = groupMessage("trigger", `${DAY}T02:00:00Z`, { text: "工程" });
   await receive([trigger], bindings, ctx);
   const payload = relayPayload(fetch);
-  assert.equal(kv.list.mock.callCount(), 20);
+  assert.equal(listedPages(kv, "msgr").length, 20);
   assert.equal(payload.contextCount, 21);
   assert.equal(payload.context.at(-1).messageId, trigger.message.id);
   assert.equal(payload.truncated, true);
+});
+
+for (const failure of ["later page error", "page cap"]) {
+  test(`keeps messages from separate evening posts when legacy history hits a ${failure}`, async (t) => {
+    const kv = memoryKV(t, { pageSize: 2, eventual: true });
+    const bindings = {
+      ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: memoryR2(t),
+      LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex"),
+    };
+    const { fetch, ctx } = mockFetch(t, async (url) => {
+      if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+      assert.ok(url.startsWith(LINE_CONTENT_ROOT));
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } });
+    });
+    const warn = t.mock.method(console, "warn", () => {});
+    const morning = Array.from({ length: 47 }, (_, i) => ({
+      ...groupMessage(`morning-${i}`, `${DAY}T01:00:00Z`, i === 0 ? { type: "image" } : { text: "測試早班" }),
+      timestamp: Date.parse(`${DAY}T01:00:00Z`) + i,
+    }));
+    await receive(morning, bindings, ctx);
+    moveToLegacyHistory(kv);
+
+    const evening = [
+      groupMessage("evening-image", `${DAY}T13:00:00.000Z`, { type: "image" }),
+      groupMessage("evening-a", `${DAY}T13:00:00.001Z`, { text: "測試晚班　樣本甲 👩‍💻" }),
+      groupMessage("evening-b", `${DAY}T13:00:00.002Z`, { text: "測試晚班　樣本乙 🧪" }),
+    ];
+    for (const item of evening) await receive([item], bindings, ctx);
+    kv.publish();
+    if (failure === "later page error") {
+      const list = kv.list;
+      kv.list = t.mock.fn(async (options) => {
+        if (options.prefix.startsWith("msg:") && options.cursor) throw new Error("test page failure");
+        return list(options);
+      });
+    }
+
+    const trigger = groupMessage("evening-trigger", `${DAY}T13:02:55Z`, { text: "工程測試" });
+    await receive([trigger], bindings, ctx);
+    const payload = relayPayload(fetch);
+    assert.equal(listedPages(kv, "msg").length, failure === "later page error" ? 2 : 20);
+    assert.equal(warn.mock.callCount(), failure === "later page error" ? 1 : 0);
+    assert.equal(payload.truncated, true);
+    assert.deepEqual(payload.truncatedReasons, ["read_interrupted"]);
+    assert.equal(payload.contextCount, failure === "later page error" ? 6 : 44);
+    assert.equal(payload.context[0].media.status, "stored");
+    const [image, noteA, noteB, last] = payload.context.slice(-4);
+    assert.equal(image.messageId, evening[0].message.id);
+    assert.equal(image.media.status, "stored");
+    assert.equal(typeof image.downloadUrl, "string");
+    assert.equal((await worker.fetch(new Request(image.downloadUrl), bindings, ctx)).status, 200);
+    assert.deepEqual([noteA.text, noteB.text, last.text], [evening[1].message.text, evening[2].message.text, trigger.message.text]);
+    assert.equal(last.messageId, trigger.message.id);
+    assert.equal(last.isTrigger, true);
+  });
+}
+
+test("stops listing after 50 newest non-trigger messages even when KV lists the trigger", async (t) => {
+  const kv = memoryKV(t, { pageSize: 26 });
+  const { fetch, ctx } = mockRelay(t);
+  const bindings = { ...env, CHAT_HISTORY: kv };
+  const notes = Array.from({ length: 60 }, (_, i) => ({
+    ...groupMessage(`note-${i}`, `${DAY}T01:00:00Z`, { text: "測試歷史" }),
+    timestamp: Date.parse(`${DAY}T01:00:00Z`) + i,
+  }));
+  await receive(notes, bindings, ctx);
+  const trigger = groupMessage("trigger", `${DAY}T02:00:00Z`, { text: "工程測試" });
+  await receive([trigger], bindings, ctx);
+
+  const payload = relayPayload(fetch);
+  assert.equal(payload.contextCount, 51);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId),
+    [...notes.slice(10), trigger].map(({ message }) => message.id));
+  assert.equal(payload.context.at(-1).isTrigger, true);
+  assert.equal(payload.truncated, true);
+  assert.deepEqual(payload.truncatedReasons, ["history_limit"]);
+  assert.deepEqual(listedPages(kv, "msgr").map(({ cursor, limit }) => [cursor, limit]), [[undefined, 50], ["26", 25]]);
+  assert.deepEqual(kv.get.mock.calls.map(({ arguments: [keys] }) => keys.length), [26, 25]);
+});
+
+test("uses the default history limit for invalid settings and marks an exact limit", async (t) => {
+  const { fetch, ctx } = mockRelay(t);
+  const notes = Array.from({ length: 50 }, (_, i) => ({
+    ...groupMessage(`note-${i}`, `${DAY}T01:00:00Z`, { text: "測試歷史" }),
+    timestamp: Date.parse(`${DAY}T01:00:00Z`) + i,
+  }));
+  const trigger = groupMessage("trigger", `${DAY}T02:00:00Z`, { text: "工程測試" });
+  for (const setting of ["", "0", "-1", "2.5", "invalid", "9007199254740992", true, [2]]) {
+    fetch.mock.resetCalls();
+    await receive([...notes, trigger], { ...env, RELAY_HISTORY_LIMIT: setting }, ctx);
+    const payload = relayPayload(fetch);
+    assert.equal(payload.contextCount, 51);
+    assert.deepEqual(payload.truncatedReasons, ["history_limit"]);
+  }
+});
+
+test("counts UTF-8 bytes including all truncation reasons and drops only whole entries", async (t) => {
+  const kv = memoryKV(t, { eventual: true });
+  kv.list.mock.mockImplementation(async ({ prefix }) => {
+    if (prefix.startsWith("msg:")) throw new Error("test list failure");
+    return { keys: [], list_complete: true };
+  });
+  const bindings = {
+    ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: memoryR2(t), RELAY_HISTORY_LIMIT: "4",
+    LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex"),
+  };
+  const { fetch, ctx } = mockFetch(t, async (url) =>
+    url === env.RELAY_WEBHOOK_URL ? new Response(null, { status: 204 }) : new Response(new Uint8Array([1])));
+  t.mock.method(console, "warn", () => {});
+  t.mock.method(Date, "now", () => Date.parse(`${DAY}T12:00:00Z`));
+  const batch = [
+    groupMessage("oldest", `${DAY}T01:00:00Z`, { text: "測試資料 🌀".repeat(200) }),
+    groupMessage("image", `${DAY}T02:00:00Z`, { type: "image" }),
+    groupMessage("note-a", `${DAY}T03:00:00Z`, { text: "測試保留甲 👩‍💻".repeat(4) }),
+    groupMessage("note-b", `${DAY}T04:00:00Z`, { text: "測試保留乙 🧑🏽‍🍳".repeat(4) }),
+    groupMessage("trigger", `${DAY}T05:00:00Z`, { text: "工程測試 🦉" }),
+  ];
+  await receive(batch, bindings, ctx);
+  const full = relayPayload(fetch);
+  assert.deepEqual(full.truncatedReasons, ["read_interrupted", "history_limit"]);
+  const expected = {
+    ...full,
+    truncatedReasons: [...full.truncatedReasons, "payload_limit"],
+    contextCount: 4,
+    context: full.context.slice(1),
+  };
+  const byteLimit = Buffer.byteLength(JSON.stringify(expected));
+
+  for (const limit of [byteLimit, byteLimit - 1]) {
+    fetch.mock.resetCalls();
+    await receive(batch, { ...bindings, RELAY_MAX_PAYLOAD_BYTES: String(limit) }, ctx);
+    const payload = relayPayload(fetch);
+    const body = callsTo(fetch, env.RELAY_WEBHOOK_URL)[0].arguments[1].body;
+    assert.ok(Buffer.byteLength(body) <= limit);
+    assert.equal(payload.truncated, true);
+    assert.deepEqual(payload.truncatedReasons, expected.truncatedReasons);
+    const keepImage = limit === byteLimit;
+    assert.equal(payload.contextCount, keepImage ? 4 : 3);
+    assert.deepEqual(payload.context.map(({ messageId }) => messageId),
+      batch.slice(keepImage ? 1 : 2).map(({ message }) => message.id));
+    if (keepImage) {
+      assert.equal(Buffer.byteLength(body), byteLimit);
+      assert.equal(typeof payload.context[0].downloadUrl, "string");
+      assert.ok(payload.context[0].downloadUrl === expected.context[0].downloadUrl);
+    }
+    assert.deepEqual(payload.context.slice(-3).map(({ text }) => text), batch.slice(-3).map(({ message }) => message.text));
+    assert.equal(payload.text, batch.at(-1).message.text);
+    assert.equal(payload.context.at(-1).isTrigger, true);
+  }
+});
+
+test("indexes Taipei 23:59 and 00:01 under different dates despite the same UTC day", async (t) => {
+  const kv = memoryKV(t);
+  const { fetch, ctx } = mockRelay(t);
+  const bindings = { ...env, CHAT_HISTORY: kv };
+  const yesterday = groupMessage("yesterday", "2026-11-24T15:59:00Z", { text: "測試前日" });
+  const today = groupMessage("today", "2026-11-24T16:01:00Z", { text: "測試當日" });
+  const trigger = groupMessage("trigger", "2026-11-24T16:02:00Z", { text: "工程測試" });
+  await receive([yesterday, today], bindings, ctx);
+  assert.deepEqual([...kv.values.keys()].map((key) => key.split(":")[2]), ["2026-11-24", DAY]);
+  moveToLegacyHistory(kv);
+  await receive([yesterday, today], bindings, ctx);
+  await receive([trigger], bindings, ctx);
+
+  const payload = relayPayload(fetch);
+  assert.equal(payload.taipeiDate, DAY);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["today", "trigger"]);
+  assert.equal(payload.truncated, false);
+  assert.equal(Object.hasOwn(payload, "truncatedReasons"), false);
+  assert.deepEqual(kv.list.mock.calls.map(({ arguments: [{ prefix }] }) => prefix.split(":")[2]), [DAY, DAY]);
+});
+
+test("merges same-batch messages from memory when KV writes fail", async (t) => {
+  const kv = memoryKV(t);
+  kv.put.mock.mockImplementation(async () => { throw new Error("test write failure"); });
+  const warn = t.mock.method(console, "warn", () => {});
+  const { fetch, ctx } = mockRelay(t);
+  const note = groupMessage("note", `${DAY}T01:00:00Z`, { text: "測試同批 🪴" });
+  const trigger = groupMessage("trigger", `${DAY}T02:00:00Z`, { text: "工程測試" });
+  await receive([trigger, note], { ...env, CHAT_HISTORY: kv }, ctx);
+
+  const payload = relayPayload(fetch);
+  assert.equal(kv.values.size, 0);
+  assert.equal(warn.mock.callCount(), 2);
+  assert.deepEqual(payload.context.map(({ text, isTrigger }) => [text, isTrigger]),
+    [[note.message.text, false], [trigger.message.text, true]]);
+});
+
+test("deduplicates both formats before applying the history limit and merges by timestamp", async (t) => {
+  const kv = memoryKV(t, { pageSize: 2, eventual: true });
+  const { fetch, ctx } = mockRelay(t);
+  const bindings = { ...env, CHAT_HISTORY: kv, RELAY_HISTORY_LIMIT: 3 };
+  const duplicate = groupMessage("duplicate", `${DAY}T03:00:00Z`, { text: "測試舊版本" });
+  const legacy = groupMessage("legacy-only", `${DAY}T04:00:00Z`, { text: "測試只有舊鍵" });
+  await receive([legacy, duplicate], bindings, ctx);
+  moveToLegacyHistory(kv);
+
+  const updated = { ...duplicate, message: { ...duplicate.message, text: "測試新版本" } };
+  const tied = groupMessage("a-new", `${DAY}T03:00:00Z`, { text: "測試同時間" });
+  const older = groupMessage("older", `${DAY}T02:00:00Z`, { text: "測試較早" });
+  await receive([updated, older, tied], bindings, ctx);
+  kv.publish();
+  const trigger = groupMessage("trigger", `${DAY}T05:00:00Z`, { text: "工程測試" });
+  await receive([trigger], bindings, ctx);
+
+  const payload = relayPayload(fetch);
+  assert.equal(payload.contextCount, 4);
+  assert.equal(payload.truncated, true);
+  assert.deepEqual(payload.truncatedReasons, ["history_limit"]);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["a-new", "duplicate", "legacy-only", "trigger"]);
+  assert.equal(payload.context[1].text, updated.message.text);
+});
+
+test("sorts 15-digit reverse time keys newest first across a timestamp digit boundary", async (t) => {
+  const kv = memoryKV(t);
+  const { ctx } = mockRelay(t);
+  const timestamps = [99_999_999_999_999, 100_000_000_000_000, 99_999_999_999_998, 100_000_000_000_001];
+  const messages = timestamps.map((time, i) =>
+    groupMessage(`boundary-${i}`, new Date(time).toISOString(), { text: "測試進位" }));
+  await receive(messages, { ...env, CHAT_HISTORY: kv }, ctx);
+
+  const keys = [...kv.values.keys()].sort();
+  assert.deepEqual(keys.map((key) => JSON.parse(kv.values.get(key)).timestampMs), [...timestamps].sort((a, b) => b - a));
+  assert.deepEqual(keys.map((key) => key.split(":").slice(0, 4)), [
+    ["msgr", "group-test", "5138-11-16", "899999999999998"],
+    ["msgr", "group-test", "5138-11-16", "899999999999999"],
+    ["msgr", "group-test", "5138-11-16", "900000000000000"],
+    ["msgr", "group-test", "5138-11-16", "900000000000001"],
+  ]);
 });
 
 test("isolates media failures and logs only fixed text or HTTP status codes", async (t) => {

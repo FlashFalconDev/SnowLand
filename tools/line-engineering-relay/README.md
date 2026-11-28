@@ -1,6 +1,6 @@
 # SnowLand LINE 工程訊息中繼
 
-Cloudflare Worker 接收 LINE 群組訊息。含「工程」的文字會觸發一筆 Cursor Automation POST，附上該群組自台北當日午夜起的對話與附件資訊。
+Cloudflare Worker 接收 LINE 群組訊息。含「工程」的文字會觸發一筆 Cursor Automation POST，附上該群組自台北當日午夜起、最近最多 50 則對話與附件資訊及觸發訊息。
 
 ## 運作方式
 
@@ -29,4 +29,74 @@ npm test
    ```
 
 3. 確認 Cloudflare 已建立私有 R2 bucket `snowland-line-relay-media`，且 `expire-after-2-days` 規則適用整個 bucket。物件自建立起 2 天（48 小時）到期。維持 `r2.dev` 與公開網域停用。
-4. 以 `npx wrangler secret list` 確認 `LINE_CHANNEL_ACCESS_TOKEN` 已存在，再執行 `npx wrangler deploy`。首次設定時，在 LINE Developers 將 Wrangler 顯示的 Worker HTTPS URL 填為 Webhook URL，並執行 **Verify**。若該頻道已有預約 webhook，先確認切換後的流量安排。
+4. 以 `npx wrangler secret list` 確認媒體下載所需的 secret 名稱已存在，並依下方指令部署。首次設定時，在 LINE Developers 填入 Worker Webhook URL 並執行 **Verify**。若該頻道已有預約 webhook，先確認切換後的流量安排。
+
+### 部署後檢查指令
+
+由調度端在核准部署的 worktree 內進入 `tools\line-engineering-relay`，使用 PowerShell 5.1 和已安裝的 Wrangler。先核對設定名稱與綁定，再部署並比對版本 ID。
+
+```powershell
+Select-String -LiteralPath .\wrangler.toml -Pattern '^\s*(name|binding|bucket_name|id)\s*=' |
+  ForEach-Object { $_.Line.Trim() }
+# Worker 為 snowland-line-engineering-relay。
+# CHAT_HISTORY 的 namespace ID 為 4936dd68803c482099b9f76e09057be0。
+# MEDIA_BUCKET 的 bucket 為 snowland-line-relay-media。
+
+$expectedAccount = Read-Host '輸入預期的 Cloudflare 帳戶 ID'
+function Confirm-RelayWranglerAccount {
+  $relayIdentity = npx.cmd --no-install wrangler whoami 2>$null
+  if ($LASTEXITCODE -ne 0) { throw '無法查核 Wrangler 身分' }
+  if ($expectedAccount -notmatch '^[0-9a-f]{32}$' -or ($relayIdentity -join "`n") -notmatch "\b$expectedAccount\b") {
+    throw 'Wrangler 身分輸出未確認到預期帳戶'
+  }
+}
+Confirm-RelayWranglerAccount
+$relayDeploy = npx.cmd --no-install wrangler deploy --config wrangler.toml 2>$null
+if ($LASTEXITCODE -ne 0) { throw 'Worker 部署失敗' }
+$relayPublishedVersion = $relayDeploy | Select-String -Pattern 'Current Version ID:\s*([0-9a-f-]{36})' |
+  ForEach-Object { $_.Matches[0].Groups[1].Value }
+Confirm-RelayWranglerAccount
+$relayDeployments = npx.cmd --no-install wrangler deployments list --config wrangler.toml --json 2>$null
+if ($LASTEXITCODE -ne 0) { throw '無法列出 Worker 部署' }
+try { $relayVersions = ($relayDeployments -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+catch { throw '無法解析 Worker 部署清單' }
+$relayLatestVersions = $relayVersions | Sort-Object created_on -Descending | Select-Object -First 1 |
+  ForEach-Object { $_.versions | Select-Object -ExpandProperty version_id }
+if (-not $relayPublishedVersion -or $relayPublishedVersion -notin $relayLatestVersions) {
+  throw '最新部署清單未確認到本次發布版本'
+}
+$relayLatestVersions
+```
+
+Worker 讀 `RELAY_WEBHOOK_URL` 做為轉發目的端。目前 `wrangler.toml` 以一般變數配置它。下方只比對 host 和接收端管理者提供的預期 host。若部署採用 secret，`wrangler secret list` 只回傳名稱等中繼資料，請以配置當時核對的 host 或 UTF-8 SHA-256 前 8 碼比對可信紀錄，並由接收端確認有收到已驗簽的請求。僅列出名稱時無法從 Worker 端確認目前 secret 的目的端值。
+
+```powershell
+$relaySecrets = npx.cmd --no-install wrangler secret list --config wrangler.toml --format json 2>$null
+if ($LASTEXITCODE -ne 0) { throw '無法列出 Worker secret 名稱' }
+try { $relayNames = ($relaySecrets -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+catch { throw '無法解析 Worker secret 名稱' }
+$relayNames | Where-Object { $_.name -eq 'RELAY_WEBHOOK_URL' } | Select-Object -ExpandProperty name
+
+$relayVar = Select-String -LiteralPath .\wrangler.toml -Pattern '^\s*RELAY_WEBHOOK_URL\s*=\s*"([^"]+)"' |
+  Select-Object -First 1
+if ($relayVar) {
+  $relayUri = $null
+  if (![uri]::TryCreate($relayVar.Matches[0].Groups[1].Value, [UriKind]::Absolute, [ref]$relayUri)) {
+    throw '轉發目的端變數的 URL 格式無效'
+  }
+  $expectedHost = Read-Host '輸入接收端提供的預期 host'
+  [pscustomobject]@{ HostMatches = $relayUri.Host -ieq $expectedHost }
+}
+```
+
+群組正常收到新事件後，確認有 `msgr:` key。下方只輸出 key 名稱。
+
+```powershell
+$relayKeys = npx.cmd --no-install wrangler kv key list --namespace-id 4936dd68803c482099b9f76e09057be0 --prefix msgr: 2>$null
+if ($LASTEXITCODE -ne 0) { throw '無法列出歷史 key' }
+try { $relayKeyList = ($relayKeys -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+catch { throw '無法解析歷史 key 清單' }
+$relayKeyList | Select-Object -ExpandProperty name
+```
+
+[Wrangler Worker 指令](https://developers.cloudflare.com/workers/wrangler/commands/workers/)、[身分查核](https://developers.cloudflare.com/workers/wrangler/commands/general/#whoami)、[KV 指令](https://developers.cloudflare.com/workers/wrangler/commands/kv/#kv-key-list)
