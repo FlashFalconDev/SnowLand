@@ -3,15 +3,25 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
-const MAX_RELAY_BYTES = 512 * 1024;
+const DEFAULT_RELAY_BYTES = 24 * 1024;
+const HARD_MAX_RELAY_BYTES = 512 * 1024;
+const RECENT_LIMIT = 10;
+const RECENT_TEXT_LIMIT = 2000;
+const OLDER_TEXT_LIMIT = 200;
+const PROFILE_TTL_SECONDS = 86400;
+const PROFILE_TIMEOUT_MS = 2000;
 const MEDIA_TTL_SECONDS = 3600;
 const HISTORY_TTL_SECONDS = 172800;
+const HISTORY_LIMIT = 50;
+const HISTORY_TIME_MAX = 999_999_999_999_999;
+const HISTORY_TIME_WIDTH = 15;
 const HISTORY_PAGE_SIZE = 100;
 const MAX_HISTORY_PAGES = 20;
 const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
 const LINE_SIGNATURE_LENGTH = 44;
 const MEDIA_PATH = "/media/";
 const MEDIA_TYPES = new Set(["image", "video", "file"]);
+const graphemes = new Intl.Segmenter("und", { granularity: "grapheme" });
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 async function readBody(body, maxBytes) {
@@ -163,32 +173,47 @@ async function storeMedia(message, groupId, taipeiDate, env) {
   }
 }
 
-async function readHistory(kv, prefix) {
+async function readHistoryPrefix(kv, prefix, triggerIds, limit = Infinity) {
   const records = new Map();
-  if (!kv) return { records, truncated: false };
+  if (!kv) return { records, interrupted: false };
 
   try {
     let cursor;
     for (let page = 0; page < MAX_HISTORY_PAGES; page++) {
-      const result = await kv.list({ prefix, cursor, limit: HISTORY_PAGE_SIZE });
+      const result = await kv.list({ prefix, cursor, limit: Math.min(HISTORY_PAGE_SIZE, limit - records.size) });
       if (result.keys.length > 0) {
         const values = await kv.get(result.keys.map(({ name }) => name), "json");
-        for (const record of values.values()) {
-          if (record) records.set(record.messageId, record);
+        for (const { name } of result.keys) {
+          const record = values.get(name);
+          if (record && !triggerIds.has(record.messageId) && !records.has(record.messageId)) {
+            records.set(record.messageId, record);
+          }
         }
       }
-      if (result.list_complete) return { records, truncated: false };
+      if (records.size === limit || result.list_complete) return { records, interrupted: false };
+      if (!result.cursor || result.cursor === cursor) break;
       cursor = result.cursor;
     }
   } catch {
     console.warn("Chat history read failed");
   }
-  return { records, truncated: true };
+  return { records, interrupted: true };
+}
+
+async function readHistory(kv, keyScope, triggerIds, limit) {
+  const newest = await readHistoryPrefix(kv, `msgr:${keyScope}`, triggerIds, limit);
+  // Remove the legacy scan once every old writer has stopped for at least the 48-hour TTL.
+  const legacy = await readHistoryPrefix(kv, `msg:${keyScope}`, triggerIds);
+  for (const [id, record] of legacy.records) {
+    if (!newest.records.has(id)) newest.records.set(id, record);
+  }
+  return { records: newest.records, interrupted: newest.interrupted || legacy.interrupted };
 }
 
 function contextItem(record, triggerId, origin, exp, env) {
   const { media, fileName, ...fields } = record;
-  const item = { ...fields, isTrigger: record.messageId === triggerId };
+  const taipeiTime = new Date(record.timestampMs + TAIPEI_OFFSET_MS).toISOString().slice(0, 19).replace("T", " ");
+  const item = { ...fields, taipeiTime, isTrigger: record.messageId === triggerId };
   if (media) {
     const { r2Key, ...metadata } = media;
     if (fileName != null) item.fileName = fileName;
@@ -203,59 +228,153 @@ function contextItem(record, triggerId, origin, exp, env) {
   return item;
 }
 
-function relayBody(fields, context, truncated, maxBytes) {
-  const baseBytes = Buffer.byteLength(JSON.stringify(fields));
-  const sizes = context.map((item) => Buffer.byteLength(JSON.stringify(item)) + 1);
-  let entryBytes = sizes.reduce((total, size) => total + size, 0);
-  let count = context.length;
-  const fits = () => {
-    const envelopeBytes = Buffer.byteLength(JSON.stringify({ truncated, contextCount: count, context: [] }));
-    // Merge the outer JSON objects and count commas only between context entries.
-    return baseBytes + envelopeBytes - 1 + entryBytes - Number(count > 0) <= maxBytes;
+function limitText(item, limit) {
+  const { text } = item;
+  if (typeof text !== "string" || text.length <= limit) return item;
+
+  let count = 0;
+  for (const { segment, index } of graphemes.segment(text)) {
+    count += [...segment].length;
+    if (count > limit) return { ...item, text: text.slice(0, index), textTruncated: true };
+  }
+  return item;
+}
+
+async function readSenderName(userId, groupId, env) {
+  if (typeof userId !== "string" || !userId || !env.LINE_CHANNEL_ACCESS_TOKEN || !env.CHAT_HISTORY) return;
+
+  const controller = new AbortController();
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      resolve(undefined);
+      controller.abort();
+    }, PROFILE_TIMEOUT_MS);
+  });
+  const lookup = async () => {
+    const key = `profile:${sanitizeId(groupId)}:${sanitizeId(userId)}`;
+    const cached = await env.CHAT_HISTORY.get(key, "text");
+    if (controller.signal.aborted) return;
+    if (typeof cached === "string" && cached.trim()) return cached;
+
+    const response = await fetch(
+      `https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: { Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
+      return;
+    }
+    const profile = await response.json();
+    if (controller.signal.aborted) return;
+    const displayName = profile?.displayName;
+    if (typeof displayName !== "string" || !displayName.trim()) return;
+    await env.CHAT_HISTORY.put(key, displayName, { expirationTtl: PROFILE_TTL_SECONDS });
+    return displayName;
   };
 
-  let start = 0;
-  while (start < context.length && !fits()) {
-    const index = start++;
-    if (context[index].isTrigger) continue;
-    truncated = true;
-    count -= 1;
-    entryBytes -= sizes[index];
+  try {
+    // Bound the optional enrichment even if KV or the response body stalls.
+    return await Promise.race([lookup(), deadline]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function relayBody(fields, recent, context, groupFields, truncatedReasons, maxBytes) {
+  const priority = { recent, recentCount: recent.length };
+  const [trigger, ...older] = context;
+  // Merging the fixed fields and metadata replaces two adjacent braces with one comma.
+  const fixedBytes = Buffer.byteLength(JSON.stringify({
+    ...fields,
+    ...priority,
+    ...groupFields,
+    context: [trigger],
+  })) - 1;
+  const sizes = older.map((item) => Buffer.byteLength(JSON.stringify(item)) + 1);
+  let olderBytes = sizes.reduce((total, size) => total + size, 0);
+  const metadata = () => ({
+    summary: `觸發前最新 ${recent.length} 則見 recent；較舊 ${older.length} 則在 context` +
+      (truncatedReasons.length ? `；原因：${truncatedReasons.join("、")}` : ""),
+    truncated: truncatedReasons.length > 0,
+    ...(truncatedReasons.length > 0 ? { truncatedReasons } : {}),
+    contextCount: 1 + recent.length + older.length,
+  });
+  const bytes = () => fixedBytes + Buffer.byteLength(JSON.stringify(metadata())) + olderBytes;
+
+  if (bytes() > maxBytes) truncatedReasons.push("payload_limit");
+  while (older.length > 0 && bytes() > maxBytes) {
+    older.pop();
+    olderBytes -= sizes.pop();
   }
 
-  if (!fits()) return null;
-  return JSON.stringify({
-    ...fields,
-    truncated,
-    contextCount: count,
-    context: context.filter((item, index) => index >= start || item.isTrigger),
-  });
+  const finalBytes = bytes();
+  if (finalBytes > HARD_MAX_RELAY_BYTES) return null;
+  if (finalBytes > maxBytes) console.warn("Relay payload exceeds preferred size limit");
+
+  const { summary, ...details } = metadata();
+  return JSON.stringify({ summary, ...fields, ...priority, ...details, ...groupFields, context: [trigger, ...older] });
 }
 
 async function forwardEvent(trigger, group, history, origin, env) {
   try {
+    const candidates = history.records.filter(({ messageId }) => messageId !== trigger.messageId);
+    const selected = candidates.filter(({ timestampMs }) => timestampMs < trigger.timestampMs)
+      .slice(0, history.limit)
+      .sort((a, b) => b.timestampMs - a.timestampMs ||
+        (a.messageId === b.messageId ? 0 : a.messageId < b.messageId ? -1 : 1));
+    const recentRecords = selected.slice(0, RECENT_LIMIT);
+    const userIds = new Set([trigger, ...recentRecords].map(({ userId }) => userId));
+    const names = new Map(await Promise.all([...userIds].map(async (userId) =>
+      [userId, await readSenderName(userId, group.groupId, env)])));
+
     const t = unixSeconds();
     const exp = t + positiveInteger(env.MEDIA_URL_TTL_SECONDS, MEDIA_TTL_SECONDS);
-    const context = [...history.records.values()]
-      .sort((a, b) => a.timestampMs - b.timestampMs ||
-        (a.messageId === b.messageId ? 0 : a.messageId < b.messageId ? -1 : 1))
-      .map((record) => contextItem(record, trigger.messageId, origin, exp, env));
+    const makeItem = (record) => contextItem(record, trigger.messageId, origin, exp, env);
+    const recent = recentRecords.map((record) => {
+      const item = makeItem(record);
+      item.text ??= null;
+      const senderName = names.get(record.userId);
+      if (senderName) item.senderName = senderName;
+      return limitText(item, RECENT_TEXT_LIMIT);
+    });
+    const senderName = names.get(trigger.userId);
+    const triggerItem = makeItem(trigger);
+    if (senderName) triggerItem.senderName = senderName;
+    const context = [triggerItem, ...selected.slice(RECENT_LIMIT).map((record) =>
+      limitText(makeItem(record), OLDER_TEXT_LIMIT))];
 
+    const truncatedReasons = [];
+    if (history.interrupted) truncatedReasons.push("read_interrupted");
+    if (candidates.length >= history.limit) truncatedReasons.push("history_limit");
+    const setting = env.RELAY_MAX_PAYLOAD_BYTES;
+    const maxBytes = typeof setting === "string" || typeof setting === "number"
+      ? Math.min(positiveInteger(setting, DEFAULT_RELAY_BYTES), HARD_MAX_RELAY_BYTES)
+      : DEFAULT_RELAY_BYTES;
     const body = relayBody({
       source: "line",
-      groupId: group.groupId,
-      userId: trigger.userId,
       text: trigger.text,
       timestamp: trigger.timestamp,
       timestampMs: trigger.timestampMs,
       messageId: trigger.messageId,
       webhookEventId: trigger.webhookEventId,
+      userId: trigger.userId,
+      ...(senderName ? { senderName } : {}),
+    }, recent, context, {
+      groupId: group.groupId,
       taipeiDate: group.taipeiDate,
       contextStart: `${group.taipeiDate}T00:00:00+08:00`,
-    }, context, history.truncated, positiveInteger(env.RELAY_MAX_PAYLOAD_BYTES, MAX_RELAY_BYTES));
+    }, truncatedReasons, maxBytes);
 
     if (body === null) {
-      console.warn("Relay payload exceeds size limit");
+      console.warn("Relay payload exceeds hard size limit");
       return;
     }
 
@@ -322,33 +441,43 @@ async function relayEvents(rawBody, origin, env) {
       continue;
     }
 
-    const prefix = `msg:${sanitizeId(groupId)}:${taipeiDate}:`;
-    const timeKey = String(Math.max(0, Math.floor(timestampMs))).padStart(15, "0");
+    const keyScope = `${sanitizeId(groupId)}:${taipeiDate}:`;
+    const timeKey = String(HISTORY_TIME_MAX - Math.max(0, Math.floor(timestampMs)))
+      .padStart(HISTORY_TIME_WIDTH, "0");
     try {
-      await env.CHAT_HISTORY?.put(`${prefix}${timeKey}:${sanitizeId(message.id)}`, JSON.stringify(record), {
+      await env.CHAT_HISTORY?.put(`msgr:${keyScope}${timeKey}:${sanitizeId(message.id)}`, JSON.stringify(record), {
         expirationTtl: HISTORY_TTL_SECONDS,
       });
     } catch {
       console.warn("Chat history write failed");
     }
 
-    if (!groups.has(prefix)) groups.set(prefix, { groupId, taipeiDate, records: new Map(), triggers: [] });
-    const group = groups.get(prefix);
+    if (!groups.has(keyScope)) groups.set(keyScope, { groupId, taipeiDate, records: new Map(), triggers: [] });
+    const group = groups.get(keyScope);
     group.records.set(record.messageId, record);
     if (record.text?.includes("工程")) group.triggers.push(record);
   }
 
-  for (const [prefix, group] of groups) {
+  const configuredLimit = env.RELAY_HISTORY_LIMIT;
+  const limit = typeof configuredLimit === "string" || typeof configuredLimit === "number"
+    ? positiveInteger(configuredLimit, HISTORY_LIMIT)
+    : HISTORY_LIMIT;
+  for (const [keyScope, group] of groups) {
     if (group.triggers.length === 0) continue;
     if (!env.RELAY_SIGNING_SECRET || !env.RELAY_WEBHOOK_URL) {
       console.warn("Relay configuration incomplete");
       return;
     }
 
-    const history = await readHistory(env.CHAT_HISTORY, prefix);
-    for (const [id, record] of group.records) history.records.set(id, record);
+    const triggerIds = new Set(group.triggers.map(({ messageId }) => messageId));
+    const { records, interrupted } = await readHistory(env.CHAT_HISTORY, keyScope, triggerIds, limit);
+    for (const [id, record] of group.records) records.set(id, record);
+    const history = {
+      records: [...records.values()].sort((a, b) => b.timestampMs - a.timestampMs),
+      interrupted,
+      limit,
+    };
     for (const trigger of group.triggers) {
-      history.records.set(trigger.messageId, trigger);
       await forwardEvent(trigger, group, history, origin, env);
     }
   }
