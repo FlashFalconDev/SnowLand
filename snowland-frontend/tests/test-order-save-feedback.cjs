@@ -16,7 +16,7 @@ function walk(node){
 }
 walk(drawer)
 assert.ok(payment)
-const ctx=vm.createContext({React,exports:{},order:{payment_status:'pending'},paymentStatus:'paid',getPaymentPill:status=>({label:status})})
+const ctx=vm.createContext({React,exports:{},order:{payment_status:'pending'},paymentStatus:'paid',getPaymentPill:order=>({label:order.payment_status})})
 vm.runInContext(ts.transpileModule('exports.payment='+payment.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,ctx)
 assert.equal(ctx.exports.payment.label,'pending','Header must show saved payment status, not an uncommitted paid draft')
 assert.ok(feedback,'Keep a persistent error in the editor after the toast disappears')

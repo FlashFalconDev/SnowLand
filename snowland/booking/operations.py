@@ -48,9 +48,10 @@ def get_operating_policy(group):
     return OperatingPolicy.objects.filter(client=group.client, campus__isnull=True).first() or OperatingPolicy.objects.create(client=group.client)
 
 
-def resolve_payment_account(group, *, currency=None, lock=False):
+def resolve_payment_account(group, *, currency=None, lock=False, resort_ids=None):
     currency = currency or (group.currency_snapshot or {}).get('currency', 'TWD')
-    resort_ids = list(group.reservations.live().exclude(resort_id=None).values_list('resort_id', flat=True))
+    if resort_ids is None:
+        resort_ids = list(group.reservations.live().exclude(resort_id=None).values_list('resort_id', flat=True))
     candidates = PaymentAccount.objects.filter(client=group.client, is_active=True, currency=currency)
     if lock:
         candidates = candidates.select_for_update()

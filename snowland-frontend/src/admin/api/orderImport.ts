@@ -18,6 +18,7 @@ export interface ImportOrderResult {
   amount?: number | null
   reported_amount?: number | null
   amount_difference?: number | null
+  price_gap?: { expected_amount: number; balance_amount: number }
   lesson_amounts?: { row_number: number; amount: number | null }[]
   issues: ImportIssue[]
   order_id?: number

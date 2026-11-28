@@ -54,7 +54,12 @@ const PAYMENT_LABEL: Record<string, { label: string; cls: string }> = {
 }
 
 const getStatusPill = (s: string) => STATUS_LABEL[s] || { label: s, cls: 'bg-gray-100 text-gray-700' }
-const getPaymentPill = (s: string) => PAYMENT_LABEL[s] || { label: s, cls: 'bg-gray-100 text-gray-700' }
+function getPaymentPill({ payment_status, received_settlement, amendment_balance }: Order) {
+  if (payment_status === 'paid' && received_settlement?.currency === 'TWD' && amendment_balance) {
+    return { label: '原款已收，差額待結清', cls: 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' }
+  }
+  return PAYMENT_LABEL[payment_status] || { label: payment_status, cls: 'bg-gray-100 text-gray-700' }
+}
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   newebpay: '藍新支付', TT: '銀行匯款', bank_transfer: '銀行匯款', credit_card: '信用卡', apple_pay: 'Apple Pay', google_pay: 'Google Pay',
 }
@@ -378,7 +383,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
           <div className="space-y-3 p-3 md:hidden">
             {orders.map((order) => {
               const statusPill = order.reservations[0] ? getStatusPill(order.reservations[0].status) : { label: '無', cls: '' }
-              const paymentPill = getPaymentPill(order.payment_status)
+              const paymentPill = getPaymentPill(order)
               return <div key={order.id} className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -422,7 +427,7 @@ function FullOrdersPage({ workflow }: { workflow?: OrderWorkflow }) {
                 {orders.map((order) => {
                   const firstR = order.reservations[0]
                   const statusPill = firstR ? getStatusPill(firstR.status) : { label: '無', cls: '' }
-                  const paymentPill = getPaymentPill(order.payment_status)
+                  const paymentPill = getPaymentPill(order)
                   return (
                     <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <td className="px-5 py-3 font-mono whitespace-nowrap" style={{ color: PRIMARY }}>
@@ -922,7 +927,7 @@ export function OrderDetailDrawer({ order, onClose, readOnly = false, workflow }
   })
   const firstR = order.reservations[0]
   const statusPill = firstR ? getStatusPill(firstR.status) : { label: '無', cls: '' }
-  const paymentPill = getPaymentPill(order.payment_status)
+  const paymentPill = getPaymentPill(order)
   const courseBookings = order.reservations.flatMap((r) => r.bookings)
   const invalidBooking = courseBookings.find((booking) => {
     const edit = bookingEdits[booking.id]
