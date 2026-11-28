@@ -3,11 +3,13 @@
 from copy import copy
 from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.writer.excel import ExcelWriter
 
 from Coursekit.models import CourseCategory, CourseTemplate
 from Resorts.models import Campus, Resorts
@@ -23,7 +25,7 @@ TEMPLATE_PATH = Path(__file__).parent / 'assets' / 'snowland-order-import-templa
 
 
 def build_template():
-    """Rebuild the bundled workbook's add-on guidance from its existing layout."""
+    """Rebuild the bundled workbook as reproducible XLSX bytes."""
     book = load_workbook(TEMPLATE_PATH)
     sheet = book[SHEET_NAME]
     sheet['A2'] = '正式留空\n從第 7 列開始填。'
@@ -65,7 +67,23 @@ def build_template():
         '首列「已收款金額」須等於主課「本堂已付金額」加總。匯入只先建立主課，攝影待補記。攝影若要另排時間或另收費，請交行政處理。'
     )
     guide.row_dimensions[8].height = 84
-    return book
+
+    serialized = BytesIO()
+    with ZipFile(serialized, 'w', ZIP_DEFLATED) as archive:
+        # Preserve the workbook's core properties, including its modified time.
+        ExcelWriter(book, archive).write_data()
+
+    output = BytesIO()
+    with ZipFile(serialized) as source, ZipFile(output, 'w') as target:
+        for name in source.namelist():
+            data = source.read(name)
+            if name.startswith('xl/worksheets/') and name.endswith('.xml'):
+                # et_xmlfile writes worksheet XML in text mode with native newlines.
+                data = data.replace(b'&#13;', b'\r').replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+            member = ZipInfo(name)  # Use the fixed ZIP epoch for every member.
+            member.create_system = 0
+            target.writestr(member, data, compress_type=ZIP_DEFLATED)
+    return output.getvalue()
 
 
 def workbook_for_tenant(tenant):
