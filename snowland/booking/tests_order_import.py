@@ -30,7 +30,7 @@ from booking.models import (
 )
 from booking.order_import.parser import HEADERS, LEGACY_HEADERS, MAX_BYTES, MAX_ROWS, SHEET_NAME, parse_xlsx
 from booking.order_import.service import batch_cipher, json_bytes
-from booking.order_import.template import TEMPLATE_PATH
+from booking.order_import.template import TEMPLATE_PATH, build_template
 from booking.order_import.validation import (
     ABILITY, BANK_LAST_FIVE, CAMPUS, COACH, DAY, DISCOUNT, DISCOUNT_NOTE, EMAIL, END, EQUIPMENT, FEE, FLAG, KEY,
     LANGUAGE, LESSON_NOTE, MARKETING, METHOD, NAME, NAMES, NOTE, ORIGINAL, PAID, PEOPLE, PHONE, POSTED, RECEIVED,
@@ -120,15 +120,22 @@ class OrderImportTests(TestCase):
         row, _ = ModuleSetting.objects.update_or_create(client=self.tenant, module=module, defaults={'settings': settings})
         return row
 
-    def test_repository_template_matches_exact_header_and_skips_two_examples(self):
+    def test_repository_template_matches_builder_and_skips_all_examples(self):
         content = TEMPLATE_PATH.read_bytes()
+        rebuilt = io.BytesIO()
+        build_template().save(rebuilt)
+        with ZipFile(io.BytesIO(content)) as asset, ZipFile(rebuilt) as generated:
+            self.assertCountEqual(asset.namelist(), generated.namelist())
+            for name in asset.namelist():
+                if name != 'docProps/core.xml':  # The modified timestamp changes on save.
+                    self.assertEqual(asset.read(name), generated.read(name), name)
         workbook = load_workbook(TEMPLATE_PATH, read_only=True)
         self.assertEqual(tuple(cell.value for cell in workbook[SHEET_NAME][1]), HEADERS)
         workbook.close()
         preview = self.preview(content=content)
         self.assertEqual(preview['row_results'], [])
         self.assertEqual(preview['summary']['errors'], 0)
-        self.assertEqual(preview['summary']['skipped_examples'], 2)
+        self.assertEqual(preview['summary']['skipped_examples'], 4)
         self.assertEqual(preview['file_sha256'], hashlib.sha256(content).hexdigest())
 
     def test_template_download_preserves_main_sheet_and_uses_tenant_catalog(self):
@@ -144,22 +151,47 @@ class OrderImportTests(TestCase):
             self.assertEqual(workbook.sheetnames, [SHEET_NAME, '填寫說明', '選項'])
             sheet = workbook[SHEET_NAME]
             self.assertEqual(sheet.max_column, 29)
-            self.assertIn('第 5 列', sheet['A2'].value)
+            self.assertIn('第 7 列', sheet['A2'].value)
             for col, label in {'L': '每堂必填', 'R': '只填首列', 'W': '選填／可後補', 'T': '依學校設定'}.items():
                 self.assertIn(label, sheet[f'{col}2'].value)
                 self.assertEqual(sheet[f'{col}2'].fill.patternType, 'solid')
             self.assertIn('這一堂分到多少錢', sheet['Q2'].value)
             self.assertIn('這張單實際收到多少錢', sheet['AB2'].value)
             self.assertIn('折扣原因', sheet['AA2'].value)
-            self.assertEqual((sheet['A3'].value, sheet['A4'].value), ('範例', '範例'))
+            self.assertIn('隨單加購', sheet['H2'].value)
+            self.assertIn('隨單加購', sheet['V2'].value)
+            self.assertIn('日期、時間、人數、程度、金額留空', sheet['V2'].value)
+            self.assertEqual([sheet[f'A{row}'].value for row in range(3, 7)], ['範例'] * 4)
             self.assertEqual(sheet['B3'].value, sheet['B4'].value)
             self.assertEqual((sheet['Q3'].value, sheet['Q4'].value, sheet['AB3'].value), (4000, 2500, 6500))
             self.assertTrue(all(sheet[f'{col}4'].value is None for col in ('C', 'D', 'E', 'F', 'R', 'S', 'T', 'AB')))
-            validation = {str(rule.sqref).split('5:')[0]: rule for rule in sheet.data_validations.dataValidation}
-            self.assertEqual(set(validation), {'L', 'Q', 'R', 'S', 'O', 'W', 'Y', 'Z', 'AB'})
+            self.assertEqual(sheet['B5'].value, sheet['B6'].value)
+            self.assertNotEqual(sheet['B3'].value, sheet['B5'].value)
+            self.assertEqual(sheet['H5'].value, sheet['H3'].value)
+            self.assertEqual(sheet['AB5'].value, sheet['Q5'].value)
+            self.assertIn('攝影', sheet['H6'].value)
+            self.assertEqual(sheet['V6'].value, '隨單加購')
+            self.assertEqual({cell.column_letter for cell in sheet[6] if cell.value is not None}, {'A', 'B', 'H', 'V'})
+            validation = {str(rule.sqref): rule for rule in sheet.data_validations.dataValidation}
+            self.assertEqual(set(validation), {
+                f'{col}5:{col}1048576' for col in ('L', 'Q', 'R', 'S', 'O', 'W', 'Y', 'Z', 'AB')
+            } | {'V7:V1048576'})
             self.assertTrue(all(rule.showInputMessage and rule.prompt and not rule.showErrorMessage for rule in validation.values()))
-            self.assertTrue(all(validation[col].type == 'list' and not validation[col].showDropDown for col in ('R', 'S', 'O', 'W')))
-            self.assertIn('隨單加購', workbook['填寫說明']['B8'].value)
+            for col in ('R', 'S', 'O', 'W'):
+                rule = validation[f'{col}5:{col}1048576']
+                self.assertEqual(rule.type, 'list')
+                self.assertFalse(rule.showDropDown)
+            prompt = validation['V7:V1048576']
+            self.assertIn('隨單加購', prompt.prompt)
+            self.assertIsNone(prompt.type)
+            self.assertIsNone(prompt.errorStyle)
+            self.assertIsNone(prompt.formula1)
+            self.assertIsNone(prompt.formula2)
+            guide = workbook['填寫說明']
+            self.assertIn('第 7 列', guide['A2'].value)
+            for phrase in ('隨單加購', '堂次備註', '匯入訂單編號與主課相同', '已收款金額', '本堂已付金額', '只先建立主課', '另收費'):
+                self.assertIn(phrase, guide['B8'].value)
+            self.assertIn('獨立攝影課', guide['B9'].value)
             self.assertIn(('付款方式', '轉帳', '匯款', None), list(workbook['選項'].values))
         options = list(distributed['選項'].values)
         self.assertIn(('校區', 'jp', '測試校區', None), options)
@@ -169,12 +201,12 @@ class OrderImportTests(TestCase):
         distributed['填寫說明'].title = '說明'
         sheet = distributed[SHEET_NAME]
         sheet['B2'] = 'documentation-with-a-key'
-        for header, value in self.row().items():
-            sheet.cell(5, HEADERS.index(header) + 1, value)
+        for header, value in self.row(**{LESSON_NOTE: '第二組'}).items():
+            sheet.cell(7, HEADERS.index(header) + 1, value)
         payload = io.BytesIO()
         distributed.save(payload)
         parsed = parse_xlsx(payload.getvalue())
-        self.assertEqual((parsed.skipped_examples, [row.number for row in parsed.rows]), (2, [5]))
+        self.assertEqual((parsed.skipped_examples, [row.number for row in parsed.rows]), (4, [7]))
         self.assertEqual(self.commit(self.preview(content=payload.getvalue()))['summary']['created'], 1)
 
     def test_native_cells_merge_order_preserve_phone_and_create_audited_paid_order(self):
@@ -498,7 +530,7 @@ class OrderImportTests(TestCase):
         order, = preview['order_results']
         self.assertEqual((order['source_rows'], order['lessons'], order['amount'], order['amount_difference']), (2, 1, 1000, 0))
         warning, = order['issues']
-        self.assertEqual((warning['code'], warning['row_number']), ('addon_pending', 4))
+        self.assertEqual((warning['code'], warning['row_number'], warning['level']), ('addon_pending', 4, 'warning'))
         self.assertIn('待後台補記', warning['message_zh'])
         self.assertEqual(self.commit(preview)['summary']['created'], 1)
         group = ReservationGroup.objects.get()
@@ -675,9 +707,17 @@ class OrderImportTests(TestCase):
         ])
         row.update({DAY: self.day, PEOPLE: 2, ABILITY: '等級 0'})
         preview = self.preview(row)
-        self.assertEqual(preview['row_results'][0]['code'], 'standalone_photo')
+        error = preview['row_results'][0]
+        self.assertEqual((error['code'], error['level'], error['columns']), ('standalone_photo', 'error', [TEMPLATE]))
+        self.assertIn('隨單加購', error['message_zh'])
+        self.assertIn('堂次備註', error['message_zh'])
         self.assertEqual(self.commit(preview)['summary']['created'], 0)
         self.assertFalse(ReservationGroup.objects.exists())
+        addon = {KEY: '0001', TEMPLATE: token, LESSON_NOTE: '隨單加購'}
+        marked = self.preview(self.row(**{RECEIVED: 1000}), addon)
+        self.assertEqual(marked['summary']['committable'], 1)
+        warning, = marked['order_results'][0]['issues']
+        self.assertEqual((warning['code'], warning['level']), ('addon_pending', 'warning'))
 
     def coach(self):
         coach = Coach.objects.create(client=self.tenant, name='行政已排教練', languages=['zh'], availability_status='active')
