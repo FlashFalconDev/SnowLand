@@ -12,6 +12,7 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.db import IntegrityError
 from django.test import TestCase
 from django.utils import timezone
 from openpyxl import Workbook, load_workbook
@@ -22,11 +23,13 @@ from Client.models import Client, ClientMemberProfile, ModuleInfo, ModuleSetting
 from Coach.models import Coach, CoachCourseLevel, CoachResort
 from Control.models import TenantStaffMembership
 from Coursekit.models import CourseCategory, CoursePricing, CourseSession, CourseTemplate, CourseType
-from Resorts.models import Campus, Resorts
+from Resorts.models import Campus, PaymentAccount, Resorts
+from booking.amendment_workflow import available_refund
 from booking.capacity import Slot
+from booking.currency import received_settlement_summary
 from booking.models import (
-    BookingClosure, NotificationDelivery, NotificationTemplate, OrderImportBatch, OrderLoyalty, Payment, ReservationGroup,
-    StaffBookingLink,
+    Booking, BookingClosure, NotificationDelivery, NotificationTemplate, OrderAmendment, OrderImportBatch, OrderLoyalty,
+    OrderRevision, Payment, Reservation, ReservationGroup, StaffBookingLink,
 )
 from booking.order_import.parser import HEADERS, LEGACY_HEADERS, MAX_BYTES, MAX_ROWS, SHEET_NAME, parse_xlsx
 from booking.order_import.service import batch_cipher, json_bytes
@@ -157,6 +160,10 @@ class OrderImportTests(TestCase):
                 self.assertEqual(sheet[f'{col}2'].fill.patternType, 'solid')
             self.assertIn('這一堂分到多少錢', sheet['Q2'].value)
             self.assertIn('這張單實際收到多少錢', sheet['AB2'].value)
+            self.assertIn('應收＝原價－折扣', sheet['Q2'].value)
+            self.assertIn('有差價的堂次必填', sheet['Y2'].value)
+            self.assertIn('折扣不得超過原價', sheet['Z2'].value)
+            self.assertIn('後台結清待補款／待退款', sheet['AB2'].value)
             self.assertIn('折扣原因', sheet['AA2'].value)
             self.assertIn('隨單加購', sheet['H2'].value)
             self.assertIn('隨單加購', sheet['V2'].value)
@@ -189,6 +196,8 @@ class OrderImportTests(TestCase):
             self.assertIsNone(prompt.formula2)
             guide = workbook['填寫說明']
             self.assertIn('第 7 列', guide['A2'].value)
+            for phrase in ('原價減折扣是應收', '真實實收', '須等於各堂已付加總', '待補款／待退款', '「對帳與差額」結清'):
+                self.assertIn(phrase, guide['B6'].value)
             for phrase in ('隨單加購', '堂次備註', '匯入訂單編號與主課相同', '已收款金額', '本堂已付金額', '只先建立主課', '另收費'):
                 self.assertIn(phrase, guide['B8'].value)
             self.assertIn('獨立攝影課', guide['B9'].value)
@@ -358,6 +367,8 @@ class OrderImportTests(TestCase):
         self.assertEqual((group.marketing_source, group.marketing_source_override), ('Google搜尋', None))
         self.assertEqual((payment.bank_account, payment.DataJSON['amount']), ('00123', 2100))
         self.assertEqual(payment.DataJSON['import_source'], '內部導入')
+        self.assertFalse(group.amendments.exists())
+        self.assertIsNone(received_settlement_summary(group))
         self.assertEqual(group.currency_snapshot['base_amount'], 2100)
         first_reservation, second_reservation = group.reservations.order_by('pk')
         self.assertEqual(
@@ -390,7 +401,7 @@ class OrderImportTests(TestCase):
             {'row_number': 3, 'amount': 1000}, {'row_number': 4, 'amount': 1000},
         ])
         self.assertEqual({item['code'] for item in bad['row_results'] if item['level'] == 'error'}, {
-            'lesson_price_conflict', 'received_total_mismatch',
+            'received_total_mismatch',
         })
         self.assertEqual(self.commit(bad)['summary']['created'], 0)
         self.assertFalse(ReservationGroup.objects.exists())
@@ -403,6 +414,197 @@ class OrderImportTests(TestCase):
         self.assertNotIn('fake@example.con', json.dumps(good))
         self.assertEqual(self.commit(good)['summary']['created'], 1)
         self.assertEqual(ReservationGroup.objects.get().user.email, 'fake@example.con')
+
+    def price_gap_row(self, **changes):
+        return self.row(**{
+            PHONE: '+12025550101', EMAIL: 'price-gap@example.test',
+            ORIGINAL: 1500, DISCOUNT: 200, FEE: 1000, RECEIVED: 1000,
+            **changes,
+        })
+
+    def price_gap_bank(self, **changes):
+        account = PaymentAccount.objects.create(**{
+            'client': self.tenant, 'name': 'QA差額帳戶', 'bank_name': 'QA銀行',
+            'account_number': 'QA-TWD-001', 'account_holder': 'QA戶名', **changes,
+        })
+        account.campuses.add(self.campus)
+        account.resorts.add(self.resort)
+        return account
+
+    def assert_imported_price_gap(self, row, *, status, balance):
+        preview = self.preview(row)
+        self.assertEqual(preview['summary']['committable'], 1)
+        self.assertEqual(preview['summary']['errors'], 0)
+        order = preview['order_results'][0]
+        self.assertEqual(order['price_gap'], {'expected_amount': 1300, 'balance_amount': balance})
+        self.assertEqual((order['amount'], order['reported_amount'], order['amount_difference']), (row[FEE], row[FEE], 0))
+        warnings = {issue['code']: issue['message_zh'] for issue in order['issues'] if issue['level'] == 'warning'}
+        self.assertIn(f'已付 {row[FEE]:,} 元', warnings['lesson_price_gap'])
+        direction = '待補款' if balance > 0 else '待退款'
+        self.assertIn(f'{direction} {abs(balance):,} 元', warnings['order_price_gap'])
+
+        result = self.commit(preview)
+        self.assertEqual(result['summary']['created'], 1)
+        group = ReservationGroup.objects.get(pk=result['commit_results'][0]['order_id'])
+        reservation = group.reservations.get()
+        self.assertEqual((reservation.course_fee, reservation.discount_amount, reservation.payment_amount), (1500, 200, 1300))
+        self.assertEqual(group.currency_snapshot['base_amount'], 1300)
+        payment = group.payments.get()
+        self.assertEqual((payment.status, payment.DataJSON['amount']), ('paid', row[FEE]))
+        self.assertEqual(received_settlement_summary(group)['amount'], row[FEE])
+        self.assertEqual(available_refund(group, payment, 'TWD'), row[FEE])
+        amendment = group.amendments.get()
+        self.assertEqual(amendment.status, status)
+        self.assertEqual((amendment.previous_total, amendment.new_total), (row[FEE], 1300))
+        self.assertEqual((amendment.difference_amount, amendment.balance_amount), (balance, balance))
+        self.assertEqual((amendment.reason, amendment.created_by), ('匯入差額', self.actor))
+        self.assertEqual(amendment.revision.change_type, 'create')
+        self.assertEqual(amendment.request_fingerprint, payment.DataJSON['import_fingerprint'])
+        self.assertEqual(amendment.currency_snapshot, {})
+
+        root = '/api/admin/snowland/orders/'
+        detail = self.hq.get(f'{root}{group.pk}/')
+        listing = self.hq.get(root)
+        balances = self.hq.get(f'{root}{group.pk}/amendment-balances/')
+        for response in (detail, listing, balances):
+            self.assertEqual(response.status_code, 200)
+        listed_order, = listing.data['data']['list']
+        for serialized in (listed_order, detail.data['data']):
+            self.assertEqual(serialized['amendment_balance'], {'amount': balance, 'statuses': [status]})
+            self.assertEqual(serialized['received_settlement']['amount'], row[FEE])
+        item, = balances.data['data']['items']
+        self.assertEqual((item['id'], item['balance_amount'], item['status']), (amendment.pk, balance, status))
+        return preview, result, group, payment, amendment
+
+    def test_underpaid_import_creates_topup_and_freezes_account(self):
+        self.flags(order_refund_charge_enabled=True)
+        account = self.price_gap_bank()
+        posting_date = timezone.localdate() - timedelta(days=1)
+        row = self.price_gap_row(**{POSTED: posting_date, BANK_LAST_FIVE: '01234'})
+        preview, result, group, payment, amendment = self.assert_imported_price_gap(row, status='topup_due', balance=300)
+        self.assertEqual((payment.payment_method, payment.bank_posted_date, payment.bank_account), ('TT', posting_date, '01234'))
+        self.assertEqual(amendment.bank_snapshot['account_number'], 'QA-TWD-001')
+        self.assertNotIn('QA-TWD-001', json.dumps(preview))
+        account.account_number = 'QA-TWD-002'
+        account.save(update_fields=['account_number'])
+        amendment.refresh_from_db()
+        self.assertEqual(amendment.bank_snapshot['account_number'], 'QA-TWD-001')
+        self.assertEqual(self.commit(preview)['commit_results'], result['commit_results'])
+        duplicate = self.preview(row)['order_results'][0]
+        self.assertEqual(duplicate['status'], 'skipped')
+        self.assertIn('already_imported', [item['code'] for item in duplicate['issues']])
+        changed = self.preview({**row, ORIGINAL: 1600})
+        self.assertEqual(changed['order_results'][0]['code'], 'source_order_conflict')
+        self.assertEqual(ReservationGroup.objects.count(), 1)
+        self.assertEqual(group.amendments.count(), 1)
+        workflow_url = f'/api/admin/snowland/orders/{group.pk}/amendment-workflow/'
+        self.assertEqual(self.hq.get(workflow_url, {'amendment_id': amendment.pk}).status_code, 403)
+        _, operator = self.client_for('import-charge-operator', 'hq_admin', grants=['order_payments', 'order_charge_operate'])
+        link = operator.get(workflow_url, {'amendment_id': amendment.pk})
+        self.assertEqual(link.status_code, 200)
+        self.assertTrue(link.data['data']['path'].endswith(f'#amendment-{amendment.pk}'))
+
+    def test_overpaid_import_creates_refund_without_a_collection_account(self):
+        self.flags(order_refund_charge_enabled=True)
+        row = self.price_gap_row(**{FEE: 1800, RECEIVED: 1800, METHOD: 'credit_card'})
+        _, _, _, payment, amendment = self.assert_imported_price_gap(row, status='refund_account_due', balance=-500)
+        self.assertEqual(payment.payment_method, 'credit_card')
+        self.assertEqual(amendment.bank_snapshot, {})
+
+    def test_price_gaps_net_to_zero_without_an_amendment(self):
+        first = self.price_gap_row(**{RECEIVED: 2000})
+        second = self.price_gap_row(**{DAY: self.day + timedelta(days=1), ORIGINAL: 700, DISCOUNT: None, RECEIVED: None})
+        preview = self.preview(first, second)
+        self.assertEqual(preview['summary']['committable'], 1)
+        order = preview['order_results'][0]
+        self.assertEqual(order['price_gap'], {'expected_amount': 2000, 'balance_amount': 0})
+        self.assertEqual([item['code'] for item in order['issues'] if item['level'] == 'warning'].count('lesson_price_gap'), 2)
+        self.assertIn('各堂差額互抵', next(item['message_zh'] for item in order['issues'] if item['code'] == 'order_price_gap'))
+        self.assertEqual(self.commit(preview)['summary']['created'], 1)
+        group = ReservationGroup.objects.get()
+        self.assertFalse(group.amendments.exists())
+        self.assertIsNone(received_settlement_summary(group))
+        self.assertEqual(group.payments.get().DataJSON['amount'], 2000)
+
+    def test_price_gaps_reject_invalid_amounts_and_unverified_receipts(self):
+        self.flags(order_refund_charge_enabled=True)
+        self.price_gap_bank()
+        cases = (
+            ({FEE: -1}, 'invalid_value', FEE),
+            ({FEE: '未收'}, 'invalid_value', FEE),
+            ({FEE: '=1000'}, 'invalid_cell', FEE),
+            ({FEE: '10%'}, 'invalid_value', FEE),
+            ({FEE: 2_147_483_648}, 'invalid_value', FEE),
+            ({ORIGINAL: '未定'}, 'invalid_value', ORIGINAL),
+            ({ORIGINAL: -1}, 'invalid_value', ORIGINAL),
+            ({ORIGINAL: 2_147_483_648}, 'invalid_value', ORIGINAL),
+            ({DISCOUNT: 1600}, 'lesson_price_conflict', DISCOUNT),
+            ({RECEIVED: 999}, 'received_total_mismatch', RECEIVED),
+            ({RECEIVED: None}, 'price_gap_receipt_required', RECEIVED),
+        )
+        for changes, code, column in cases:
+            with self.subTest(code=code, column=column, value=tuple(changes.values())):
+                preview = self.preview(self.price_gap_row(**changes))
+                self.assertEqual(preview['summary']['committable'], 0)
+                self.assertTrue(any(item['code'] == code and item['level'] == 'error' and column in item['columns']
+                                    for item in preview['row_results']))
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_price_gap_rejects_conflicting_ab_and_totals_outside_order_limits(self):
+        first = self.price_gap_row(**{RECEIVED: 2000})
+        later = self.price_gap_row(**{DAY: self.day + timedelta(days=1), RECEIVED: 1000})
+        self.assertEqual(self.preview(first, later)['order_results'][0]['code'], 'order_field_conflict')
+        later[RECEIVED] = None
+        later[ORIGINAL] = 2_147_483_647
+        self.assertEqual(self.preview(first, later)['order_results'][0]['code'], 'invalid_expected_total')
+        self.assertEqual(self.preview(self.price_gap_row(**{FEE: 0, RECEIVED: 0}))['order_results'][0]['code'], 'invalid_total')
+
+    def test_import_still_rejects_explicit_foreign_currency(self):
+        row = self.price_gap_row(**{'付款幣別': 'JPY'})
+        response = self.preview_response(xlsx([row], header=HEADERS + ('付款幣別',)))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['code'], 'invalid_header')
+        preview = self.preview(self.price_gap_row(**{FEE: 'JPY 1000', RECEIVED: 'JPY 1000'}))
+        self.assertEqual(preview['order_results'][0]['status'], 'error')
+        self.assertEqual(preview['summary']['committable'], 0)
+
+    def test_price_gap_requires_workflow_and_a_usable_twd_account_for_topup(self):
+        row = self.price_gap_row()
+        for amounts in ({}, {FEE: 1800, RECEIVED: 1800}):
+            preview = self.preview({**row, **amounts})
+            self.assertEqual(preview['order_results'][0]['code'], 'price_gap_workflow_disabled')
+        self.flags(order_refund_charge_enabled=True)
+        self.price_gap_bank(currency='JPY')
+        self.assertEqual(self.preview(row)['order_results'][0]['code'], 'price_gap_bank_required')
+        self.price_gap_bank(account_holder=' ')
+        self.assertEqual(self.preview(row)['order_results'][0]['code'], 'price_gap_bank_required')
+
+    def test_confirmation_rechecks_account_and_workflow_settings(self):
+        self.flags(order_refund_charge_enabled=True)
+        bank = self.price_gap_bank()
+        row = self.price_gap_row()
+        preview = self.preview(row)
+        bank.is_active = False
+        bank.save(update_fields=['is_active'])
+        self.assertEqual(self.commit(preview)['commit_results'][0]['code'], 'price_gap_bank_required')
+        preview = self.preview({**row, FEE: 1800, RECEIVED: 1800})
+        self.flags(order_refund_charge_enabled=False)
+        self.assertEqual(self.commit(preview)['commit_results'][0]['code'], 'price_gap_workflow_disabled')
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_amendment_write_failure_rolls_back_entire_imported_order(self):
+        self.flags(order_refund_charge_enabled=True)
+        self.price_gap_bank()
+        row = self.price_gap_row()
+        preview = self.preview(row)
+        with patch('booking.order_import.service.OrderAmendment.objects.create', side_effect=IntegrityError):
+            result = self.commit(preview)
+        self.assertEqual(result['commit_results'][0]['code'], 'write_failed')
+        for model in (ReservationGroup, Reservation, Booking, Payment, OrderRevision, OrderAmendment, ClientMemberProfile):
+            self.assertFalse(model.objects.exists(), model.__name__)
+        self.assertFalse(User.objects.filter(email=row[EMAIL]).exists())
+        self.assertEqual(self.commit(self.preview(row))['summary']['created'], 1)
+        self.assertEqual(OrderAmendment.objects.count(), 1)
 
     def test_coach_payment_token_and_later_contact_campus_use_first_row(self):
         Coach.objects.create(client=self.tenant, name='Cash')

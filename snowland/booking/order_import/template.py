@@ -23,12 +23,17 @@ TEMPLATE_PATH = Path(__file__).parent / 'assets' / 'snowland-order-import-templa
 
 
 def build_template():
-    """Rebuild the bundled workbook's add-on guidance from its existing layout."""
+    """Rebuild guidance in the bundled workbook's existing layout."""
     book = load_workbook(TEMPLATE_PATH)
     sheet = book[SHEET_NAME]
     sheet['A2'] = '正式留空\n從第 7 列開始填。'
     sheet['H2'] = f'每列必填\n主課照「選項」填。同單攝影另列填項目，堂次備註寫「{ADDON_MARKER}」。'
+    sheet['Q2'] = '每堂必填\n這一堂分到多少錢？填台幣實收。應收＝原價－折扣，有差額也照實填。'
+    sheet['R2'] = '只填首列\n必填「已付款」，表示回填已收款項。'
     sheet['V2'] = f'選填／可後補\n同單攝影整格只寫「{ADDON_MARKER}」。日期、時間、人數、程度、金額留空。'
+    sheet['Y2'] = '選填\n填正確的折扣前金額。有差價的堂次必填。'
+    sheet['Z2'] = '選填\n留空為 0，可填 200 或 -200，折扣不得超過原價。'
+    sheet['AB2'] = '只填首列\n這張單實際收到多少錢？有差價必填各堂已付加總，匯入後到後台結清待補款／待退款。'
     sheet.row_dimensions[2].height = 84
 
     for example_row, source_row in ((5, 3), (6, 4)):
@@ -45,9 +50,16 @@ def build_template():
     sheet['V6'] = ADDON_MARKER
 
     prompt_range = 'V7:V1048576'
+    price_prompts = {
+        'Y5:Y1048576': '填正確的折扣前金額。原價減折扣為本堂應收，與實收不同時必填原價。',
+        'AB5:AB1048576': '有堂次差價時首列必填。整單實收要等於各堂已付金額加總。',
+    }
     for rule in list(sheet.data_validations.dataValidation):
-        if str(rule.sqref) == prompt_range:
+        cell_range = str(rule.sqref)
+        if cell_range == prompt_range:
             sheet.data_validations.dataValidation.remove(rule)
+        elif cell_range in price_prompts:
+            rule.prompt = price_prompts[cell_range]
     # Omit the validation type and formulas so any lesson note can be entered.
     prompt = DataValidation(
         allow_blank=True, showInputMessage=True, showErrorMessage=False,
@@ -59,12 +71,25 @@ def build_template():
 
     guide = book['填寫說明']
     guide['A2'] = '正式資料從第 7 列開始'
+    guide['B4'] = '首列填聯絡人、電話、信箱、校區、付款狀態和方式。只匯入已收到款項的台幣訂單。後續列的聯絡和付款欄可留空。'
+    guide['B6'] = (
+        '原價減折扣是應收金額，折扣留空當 0。本堂已付金額請填這堂分到的真實實收。'
+        '例如兩堂各收到 4,000 元、2,500 元，首列已收款金額填 6,500 元。'
+        '若應收與實收不同，請填正確的原價與折扣，首列必填已收款金額，須等於各堂已付加總。'
+        '整單有差額會建成待補款／待退款，之後在後台「對帳與差額」結清。各堂差額互抵時只顯示警告。'
+    )
+    guide.row_dimensions[6].height = 84
     guide['B8'] = (
         f'攝影和滑雪課同單時另填一列，匯入訂單編號與主課相同。H 欄填攝影項目，V 欄「堂次備註」整格只寫「{ADDON_MARKER}」。\n'
         '加購列的上課日期、開始與結束時間、學員人數、程度、姓名、語言、教練、協助狀況、各項金額及折扣原因都留空。\n'
         '首列「已收款金額」須等於主課「本堂已付金額」加總。匯入只先建立主課，攝影待補記。攝影若要另排時間或另收費，請交行政處理。'
     )
     guide.row_dimensions[8].height = 84
+    guide['B9'] = '課前資料建單後再補。獨立攝影課、跨訂單湊班、外幣、分期及既有退款請由行政個別處理。'
+    guide['D30'] = '填「已付款」或「已收清」。有待補或待退時，仍按實際已收款填寫金額。'
+    guide['D37'] = '填折扣前的台幣金額。有差價時必填，留空則用本堂已付加折扣推算。'
+    guide['D38'] = '填 200 或 -200 均代表折抵 200 元，留空為 0。原價減折扣為本堂應收。'
+    guide['D40'] = '有堂次差價時首列必填。金額須等於各堂已付金額加總。'
     return book
 
 
