@@ -20,6 +20,7 @@ const BODY_LIMIT = 1024 * 1024;
 
 const WORKER_ORIGIN = "https://worker.example.invalid";
 const LINE_CONTENT_ROOT = "https://api-data.line.me/v2/bot/message/";
+const LINE_PROFILE_ROOT = "https://api.line.me/v2/bot/group/";
 const DAY = "2026-11-25";
 
 function memoryKV(t, { pageSize = 100, eventual = false } = {}) {
@@ -31,7 +32,7 @@ function memoryKV(t, { pageSize = 100, eventual = false } = {}) {
       visible = new Map(values);
     },
     put: t.mock.fn(async (key, value, { expirationTtl }) => {
-      assert.equal(expirationTtl, 172800);
+      assert.equal(expirationTtl, key.startsWith("profile:") ? 86400 : 172800);
       values.set(key, value);
     }),
     list: t.mock.fn(async ({ prefix, cursor, limit }) => {
@@ -45,6 +46,11 @@ function memoryKV(t, { pageSize = 100, eventual = false } = {}) {
       };
     }),
     get: t.mock.fn(async (keys, type) => {
+      if (typeof keys === "string") {
+        assert.ok(keys.startsWith("profile:"));
+        assert.equal(type, "text");
+        return visible.get(keys) ?? null;
+      }
       assert.equal(type, "json");
       assert.ok(Array.isArray(keys) && keys.length <= 100);
       return new Map(keys.map((key) => [key, JSON.parse(visible.get(key) ?? "null")]));
@@ -77,7 +83,7 @@ function groupMessage(id, at, message, groupId = event.source.groupId) {
 }
 
 function savedMessages(kv) {
-  return [...kv.values.values()].map((value) => JSON.parse(value));
+  return [...kv.values].filter(([key]) => /^(msgr|msg):/.test(key)).map(([, value]) => JSON.parse(value));
 }
 
 function listedPages(kv, format) {
@@ -105,10 +111,14 @@ async function receive(events, bindings, ctx) {
   await finishBackgroundWork(ctx);
 }
 
-function relayPayload(fetch) {
+function relayRequest(fetch) {
   const calls = callsTo(fetch, env.RELAY_WEBHOOK_URL);
   assert.equal(calls.length, 1);
-  return JSON.parse(calls[0].arguments[1].body);
+  return calls[0].arguments[1];
+}
+
+function relayPayload(fetch) {
+  return JSON.parse(relayRequest(fetch).body);
 }
 
 
@@ -190,6 +200,7 @@ test("acknowledges signed raw bytes while the relay is pending and signs the exa
     const headers = new Headers(request.headers);
     assert.equal(headers.get("Content-Type"), "application/json");
     assert.deepEqual(JSON.parse(request.body), {
+      summary: "觸發前最新 0 則見 recent；較舊 0 則在 context",
       source: "line",
       groupId: event.source.groupId,
       userId: event.source.userId,
@@ -200,6 +211,8 @@ test("acknowledges signed raw bytes while the relay is pending and signs the exa
       webhookEventId: event.webhookEventId,
       taipeiDate: "2026-01-02",
       contextStart: "2026-01-02T00:00:00+08:00",
+      recent: [],
+      recentCount: 0,
       truncated: false,
       contextCount: 1,
       context: [{
@@ -210,6 +223,7 @@ test("acknowledges signed raw bytes while the relay is pending and signs the exa
         timestampMs: event.timestamp,
         type: "text",
         text: event.message.text,
+        taipeiTime: "2026-01-02 11:04:05",
         isTrigger: true,
       }],
     });
@@ -432,6 +446,7 @@ test("stores private media and relays prioritized same-day history across KV pag
   ]));
   const { fetch, ctx } = mockFetch(t, async (url, request) => {
     if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    if (url.startsWith(LINE_PROFILE_ROOT)) return new Response(null, { status: 404 });
     const { bytes, contentType } = byUrl.get(url);
     assert.equal(request.method, "GET");
     assert.equal(request.redirect, "manual");
@@ -450,16 +465,16 @@ test("stores private media and relays prioritized same-day history across KV pag
   assert.equal(payload.contextStart, `${DAY}T00:00:00+08:00`);
   assert.equal(payload.truncated, false);
   assert.equal(payload.contextCount, 6);
-  assert.deepEqual(payload.context.map(({ messageId }) => messageId),
-    [note, link, image, video, file, trigger].map(({ message }) => message.id));
-  assert.deepEqual(payload.context.filter(({ isTrigger }) => isTrigger).map(({ messageId }) => messageId), [trigger.message.id]);
-  assert.equal(payload.context[0].text, updatedNote.message.text);
-  assert.equal(payload.context[1].text, link.message.text);
+  assert.deepEqual(payload.recent.map(({ messageId, isTrigger }) => [messageId, isTrigger]),
+    [file, video, link, image, note].map(({ message }) => [message.id, false]));
+  assert.deepEqual(payload.context.map(({ messageId, isTrigger }) => [messageId, isTrigger]), [[trigger.message.id, true]]);
+  assert.equal(payload.recent[4].text, updatedNote.message.text);
+  assert.equal(payload.recent[2].text, link.message.text);
   const newestPages = listedPages(kv, "msgr");
   assert.equal(newestPages.length, 2);
   assert.deepEqual(newestPages.map(({ cursor }) => cursor), [undefined, "2"]);
   assert.equal(r2.put.mock.callCount(), 3);
-  assert.equal(fetch.mock.callCount(), 4);
+  assert.equal(fetch.mock.callCount(), 5);
 
   for (const [attachment, bytes, contentType, keyId] of attachments) {
     const { message } = attachment;
@@ -475,7 +490,7 @@ test("stores private media and relays prioritized same-day history across KV pag
     assert.deepEqual(saved.media, { ...metadata, r2Key: key });
     assert.equal(saved.fileName, message.fileName ?? null);
 
-    const item = payload.context.find(({ messageId }) => messageId === message.id);
+    const item = payload.recent.find(({ messageId }) => messageId === message.id);
     assert.deepEqual(item.media, metadata);
     assert.equal(item.fileName, message.fileName);
     const exp = Math.floor(clock / 1000) + 3600;
@@ -505,7 +520,8 @@ test("isolates context at midnight in Taipei even within one webhook", async (t)
   const payload = relayPayload(fetch);
   assert.equal(payload.taipeiDate, DAY);
   assert.equal(payload.contextStart, `${DAY}T00:00:00+08:00`);
-  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["midnight", "early"]);
+  assert.deepEqual(payload.recent.map(({ messageId }) => messageId), ["midnight"]);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["early"]);
 });
 
 test("rejects unsigned, expired, altered or malformed media requests before accessing R2", async (t) => {
@@ -618,7 +634,8 @@ test("records a missing LINE token without downloading or issuing a link", async
   assert.equal(savedMessages(kv)[0].media.status, "skipped_missing_token");
 
   await receive([trigger], bindings, ctx);
-  const [item] = relayPayload(fetch).context;
+  const [item] = relayPayload(fetch).recent;
+  assert.equal(fetch.mock.callCount(), 1);
   assert.equal(item.media.status, "skipped_missing_token");
   assert.equal(Object.hasOwn(item, "downloadUrl"), false);
   assert.equal(Object.hasOwn(item.media, "r2Key"), false);
@@ -626,7 +643,11 @@ test("records a missing LINE token without downloading or issuing a link", async
 
 test("relays same-day text and links with media metadata when R2 is unbound", async (t) => {
   const kv = memoryKV(t);
-  const { fetch, ctx } = mockRelay(t);
+  const { fetch, ctx } = mockFetch(t, async (url) => {
+    if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    assert.ok(url.startsWith(LINE_PROFILE_ROOT));
+    return new Response(null, { status: 404 });
+  });
   const bindings = { ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex") };
   const yesterday = groupMessage("yesterday", "2026-11-24T15:59:59.999Z", { text: "昨天" });
   const note = groupMessage("note", "2026-11-24T16:00:00Z", { text: "台北午夜的更新" });
@@ -646,25 +667,28 @@ test("relays same-day text and links with media metadata when R2 is unbound", as
   assert.equal(saved[2].text, link.message.text);
 
   await receive([trigger], bindings, ctx);
-  assert.equal(fetch.mock.callCount(), 1);
+  assert.equal(fetch.mock.callCount(), 2);
   assert.equal(savedMessages(kv).at(-1).text, trigger.message.text);
   const payload = relayPayload(fetch);
   assert.equal(payload.contextStart, `${DAY}T00:00:00+08:00`);
   assert.equal(payload.truncated, false);
   assert.equal(payload.contextCount, 6);
   assert.equal(payload.text, trigger.message.text);
-  assert.deepEqual(payload.context.map(({ messageId, isTrigger }) => [messageId, isTrigger]), [
-    ["note", false], ["link", false], ["image", false], ["video", false], ["file", false], ["trigger", true],
+  assert.deepEqual(payload.recent.map(({ messageId, isTrigger }) => [messageId, isTrigger]), [
+    ["file", false], ["video", false], ["image", false], ["link", false], ["note", false],
   ]);
-  assert.deepEqual(payload.context.filter(({ type }) => type === "text").map(({ text }) => text),
-    [note.message.text, link.message.text, trigger.message.text]);
+  assert.deepEqual(payload.context.map(({ messageId, isTrigger, text }) => [messageId, isTrigger, text]), [
+    ["trigger", true, trigger.message.text],
+  ]);
+  assert.deepEqual(payload.recent.filter(({ type }) => type === "text").map(({ text }) => text),
+    [link.message.text, note.message.text]);
 
   for (const { message } of [image, video, file]) {
     const metadata = {
       type: message.type, contentType: null, size: null, duration: message.duration ?? null, status: "skipped_no_bucket",
     };
     const record = saved.find(({ messageId }) => messageId === message.id);
-    const item = payload.context.find(({ messageId }) => messageId === message.id);
+    const item = payload.recent.find(({ messageId }) => messageId === message.id);
     assert.deepEqual(record.media, { ...metadata, r2Key: null });
     assert.equal(record.fileName, message.fileName ?? null);
     assert.deepEqual(item.media, metadata);
@@ -678,6 +702,7 @@ test("withholds a saved media link when R2 is no longer bound", async (t) => {
   const r2 = memoryR2(t);
   const { fetch, ctx } = mockFetch(t, async (url) => {
     if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    if (url.startsWith(LINE_PROFILE_ROOT)) return new Response(null, { status: 404 });
     assert.equal(url, `${LINE_CONTENT_ROOT}stored-image/content`);
     return new Response("image", { headers: { "Content-Type": "image/png" } });
   });
@@ -692,8 +717,8 @@ test("withholds a saved media link when R2 is no longer bound", async (t) => {
   assert.equal(saved.media.status, "stored");
 
   await receive([trigger], bindings, ctx);
-  assert.equal(fetch.mock.callCount(), 1);
-  const [item] = relayPayload(fetch).context;
+  assert.equal(fetch.mock.callCount(), 2);
+  const [item] = relayPayload(fetch).recent;
   assert.equal(item.messageId, image.message.id);
   assert.deepEqual(item.media, {
     type: "image", contentType: "image/png", size: 5, duration: null, status: "skipped_no_bucket",
@@ -705,9 +730,12 @@ test("withholds a saved media link when R2 is no longer bound", async (t) => {
 test("enforces the UTF-8 payload limit while keeping the trigger and newest context", async (t) => {
   const { fetch, ctx } = mockRelay(t);
   const oldest = groupMessage("oldest", `${DAY}T01:00:00Z`, { text: "舊".repeat(160) });
-  const trigger = groupMessage("trigger", `${DAY}T02:00:00Z`, { text: "工程原因 ⛷️" });
-  const newest = groupMessage("newest", `${DAY}T03:00:00Z`, { text: "新".repeat(15) });
-  const batch = [oldest, trigger, newest];
+  const recent = Array.from({ length: 10 }, (_, i) => ({
+    ...groupMessage(`newest-${i}`, `${DAY}T02:00:00Z`, { text: "新".repeat(8) }),
+    timestamp: Date.parse(`${DAY}T02:00:00Z`) + i,
+  }));
+  const trigger = groupMessage("trigger", `${DAY}T03:00:00Z`, { text: "工程原因 ⛷️" });
+  const batch = [oldest, ...recent, trigger];
 
   await receive(batch, env, ctx);
   const [, full] = fetch.mock.calls[0].arguments;
@@ -718,21 +746,23 @@ test("enforces the UTF-8 payload limit while keeping the trigger and newest cont
   await receive(batch, { ...env, RELAY_MAX_PAYLOAD_BYTES: String(limit) }, ctx);
   const payload = relayPayload(fetch);
   assert.equal(payload.truncated, true);
-  assert.equal(payload.contextCount, 2);
-  assert.ok(Buffer.byteLength(fetch.mock.calls[0].arguments[1].body) <= limit);
-  assert.deepEqual(payload.context.map(({ messageId, isTrigger }) => [messageId, isTrigger]), [
-    ["trigger", true], ["newest", false],
-  ]);
+  assert.equal(payload.contextCount, 11);
+  assert.ok(Buffer.byteLength(relayRequest(fetch).body) <= limit);
+  assert.deepEqual(payload.truncatedReasons, ["payload_limit"]);
+  assert.deepEqual(payload.context.map(({ messageId, isTrigger }) => [messageId, isTrigger]), [["trigger", true]]);
+  assert.deepEqual(payload.recent.map(({ messageId, isTrigger }) => [messageId, isTrigger]),
+    recent.toReversed().map(({ message }) => [message.id, false]));
 });
 
-test("skips an outbound payload when the trigger alone cannot fit", async (t) => {
+test("skips an outbound payload when the trigger alone exceeds the hard limit", async (t) => {
   const warn = t.mock.method(console, "warn", () => {});
   const kv = memoryKV(t);
   const { fetch, ctx } = mockRelay(t);
-  await receive([event], { ...env, CHAT_HISTORY: kv, RELAY_MAX_PAYLOAD_BYTES: "100" }, ctx);
+  const trigger = { ...event, message: { ...event.message, text: "工程" + "測".repeat(90_000) } };
+  await receive([trigger], { ...env, CHAT_HISTORY: kv, RELAY_MAX_PAYLOAD_BYTES: "1048576" }, ctx);
   assert.equal(savedMessages(kv).length, 1);
   assert.equal(fetch.mock.callCount(), 0);
-  assert.deepEqual(warn.mock.calls.map(({ arguments: args }) => args), [["Relay payload exceeds size limit"]]);
+  assert.deepEqual(warn.mock.calls.map(({ arguments: args }) => args), [["Relay payload exceeds hard size limit"]]);
 });
 
 test("marks partial history at the page cap and still includes the current trigger", async (t) => {
@@ -749,7 +779,7 @@ test("marks partial history at the page cap and still includes the current trigg
   const payload = relayPayload(fetch);
   assert.equal(listedPages(kv, "msgr").length, 20);
   assert.equal(payload.contextCount, 21);
-  assert.equal(payload.context.at(-1).messageId, trigger.message.id);
+  assert.equal(payload.context[0].messageId, trigger.message.id);
   assert.equal(payload.truncated, true);
 });
 
@@ -762,6 +792,7 @@ for (const failure of ["later page error", "page cap"]) {
     };
     const { fetch, ctx } = mockFetch(t, async (url) => {
       if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+      if (url.startsWith(LINE_PROFILE_ROOT)) return new Response(null, { status: 404 });
       assert.ok(url.startsWith(LINE_CONTENT_ROOT));
       return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } });
     });
@@ -796,15 +827,17 @@ for (const failure of ["later page error", "page cap"]) {
     assert.equal(payload.truncated, true);
     assert.deepEqual(payload.truncatedReasons, ["read_interrupted"]);
     assert.equal(payload.contextCount, failure === "later page error" ? 6 : 44);
-    assert.equal(payload.context[0].media.status, "stored");
-    const [image, noteA, noteB, last] = payload.context.slice(-4);
+    const morningImage = [...payload.recent, ...payload.context].find(({ messageId }) => messageId === "morning-0");
+    assert.equal(morningImage.media.status, "stored");
+    const [noteB, noteA, image] = payload.recent;
+    const [first] = payload.context;
     assert.equal(image.messageId, evening[0].message.id);
     assert.equal(image.media.status, "stored");
     assert.equal(typeof image.downloadUrl, "string");
     assert.equal((await worker.fetch(new Request(image.downloadUrl), bindings, ctx)).status, 200);
-    assert.deepEqual([noteA.text, noteB.text, last.text], [evening[1].message.text, evening[2].message.text, trigger.message.text]);
-    assert.equal(last.messageId, trigger.message.id);
-    assert.equal(last.isTrigger, true);
+    assert.deepEqual([noteA.text, noteB.text, first.text], [evening[1].message.text, evening[2].message.text, trigger.message.text]);
+    assert.equal(first.messageId, trigger.message.id);
+    assert.equal(first.isTrigger, true);
   });
 }
 
@@ -822,9 +855,10 @@ test("stops listing after 50 newest non-trigger messages even when KV lists the 
 
   const payload = relayPayload(fetch);
   assert.equal(payload.contextCount, 51);
-  assert.deepEqual(payload.context.map(({ messageId }) => messageId),
-    [...notes.slice(10), trigger].map(({ message }) => message.id));
-  assert.equal(payload.context.at(-1).isTrigger, true);
+  assert.deepEqual([...payload.recent, ...payload.context.slice(1)].map(({ messageId }) => messageId),
+    notes.slice(10).reverse().map(({ message }) => message.id));
+  assert.equal(payload.context[0].messageId, trigger.message.id);
+  assert.equal(payload.context[0].isTrigger, true);
   assert.equal(payload.truncated, true);
   assert.deepEqual(payload.truncatedReasons, ["history_limit"]);
   assert.deepEqual(listedPages(kv, "msgr").map(({ cursor, limit }) => [cursor, limit]), [[undefined, 50], ["26", 25]]);
@@ -854,28 +888,32 @@ test("counts UTF-8 bytes including all truncation reasons and drops only whole e
     return { keys: [], list_complete: true };
   });
   const bindings = {
-    ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: memoryR2(t), RELAY_HISTORY_LIMIT: "4",
+    ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: memoryR2(t), RELAY_HISTORY_LIMIT: "12",
     LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex"),
   };
-  const { fetch, ctx } = mockFetch(t, async (url) =>
-    url === env.RELAY_WEBHOOK_URL ? new Response(null, { status: 204 }) : new Response(new Uint8Array([1])));
+  const { fetch, ctx } = mockFetch(t, async (url) => {
+    if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    if (url.startsWith(LINE_PROFILE_ROOT)) return new Response(null, { status: 404 });
+    assert.ok(url.startsWith(LINE_CONTENT_ROOT));
+    return new Response(new Uint8Array([1]));
+  });
   t.mock.method(console, "warn", () => {});
   t.mock.method(Date, "now", () => Date.parse(`${DAY}T12:00:00Z`));
-  const batch = [
-    groupMessage("oldest", `${DAY}T01:00:00Z`, { text: "測試資料 🌀".repeat(200) }),
-    groupMessage("image", `${DAY}T02:00:00Z`, { type: "image" }),
-    groupMessage("note-a", `${DAY}T03:00:00Z`, { text: "測試保留甲 👩‍💻".repeat(4) }),
-    groupMessage("note-b", `${DAY}T04:00:00Z`, { text: "測試保留乙 🧑🏽‍🍳".repeat(4) }),
-    groupMessage("trigger", `${DAY}T05:00:00Z`, { text: "工程測試 🦉" }),
-  ];
+  const oldest = groupMessage("oldest", `${DAY}T01:00:00Z`, { text: "測試資料 🌀".repeat(200) });
+  const image = groupMessage("image", `${DAY}T02:00:00Z`, { type: "image" });
+  const recent = Array.from({ length: 10 }, (_, i) =>
+    groupMessage(`note-${i}`, `${DAY}T03:0${i}:00Z`, { text: `測試保留${i} 👩‍💻 🧑🏽‍🍳`.repeat(4) }));
+  const trigger = groupMessage("trigger", `${DAY}T05:00:00Z`, { text: "工程測試 🦉" });
+  const batch = [oldest, image, ...recent, trigger];
   await receive(batch, bindings, ctx);
   const full = relayPayload(fetch);
   assert.deepEqual(full.truncatedReasons, ["read_interrupted", "history_limit"]);
   const expected = {
     ...full,
+    summary: "觸發前最新 10 則見 recent；較舊 1 則在 context；原因：read_interrupted、history_limit、payload_limit",
     truncatedReasons: [...full.truncatedReasons, "payload_limit"],
-    contextCount: 4,
-    context: full.context.slice(1),
+    contextCount: 12,
+    context: full.context.slice(0, 2),
   };
   const byteLimit = Buffer.byteLength(JSON.stringify(expected));
 
@@ -883,24 +921,25 @@ test("counts UTF-8 bytes including all truncation reasons and drops only whole e
     fetch.mock.resetCalls();
     await receive(batch, { ...bindings, RELAY_MAX_PAYLOAD_BYTES: String(limit) }, ctx);
     const payload = relayPayload(fetch);
-    const body = callsTo(fetch, env.RELAY_WEBHOOK_URL)[0].arguments[1].body;
+    const body = relayRequest(fetch).body;
     assert.ok(Buffer.byteLength(body) <= limit);
     assert.equal(payload.truncated, true);
     assert.deepEqual(payload.truncatedReasons, expected.truncatedReasons);
     const keepImage = limit === byteLimit;
-    assert.equal(payload.contextCount, keepImage ? 4 : 3);
-    assert.deepEqual(payload.context.map(({ messageId }) => messageId),
-      batch.slice(keepImage ? 1 : 2).map(({ message }) => message.id));
+    assert.equal(payload.contextCount, keepImage ? 12 : 11);
+    assert.deepEqual(payload.context.map(({ messageId }) => messageId), keepImage ? ["trigger", "image"] : ["trigger"]);
     if (keepImage) {
       assert.equal(Buffer.byteLength(body), byteLimit);
-      assert.equal(typeof payload.context[0].downloadUrl, "string");
-      assert.ok(payload.context[0].downloadUrl === expected.context[0].downloadUrl);
+      assert.equal(typeof payload.context[1].downloadUrl, "string");
+      assert.equal(payload.context[1].downloadUrl, expected.context[1].downloadUrl);
     }
-    assert.deepEqual(payload.context.slice(-3).map(({ text }) => text), batch.slice(-3).map(({ message }) => message.text));
-    assert.equal(payload.text, batch.at(-1).message.text);
-    assert.equal(payload.context.at(-1).isTrigger, true);
+    assert.deepEqual(payload.recent.map(({ text }) => text), recent.toReversed().map(({ message }) => message.text));
+    assert.equal(payload.text, trigger.message.text);
+    assert.equal(payload.context[0].text, trigger.message.text);
+    assert.equal(payload.context[0].isTrigger, true);
   }
 });
+
 
 test("indexes Taipei 23:59 and 00:01 under different dates despite the same UTC day", async (t) => {
   const kv = memoryKV(t);
@@ -917,7 +956,8 @@ test("indexes Taipei 23:59 and 00:01 under different dates despite the same UTC 
 
   const payload = relayPayload(fetch);
   assert.equal(payload.taipeiDate, DAY);
-  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["today", "trigger"]);
+  assert.deepEqual(payload.recent.map(({ messageId }) => messageId), ["today"]);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["trigger"]);
   assert.equal(payload.truncated, false);
   assert.equal(Object.hasOwn(payload, "truncatedReasons"), false);
   assert.deepEqual(kv.list.mock.calls.map(({ arguments: [{ prefix }] }) => prefix.split(":")[2]), [DAY, DAY]);
@@ -935,8 +975,8 @@ test("merges same-batch messages from memory when KV writes fail", async (t) => 
   const payload = relayPayload(fetch);
   assert.equal(kv.values.size, 0);
   assert.equal(warn.mock.callCount(), 2);
-  assert.deepEqual(payload.context.map(({ text, isTrigger }) => [text, isTrigger]),
-    [[note.message.text, false], [trigger.message.text, true]]);
+  assert.deepEqual(payload.recent.map(({ text, isTrigger }) => [text, isTrigger]), [[note.message.text, false]]);
+  assert.deepEqual(payload.context.map(({ text, isTrigger }) => [text, isTrigger]), [[trigger.message.text, true]]);
 });
 
 test("deduplicates both formats before applying the history limit and merges by timestamp", async (t) => {
@@ -960,8 +1000,9 @@ test("deduplicates both formats before applying the history limit and merges by 
   assert.equal(payload.contextCount, 4);
   assert.equal(payload.truncated, true);
   assert.deepEqual(payload.truncatedReasons, ["history_limit"]);
-  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["a-new", "duplicate", "legacy-only", "trigger"]);
-  assert.equal(payload.context[1].text, updated.message.text);
+  assert.deepEqual(payload.recent.map(({ messageId }) => messageId), ["legacy-only", "a-new", "duplicate"]);
+  assert.deepEqual(payload.context.map(({ messageId }) => messageId), ["trigger"]);
+  assert.equal(payload.recent[2].text, updated.message.text);
 });
 
 test("sorts 15-digit reverse time keys newest first across a timestamp digit boundary", async (t) => {
@@ -1008,4 +1049,401 @@ test("isolates media failures and logs only fixed text or HTTP status codes", as
   assert.deepEqual(warn.mock.calls.map(({ arguments: args }) => args), [["Media storage write failed"]]);
   assert.equal(log.mock.callCount(), 0);
   assert.equal(error.mock.callCount(), 0);
+});
+
+for (const morningCount of [44, 47]) {
+  test(`keeps the evening messages intact in 3 and 6 KiB prefixes with ${morningCount + 4} total messages`, async (t) => {
+    const day = "2026-11-28";
+    const kv = memoryKV(t);
+    const bindings = {
+      ...env, CHAT_HISTORY: kv, MEDIA_BUCKET: memoryR2(t),
+      LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex"),
+    };
+    const { fetch, ctx } = mockFetch(t, async (url) => {
+      if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+      if (url.startsWith(LINE_PROFILE_ROOT)) return new Response(null, { status: 404 });
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } });
+    });
+    const morning = Array.from({ length: morningCount }, (_, i) =>
+      groupMessage(`prefix-morning-${i}`, `${day}T01:${String(i).padStart(2, "0")}:00Z`,
+        i < 3 ? { type: "image" } : { text: "晨間合成資料。" }));
+    const image = groupMessage("prefix-image", `${day}T13:00:30Z`, { type: "image" });
+    const noteA = groupMessage("prefix-note-a", `${day}T13:00:40Z`, { text: "合成晚間樣本甲 👩‍💻" });
+    const noteB = groupMessage("prefix-note-b", `${day}T13:00:48Z`, { text: "合成晚間樣本乙 🧪" });
+    const trigger = groupMessage("prefix-trigger", `${day}T13:02:55Z`, { text: "工程轉發合成樣本" });
+    await receive([...morning, image, noteA, noteB], bindings, ctx);
+    await receive([trigger], bindings, ctx);
+
+    const body = callsTo(fetch, env.RELAY_WEBHOOK_URL)[0].arguments[1].body;
+    const bytes = Buffer.from(body);
+    assert.ok(bytes.length > 6 * 1024);
+    for (const size of [3 * 1024, 6 * 1024]) {
+      const prefix = bytes.subarray(0, size).toString("utf8");
+      for (const { message } of [noteA, noteB, trigger]) {
+        assert.ok(prefix.includes(JSON.stringify(message.text)));
+      }
+      assert.ok(prefix.includes(encodeURIComponent(`line-media/${day}/group-test/prefix-image`)));
+    }
+
+    const payload = JSON.parse(body);
+    assert.ok(body.startsWith('{"summary":'));
+    assert.deepEqual(Object.keys(payload), [
+      "summary", "source", "text", "timestamp", "timestampMs", "messageId",
+      "webhookEventId", "userId", "recent", "recentCount", "truncated",
+      ...(morningCount === 47 ? ["truncatedReasons"] : []),
+      "contextCount", "groupId", "taipeiDate", "contextStart", "context",
+    ]);
+    const evening = [noteB, noteA, image];
+    const recent = [...evening, ...morning.slice(-7).reverse()];
+    assert.equal(payload.recentCount, 10);
+    assert.equal(payload.contextCount, morningCount + 4);
+    assert.equal(payload.summary, `觸發前最新 10 則見 recent；較舊 ${morningCount - 7} 則在 context` +
+      (morningCount === 47 ? "；原因：history_limit" : ""));
+    assert.deepEqual(payload.recent.map(({ messageId }) => messageId), recent.map(({ message }) => message.id));
+    assert.deepEqual(payload.recent.slice(0, 3).map(({ taipeiTime }) => taipeiTime),
+      [`${day} 21:00:48`, `${day} 21:00:40`, `${day} 21:00:30`]);
+    assert.deepEqual(payload.context.map(({ messageId }) => messageId),
+      [trigger, ...morning.slice(0, -7).reverse()].map(({ message }) => message.id));
+    const sentImage = payload.recent[2];
+    assert.equal(sentImage.media.status, "stored");
+    assert.equal(sentImage.text, null);
+    assert.equal((await worker.fetch(new Request(sentImage.downloadUrl), bindings, ctx)).status, 200);
+
+    for (const fragment of [sentImage.downloadUrl, noteA.message.text, noteB.message.text]) {
+      const position = body.indexOf(fragment);
+      assert.ok(position >= 0 && Buffer.byteLength(body.slice(0, position)) < 4 * 1024);
+    }
+    for (const size of [3 * 1024, 6 * 1024]) {
+      const prefix = bytes.subarray(0, size);
+      for (const item of payload.recent.slice(0, 3)) assert.ok(prefix.includes(JSON.stringify(item)));
+    }
+  });
+}
+
+
+test("uses the 24 KiB default or valid override and removes only the oldest whole messages", async (t) => {
+  const kv = memoryKV(t);
+  const { fetch, ctx } = mockRelay(t);
+  const bindings = { ...env, CHAT_HISTORY: kv, RELAY_HISTORY_LIMIT: "250" };
+  const notes = Array.from({ length: 240 }, (_, i) => ({
+    ...groupMessage(`budget-${i}`, `${DAY}T01:00:00Z`, { text: `測試${i} 中文🧪`.repeat(40) }),
+    timestamp: Date.parse(`${DAY}T01:00:00Z`) + i,
+  }));
+  const trigger = groupMessage("budget-trigger", `${DAY}T02:00:00Z`, { text: "工程合成資料 👩‍💻" });
+  await receive(notes, bindings, ctx);
+  assert.equal(savedMessages(kv).length, 240);
+
+  async function checkBudget(limit, setting) {
+    fetch.mock.resetCalls();
+    await receive([trigger], { ...bindings, RELAY_MAX_PAYLOAD_BYTES: setting }, ctx);
+    const { body } = relayRequest(fetch);
+    const payload = JSON.parse(body);
+    assert.ok(Buffer.byteLength(body) <= limit);
+    assert.equal(payload.truncated, true);
+    assert.deepEqual(payload.truncatedReasons, ["payload_limit"]);
+    const [sentTrigger, ...older] = payload.context;
+    const retained = [...payload.recent, ...older];
+    assert.ok(older.length > 0 && retained.length < notes.length);
+    assert.deepEqual(retained.map(({ messageId }) => messageId),
+      notes.toReversed().slice(0, retained.length).map(({ message }) => message.id));
+    assert.deepEqual(payload.recent.map(({ text, isTrigger, textTruncated }) => [text, isTrigger, textTruncated]),
+      notes.slice(-10).reverse().map(({ message }) => [message.text, false, undefined]));
+    assert.equal(payload.text, trigger.message.text);
+    assert.equal(sentTrigger.text, trigger.message.text);
+    assert.equal(sentTrigger.isTrigger, true);
+    assert.equal(payload.recentCount, 10);
+    assert.equal(payload.contextCount, 1 + retained.length);
+    assert.equal(payload.summary, `觸發前最新 10 則見 recent；較舊 ${older.length} 則在 context；原因：payload_limit`);
+    return { body, count: payload.contextCount };
+  }
+
+  const baseline = await checkBudget(24576);
+  const override = await checkBudget(65536, "65536");
+  assert.ok(Buffer.byteLength(override.body) > 24576 && override.count > baseline.count);
+  for (const invalid of ["", "0", "-1", "2.5", "invalid", "9007199254740992", true, [1000]]) {
+    assert.deepEqual(await checkBudget(24576, invalid), baseline);
+  }
+
+  const { headers, body } = relayRequest(fetch);
+  const [, time, digest] = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(headers["X-Relay-Signature"]);
+  assert.equal(digest, await sign(env.RELAY_SIGNING_SECRET, `${time}.${body}`, "hex"));
+});
+
+test("sends the entire trigger and recent block when they exceed the preferred budget", async (t) => {
+  const { fetch, ctx } = mockRelay(t);
+  const warn = t.mock.method(console, "warn", () => {});
+  const notes = Array.from({ length: 11 }, (_, i) =>
+    groupMessage(`protected-${i}`, `${DAY}T01:${String(i).padStart(2, "0")}:00Z`, { text: "晚間合成 🧪".repeat(180) }));
+  const trigger = groupMessage("protected-trigger", `${DAY}T02:00:00Z`, { text: "工程" + "觸".repeat(2100) });
+  await receive([...notes, trigger], env, ctx);
+
+  const payload = relayPayload(fetch);
+  assert.ok(Buffer.byteLength(relayRequest(fetch).body) > 24576);
+  assert.equal(payload.text, trigger.message.text);
+  assert.deepEqual(payload.context.map(({ messageId, text, isTrigger }) => [messageId, text, isTrigger]),
+    [[trigger.message.id, trigger.message.text, true]]);
+  assert.deepEqual(payload.recent.map(({ text, messageId, textTruncated }) => [text, messageId, textTruncated]),
+    notes.slice(1).reverse().map(({ message }) => [message.text, message.id, undefined]));
+  assert.equal(payload.truncated, true);
+  assert.deepEqual(payload.truncatedReasons, ["payload_limit"]);
+  assert.equal(payload.contextCount, 11);
+  assert.equal(payload.summary, "觸發前最新 10 則見 recent；較舊 0 則在 context；原因：payload_limit");
+  assert.deepEqual(warn.mock.calls.map(({ arguments: args }) => args), [["Relay payload exceeds preferred size limit"]]);
+});
+
+test("clamps an oversized override and trims older entries before enforcing the 512 KiB limit", async (t) => {
+  const { fetch, ctx } = mockRelay(t);
+  const warn = t.mock.method(console, "warn", () => {});
+  const notes = Array.from({ length: 11 }, (_, i) =>
+    groupMessage(`hard-${i}`, `${DAY}T01:${String(i).padStart(2, "0")}:00Z`, { text: "合成資料" }));
+  const trigger = groupMessage("hard-trigger", `${DAY}T02:00:00Z`, { text: "工程" });
+  await receive([...notes, trigger], { ...env, RELAY_MAX_PAYLOAD_BYTES: "1" }, ctx);
+  const hardLimit = 512 * 1024;
+  const initialBytes = Buffer.byteLength(relayRequest(fetch).body);
+  const extra = hardLimit - initialBytes;
+  trigger.message.text += "x".repeat(Math.floor(extra / 2));
+  if (extra % 2) {
+    for (const item of [...notes, trigger]) item.source.groupId += "x";
+  }
+
+  fetch.mock.resetCalls();
+  warn.mock.resetCalls();
+  await receive([...notes, trigger], { ...env, RELAY_MAX_PAYLOAD_BYTES: "1048576" }, ctx);
+  const payload = relayPayload(fetch);
+  assert.equal(Buffer.byteLength(relayRequest(fetch).body), hardLimit);
+  assert.equal(payload.contextCount, 11);
+  assert.equal(payload.context.length, 1);
+  assert.equal(payload.context[0].text, trigger.message.text);
+  assert.deepEqual(payload.truncatedReasons, ["payload_limit"]);
+  assert.equal(warn.mock.callCount(), 0);
+});
+
+test("counts Unicode code points and preserves emoji and ZWJ graphemes at both text limits", async (t) => {
+  const { fetch, ctx } = mockRelay(t);
+  const notes = [
+    "中".repeat(200),
+    "中".repeat(199) + "🧪尾",
+    "中".repeat(199) + "👩‍💻尾",
+    "中".repeat(199) + "e\u0301尾",
+    ...Array(7).fill("近日合成資料"),
+    "中".repeat(201) + "👩‍💻",
+    "中".repeat(1999) + "🧪",
+    "中".repeat(1999) + "👩‍💻尾",
+  ].map((text, i) =>
+    groupMessage(`unicode-${i}`, `${DAY}T01:${String(i).padStart(2, "0")}:00Z`, { text }));
+  const trigger = groupMessage("unicode-trigger", `${DAY}T02:00:00Z`, { text: "工程" + "x".repeat(2100) });
+  await receive([...notes, trigger], { ...env, RELAY_MAX_PAYLOAD_BYTES: "65536" }, ctx);
+
+  const { recent, context, text, truncated } = relayPayload(fetch);
+  assert.equal(truncated, false);
+  assert.equal(text, trigger.message.text);
+  assert.equal(context[0].text, trigger.message.text);
+  assert.equal(Object.hasOwn(context[0], "textTruncated"), false);
+  assert.deepEqual(context.slice(1).map(({ text, textTruncated }) => [text, textTruncated]), [
+    ["中".repeat(199), true],
+    ["中".repeat(199), true],
+    ["中".repeat(199) + "🧪", true],
+    ["中".repeat(200), undefined],
+  ]);
+  assert.deepEqual(recent.slice(0, 3).map(({ text, textTruncated }) => [text, textTruncated]), [
+    ["中".repeat(1999), true],
+    [notes.at(-2).message.text, undefined],
+    [notes.at(-3).message.text, undefined],
+  ]);
+});
+
+test("selects only messages strictly before each trigger even if later events are already stored", async (t) => {
+  const kv = memoryKV(t);
+  const { fetch, ctx } = mockRelay(t);
+  const bindings = { ...env, CHAT_HISTORY: kv };
+  const earlier = groupMessage("before", `${DAY}T01:00:00Z`, { text: "合成前一則" });
+  const trigger = groupMessage("middle", `${DAY}T02:00:00Z`, { text: "工程合成觸發" });
+  const tied = groupMessage("same", `${DAY}T02:00:00Z`, { text: "同時間合成資料" });
+  const later = groupMessage("after", `${DAY}T03:00:00Z`, { text: "合成後一則" });
+  await receive([later], bindings, ctx);
+  await receive([trigger, tied, earlier], bindings, ctx);
+  const { recent, context, contextCount } = relayPayload(fetch);
+  assert.deepEqual(recent.map(({ messageId }) => messageId), ["before"]);
+  assert.deepEqual(context.map(({ messageId }) => messageId), ["middle"]);
+  assert.equal(contextCount, 2);
+  assert.equal(savedMessages(kv).length, 4);
+});
+
+
+function assertOutboundRequests(fetch, profileUrls = []) {
+  const requests = fetch.mock.calls.map(({ arguments: [url, { method }] }) => [method, url]);
+  assert.deepEqual(requests.sort(),
+    [["POST", env.RELAY_WEBHOOK_URL], ...profileUrls.map((url) => ["GET", url])].sort());
+}
+
+test("deduplicates recent and trigger profiles, caches only names, and calls only profile GET and relay POST", async (t) => {
+  const kv = memoryKV(t);
+  const bindings = { ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: randomBytes(32).toString("hex") };
+  const groupId = "group/demo";
+  const userId = "user/demo";
+  const alternateId = "user-alt";
+  const senderUrl = `${LINE_PROFILE_ROOT}group%2Fdemo/member/user%2Fdemo`;
+  const alternateUrl = `${LINE_PROFILE_ROOT}group%2Fdemo/member/user-alt`;
+  const { fetch, ctx } = mockFetch(t, async (url) => {
+    if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    const displayName = new Map([[senderUrl, "樣本甲"], [alternateUrl, "樣本乙"]]).get(url);
+    return Response.json({ displayName, pictureUrl: "ignored", statusMessage: "ignored" });
+  });
+  const notes = Array.from({ length: 11 }, (_, i) => {
+    const note = groupMessage(`profile-${i}`, `${DAY}T01:${String(i).padStart(2, "0")}:00Z`, { text: "合成資料" }, groupId);
+    note.source.userId = i === 0 ? "older-author" : i === 1 ? null : i % 2 === 0 ? alternateId : userId;
+    return note;
+  });
+  const trigger = groupMessage("named-trigger", `${DAY}T02:00:00Z`, { text: "工程合成資料" }, groupId);
+  trigger.source.userId = userId;
+  await receive([...notes, trigger], bindings, ctx);
+
+  assertOutboundRequests(fetch, [senderUrl, alternateUrl]);
+  for (const url of [senderUrl, alternateUrl]) {
+    const { headers, redirect } = callsTo(fetch, url)[0].arguments[1];
+    assert.equal(redirect, "manual");
+    assert.ok(new Headers(headers).get("Authorization") === `Bearer ${bindings.LINE_CHANNEL_ACCESS_TOKEN}`);
+  }
+  const payload = relayPayload(fetch);
+  assert.equal(payload.senderName, "樣本甲");
+  assert.equal(payload.context[0].senderName, "樣本甲");
+  assert.equal(Object.hasOwn(payload.context[1], "senderName"), false);
+  assert.deepEqual(payload.recent.map(({ senderName }) => senderName),
+    notes.slice(1).reverse().map(({ source }) =>
+      ({ [userId]: "樣本甲", [alternateId]: "樣本乙" })[source.userId]));
+  assert.equal(Object.hasOwn(payload.recent.at(-1), "senderName"), false);
+  const profileWrites = kv.put.mock.calls.map(({ arguments: args }) => args)
+    .filter(([key]) => key.startsWith("profile:"));
+  assert.deepEqual(profileWrites, [
+    ["profile:group_demo:user_demo", "樣本甲", { expirationTtl: 86400 }],
+    ["profile:group_demo:user-alt", "樣本乙", { expirationTtl: 86400 }],
+  ]);
+  assert.ok(savedMessages(kv).every((record) => !Object.hasOwn(record, "senderName")));
+
+  fetch.mock.resetCalls();
+  kv.put.mock.resetCalls();
+  await receive([trigger], bindings, ctx);
+  assertOutboundRequests(fetch);
+  assert.deepEqual(relayPayload(fetch), payload);
+  assert.equal(kv.put.mock.callCount(), 1);
+});
+
+test("omits unavailable profiles after HTTP, fetch, response, or profile-cache failures", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const log = t.mock.method(console, "log", () => {});
+  const error = t.mock.method(console, "error", () => {});
+  const profileUrl = `${LINE_PROFILE_ROOT}group-test/member/user-test`;
+  const sampleName = "合成樣本名";
+  for (const failure of ["http", "network", "json", "name", "read", "write"]) {
+    const kv = memoryKV(t);
+    if (failure === "read") {
+      const get = kv.get;
+      kv.get = t.mock.fn(async (key, type) => {
+        if (typeof key === "string") throw new Error(sampleName);
+        return get(key, type);
+      });
+    }
+    if (failure === "write") {
+      const put = kv.put;
+      kv.put = t.mock.fn(async (key, value, options) => {
+        if (key.startsWith("profile:")) throw new Error(sampleName);
+        return put(key, value, options);
+      });
+    }
+    const { fetch, ctx } = mockFetch(t, async (url) => {
+      if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+      if (failure === "http") return new Response(sampleName, { status: 403 });
+      if (failure === "network") throw new Error(sampleName);
+      if (failure === "json") return new Response(sampleName);
+      if (failure === "name") return Response.json({ displayName: " " });
+      return Response.json({ displayName: sampleName });
+    });
+    const note = { ...event, timestamp: event.timestamp - 1, message: { id: "profile-note", type: "text", text: "合成資料" } };
+    await receive([note, event], { ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: "test-only" }, ctx);
+    assertOutboundRequests(fetch, failure === "read" ? [] : [profileUrl]);
+    const payload = relayPayload(fetch);
+    for (const item of [payload, ...payload.recent, ...payload.context]) {
+      assert.equal(Object.hasOwn(item, "senderName"), false, failure);
+    }
+    assert.ok(![...kv.values.keys()].some((key) => key.startsWith("profile:")), failure);
+    fetch.mock.restore();
+  }
+  assert.equal(warn.mock.callCount(), 0);
+  assert.equal(log.mock.callCount(), 0);
+  assert.equal(error.mock.callCount(), 0);
+});
+
+test("with no profile credential there is no cache read, no LINE call, and no fallback name", async (t) => {
+  const kv = memoryKV(t);
+  kv.values.set("profile:group-test:user-test", "合成名稱");
+  const { fetch, ctx } = mockRelay(t);
+  await receive([event], { ...env, CHAT_HISTORY: kv }, ctx);
+
+  assertOutboundRequests(fetch);
+  assert.ok(kv.get.mock.calls.every(({ arguments: [key] }) => Array.isArray(key)));
+  const payload = relayPayload(fetch);
+  assert.equal(Object.hasOwn(payload, "senderName"), false);
+  assert.equal(Object.hasOwn(payload.context[0], "senderName"), false);
+});
+
+test("runs profile lookups in parallel and forwards after 2 seconds even if fetch or KV stalls", { timeout: 2000 }, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const kv = memoryKV(t);
+  const fetchStarted = Promise.withResolvers();
+  const readStarted = Promise.withResolvers();
+  const quickProfileFinished = Promise.withResolvers();
+  const pendingFetch = Promise.withResolvers();
+  const pendingRead = Promise.withResolvers();
+  const slowUrl = `${LINE_PROFILE_ROOT}group-test/member/slow-fetch`;
+  const fastUrl = `${LINE_PROFILE_ROOT}group-test/member/user-test`;
+  const get = kv.get;
+  kv.get = t.mock.fn(async (key, type) => {
+    if (key === "profile:group-test:slow-read") {
+      readStarted.resolve();
+      return pendingRead.promise;
+    }
+    return get(key, type);
+  });
+  const put = kv.put;
+  kv.put = t.mock.fn(async (key, value, options) => {
+    await put(key, value, options);
+    if (key === "profile:group-test:user-test") quickProfileFinished.resolve();
+  });
+  const { fetch, ctx } = mockFetch(t, async (url, { signal }) => {
+    if (url === env.RELAY_WEBHOOK_URL) return new Response(null, { status: 204 });
+    if (url === slowUrl) {
+      fetchStarted.resolve(signal);
+      return pendingFetch.promise;
+    }
+    return Response.json({ displayName: "合成快取名" });
+  });
+  const warn = t.mock.method(console, "warn", () => {});
+  const notes = ["slow-fetch", "slow-read"].map((userId, i) => ({
+    ...event,
+    source: { ...event.source, userId },
+    timestamp: event.timestamp - 1 - i,
+    message: { id: userId, type: "text", text: "合成資料" },
+  }));
+  const response = await worker.fetch(await signedPost([...notes, event]), {
+    ...env, CHAT_HISTORY: kv, LINE_CHANNEL_ACCESS_TOKEN: "test-only",
+  }, ctx);
+  assert.equal(response.status, 200);
+
+  const [slowSignal] = await Promise.all([fetchStarted.promise, readStarted.promise, quickProfileFinished.promise]);
+  t.mock.timers.tick(1999);
+  assert.equal(callsTo(fetch, env.RELAY_WEBHOOK_URL).length, 0);
+  assert.equal(slowSignal.aborted, false);
+  t.mock.timers.tick(1);
+  await finishBackgroundWork(ctx);
+  assert.equal(slowSignal.aborted, true);
+  const payload = relayPayload(fetch);
+  assert.equal(payload.senderName, "合成快取名");
+  assert.ok(payload.recent.every((item) => !Object.hasOwn(item, "senderName")));
+
+  pendingRead.resolve(null);
+  pendingFetch.resolve(Response.json({ displayName: "合成遲到名" }));
+  await new Promise(setImmediate);
+  assertOutboundRequests(fetch, [slowUrl, fastUrl]);
+  assert.ok(![...kv.values.keys()].some((key) => key.startsWith("profile:group-test:slow-")));
+  assert.equal(warn.mock.callCount(), 0);
 });
