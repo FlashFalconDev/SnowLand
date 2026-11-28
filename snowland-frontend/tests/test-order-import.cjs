@@ -17,6 +17,8 @@ const issue = (code, level, message, row = 3, first = row, columns = ['指定教
 const pendingCoach = issue('coach_pending', 'warning', '教練欄填了付款方式，已忽略。這堂會先建單、教練待排，請由行政補排。', 5, 3)
 const coachConflict = issue('coach_conflict', 'error', '教練已佔用，請換一位教練或留空後重傳。', 6)
 const full = issue('full', 'warning', '本堂會超賣，訂單預設跳過。', 7, 7, ['開始時間'])
+const underpaid = issue('order_price_gap', 'warning', '待補款 500 元，匯入後請到後台結清。', 3, 3, ['已收款金額'])
+const overpaid = issue('order_price_gap', 'warning', '待退款 200 元，匯入後請到後台結清。', 7, 7, ['已收款金額'])
 const preview = {
   batch_id: 17, status: 'previewed',
   summary: {
@@ -24,16 +26,18 @@ const preview = {
     committable: 1, warning_orders: 2, blocked_orders: 1, skipped_full: 1, already_imported: 0, full_amount: 1200,
   },
   row_results: [
-    issue('closed', 'warning', '本堂已停收'), pendingCoach, coachConflict, full,
+    issue('closed', 'warning', '本堂已停收'), pendingCoach, coachConflict, full, underpaid, overpaid,
   ],
   order_results: [
     {
       row_number: 3, group_key: 'EXT-3', status: 'ready', amount: 3000, reported_amount: 3000, amount_difference: 0,
+      price_gap: { expected_amount: 3500, balance_amount: 500 },
       lesson_amounts: [{ row_number: 3, amount: 1000 }, { row_number: 5, amount: 2000 }],
       member: issue('existing_member', 'ok', '綁定既有會員'),
     },
     { row_number: 6, group_key: 'EXT-6', status: 'error', amount: 1600, reported_amount: 1400, amount_difference: 200 },
-    { row_number: 7, group_key: 'EXT-7', status: 'full', amount: 1200 },
+    { row_number: 7, group_key: 'EXT-7', status: 'full', amount: 1200, reported_amount: 1200,
+      price_gap: { expected_amount: 1000, balance_amount: -200 } },
   ],
 }
 const result = {
@@ -91,6 +95,9 @@ function button(element, phrase) {
 
 async function verify() {
   let tree = page()
+  const instructions = renderToStaticMarkup(nodes(tree, node => node.type === 'section')[0])
+  assert.match(instructions, /從最後一列範例的下一列開始填/)
+  assert.match(instructions, /同單攝影另填一列，沿用主課單號，堂次備註整格只寫「隨單加購」，排課資料和金額留空/)
   assert.equal(button(tree, '上傳並預覽').props.disabled, true)
   const fileInput = nodes(tree, node => node.type === 'input' && node.props.type === 'file')[0]
   fileInput.props.onChange({ target: { files: [fakeFile] } })
@@ -126,7 +133,9 @@ async function verify() {
   for (const value of [
     '綁定既有會員', '已跳過 2 列範例', '指定教練', '教練已佔用', '本堂已停收', '教練待排',
     '可匯入（請核對）', '請改檔後重傳', '滿堂預設跳過', '處理結果與下一步', '預設可建單', '有警告',
-    '本單各堂加總＝$3,000', '本單各堂加總＝$1,200', '首列已收款＝$1,400', '差額 $200', '第 5 列 $2,000',
+    '本單各堂加總＝$3,000', '本單各堂加總＝$1,200', '首列已收款＝$1,400', '收款核對差額 $200', '第 5 列 $2,000',
+    '應收 $3,500 · 實收 $3,000 · 待補款 $500', '應收 $1,000 · 實收 $1,200 · 待退款 $200',
+    underpaid.message_zh, overpaid.message_zh,
   ]) {
     assert.ok(all.includes(value), value)
   }

@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 from collections import Counter, defaultdict
+from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from django.conf import settings
@@ -17,26 +18,26 @@ from django.utils.crypto import salted_hmac
 
 from Client.memberships import member_profile
 from Client.models import Client
-from Client.tenant_settings import order_import_enabled
+from Client.tenant_settings import order_import_enabled, order_refund_charge_enabled
 from Coach.models import Coach
 from booking.capacity import slot_unavailable_reasons
 from booking.closures import active_booking_closures
-from booking.currency import initialize_order_currency
-from booking.models import Booking, OrderImportBatch, Payment, Reservation, ReservationGroup
-from booking.operations import record_order_revision
+from booking.currency import initialize_order_currency, settlement_summary
+from booking.models import Booking, OrderAmendment, OrderImportBatch, Payment, Reservation, ReservationGroup
+from booking.operations import record_order_revision, resolve_payment_account
 from booking.participants import ensure_reservation_members
 from booking.scheduler import check_manual_assignment, manual_assignment_occupancy
 
 from .parser import InputRow, parse_file
 from .validation import (
-    ADDON_MARKER, BANK_LAST_FIVE, CAMPUS, COACH, DAY, EMAIL, END, KEY, MARKETING, METHOD, NAME, NOTE, POSTED, START, TEMPLATE,
+    ADDON_MARKER, BANK_LAST_FIVE, CAMPUS, COACH, DAY, EMAIL, END, IMPORT_CURRENCY, KEY, MARKETING, METHOD, NAME, NOTE, POSTED, START, TEMPLATE,
     Validator, group_rows, issue, redact,
 )
 
 logger = logging.getLogger(__name__)
 SOURCE = '內部導入'
 PREVIEW_TTL = dt.timedelta(hours=24)
-PREVIEW_RULES_VERSION = 2
+PREVIEW_RULES_VERSION = 3
 MEMBER_MESSAGES = {
     'existing_member': '綁定既有會員',
     'new_membership': '將建立會員帳號的本校資料，沿用同信箱的登入帳號',
@@ -91,6 +92,10 @@ def order_fingerprint(order):
         ]
         if lesson.discount or lesson.discount_note or lesson.equipment or lesson.note:
             fields.extend((lesson.discount, lesson.discount_note, lesson.equipment, lesson.note))
+        # Equal-price rows retain their legacy hash. Include the explicit
+        # price whenever it cannot be reconstructed from the receipt and discount.
+        if lesson.original - lesson.discount != lesson.fee:
+            fields.append({'original': lesson.original})
         lessons.append(json_bytes(fields).decode())
     lessons.sort()
     data = [order.contact, order.fields[CAMPUS].pk, order.fields[METHOD], order.fields[POSTED], order.fields[NOTE], lessons]
@@ -116,6 +121,28 @@ def already_imported(tenant, order, fingerprint):
         return None, issue(order.first_row, order.key, 'error', 'source_order_conflict',
                            '此單號已存在，內容不同或無法核對。請核對原訂單及本檔單號後再上傳。', KEY)
     return None, None
+
+
+def import_balance_setup(tenant, order, *, lock=False):
+    balance = order.balance_amount
+    if not balance:
+        return {}, []
+    if not order_refund_charge_enabled(tenant):
+        return {}, [issue(order.first_row, order.key, 'error', 'price_gap_workflow_disabled',
+                          '此學校尚未啟用訂單補款與退款工作流，請啟用後再匯入有差額的訂單。')]
+    if balance < 0:
+        return {}, []
+
+    group = ReservationGroup(client=tenant, campus=order.fields[CAMPUS])
+    bank = resolve_payment_account(group, currency=IMPORT_CURRENCY, lock=lock,
+                                   resort_ids={lesson.resort.pk for lesson in order.lessons})
+    snapshot = {key: getattr(bank, key) for key in (
+        'name', 'bank_name', 'bank_branch', 'account_number', 'account_holder', 'overseas_details',
+    )} if bank else {}
+    if not all(snapshot.get(key, '').strip() for key in ('bank_name', 'account_number', 'account_holder')):
+        return {}, [issue(order.first_row, order.key, 'error', 'price_gap_bank_required',
+                          '本單需補款。請先為此校區設定可用的台幣收款銀行、帳號及戶名，再重新預覽。', CAMPUS)]
+    return snapshot, []
 
 
 def placement_issues(tenant, order, *, prior_slots=None, prior_coaches=None, lock_coaches=False):
@@ -206,6 +233,8 @@ def preview_batch(tenant, actor, filename, content):
                 first = order.first_row
                 member = issue(first, key, 'ok', order.member_code, MEMBER_MESSAGES[order.member_code], EMAIL)
                 details['member'] = member
+                _, balance_issues = import_balance_setup(tenant, order)
+                issues.extend(balance_issues)
                 issues.extend(placement_issues(tenant, order, prior_slots=previous_slots, prior_coaches=previous_coaches))
                 if not has_error(issues):
                     status = 'full' if any(item['code'] == 'full' for item in issues) else 'ready'
@@ -274,8 +303,9 @@ def member_for_order(tenant, order):
     return user
 
 
-def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
+def create_order(tenant, actor, batch, order, fingerprint, *, overbooked, bank_snapshot):
     contact = order.contact
+    balance = order.balance_amount
     user = member_for_order(tenant, order)
     marketing = order.fields[MARKETING]
     group = ReservationGroup.objects.create(
@@ -317,7 +347,7 @@ def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
             member.insurance_data = {'full_name': name}
             member.save(update_fields=['insurance_data'])
 
-    initialize_order_currency(group, 'TWD')
+    initialize_order_currency(group, IMPORT_CURRENCY)
     metadata = {'import_batch_id': batch.pk}
     reason = SOURCE
     if order.fields[NOTE]:
@@ -327,15 +357,34 @@ def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
     if overbooked:
         metadata['overbooked_import'] = True
         reason += f'（超賣匯入：{batch.overbook_reason}）'
+    receipt = {}
+    if balance:
+        receipt['settlement'] = {
+            **settlement_summary(group, base_amount=order.amount),
+            'confirmed_at': timezone.now().isoformat(),
+            'confirmed_by_id': actor.pk,
+        }
     Payment.objects.create(
         reservation_group=group, user=user, status='paid', expires_at=None, payment_method=order.fields[METHOD],
         bank_posted_date=order.fields[POSTED], bank_account=order.fields[BANK_LAST_FIVE], DataJSON={
             'amount': order.amount, 'contact': contact, 'source_order_number': order.key,
-            'import_source': SOURCE, 'import_fingerprint': fingerprint, **metadata,
+            'import_source': SOURCE, 'import_fingerprint': fingerprint, **metadata, **receipt,
             **({'import_lesson_notes': lesson_notes} if lesson_notes else {}),
         },
     )
-    record_order_revision(group, user=actor, change_type='create', reason=reason, import_metadata=metadata)
+    revision = record_order_revision(
+        group, user=actor, change_type='create', reason=reason, import_metadata=metadata,
+        previous_total=order.amount if balance else None,
+    )
+    if balance:
+        OrderAmendment.objects.create(
+            group=group, revision=revision, created_by=actor, request_key=uuid4(),
+            request_fingerprint=fingerprint, reason='匯入差額',
+            previous_total=order.amount, new_total=order.expected_amount,
+            difference_amount=balance, balance_amount=balance,
+            status='topup_due' if balance > 0 else 'refund_account_due',
+            bank_snapshot=bank_snapshot,
+        )
     return group
 
 
@@ -392,13 +441,16 @@ def commit_one(tenant, actor, batch, key, rows):
             group = payment.reservation_group
             return order_result(first, key, 'created', [duplicate], order_id=group.pk, order_number=group.order_number)
         return order_result(first, key, 'failed' if has_error([duplicate]) else 'skipped', [duplicate])
+    bank_snapshot, balance_issues = import_balance_setup(tenant, order, lock=True)
+    if balance_issues:
+        return order_result(first, key, 'failed', [*issues, *balance_issues])
     issues.extend(placement_issues(tenant, order, lock_coaches=True))
     overbooked = any(item['code'] == 'full' for item in issues)
     if has_error(issues):
         return order_result(first, key, 'failed', issues)
     if overbooked and not batch.allow_overbook:
         return order_result(first, key, 'skipped', issues)
-    group = create_order(tenant, actor, batch, order, fingerprint, overbooked=overbooked)
+    group = create_order(tenant, actor, batch, order, fingerprint, overbooked=overbooked, bank_snapshot=bank_snapshot)
     return order_result(first, key, 'created', issues, order_id=group.pk, order_number=group.order_number, overbooked=overbooked)
 
 

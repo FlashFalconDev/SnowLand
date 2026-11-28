@@ -10,7 +10,14 @@ export default function OrderCurrencySummary({settlement,receivedSettlement,conf
   onConfirmChange?: (value:boolean) => void
   busy?: boolean
 }) {
-  if(!settlement||settlement.currency==='TWD')return null
+  if (!settlement) return null
+  if (settlement.currency === 'TWD') {
+    if (receivedSettlement?.currency !== 'TWD') return null
+    return <div className="mb-4 space-y-1 rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-700">
+      <p>目前應收 <strong>{settlementAmount(settlement, settlement.base_amount)}</strong></p>
+      <p>已核對原款實收 <strong>{settlementAmount(receivedSettlement, receivedSettlement.base_amount)}</strong></p>
+    </div>
+  }
   return <section aria-label="外幣收款核對" className="mb-4 space-y-3 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-gray-900 dark:border-violet-800 dark:bg-gray-800 dark:text-white">
     <h4 className="font-semibold text-violet-800 dark:text-violet-200">付款幣別：{paymentCurrencyNames[settlement.currency]}</h4>
     <div className="flex flex-wrap justify-between gap-2"><span>本單原幣計價</span><strong>{settlementAmount(settlement,settlement.base_amount)}</strong></div>

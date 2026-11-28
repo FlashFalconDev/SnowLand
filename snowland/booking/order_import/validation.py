@@ -31,6 +31,7 @@ ORDER_FIELDS = (NAME, PHONE, EMAIL, CAMPUS, PAID, METHOD, POSTED, BANK_LAST_FIVE
 REQUIRED_ORDER_FIELDS = (NAME, PHONE, EMAIL, CAMPUS, PAID, METHOD)
 CONTACT_FIELDS = (NAME, PHONE, EMAIL, MARKETING)
 MAX_INT = 2_147_483_647
+IMPORT_CURRENCY = 'TWD'
 IMPORT_EQUIPMENT_CHOICES = tuple((key, label) for key, label in EQUIPMENT_CHOICES if key != 'purchaseAssistanceTime')
 PAID_CHOICES = (('paid', '已付款'),)
 METHOD_ALIASES = dict.fromkeys(('轉帳', '匯款轉帳', '銀行轉帳', '轉賬', 'bank transfer'), 'TT')
@@ -267,10 +268,15 @@ class ImportOrder:
     user: User | None
     member_code: str
     addons: tuple
+    expected_amount: int
 
     @property
     def amount(self):
         return sum(lesson.fee for lesson in self.lessons)
+
+    @property
+    def balance_amount(self):
+        return self.expected_amount - self.amount
 
     @property
     def contact(self):
@@ -481,6 +487,8 @@ class Validator:
         order_fields = {}
         lessons = []
         fees = {}
+        payables = []
+        price_gaps = []
         addons = []
         first = rows[0].number
         seen_lessons = {}
@@ -635,14 +643,23 @@ class Validator:
             fee = read(FEE, lambda v: integer(v, 0), required=True)
             fees[row.number] = fee
             original = read(ORIGINAL, lambda v: integer(v, 0))
-            discount = read(DISCOUNT, discount_amount, default=0)
+            discount = 0 if blank(values[DISCOUNT]) and DISCOUNT not in invalid else read(DISCOUNT, discount_amount)
             discount_note = read(DISCOUNT_NOTE, lambda v: text(v, 255), default='')
             equipment_option = read(EQUIPMENT, equipment, warning=('equipment_pending', None))
-            if fee is not None and DISCOUNT not in invalid:
-                expected = fee + discount
-                if expected > MAX_INT or original is not None and original != expected:
-                    issues.append(row_issue('error', 'lesson_price_conflict', '本堂原價減掉折扣須等於本堂已付金額，請核對這三欄。', ORIGINAL, DISCOUNT, FEE))
-                original = expected if original is None else original
+            payable = None
+            if discount is not None:
+                if original is None and blank(values[ORIGINAL]) and ORIGINAL not in invalid and fee is not None:
+                    original = fee + discount
+                    if original > MAX_INT:
+                        issues.append(row_issue('error', 'lesson_price_conflict', '推算原價超過整數上限，請核對本堂已付金額與折扣。', ORIGINAL, DISCOUNT, FEE))
+                if original is not None:
+                    if discount > original:
+                        issues.append(row_issue('error', 'lesson_price_conflict', '本堂折扣不得超過原價，請核對這兩欄。', ORIGINAL, DISCOUNT))
+                    elif original <= MAX_INT:
+                        payable = original - discount
+                        if fee is not None and payable != fee:
+                            price_gaps.append((row.number, payable, fee))
+            payables.append(payable)
 
             template = None
             unmatched_addon = False
@@ -683,7 +700,9 @@ class Validator:
                 issues.extend(self.validate_lesson(template, resort, course_day, start, end, people, abilities, row_issue))
                 if not missing and template.course_type.category.service_type == CourseCategory.SERVICE_TYPE_PHOTO:
                     issues.append(row_issue('error', 'standalone_photo',
-                                            '這筆是獨立攝影課，請由行政另行處理收款與排課。', TEMPLATE))
+                                            '獨立攝影課的收款與排課請交行政處理。'
+                                            f'若是跟滑雪課同一張單的加購，請在這列「堂次備註」整格只寫「{ADDON_MARKER}」，'
+                                            '並把日期、時間、人數、程度、金額留空。', TEMPLATE))
             elif start is not None and end is not None and start >= end:
                 issues.append(row_issue('error', 'invalid_time_range', '結束時間須晚於開始時間', START, END))
 
@@ -704,6 +723,7 @@ class Validator:
                 ))
 
         amount = None if not fees or None in fees.values() else sum(fees.values())
+        expected_amount = None if not payables or None in payables else sum(payables)
         reported = order_fields[RECEIVED]
         for addon in addons:
             addon_issue = lambda level, code, message, *columns: issue(addon.row_number, key, level, code, message, *columns)
@@ -732,6 +752,30 @@ class Validator:
                     first, key, 'warning', 'repeated_lesson_amount',
                     f'本單各堂填了相同金額，加總為 {amount:,} 元。請確認是否把整單金額複製到每堂，若是請按實際收款分攤。', FEE,
                 ))
+        if price_gaps:
+            for number, payable, fee in price_gaps:
+                direction = '少收' if payable > fee else '多收'
+                issues.append(issue(
+                    number, key, 'warning', 'lesson_price_gap',
+                    f'本堂應收 {payable:,} 元，已付 {fee:,} 元，{direction} {abs(payable - fee):,} 元。'
+                    '整單有差額時，匯入會建立待後台結清的紀錄。', ORIGINAL, DISCOUNT, FEE,
+                ))
+            if reported is None:
+                issues.append(issue(first, key, 'error', 'price_gap_receipt_required',
+                                    '本單有堂次差額，請在首列填寫整單實際已收款金額，須等於各堂已付金額加總。', RECEIVED, FEE))
+            if expected_amount is not None and not 0 <= expected_amount <= MAX_INT:
+                issues.append(issue(first, key, 'error', 'invalid_expected_total',
+                                    '整單應收超過可記錄的整數範圍，請核對各堂原價與折扣。', ORIGINAL, DISCOUNT))
+            if expected_amount is not None and amount is not None:
+                balance = expected_amount - amount
+                totals['price_gap'] = {'expected_amount': expected_amount, 'balance_amount': balance}
+                if reported == amount and not any(item['level'] == 'error' for item in issues):
+                    direction = f'待補款 {balance:,} 元' if balance > 0 else f'待退款 {-balance:,} 元'
+                    message = f'{direction}，匯入後請到後台結清。' if balance else '各堂差額互抵，整單差額 0 元，匯入後無待收退差額。'
+                    issues.append(issue(
+                        first, key, 'warning', 'order_price_gap',
+                        f'整單應收 {expected_amount:,} 元，實收 {amount:,} 元。{message}', ORIGINAL, DISCOUNT, FEE, RECEIVED,
+                    ))
         if any(item['level'] == 'error' for item in issues):
             return None, issues, totals
         try:
@@ -739,7 +783,7 @@ class Validator:
         except ValueError as exc:
             issues.append(issue(first, key, 'error', 'member_conflict', str(exc), EMAIL))
             return None, issues, totals
-        return ImportOrder(key, first, order_fields, lessons, user, member_code, tuple(addons)), issues, totals
+        return ImportOrder(key, first, order_fields, lessons, user, member_code, tuple(addons), expected_amount), issues, totals
 
     def validate_lesson(self, template, resort, course_day, start, end, people, abilities, row_issue):
         if course_day and not in_course_period(template, course_day):
