@@ -8,6 +8,24 @@ const panel=compile('src/admin/components/OrderCurrencySummary.tsx',name=>{asser
 const settlement={currency:'JPY',base_currency:'TWD',base_amount:10000,amount:45000,rate:'4.50000000',locked_at:'2026-10-19T03:00:00Z'}
 function find(node,p){if(!node||typeof node!=='object')return null;if(p(node))return node;for(const child of React.Children.toArray(node.props?.children)){const result=find(child,p);if(result)return result}return null}
 assert.equal(panel({settlement:{...settlement,currency:'TWD'}}),null)
+const twd = {...settlement, currency:'TWD', amount:1300, base_amount:1300, rate:'1.00000000'}
+const twdReceipt = {...twd, amount:1000, base_amount:1000}
+const twdHtml = renderToStaticMarkup(panel({settlement:twd, receivedSettlement:twdReceipt}))
+assert.match(twdHtml, /目前應收 <strong>台幣 NT\$ 1,300<\/strong>/)
+assert.match(twdHtml, /已核對原款實收 <strong>台幣 NT\$ 1,000<\/strong>/)
+
+const ordersSource = fs.readFileSync(path.join(root, 'src/admin/pages/OrdersPage.tsx'), 'utf8')
+const ordersAst = ts.createSourceFile('OrdersPage.tsx', ordersSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+const pillCode = ordersAst.statements.filter(node =>
+  (ts.isVariableStatement(node) && node.declarationList.declarations[0].name.getText(ordersAst) === 'PAYMENT_LABEL')
+  || (ts.isFunctionDeclaration(node) && node.name?.text === 'getPaymentPill')
+).map(node => node.getText(ordersAst)).join('\n')
+const paymentPill = vm.runInNewContext(ts.transpileModule(pillCode + '\ngetPaymentPill', {}).outputText)
+const pending = {payment_status:'paid', received_settlement:twdReceipt, amendment_balance:{amount:300}}
+assert.equal(paymentPill(pending).label, '原款已收，差額待結清')
+assert.equal(paymentPill({...pending, amendment_balance:null}).label, '已付款')
+assert.equal(paymentPill({...pending, received_settlement:settlement}).label, '已付款')
+
 const ready=panel({settlement}),readyHtml=renderToStaticMarkup(ready)
 assert.ok(readyHtml.includes('日幣 JPY ¥ 45,000'))
 assert.ok(readyHtml.includes('NT$ 10,000'))

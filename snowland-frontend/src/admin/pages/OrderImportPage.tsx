@@ -96,8 +96,15 @@ function PreviewDetails({ batch }: { batch: ImportBatch }) {
         {batch.order_results.map(order => <li key={order.row_number} className="break-words">
           第 {order.row_number} 列 · {order.group_key} · {previewLabels[order.status]} · 本單各堂加總＝{order.amount == null ? '待補齊各堂金額' : money.format(order.amount)}
           {' · 首列已收款＝'}{order.reported_amount == null ? '未填' : money.format(order.reported_amount)}
-          {order.amount_difference != null && <> · 差額 {money.format(order.amount_difference)}</>}
+          {order.amount_difference != null && <> · 收款核對差額 {money.format(order.amount_difference)}</>}
           {order.member && <> · {order.member.message_zh}</>}
+          {order.price_gap && order.amount != null && <p className="mt-1 font-medium text-amber-800 dark:text-amber-200">
+            應收 {money.format(order.price_gap.expected_amount)} · 實收 {money.format(order.amount)} · {
+              order.price_gap.balance_amount === 0
+                ? '各堂差額互抵'
+                : `${order.price_gap.balance_amount > 0 ? '待補款' : '待退款'} ${money.format(Math.abs(order.price_gap.balance_amount))}`
+            }
+          </p>}
           {order.lesson_amounts?.length ? <p className="mt-1 text-gray-600 dark:text-gray-300">
             {order.lesson_amounts.map(lesson => `第 ${lesson.row_number} 列 ${lesson.amount == null ? '待補' : money.format(lesson.amount)}`).join('、')}
           </p> : null}
@@ -214,6 +221,7 @@ export default function OrderImportPage() {
       <h2 className="text-lg font-semibold">填寫並上傳範本</h2>
       <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">從最後一列範例的下一列開始填。一堂填一列，同一張單各列用相同訂單編號，聯絡和付款資料只填首列。教練未排可留空。</p>
       <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">各堂已付金額加總要等於整張單的實收。同單攝影另填一列，沿用主課單號，堂次備註整格只寫「隨單加購」，排課資料和金額留空。舊版範本也能上傳。</p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">原價減折扣是應收。應收與實收不同時，請照實填本堂已付金額與正確原價、折扣，首列填整單實收。待補款或待退款會列在後台「對帳與差額」。</p>
       <button type="button" className={secondary + ' mt-3'} disabled={Boolean(action)} onClick={download}>
         <Download size={16} />{action === 'download' ? '下載中…' : '下載 Excel 範本'}
       </button>
