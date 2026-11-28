@@ -7,8 +7,19 @@ Cloudflare Worker 接收 LINE 群組訊息。含「工程」的文字會觸發�
 - LINE webhook 使用 POST。Worker 在 1 MiB 上限內以原始位元組驗證 `X-Line-Signature`，驗簽成功即回 HTTP 200。儲存與轉發透過 `ctx.waitUntil` 在背景執行。
 - KV 綁定 `CHAT_HISTORY` 保存群組文字與附件資訊。文字保留原文和連結，每筆記錄的 TTL 為 172800 秒（48 小時）。
 - `wrangler.toml` 將私有 R2 bucket `snowland-line-relay-media` 綁定為 `MEDIA_BUCKET`。Worker 使用 `LINE_CHANNEL_ACCESS_TOKEN` 透過 LINE Content API 下載圖片、影片和檔案，預設單檔上限為 50 MiB。缺少 bucket 綁定或 token 時，KV 分別以 `skipped_no_bucket` 或 `skipped_missing_token` 記錄附件資訊。
-- 只有含「工程」的群組文字會觸發轉發。附件在 `context` 中提供 metadata，成功存入且 R2 仍綁定的附件另附短效 `downloadUrl`，預設有效一小時。Worker 的 `GET /media/...` 會驗證簽章與到期時間，再從私有 R2 讀取檔案。
+- 只有含「工程」的群組文字會觸發轉發。附件在 `recent` 或 `context` 中提供 metadata，成功存入且 R2 仍綁定的附件另附短效 `downloadUrl`，預設有效一小時。Worker 的 `GET /media/...` 會驗證簽章與到期時間，再從私有 R2 讀取檔案。
 - 日誌只記固定訊息與 HTTP 狀態碼。轉發內容與接收端驗簽契約見 [LINE 工程訊息中繼整合說明](../../docs/line-engineering-relay.md)。
+
+## 轉發 payload
+
+序列化 JSON 依序放 `summary`、觸發欄位、`recent` 與 `recentCount`、截斷與群組資訊，最後才放 `context`。
+
+- `recent` 是觸發前最近 10 則，從最新開始。文字最多 2000 Unicode code points。`context` 第一則是完整觸發，後面才放較舊的訊息，文字最多 200 code points。實際縮短時標記 `textTruncated`，保留完整 emoji 和 ZWJ 序列。項目新增 `taipeiTime`。
+- `contextCount` 是觸發、`recent` 和較舊 `context` 的總筆數。`truncated` 和 `truncatedReasons` 說明歷史讀取、歷史筆數或 payload 預算造成的截斷。
+- UTF-8 預算預設 24 KiB。`RELAY_MAX_PAYLOAD_BYTES` 可覆寫，非法值回預設，最大 512 KiB。超預算時從 `context` 尾端整則移除最舊訊息。觸發加上 `recent` 仍超預算時會照送並記一則固定警告，超過 512 KiB 硬上限才跳過轉發。
+- 觸發和 `recent` 的選填 `senderName` 來自 LINE 群組成員個人檔案唯讀 GET。依群組與使用者在 `CHAT_HISTORY` 快取 24 小時，只存顯示名稱。同一筆轉發的查詢去重並行，各自以約 2 秒為限。失敗時省略名稱。
+
+舊版把由舊到新排列的全部訊息放在 `context`。新版把最新訊息移到 body 前段，讓接收端截取 JSON 前綴時優先保留觸發和最近對話。 [完整欄位與接收端契約](../../docs/line-engineering-relay.md)
 
 ## 在本機執行離線測試
 
