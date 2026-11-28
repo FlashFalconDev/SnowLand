@@ -91,6 +91,9 @@ function button(element, phrase) {
 
 async function verify() {
   let tree = page()
+  const instructions = renderToStaticMarkup(nodes(tree, node => node.type === 'section')[0])
+  assert.match(instructions, /從最後一列範例的下一列開始填/)
+  assert.match(instructions, /同單攝影另填一列，沿用主課單號，堂次備註整格只寫「隨單加購」，排課資料和金額留空/)
   assert.equal(button(tree, '上傳並預覽').props.disabled, true)
   const fileInput = nodes(tree, node => node.type === 'input' && node.props.type === 'file')[0]
   fileInput.props.onChange({ target: { files: [fakeFile] } })

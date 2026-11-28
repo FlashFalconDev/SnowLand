@@ -212,8 +212,8 @@ export default function OrderImportPage() {
     <h1 className="text-2xl font-bold">匯入已購訂單</h1>
     <section className={card}>
       <h2 className="text-lg font-semibold">填寫並上傳範本</h2>
-      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">從第 5 列開始填。一堂填一列，同一張單各列用相同訂單編號，聯絡和付款資料只填首列。教練未排可留空。</p>
-      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">各堂已付金額加總要等於整張單的實收。攝影加購請依範本「填寫說明」標記，再看預覽怎麼處理。舊版範本也能上傳。</p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">從最後一列範例的下一列開始填。一堂填一列，同一張單各列用相同訂單編號，聯絡和付款資料只填首列。教練未排可留空。</p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">各堂已付金額加總要等於整張單的實收。同單攝影另填一列，沿用主課單號，堂次備註整格只寫「隨單加購」，排課資料和金額留空。舊版範本也能上傳。</p>
       <button type="button" className={secondary + ' mt-3'} disabled={Boolean(action)} onClick={download}>
         <Download size={16} />{action === 'download' ? '下載中…' : '下載 Excel 範本'}
       </button>
