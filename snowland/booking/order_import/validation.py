@@ -683,7 +683,9 @@ class Validator:
                 issues.extend(self.validate_lesson(template, resort, course_day, start, end, people, abilities, row_issue))
                 if not missing and template.course_type.category.service_type == CourseCategory.SERVICE_TYPE_PHOTO:
                     issues.append(row_issue('error', 'standalone_photo',
-                                            '這筆是獨立攝影課，請由行政另行處理收款與排課。', TEMPLATE))
+                                            '獨立攝影課的收款與排課請交行政處理。'
+                                            f'若是跟滑雪課同一張單的加購，請在這列「堂次備註」整格只寫「{ADDON_MARKER}」，'
+                                            '並把日期、時間、人數、程度、金額留空。', TEMPLATE))
             elif start is not None and end is not None and start >= end:
                 issues.append(row_issue('error', 'invalid_time_range', '結束時間須晚於開始時間', START, END))
 
