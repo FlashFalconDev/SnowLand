@@ -29,13 +29,14 @@ from booking.scheduler import check_manual_assignment, manual_assignment_occupan
 
 from .parser import InputRow, parse_file
 from .validation import (
-    BANK_LAST_FIVE, CAMPUS, COACH, DAY, EMAIL, END, MARKETING, METHOD, NAME, NOTE, POSTED, START, TEMPLATE,
+    ADDON_MARKER, BANK_LAST_FIVE, CAMPUS, COACH, DAY, EMAIL, END, KEY, MARKETING, METHOD, NAME, NOTE, POSTED, START, TEMPLATE,
     Validator, group_rows, issue, redact,
 )
 
 logger = logging.getLogger(__name__)
 SOURCE = '內部導入'
 PREVIEW_TTL = dt.timedelta(hours=24)
+PREVIEW_RULES_VERSION = 2
 MEMBER_MESSAGES = {
     'existing_member': '綁定既有會員',
     'new_membership': '將建立會員帳號的本校資料，沿用同信箱的登入帳號',
@@ -95,8 +96,10 @@ def order_fingerprint(order):
     data = [order.contact, order.fields[CAMPUS].pk, order.fields[METHOD], order.fields[POSTED], order.fields[NOTE], lessons]
     # Keep identical legacy orders recognizable after adding optional fields.
     marketing = order.fields[MARKETING]
-    if order.fields[BANK_LAST_FIVE] or marketing and marketing != SOURCE:
-        data.extend((order.fields[BANK_LAST_FIVE], marketing or SOURCE))
+    if order.fields[BANK_LAST_FIVE] or marketing not in (None, SOURCE):
+        data.extend((order.fields[BANK_LAST_FIVE], SOURCE if marketing is None else marketing))
+    if order.addons:
+        data.append(sorted(json_bytes([addon.label, addon.note, addon.resort_id]).decode() for addon in order.addons))
     return hashlib.sha256(json_bytes(data)).hexdigest()
 
 
@@ -110,7 +113,8 @@ def already_imported(tenant, order, fingerprint):
             continue
         if payment.DataJSON.get('import_fingerprint') == fingerprint:
             return payment, issue(order.first_row, order.key, 'ok', 'already_imported', '此單已匯入')
-        return None, issue(order.first_row, order.key, 'error', 'source_order_conflict', '此單號已存在，匯入內容不一致或無法核對')
+        return None, issue(order.first_row, order.key, 'error', 'source_order_conflict',
+                           '此單號已存在，內容不同或無法核對。請核對原訂單及本檔單號後再上傳。', KEY)
     return None, None
 
 
@@ -137,7 +141,7 @@ def placement_issues(tenant, order, *, prior_slots=None, prior_coaches=None, loc
             closures=closures, resort_id=lesson.resort.pk,
         ):
             message = (
-                f'{reason.date} {reason.start_time}–{reason.end_time} 名額不足'
+                f'{reason.date} {reason.start_time}–{reason.end_time} 名額不足。此單預設跳過，請核對名額。'
                 if reason.code == 'full' else reason.message_zh
             )
             issues.append(issue(lesson.row_number, order.key, 'warning', reason.code, message, TEMPLATE, DAY, START, END))
@@ -152,7 +156,8 @@ def placement_issues(tenant, order, *, prior_slots=None, prior_coaches=None, loc
             )
             if candidate.reason_codes:
                 message = '、'.join(COACH_MESSAGES.get(code, '教練不符合指派條件') for code in candidate.reason_codes)
-                issues.append(issue(lesson.row_number, order.key, 'error', 'coach_conflict', message, COACH, DAY, START, END))
+                issues.append(issue(lesson.row_number, order.key, 'error', 'coach_conflict',
+                                    f'{message}。請更換教練，或留空讓行政補排後重傳。', COACH, DAY, START, END))
             else:
                 busy[lesson.coach.pk].append((0, when))
     return issues
@@ -188,13 +193,11 @@ def preview_batch(tenant, actor, filename, content):
     previous_slots = Counter()
     previous_coaches = defaultdict(list)
     results, staged = [], []
-    total_amount = 0
     for key, rows in groups.items():
-        order, issues, amount = validator.validate(key, rows)
+        order, issues, totals = validator.validate(key, rows)
         status = 'error'
-        details = {'amount': amount, 'lessons': len(rows)}
+        details = {**totals, 'lessons': len(order.lessons) if order else len(totals['lesson_amounts']), 'source_rows': len(rows)}
         if order:
-            total_amount += order.amount
             _, duplicate = already_imported(tenant, order, order_fingerprint(order))
             if duplicate:
                 issues.append(duplicate)
@@ -204,8 +207,9 @@ def preview_batch(tenant, actor, filename, content):
                 member = issue(first, key, 'ok', order.member_code, MEMBER_MESSAGES[order.member_code], EMAIL)
                 details['member'] = member
                 issues.extend(placement_issues(tenant, order, prior_slots=previous_slots, prior_coaches=previous_coaches))
-                status = 'error' if has_error(issues) else 'ready'
-                staged.append([key, [[row.number, row.values] for row in rows]])
+                if not has_error(issues):
+                    status = 'full' if any(item['code'] == 'full' for item in issues) else 'ready'
+                    staged.append([key, [[row.number, row.values] for row in rows]])
                 if status == 'ready':
                     previous_slots.update(lesson.slot for lesson in order.lessons)
                     for lesson in order.lessons:
@@ -219,23 +223,31 @@ def preview_batch(tenant, actor, filename, content):
         for item in issues:
             issues_by_row[item['row_number']].append(item)
         for row in rows:
-            row_issues.extend(issues_by_row[row.number] or [
+            items = issues_by_row[row.number] or [
                 issue(row.number, key, 'ok', 'ok', '欄位驗證通過'),
-            ])
+            ]
+            row_issues.extend({**item, 'order_row_number': first} for item in items)
 
     row_issues.sort(key=lambda item: item['row_number'])
+    statuses = Counter(result['status'] for result in results)
     summary = {
+        'rules_version': PREVIEW_RULES_VERSION,
         'orders': len(groups),
         'lessons': len(parsed.rows),
-        'amount': total_amount,
+        'amount': sum(result['amount'] for result in results if result['status'] == 'ready'),
+        'full_amount': sum(result['amount'] for result in results if result['status'] == 'full'),
         'errors': sum(item['level'] == 'error' for item in row_issues),
         'full': sum(item['code'] == 'full' for item in row_issues),
         'closed': sum(item['code'] == 'closed' for item in row_issues),
         'skipped_examples': parsed.skipped_examples,
-        'committable': len(staged),
+        'committable': statuses['ready'],
+        'warning_orders': sum(any(item['level'] == 'warning' for item in result['issues']) for result in results),
+        'blocked_orders': statuses['error'],
+        'skipped_full': statuses['full'],
+        'already_imported': statuses['skipped'],
     }
     digest = hashlib.sha256(content).hexdigest()
-    # Only valid normalized input is kept for the second request. Audit JSON
+    # Only eligible input is kept for the second request. Audit JSON
     # contains row numbers, safe messages and masked keys, never cell values.
     encrypted = batch_cipher().encrypt(json_bytes(staged)) if staged else None
     purge_expired_previews(tenant=tenant)
@@ -265,12 +277,18 @@ def member_for_order(tenant, order):
 def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
     contact = order.contact
     user = member_for_order(tenant, order)
+    marketing = order.fields[MARKETING]
     group = ReservationGroup.objects.create(
         client=tenant, campus=order.fields[CAMPUS], user=user, name=contact['name'],
-        booking_contact=contact, marketing_source=order.fields[MARKETING] or SOURCE, is_test=False,
+        booking_contact=contact, marketing_source=SOURCE if marketing is None else marketing, is_test=False,
     )
     lesson_notes = {}
-    for lesson in order.lessons:
+    addon_notes = [
+        f'第 {addon.row_number} 列隨單加購，待後台補記（{addon.label}）'
+        + (f'。{addon.note}' if addon.note and addon.note != ADDON_MARKER else '')
+        for addon in order.addons
+    ]
+    for index, lesson in enumerate(order.lessons):
         template = lesson.slot.template
         status = 'manual_assignment_needed'
         if lesson.coach:
@@ -289,8 +307,11 @@ def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
             course_name=template.name, date=lesson.slot.date, start_time=lesson.slot.start_time, end_time=lesson.slot.end_time,
             is_scheduled=bool(lesson.coach), fee_snapshot={'course': lesson.original, 'coach': 0},
         )
-        if lesson.note:
-            lesson_notes[str(booking.pk)] = lesson.note
+        notes = [lesson.note] if lesson.note else []
+        if index == 0:
+            notes.extend(addon_notes)
+        if notes:
+            lesson_notes[str(booking.pk)] = '\n'.join(notes)
         members = ensure_reservation_members(reservation)
         for member, name in zip(members, lesson.learner_names):
             member.insurance_data = {'full_name': name}
@@ -301,6 +322,8 @@ def create_order(tenant, actor, batch, order, fingerprint, *, overbooked):
     reason = SOURCE
     if order.fields[NOTE]:
         reason += '：' + order.fields[NOTE]
+    if addon_notes:
+        reason += '\n' + '\n'.join(addon_notes)
     if overbooked:
         metadata['overbooked_import'] = True
         reason += f'（超賣匯入：{batch.overbook_reason}）'
@@ -332,7 +355,9 @@ def prepare_commit(tenant, batch_id, allow_overbook, reason):
     batch = lock_batch(tenant, batch_id, include_input=True)
     if batch.status != 'previewed':
         return batch, []
-    if not batch.summary['committable']:
+    if batch.summary.get('rules_version') != PREVIEW_RULES_VERSION:
+        raise CommitError('匯入規則已更新。請重新上傳檔案並核對新預覽。')
+    if not (batch.summary['committable'] or batch.summary['skipped_full']):
         return batch, []
     if not batch.staged_input or timezone.now() - batch.created_at >= PREVIEW_TTL:
         raise CommitError('沒有可匯入的訂單，或預覽已過期。請重新上傳')
