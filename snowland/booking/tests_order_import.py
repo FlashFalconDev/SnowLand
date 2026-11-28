@@ -125,13 +125,12 @@ class OrderImportTests(TestCase):
 
     def test_repository_template_matches_builder_and_skips_all_examples(self):
         content = TEMPLATE_PATH.read_bytes()
-        rebuilt = io.BytesIO()
-        build_template().save(rebuilt)
-        with ZipFile(io.BytesIO(content)) as asset, ZipFile(rebuilt) as generated:
+        rebuilt = build_template()
+        with ZipFile(io.BytesIO(content)) as asset, ZipFile(io.BytesIO(rebuilt)) as generated:
             self.assertCountEqual(asset.namelist(), generated.namelist())
             for name in asset.namelist():
-                if name != 'docProps/core.xml':  # The modified timestamp changes on save.
-                    self.assertEqual(asset.read(name), generated.read(name), name)
+                self.assertEqual(asset.read(name), generated.read(name), name)
+        self.assertEqual(content, rebuilt)
         workbook = load_workbook(TEMPLATE_PATH, read_only=True)
         self.assertEqual(tuple(cell.value for cell in workbook[SHEET_NAME][1]), HEADERS)
         workbook.close()
