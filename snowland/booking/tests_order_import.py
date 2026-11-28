@@ -28,7 +28,7 @@ from booking.models import (
     BookingClosure, NotificationDelivery, NotificationTemplate, OrderImportBatch, OrderLoyalty, Payment, ReservationGroup,
     StaffBookingLink,
 )
-from booking.order_import.parser import HEADERS, LEGACY_HEADERS, MAX_BYTES, MAX_ROWS, SHEET_NAME
+from booking.order_import.parser import HEADERS, LEGACY_HEADERS, MAX_BYTES, MAX_ROWS, SHEET_NAME, parse_xlsx
 from booking.order_import.service import batch_cipher, json_bytes
 from booking.order_import.template import TEMPLATE_PATH
 from booking.order_import.validation import (
@@ -139,12 +139,43 @@ class OrderImportTests(TestCase):
         distributed = load_workbook(io.BytesIO(b''.join(response.streaming_content)))
         locked = load_workbook(TEMPLATE_PATH)
         self.assertEqual(list(distributed[SHEET_NAME].values), list(locked[SHEET_NAME].values))
-        self.assertIn('請勿填姓名、電話或 Email。', distributed['說明']['D14'].value)
+        self.assertIn('請勿填姓名、電話或 Email。', distributed['填寫說明']['D14'].value)
+        for workbook in (locked, distributed):
+            self.assertEqual(workbook.sheetnames, [SHEET_NAME, '填寫說明', '選項'])
+            sheet = workbook[SHEET_NAME]
+            self.assertEqual(sheet.max_column, 29)
+            self.assertIn('第 5 列', sheet['A2'].value)
+            for col, label in {'L': '每堂必填', 'R': '只填首列', 'W': '選填／可後補', 'T': '依學校設定'}.items():
+                self.assertIn(label, sheet[f'{col}2'].value)
+                self.assertEqual(sheet[f'{col}2'].fill.patternType, 'solid')
+            self.assertIn('這一堂分到多少錢', sheet['Q2'].value)
+            self.assertIn('這張單實際收到多少錢', sheet['AB2'].value)
+            self.assertIn('折扣原因', sheet['AA2'].value)
+            self.assertEqual((sheet['A3'].value, sheet['A4'].value), ('範例', '範例'))
+            self.assertEqual(sheet['B3'].value, sheet['B4'].value)
+            self.assertEqual((sheet['Q3'].value, sheet['Q4'].value, sheet['AB3'].value), (4000, 2500, 6500))
+            self.assertTrue(all(sheet[f'{col}4'].value is None for col in ('C', 'D', 'E', 'F', 'R', 'S', 'T', 'AB')))
+            validation = {str(rule.sqref).split('5:')[0]: rule for rule in sheet.data_validations.dataValidation}
+            self.assertEqual(set(validation), {'L', 'Q', 'R', 'S', 'O', 'W', 'Y', 'Z', 'AB'})
+            self.assertTrue(all(rule.showInputMessage and rule.prompt and not rule.showErrorMessage for rule in validation.values()))
+            self.assertTrue(all(validation[col].type == 'list' and not validation[col].showDropDown for col in ('R', 'S', 'O', 'W')))
+            self.assertIn('隨單加購', workbook['填寫說明']['B8'].value)
+            self.assertIn(('付款方式', '轉帳', '匯款', None), list(workbook['選項'].values))
         options = list(distributed['選項'].values)
         self.assertIn(('校區', 'jp', '測試校區', None), options)
         self.assertIn(('時段', '09:00–12:00', '單板／私人課／上午', '測試雪場'), options)
         self.assertIn(('協助狀況', 'assistDuringCourse', '課程時間內協助', None), options)
         self.assertNotIn('外校校區', str(options))
+        distributed['填寫說明'].title = '說明'
+        sheet = distributed[SHEET_NAME]
+        sheet['B2'] = 'documentation-with-a-key'
+        for header, value in self.row().items():
+            sheet.cell(5, HEADERS.index(header) + 1, value)
+        payload = io.BytesIO()
+        distributed.save(payload)
+        parsed = parse_xlsx(payload.getvalue())
+        self.assertEqual((parsed.skipped_examples, [row.number for row in parsed.rows]), (2, [5]))
+        self.assertEqual(self.commit(self.preview(content=payload.getvalue()))['summary']['created'], 1)
 
     def test_native_cells_merge_order_preserve_phone_and_create_audited_paid_order(self):
         native_day = datetime.combine(self.day, time())
@@ -320,28 +351,287 @@ class OrderImportTests(TestCase):
         }))
         self.assertEqual(bad['order_results'][0]['amount'], 2000)
         self.assertEqual(bad['summary']['committable'], 0)
+        self.assertEqual(bad['summary']['amount'], 0)
+        self.assertEqual(bad['order_results'][0]['reported_amount'], 1000)
+        self.assertEqual(bad['order_results'][0]['amount_difference'], 1000)
+        self.assertEqual(bad['order_results'][0]['lesson_amounts'], [
+            {'row_number': 3, 'amount': 1000}, {'row_number': 4, 'amount': 1000},
+        ])
         self.assertEqual({item['code'] for item in bad['row_results'] if item['level'] == 'error'}, {
             'lesson_price_conflict', 'received_total_mismatch',
         })
+        self.assertEqual(self.commit(bad)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
         good = self.preview(self.row(**{EMAIL: 'fake@example.con', RECEIVED: 2000}), self.row(**{
             EMAIL: None, DAY: self.day + timedelta(days=1),
         }))
         self.assertEqual(good['summary']['committable'], 1)
         self.assertEqual([item['code'] for item in good['row_results'] if item['level'] == 'warning'], ['email_domain_con'])
+        self.assertIn('用原信箱登入與綁定', good['row_results'][0]['message_zh'])
+        self.assertNotIn('fake@example.con', json.dumps(good))
         self.assertEqual(self.commit(good)['summary']['created'], 1)
+        self.assertEqual(ReservationGroup.objects.get().user.email, 'fake@example.con')
 
-    def test_cash_coach_is_rejected_before_lookup_and_conflicts_reference_first_row(self):
+    def test_coach_payment_token_and_later_contact_campus_use_first_row(self):
         Coach.objects.create(client=self.tenant, name='Cash')
         Campus.objects.create(client=self.tenant, name='另一校區', code='other')
-        preview = self.preview(self.row(), self.row(**{
-            COACH: 'Ｃａｓｈ', CAMPUS: 'other', PHONE: '0900-000-000', DAY: self.day + timedelta(days=1),
+        preview = self.preview(self.row(**{MARKETING: '虛構來源'}), self.row(**{
+            COACH: 'Ｃａｓｈ', CAMPUS: 'other', PHONE: '0900-000-000', NAME: '虛構後列',
+            EMAIL: 'different@example.test', MARKETING: '虛構後列來源', DAY: self.day + timedelta(days=1),
         }))
-        errors = [item for item in preview['row_results'] if item['level'] == 'error']
-        self.assertIn('付款方式', next(item for item in errors if item['columns'] == [COACH])['message_zh'])
-        self.assertEqual({item['columns'][0] for item in errors}, {COACH, PHONE, CAMPUS})
-        for item in errors:
-            if item['code'] == 'order_field_conflict':
-                self.assertIn('第 4 列和首列（第 3 列）不同', item['message_zh'])
+        warnings = {item['code']: item for item in preview['row_results'] if item['level'] == 'warning'}
+        self.assertEqual(set(warnings), {'coach_pending', 'use_first_campus', 'use_first_contact', 'repeated_lesson_amount'})
+        self.assertEqual(warnings['use_first_contact']['columns'], [NAME, PHONE, EMAIL, MARKETING])
+        self.assertEqual(warnings['coach_pending']['row_number'], 4)
+        self.assertIn('教練待排', warnings['coach_pending']['message_zh'])
+        for code in ('use_first_campus', 'use_first_contact'):
+            self.assertEqual(warnings[code]['row_number'], 4)
+            self.assertIn('首列（第 3 列）', warnings[code]['message_zh'])
+        self.assertEqual(preview['summary']['committable'], 1)
+        result = self.commit(preview)
+        self.assertEqual(result['summary']['created'], 1)
+        for payload in (preview, result):
+            audit = json.dumps(payload, ensure_ascii=False)
+            for private in ('0912345678', '0900-000-000', '不同姓名', '虛構後列', 'different@example.test'):
+                self.assertNotIn(private, audit)
+        group = ReservationGroup.objects.get()
+        self.assertEqual((group.campus, group.marketing_source), (self.campus, '虛構來源'))
+        self.assertEqual(group.booking_contact, {'name': '買家姓名', 'phone': '0912345678', 'email': 'import@example.com'})
+        self.assertEqual(group.payments.get().payment_method, 'TT')
+        lesson = group.reservations.order_by('pk').last()
+        self.assertEqual(lesson.status, 'manual_assignment_needed')
+        self.assertIsNone(lesson.preferred_coach)
+        self.assertFalse(lesson.bookings.get().is_scheduled)
+
+    def test_cross_campus_and_unresolved_campus_remain_blocked(self):
+        other = Campus.objects.create(client=self.tenant, name='另一校區', code='other')
+        resort = Resorts.objects.create(client=self.tenant, name='other-snow', display_name='另校雪場')
+        other.resorts.add(resort)
+        self.template.resorts.add(resort)
+        preview = self.preview(
+            self.row(), self.row(**{CAMPUS: 'other', RESORT: resort.name}),
+            self.row(**{KEY: 'unknown'}), self.row(**{KEY: 'unknown', CAMPUS: '拼錯校區', DAY: self.day + timedelta(days=1)}),
+        )
+        error = next(issue for issue in preview['row_results'] if issue['code'] == 'order_campus_conflict')
+        self.assertIn('拆單', error['message_zh'])
+        self.assertEqual(preview['summary']['blocked_orders'], 2)
+        self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_aliases_unambiguous_formats_and_missing_time_are_normalized(self):
+        alias = self.row(**{
+            CAMPUS: ' Ｊ Ｐ ', RESORT: ' 測試　雪場 ', TEMPLATE: '單板 /私人課／上 午',
+            PAID: '已收清', METHOD: '匯款轉帳', LANGUAGE: '廣東話', ABILITY: 'ＬＶ０：１；等級１：１',
+            DAY: f'{self.day.year}年{self.day.month}月{self.day.day}日', START: '９：００', END: None,
+            PHONE: '（０９１２）３４５－６７８', FEE: '１，０００',
+        })
+        result = self.preview(alias)
+        issues = result['row_results']
+        self.assertEqual({item['code'] for item in issues}, {'choice_normalized', 'time_format_normalized', 'session_time_completed'})
+        self.assertEqual({tuple(item['columns']) for item in issues}, {(PAID,), (METHOD,), (LANGUAGE,), (DAY,), (START,), (END,)})
+        self.assertEqual(result['summary']['warning_orders'], 1)
+        self.assertEqual(result['summary']['committable'], 1)
+        self.assertNotIn('０９１２', json.dumps(result, ensure_ascii=False))
+        self.assertEqual(self.commit(result)['summary']['created'], 1)
+        group = ReservationGroup.objects.get()
+        lesson = group.reservations.get()
+        booking = lesson.bookings.get()
+        self.assertEqual((group.campus, group.booking_contact['phone']), (self.campus, '0912345678'))
+        self.assertEqual((lesson.resort, lesson.language, lesson.ability_level_counts), (self.resort, 'yue', {'no_exp': 1, 'level1': 1}))
+        self.assertEqual((booking.date, booking.start_time, booking.end_time), (self.day, time(9), time(12)))
+        payment = group.payments.get()
+        self.assertEqual((payment.payment_method, payment.status, payment.DataJSON['amount']), ('TT', 'paid', 1000))
+
+    def test_single_time_endpoint_requires_a_unique_enabled_window(self):
+        CourseSession.objects.create(template=self.template, start_time=time(9), end_time=time(13))
+        CourseSession.objects.create(template=self.template, start_time=time(8), end_time=time(12), is_active=False)
+        preview = self.preview(
+            self.row(**{KEY: 'ambiguous', END: None}),
+            self.row(**{KEY: 'both-missing', START: None, END: None}),
+            self.row(**{KEY: 'whole-minute', START: None, END: '12:00:00'}),
+        )
+        self.assertEqual([item['status'] for item in preview['order_results']], ['error', 'error', 'ready'])
+        self.assertEqual(preview['row_results'][-1]['code'], 'session_time_completed')
+        self.assertEqual(self.commit(preview)['summary']['created'], 1)
+        self.assertEqual(ReservationGroup.objects.get().reservations.get().bookings.get().start_time, time(9))
+
+    def test_nonessential_equipment_and_marketing_stay_blank_for_staff(self):
+        for index, (equipment, marketing) in enumerate((
+            ('加購協助時間', '訊' * 61), ('未定方案', '不知道'), ('選' * 61, 123),
+        ), start=1):
+            with self.subTest(index=index):
+                result = self.preview(self.row(**{
+                    KEY: f'optional-{index}', DAY: self.day + timedelta(days=index),
+                    EQUIPMENT: equipment, MARKETING: marketing,
+                }))
+                self.assertEqual({item['code'] for item in result['row_results']}, {'equipment_pending', 'marketing_pending'})
+                if index == 1:
+                    self.assertIn('由行政另排', next(item['message_zh'] for item in result['row_results'] if item['code'] == 'equipment_pending'))
+                self.assertNotIn('訊' * 61, json.dumps(result, ensure_ascii=False))
+                self.assertEqual(self.commit(result)['summary']['created'], 1)
+                group = ReservationGroup.objects.latest('pk')
+                self.assertEqual(group.marketing_source, '')
+                reservation = group.reservations.get()
+                self.assertIsNone(reservation.equipment)
+                self.assertFalse(reservation.need_equipment)
+
+    def test_catalog_error_suggests_unique_candidate_without_assigning_it(self):
+        for column, value, candidate in (
+            (CAMPUS, '測試校', self.campus.name), (RESORT, '測試雪', self.resort.display_name),
+            (TEMPLATE, '私人課／上', str(self.template.pk)),
+        ):
+            with self.subTest(column=column):
+                result = self.preview(self.row(**{column: value}))
+                hint = next(item for item in result['row_results'] if item['columns'] == [column])
+                self.assertIn(f'照填「{candidate}」', hint['message_zh'])
+                self.assertEqual(hint['level'], 'error')
+                self.assertEqual(self.commit(result)['summary']['created'], 0)
+        Campus.objects.create(client=self.tenant, name='測試校區', code='second')
+        duplicate = self.preview(self.row(**{CAMPUS: '測試校區'}))
+        self.assertNotIn('照填', duplicate['row_results'][0]['message_zh'])
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_addon_leaves_a_note_without_creating_a_lesson_or_changing_funds(self):
+        addon = {KEY: '0001', TEMPLATE: '攝影相簿', LESSON_NOTE: '隨單加購', FEE: 0}
+        main = self.row(**{RECEIVED: 1000, LESSON_NOTE: '第一組'})
+        preview = self.preview(main, addon)
+        order, = preview['order_results']
+        self.assertEqual((order['source_rows'], order['lessons'], order['amount'], order['amount_difference']), (2, 1, 1000, 0))
+        warning, = order['issues']
+        self.assertEqual((warning['code'], warning['row_number']), ('addon_pending', 4))
+        self.assertIn('待後台補記', warning['message_zh'])
+        self.assertEqual(self.commit(preview)['summary']['created'], 1)
+        group = ReservationGroup.objects.get()
+        payment = group.payments.get()
+        self.assertEqual((payment.DataJSON['amount'], group.currency_snapshot['base_amount']), (1000, 1000))
+        lesson = group.reservations.get()
+        booking = lesson.bookings.get()
+        self.assertEqual(lesson.members.count(), 2)
+        self.assertIn('第一組\n第 4 列隨單加購，待後台補記', payment.DataJSON['import_lesson_notes'][str(booking.pk)])
+        self.assertIn('第 4 列隨單加購，待後台補記', group.revisions.get().reason)
+        self.assertEqual(self.preview(main, addon)['summary']['already_imported'], 1)
+        addon[TEMPLATE] = '另一個攝影相簿'
+        self.assertEqual(self.preview(main, addon)['order_results'][0]['code'], 'source_order_conflict')
+
+    def test_addon_with_no_main_no_reconciled_total_or_independent_details_is_blocked(self):
+        for overrides, expected in (
+            ({}, 'addon_total_unverified'),
+            ({FEE: 200}, 'addon_has_details'),
+            ({DAY: self.day, START: time(9)}, 'addon_has_details'),
+            ({LESSON_NOTE: '非隨單加購'}, 'unmatched_addon'),
+        ):
+            with self.subTest(expected=expected):
+                main = self.row(**{RECEIVED: None if not overrides else 1000})
+                addon = {KEY: '0001', TEMPLATE: '攝影相簿', LESSON_NOTE: '隨單加購', **overrides}
+                preview = self.preview(main, addon)
+                self.assertIn(expected, {item['code'] for item in preview['row_results'] if item['level'] == 'error'})
+                self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        orphan = {field: value for field, value in self.row().items() if field in (KEY, NAME, PHONE, EMAIL, CAMPUS, PAID, METHOD)}
+        orphan.update({TEMPLATE: '攝影相簿', NOTE: '隨單加購', RECEIVED: 1000})
+        preview = self.preview(orphan)
+        self.assertEqual(preview['order_results'][0]['code'], 'addon_no_main')
+        self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_first_row_and_money_fields_reject_missing_data_conflicts_or_unpaid(self):
+        bad_orders = []
+        for index, field in enumerate((NAME, PHONE, EMAIL, CAMPUS, PAID, METHOD)):
+            key = f'missing-{index}'
+            bad_orders.extend([
+                self.row(**{KEY: key, field: None}),
+                self.row(**{KEY: key, DAY: self.day + timedelta(days=1)}),
+            ])
+        for index, changes in enumerate((
+            {PAID: '部分付款'}, {METHOD: '現金'}, {FEE: 0}, {FEE: 2_147_483_648},
+            {EMAIL: 'broken'}, {PEOPLE: 3, NAMES: None},
+        )):
+            bad_orders.append(self.row(**{KEY: f'invalid-{index}', **changes}))
+        for index, (field, first_value, second_value) in enumerate((
+            (PAID, '已付款', '未付款'), (METHOD, '匯款', '信用卡'), (BANK_LAST_FIVE, '00123', '01234'),
+            (POSTED, date.today() - timedelta(days=1), date.today()), (RECEIVED, 2000, 1000),
+        )):
+            key = f'conflict-{index}'
+            bad_orders.extend([
+                self.row(**{KEY: key, field: first_value}),
+                self.row(**{KEY: key, field: second_value, DAY: self.day + timedelta(days=1)}),
+            ])
+        preview = self.preview(*bad_orders)
+        self.assertEqual(preview['summary']['blocked_orders'], 17)
+        self.assertTrue(all(order['status'] == 'error' for order in preview['order_results']))
+        self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_member_conflicts_do_not_create_orders(self):
+        User.objects.create_user('anonymous-inactive', email='disabled@example.test', is_active=False)
+        User.objects.create_user('anonymous-a', email='ambiguous@example.test')
+        User.objects.create_user('anonymous-b', email='ambiguous@example.test')
+        preview = self.preview(
+            self.row(**{KEY: 'disabled', EMAIL: 'disabled@example.test'}),
+            self.row(**{KEY: 'duplicate-member', EMAIL: 'ambiguous@example.test'}),
+        )
+        self.assertEqual([item['code'] for item in preview['row_results']], ['member_conflict', 'member_conflict'])
+        self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_capacity_limits_check_minimum_pricing_and_template_fallback(self):
+        self.template.minimum_group_size = 2
+        self.template.save(update_fields=['minimum_group_size'])
+        for people, expected_maximum in ((1, 3), (4, 3), (3, 2)):
+            with self.subTest(people=people, maximum=expected_maximum):
+                if expected_maximum == 2:
+                    self.template.pricing_options.update(is_active=False)
+                    self.template.max_capacity = 2
+                    self.template.save(update_fields=['max_capacity'])
+                preview = self.preview(self.row(**{PEOPLE: people, ABILITY: '等級 1', NAMES: None}))
+                issue, = preview['order_results'][0]['issues']
+                self.assertEqual(issue['code'], 'people_limit')
+                self.assertIn(f'至 {expected_maximum} 人', issue['message_zh'])
+                self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.template.minimum_student_level = 'level2'
+        self.template.save(update_fields=['minimum_student_level'])
+        preview = self.preview(self.row(**{ABILITY: '等級 1'}))
+        self.assertEqual(preview['order_results'][0]['code'], 'ability_limit')
+        self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_explicit_coaches_without_campus_or_course_qualification_are_blocked(self):
+        outside = self.coach()
+        outside.campuses.clear()
+        unqualified = Coach.objects.create(client=self.tenant, name='虛構待考教練', languages=['zh'], availability_status='active')
+        unqualified.campuses.add(self.campus)
+        CoachResort.objects.create(coach=unqualified, resort=self.resort, assignment_score=1)
+        preview = self.preview(self.row(**{COACH: outside.pk}), self.row(**{KEY: 'unqualified', COACH: unqualified.pk}))
+        self.assertEqual([item['code'] for item in preview['order_results']], ['coach_conflict', 'coach_conflict'])
+        self.assertEqual(preview['summary']['committable'], 0)
+        self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
+
+    def test_preview_and_commit_still_require_csrf(self):
+        api = APIClient(enforce_csrf_checks=True)
+        api.force_authenticate(self.actor)
+        content = xlsx([self.row()])
+        self.assertEqual(self.preview_response(content, api=api).status_code, 403)
+        preview = self.preview(content=content)
+        self.assertEqual(self.commit_response(preview, api=api).status_code, 403)
+        self.assertFalse(ReservationGroup.objects.exists())
+        csrf = 'A' * 32
+        api.cookies['csrftoken'] = csrf
+        response = api.post(self.url + 'commit/', {
+            'batch_id': preview['batch_id'], 'confirm': True,
+        }, format='json', HTTP_X_CSRFTOKEN=csrf)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['data']['summary']['created'], 1)
+
+    def test_old_previews_must_be_reuploaded_under_the_current_rules(self):
+        preview = self.preview(self.row())
+        batch = OrderImportBatch.objects.get(pk=preview['batch_id'])
+        batch.summary.pop('rules_version')
+        batch.save(update_fields=['summary'])
+        response = self.commit_response(preview)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('請重新上傳', response.data['detail'])
+        self.assertFalse(ReservationGroup.objects.exists())
+        self.assertEqual(self.commit(self.preview(self.row()))['summary']['created'], 1)
 
     def test_course_matching_uses_resort_pricing_and_distinguishes_catalog_problems(self):
         self.template.resorts.clear()
@@ -384,7 +674,10 @@ class OrderImportTests(TestCase):
             ('photo_fields_required', [DAY, PEOPLE, ABILITY]),
         ])
         row.update({DAY: self.day, PEOPLE: 2, ABILITY: '等級 0'})
-        self.assertEqual(self.preview(row)['summary']['committable'], 1)
+        preview = self.preview(row)
+        self.assertEqual(preview['row_results'][0]['code'], 'standalone_photo')
+        self.assertEqual(self.commit(preview)['summary']['created'], 0)
+        self.assertFalse(ReservationGroup.objects.exists())
 
     def coach(self):
         coach = Coach.objects.create(client=self.tenant, name='行政已排教練', languages=['zh'], availability_status='active')
@@ -397,6 +690,11 @@ class OrderImportTests(TestCase):
         coach = self.coach()
         preview = self.preview(self.row(**{COACH: coach.name}), self.row(**{KEY: '0002', COACH: coach.pk}))
         self.assertIn('coach_conflict', [issue['code'] for issue in preview['order_results'][1]['issues']])
+        self.assertEqual(preview['summary']['committable'], 1)
+        self.assertEqual(preview['summary']['blocked_orders'], 1)
+        self.assertEqual((preview['summary']['amount'], preview['summary']['skipped_full']), (1000, 0))
+        stored = OrderImportBatch.objects.get(pk=preview['batch_id'])
+        self.assertEqual(len(json.loads(batch_cipher().decrypt(bytes(stored.staged_input)))), 1)
         result = self.commit(preview, allow_overbook=True, overbook_reason='實售資料')
         self.assertEqual([item['status'] for item in result['commit_results']], ['created', 'failed'])
         reservation = ReservationGroup.objects.get().reservations.get()
@@ -410,6 +708,10 @@ class OrderImportTests(TestCase):
         second = self.row(**{KEY: '0002'})
         preview = self.preview(first, second)
         self.assertEqual(preview['summary']['full'], 1)
+        self.assertEqual(preview['summary']['committable'], 1)
+        self.assertEqual(preview['summary']['skipped_full'], 1)
+        self.assertEqual((preview['summary']['amount'], preview['summary']['full_amount']), (1000, 1000))
+        self.assertEqual([item['status'] for item in preview['order_results']], ['ready', 'full'])
         result = self.commit(preview)
         self.assertEqual([item['status'] for item in result['commit_results']], ['created', 'skipped'])
         sessions = self.client.get('/booking/snowland/api/course-sessions/', {

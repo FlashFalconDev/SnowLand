@@ -2,6 +2,7 @@ import adminApi from './axios'
 
 export interface ImportIssue {
   row_number: number
+  order_row_number?: number
   group_key: string
   level: 'ok' | 'warning' | 'error'
   code: string
@@ -12,9 +13,12 @@ export interface ImportIssue {
 export interface ImportOrderResult {
   row_number: number
   group_key: string
-  status: 'ready' | 'error' | 'created' | 'skipped' | 'failed'
+  status: 'ready' | 'error' | 'full' | 'created' | 'skipped' | 'failed'
   member?: ImportIssue
   amount?: number | null
+  reported_amount?: number | null
+  amount_difference?: number | null
+  lesson_amounts?: { row_number: number; amount: number | null }[]
   issues: ImportIssue[]
   order_id?: number
   order_number?: string
@@ -34,6 +38,11 @@ export interface ImportBatch {
     closed: number
     skipped_examples: number
     committable: number
+    warning_orders: number
+    blocked_orders: number
+    skipped_full: number
+    already_imported: number
+    full_amount: number
     created?: number
     skipped?: number
     failed?: number

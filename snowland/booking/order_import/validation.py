@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from django.db.models import Q
 from django.utils import timezone
 
 from Client.models import ClientMemberProfile
@@ -30,18 +29,31 @@ from .parser import HEADERS, blank
 ) = HEADERS
 ORDER_FIELDS = (NAME, PHONE, EMAIL, CAMPUS, PAID, METHOD, POSTED, BANK_LAST_FIVE, RECEIVED, MARKETING)
 REQUIRED_ORDER_FIELDS = (NAME, PHONE, EMAIL, CAMPUS, PAID, METHOD)
+CONTACT_FIELDS = (NAME, PHONE, EMAIL, MARKETING)
 MAX_INT = 2_147_483_647
 IMPORT_EQUIPMENT_CHOICES = tuple((key, label) for key, label in EQUIPMENT_CHOICES if key != 'purchaseAssistanceTime')
-PAYMENT_TOKENS = {'cash', '現金', '轉帳', '銀行轉帳', 'bank transfer'} | {
+PAID_CHOICES = (('paid', '已付款'),)
+METHOD_ALIASES = dict.fromkeys(('轉帳', '匯款轉帳', '銀行轉帳', '轉賬', 'bank transfer'), 'TT')
+PAID_ALIASES = dict.fromkeys(('已收清', '已付清', '已全額付款', '全額付清'), 'paid')
+LANGUAGE_ALIASES = {
+    '國語': 'zh', '華語': 'zh', '普通話': 'zh', '英語': 'en', 'english': 'en', '廣東話': 'yue', '廣東語': 'yue',
+}
+PAYMENT_TOKENS = {'cash', '現金', *METHOD_ALIASES} | {
     value.casefold() for pair in Payment.PAYMENT_METHOD_CHOICES for value in pair
 }
 ABILITY_RANK = {key: rank for rank, (key, _) in enumerate(ABILITY_LEVEL_CHOICES)}
+ABILITY_ALIASES = {
+    alias: key for rank, key in enumerate(ABILITY_RANK)
+    for alias in (str(rank), f'等級{rank}', f'level {rank}', f'lv{rank}')
+}
+ADDON_MARKER = '隨單加購'
+ADDON_HINTS = ('攝影', '寫真', '相簿', '加購')
 TAIPEI = ZoneInfo('Asia/Taipei')
 
 
 def redact(value):
     value = re.sub(r'[\w.+-]+@[\w.-]+', '［信箱已遮罩］', value)
-    return re.sub(r'(?<!\w)\+?\d(?:[ -]?\d){7,14}(?!\w)', '［電話已遮罩］', value)
+    return re.sub(r'(?<!\w)\+?\d(?:[ -]?\d){6,14}(?!\w)', '［電話已遮罩］', value)
 
 
 def issue(row, key, level, code, message, *columns):
@@ -69,8 +81,10 @@ def identifier(value, limit=150):
 
 
 def integer(value, minimum):
-    if isinstance(value, str) and re.fullmatch(r'[0-9]{1,10}', value.strip()):
-        value = int(value.strip())
+    if isinstance(value, str):
+        token = normalize('NFKC', value.strip())
+        if re.fullmatch(r'[0-9]{1,10}|[0-9]{1,3}(?:,[0-9]{3}){1,3}', token):
+            value = int(token.replace(',', ''))
     if type(value) is float and value.is_integer():
         value = int(value)
     if type(value) is not int or not minimum <= value <= MAX_INT:
@@ -79,7 +93,9 @@ def integer(value, minimum):
 
 
 def phone(value):
-    value = re.sub(r'[\s\-‐‑‒–—−]', '', normalize('NFKC', text(value, 40)))
+    value = normalize('NFKC', text(value, 40))
+    value = re.sub(r'\((\+?[0-9]+)\)', r'\1', value)
+    value = re.sub(r'[\s\-‐‑‒–—−]', '', value)
     if not re.fullmatch(r'\+?[0-9]{7,15}', value):
         raise ValueError('請填 7 至 15 碼電話，可使用 + 國碼，請保留前導 0')
     return value
@@ -99,29 +115,42 @@ def day(value):
         return value.date()
     if type(value) is dt.date:
         return value
-    if isinstance(value, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', value.strip()):
-        try:
-            return dt.date.fromisoformat(value.strip())
-        except ValueError:
-            pass
-    raise ValueError('請填有效日期，格式為 YYYY-MM-DD')
+    if isinstance(value, str):
+        token = normalize('NFKC', value.strip())
+        token = re.sub(r'^([0-9]{4})\s*年\s*([0-9]{1,2})\s*月\s*([0-9]{1,2})\s*日$', r'\1-\2-\3', token)
+        match = re.fullmatch(r'([0-9]{4})([-/.])([0-9]{1,2})\2([0-9]{1,2})', token)
+        if match:
+            try:
+                return dt.date(int(match[1]), int(match[3]), int(match[4]))
+            except ValueError:
+                pass
+    raise ValueError('請填有效日期，建議使用 YYYY-MM-DD')
 
 
 def minute(value):
     if type(value) is dt.time and not (value.second or value.microsecond):
         return value
-    if isinstance(value, str) and re.fullmatch(r'[0-9]{2}:[0-9]{2}', value.strip()):
-        try:
-            return dt.time.fromisoformat(value.strip())
-        except ValueError:
-            pass
+    if isinstance(value, str):
+        token = normalize('NFKC', value.strip())
+        match = re.fullmatch(r'([0-9]{1,2})\s*:\s*([0-9]{2})(?::00)?', token)
+        if match:
+            try:
+                return dt.time(*map(int, match.groups()))
+            except ValueError:
+                pass
     raise ValueError('請填有效時間，格式為 HH:MM，以整分鐘填寫')
 
 
-def choice(value, choices):
-    token = text(value, 40)
+def choice_token(value):
+    return ' '.join(normalize('NFKC', value).split()).casefold()
+
+
+def choice(value, choices, aliases=None):
+    token = choice_token(text(value, 40))
+    if aliases and token in aliases:
+        return aliases[token]
     for key, label in choices:
-        if token in (key, label):
+        if token in (choice_token(key), choice_token(label)):
             return key
     raise ValueError('請填寫範本「選項」中的有效代碼或名稱')
 
@@ -137,9 +166,16 @@ def bank_last_five(value):
 
 
 def equipment(value):
-    if isinstance(value, str) and value.strip() in ('purchaseAssistanceTime', '加購協助時間'):
-        raise ValueError('加購協助時間需要另外安排時段，請將此欄留空，建單後由後台處理')
+    if isinstance(value, str) and choice_token(value) in ('purchaseassistancetime', '加購協助時間'):
+        raise ValueError('加購協助時間請建單後由行政另排')
     return choice(value, IMPORT_EQUIPMENT_CHOICES)
+
+
+def marketing_source(value):
+    source = text(value, ReservationGroup._meta.get_field('marketing_source').max_length)
+    if choice_token(source) in ('不知道', '未知', '不清楚', 'n/a', 'unknown', '?', '-'):
+        raise ValueError('請填已知的來源')
+    return source
 
 
 def discount_amount(value):
@@ -152,20 +188,21 @@ def discount_amount(value):
 
 def ability(value, people):
     choices = ABILITY_LEVEL_CHOICES
-    value = text(value, 120).replace('：', ':')
-    if ':' not in value and '、' not in value:
-        return {choice(value, choices): people}
+    token = normalize('NFKC', text(identifier(value), 120))
+    if not re.search(r'[:,、;\n]', token):
+        return {choice(token, choices, ABILITY_ALIASES): people}
     counts = {}
-    for item in value.split('、'):
+    for item in re.split(r'[,、;\n]', token):
         name, separator, count = item.partition(':')
         if not separator:
             raise ValueError('多個程度請填「等級 0:1、等級 1:1」格式')
-        level = choice(name, choices)
+        level = choice(name, choices, ABILITY_ALIASES)
         if level in counts:
             raise ValueError('學員程度不得重複')
         counts[level] = integer(count, 1)
-    if people is not None and sum(counts.values()) != people:
-        raise ValueError('各程度人數合計須等於本堂學員人數')
+    total = sum(counts.values())
+    if people is not None and total != people:
+        raise ValueError(f'學員人數填了 {people} 人，各程度合計為 {total} 人。請修正這兩欄，讓人數相同')
     return counts
 
 
@@ -214,6 +251,14 @@ class Lesson:
 
 
 @dataclass(frozen=True)
+class Addon:
+    row_number: int
+    label: str
+    note: str
+    resort_id: int | None
+
+
+@dataclass(frozen=True)
 class ImportOrder:
     key: str
     first_row: int
@@ -221,6 +266,7 @@ class ImportOrder:
     lessons: list
     user: User | None
     member_code: str
+    addons: tuple
 
     @property
     def amount(self):
@@ -250,8 +296,7 @@ def course_label(template):
 
 
 def course_token(value):
-    value = ' '.join(normalize('NFKC', value).split()).casefold()
-    return re.sub(r' */ *', '/', value)
+    return re.sub(r'\s+', '', normalize('NFKC', value)).casefold()
 
 
 def course_identifier(value):
@@ -259,6 +304,26 @@ def course_identifier(value):
     if re.fullmatch(r'[0-9]+', token):
         return token.lstrip('0') or '0'
     return token
+
+
+def candidate_hint(token, choices):
+    candidates = [
+        label for label, aliases in choices
+        if len(token) >= 2 and any(token in alias for alias in aliases)
+    ]
+    if len(candidates) == 1:
+        return f' 可核對這個選項並照填「{redact(candidates[0])}」。'
+    return ''
+
+
+def catalog_entry(value, entries, message):
+    token = course_token(text(value, 100))
+    matches = [entry for entry, aliases in entries if token in aliases]
+    if len(matches) == 1:
+        return matches[0]
+    raise ValueError(message + candidate_hint(token, [
+        (str(entry), aliases) for entry, aliases in entries
+    ]))
 
 
 def template_resort_ids(template):
@@ -278,6 +343,21 @@ def active_windows(template):
     return {(session.start_time, session.end_time) for session in template.sessions.all() if session.is_active}
 
 
+def matching_windows(template, start, end):
+    return [
+        (left, right) for left, right in active_windows(template)
+        if (start is None or start == left) and (end is None or end == right)
+    ]
+
+
+def addon_marked(*notes):
+    return any(
+        part.strip() == ADDON_MARKER
+        for note in notes if note
+        for part in re.split(r'[\n、;|,。]', normalize('NFKC', note))
+    )
+
+
 def session_error(templates):
     windows = sorted(set().union(*(active_windows(template) for template in templates)))
     if windows:
@@ -286,7 +366,7 @@ def session_error(templates):
     else:
         message = '這個課程尚無啟用時段，請由行政確認課程設定。'
         if any(template.course_type.category.service_type == CourseCategory.SERVICE_TYPE_PHOTO for template in templates):
-            message += '若這筆是隨課加購的攝影或寫真，請建單後在後台補。'
+            message += '若這筆是同單加購，請依範本「填寫說明」標記並重新預覽。'
     return CourseError('unknown_session', message, START, END)
 
 
@@ -299,26 +379,39 @@ class Validator:
     def posting_mode(self):
         return manual_payment_posting_date_mode(self.tenant)
 
+    @cached_property
+    def campuses(self):
+        return [
+            (campus, {course_token(campus.code), course_token(campus.name)})
+            for campus in Campus.objects.filter(client=self.tenant, is_active=True)
+        ]
+
     def campus(self, value):
-        token = text(value, 100)
-        return unique(Campus.objects.filter(
-            Q(code=token) | Q(name=token), client=self.tenant, is_active=True,
-        ), '找不到唯一的啟用校區，請核對校區名稱或代碼')
+        return catalog_entry(value, self.campuses, '找不到唯一的啟用校區，請核對「選項」的校區名稱或代碼。')
+
+    @cached_property
+    def resorts(self):
+        return [
+            (resort, {course_token(resort.name), course_token(resort.display_name or resort.name)},
+             {campus.pk for campus in resort.campuses.all()})
+            for resort in Resorts.objects.filter(client=self.tenant).prefetch_related('campuses')
+        ]
 
     def resort(self, value, campus):
-        token = text(value, 100)
-        resorts = Resorts.objects.filter(Q(name=token) | Q(display_name=token), client=self.tenant)
-        if campus:
-            resorts = resorts.filter(campuses=campus)
-        return unique(resorts, '找不到此校區可使用的唯一雪場，請核對名稱')
+        return catalog_entry(value, [
+            (resort, aliases) for resort, aliases, campuses in self.resorts if not campus or campus.pk in campuses
+        ], '找不到此校區可使用的唯一雪場，請核對「選項」的雪場名稱。')
+
+    @cached_property
+    def templates(self):
+        return list(CourseTemplate.objects.filter(course_type__category__client=self.tenant).select_related(
+            'course_type__category',
+        ).prefetch_related('resorts', 'pricing_options', 'sessions'))
 
     @cached_property
     def course_index(self):
         index = {}
-        templates = CourseTemplate.objects.filter(course_type__category__client=self.tenant).select_related(
-            'course_type__category',
-        ).prefetch_related('resorts', 'pricing_options', 'sessions')
-        for template in templates:
+        for template in self.templates:
             for token in {str(template.pk), course_token(template.name), course_token(course_label(template))}:
                 index.setdefault(token, []).append(template)
         return index
@@ -326,10 +419,17 @@ class Validator:
     def template(self, token, resort, course_day, start, end):
         templates = self.course_index.get(token, ())
         if not templates:
-            if any(hint in token for hint in ('攝影', '寫真', '相簿', '加購')):
-                raise CourseError('unmatched_addon', '這一列像加購、攝影或寫真。若是加購，請建單後在後台補。'
+            if any(hint in token for hint in ADDON_HINTS):
+                raise CourseError('unmatched_addon', '這一列像加購、攝影或寫真。若是同單加購，請依「填寫說明」標記並重新預覽。'
                                   '若是正式課程，請填「選項」中的課程或課程 ID，並補日期、人數及程度。')
-            raise CourseError('course_not_found', '找不到這個課程名稱或代碼，請對照範本「選項」或填課程 ID。')
+            candidates = [
+                (str(template.pk), {course_token(template.name), course_token(course_label(template))})
+                for template in self.templates
+                if resort and resort.pk in template_resort_ids(template) and template.is_active
+                and not template.shared_class_enabled
+            ]
+            raise CourseError('course_not_found', '找不到這個課程名稱或代碼，請對照範本「選項」或填課程 ID。'
+                              + candidate_hint(token, candidates))
         if resort is None:
             return None
         templates = [template for template in templates if resort.pk in template_resort_ids(template)]
@@ -345,8 +445,8 @@ class Validator:
             templates = [template for template in templates if in_course_period(template, course_day)]
             if not templates:
                 raise CourseError('course_date_range', '上課日期不在此課程開放期間，請核對日期或課程。', DAY)
-        if len(templates) > 1 and start is not None and end is not None and start < end:
-            matching = [template for template in templates if (start, end) in active_windows(template)]
+        if len(templates) > 1 and (start or end) and (not start or not end or start < end):
+            matching = [template for template in templates if matching_windows(template, start, end)]
             if not matching:
                 raise session_error(templates)
             templates = matching
@@ -361,8 +461,6 @@ class Validator:
 
     def coach(self, value):
         token = identifier(value, 150)
-        if normalize('NFKC', token).casefold() in PAYMENT_TOKENS:
-            raise ValueError('這一格看起來填了付款方式。指定教練請留空，或填教練姓名或 ID。')
         matches = Coach.objects.filter(client=self.tenant)
         matches = matches.filter(pk=integer(token, 1)) if re.fullmatch(r'[0-9]+', token) else matches.filter(name=token)
         return unique(matches, '找不到此學校的唯一教練，請核對姓名或改填教練 ID')
@@ -382,23 +480,33 @@ class Validator:
         issues = []
         order_fields = {}
         lessons = []
-        fees = []
+        fees = {}
+        addons = []
         first = rows[0].number
         seen_lessons = {}
+        order_normalizers = {
+            NAME: lambda v: text(v, 100), PHONE: phone, EMAIL: email, CAMPUS: self.campus,
+            PAID: lambda v: choice(v, PAID_CHOICES, PAID_ALIASES),
+            METHOD: lambda v: choice(v, Payment.PAYMENT_METHOD_CHOICES, METHOD_ALIASES),
+            POSTED: day, BANK_LAST_FIVE: bank_last_five, RECEIVED: lambda v: integer(v, 0),
+            MARKETING: marketing_source,
+        }
+        order_aliases = {
+            PAID: (PAID_ALIASES, dict(PAID_CHOICES)), METHOD: (METHOD_ALIASES, dict(Payment.PAYMENT_METHOD_CHOICES)),
+        }
         for index, row in enumerate(rows):
-            # A preview already staged by the previous version can still be committed.
             values = dict.fromkeys(HEADERS)
             values.update(zip(HEADERS, row.values))
             row_issue = lambda level, code, message, *columns: issue(row.number, key, level, code, message, *columns)
             invalid = {HEADERS[i] for i in row.invalid_cells}
             for field in HEADERS:
                 if field in invalid:
-                    issues.append(row_issue('error', 'invalid_cell', '此欄含公式、Excel 錯誤、控制字元或過長文字', field))
+                    issues.append(row_issue('error', 'invalid_cell', '請貼上純值並改為一般格式。欄位不可含公式、Excel 錯誤、百分比、控制字元或過長文字。', field))
 
             if not blank(values[FLAG]) and FLAG not in invalid:
                 issues.append(row_issue('error', 'invalid_flag', '正式資料請將「是否範例」留空', FLAG))
 
-            def read(field, normalize, *, required=False, default=None):
+            def read(field, normalizer, *, required=False, default=None, warning=None, columns=None):
                 if field in invalid:
                     return default
                 if blank(values[field]):
@@ -406,27 +514,45 @@ class Validator:
                         issues.append(row_issue('error', 'required', '請填寫此欄', field))
                     return default
                 try:
-                    return normalize(values[field])
+                    return normalizer(values[field])
                 except ValueError as exc:
-                    issues.append(row_issue('error', 'invalid_value', str(exc), field))
+                    if warning:
+                        code, message = warning
+                        issues.append(row_issue('warning', code, message or f'{exc}。此欄留空待後台補。', field))
+                    else:
+                        issues.append(row_issue('error', 'invalid_value', str(exc), *(columns or (field,))))
                     return default
 
-            order_normalizers = {
-                NAME: lambda v: text(v, 100), PHONE: phone, EMAIL: email, CAMPUS: self.campus,
-                PAID: lambda v: choice(v, (('paid', '已付款'),)),
-                METHOD: lambda v: choice(v, Payment.PAYMENT_METHOD_CHOICES),
-                POSTED: day, BANK_LAST_FIVE: bank_last_five, RECEIVED: lambda v: integer(v, 0),
-                MARKETING: lambda v: text(v, ReservationGroup._meta.get_field('marketing_source').max_length),
-            }
+            contact_differences = []
+            campus_differs = False
             for field in ORDER_FIELDS:
                 if index and blank(values[field]):
+                    continue
+                if index and field in CONTACT_FIELDS:
+                    if field not in invalid:
+                        try:
+                            same = order_normalizers[field](values[field]) == order_fields[field]
+                        except ValueError:
+                            same = False
+                        if not same:
+                            contact_differences.append(field)
                     continue
                 required = not index and (field in REQUIRED_ORDER_FIELDS or (
                     field == POSTED and self.posting_mode == 'required'
                 ))
-                value = read(field, order_normalizers[field], required=required)
+                normalizer = order_normalizers[field]
+                if field == MARKETING and not blank(values[field]):
+                    value = read(field, normalizer, default='', warning=(
+                        'marketing_pending', '行銷統計不明確或超過欄位長度，已留空。請建單後到訂單後台補填。',
+                    ))
+                else:
+                    value = read(field, normalizer, required=required)
                 if field == EMAIL and value and value.endswith('.con'):
-                    issues.append(row_issue('warning', 'email_domain_con', '信箱網域以 .con 結尾，請確認是否應為 .com。', EMAIL))
+                    issues.append(row_issue('warning', 'email_domain_con', '信箱網域以 .con 結尾，請確認。系統會用原信箱登入與綁定。', EMAIL))
+                if value and field in order_aliases and isinstance(values[field], str):
+                    aliases, labels = order_aliases[field]
+                    if choice_token(values[field]) in aliases:
+                        issues.append(row_issue('warning', 'choice_normalized', f'已整理為「{labels[value]}」，請核對。', field))
                 if field == POSTED and value is not None:
                     if self.posting_mode == 'disabled':
                         issues.append(row_issue('error', 'posting_date_disabled', '此學校已停用手動入帳日，請將此欄留空', POSTED))
@@ -434,11 +560,22 @@ class Validator:
                         issues.append(row_issue('error', 'future_posting_date', '入帳日不得晚於台北時間今天', POSTED))
                 if not index:
                     order_fields[field] = value
+                elif field == CAMPUS:
+                    campus_differs = value is not None and value != order_fields[CAMPUS]
+                    if value is None and field not in invalid:
+                        issues.append(row_issue('error', 'order_campus_conflict',
+                                                f'無法確認本列與首列（第 {first} 列）屬於同一校區。請核對校區或拆單後重傳。', CAMPUS))
                 elif value is not None and value != order_fields[field]:
                     issues.append(row_issue(
                         'error', 'order_field_conflict',
                         f'同一張訂單的{field}要一致。第 {row.number} 列和首列（第 {first} 列）不同，後續列可留空。', field,
                     ))
+            if contact_differences and all(order_fields[field] is not None for field in (NAME, PHONE, EMAIL)):
+                issues.append(row_issue(
+                    'warning', 'use_first_contact',
+                    f'本列的{"、".join(contact_differences)}與首列（第 {first} 列）不同或無法辨識，已沿用首列。若應分開記錄，請拆單後重傳。',
+                    *contact_differences,
+                ))
             if not index and order_fields[BANK_LAST_FIVE] and order_fields[METHOD] not in (None, 'TT'):
                 issues.append(row_issue('error', 'bank_last_five_method', '後五碼只用於匯款訂單。請核對付款方式或將後五碼留空。', BANK_LAST_FIVE, METHOD))
 
@@ -446,26 +583,61 @@ class Validator:
             lesson_note = read(LESSON_NOTE, lambda v: text(v, 1000))
             if not index:
                 order_fields[NOTE] = note
-            elif note and note != order_fields[NOTE] and not lesson_note:
+
+            token = read(TEMPLATE, course_identifier, required=True)
+            templates = self.course_index.get(token, ())
+            addon = token and addon_marked(note, lesson_note) and (
+                all(t.course_type.category.service_type == CourseCategory.SERVICE_TYPE_PHOTO for t in templates)
+                if templates else any(hint in token for hint in ADDON_HINTS)
+            )
+            resort = read(RESORT, lambda v: self.resort(v, order_fields[CAMPUS]), required=not addon)
+            if addon:
+                scheduling = [field for field in (DAY, START, END, PEOPLE, ABILITY, NAMES, LANGUAGE, COACH, EQUIPMENT)
+                              if not blank(values[field])]
+                money_fields = [field for field in (FEE, ORIGINAL, DISCOUNT)
+                                if not blank(values[field]) and read(field, discount_amount) != 0]
+                if not blank(values[DISCOUNT_NOTE]):
+                    money_fields.append(DISCOUNT_NOTE)
+                if scheduling or money_fields:
+                    issues.append(row_issue('error', 'addon_has_details',
+                                            '隨單加購列有獨立金額或排課資料，請由行政核對後再處理。',
+                                            *scheduling, *money_fields))
+                elif campus_differs:
+                    issues.append(row_issue('error', 'order_campus_conflict',
+                                            f'加購列與首列（第 {first} 列）校區不同，請核對歸屬後重傳。', CAMPUS))
+                else:
+                    addons.append(Addon(row.number, str(values[TEMPLATE]).strip(), lesson_note or note, resort.pk if resort else None))
+                continue
+
+            if index and note and note != order_fields[NOTE] and not lesson_note:
                 lesson_note = note
                 issues.append(row_issue('warning', 'legacy_lesson_note', '這列的備註已當作堂次備註，整單備註沿用首列。', NOTE, LESSON_NOTE))
 
-            resort = read(RESORT, lambda v: self.resort(v, order_fields[CAMPUS]), required=True)
-            token = read(TEMPLATE, course_identifier, required=True)
             course_day = read(DAY, day)
-            start = read(START, minute, required=True)
-            end = read(END, minute, required=True)
+            start = read(START, minute)
+            end = read(END, minute)
+            for field, value, canonical in ((DAY, course_day, '%Y-%m-%d'), (START, start, '%H:%M'), (END, end, '%H:%M')):
+                if value is not None and isinstance(values[field], str) and values[field].strip() != value.strftime(canonical):
+                    issues.append(row_issue('warning', 'time_format_normalized', f'已整理為 {value.strftime(canonical)}，請核對。', field))
             people = read(PEOPLE, lambda v: integer(v, 1))
-            abilities = read(ABILITY, lambda v: ability(v, people))
+            abilities = read(ABILITY, lambda v: ability(v, people), columns=(ABILITY, PEOPLE))
             names = read(NAMES, lambda v: learner_names(v, people), default=())
-            language = read(LANGUAGE, lambda v: choice(v, Reservation.SINGLE_LANGUAGE_CHOICES), default='zh')
-            coach = read(COACH, self.coach)
+            language = read(LANGUAGE, lambda v: choice(v, Reservation.SINGLE_LANGUAGE_CHOICES, LANGUAGE_ALIASES), default='zh')
+            if LANGUAGE not in invalid and isinstance(values[LANGUAGE], str) and choice_token(values[LANGUAGE]) in LANGUAGE_ALIASES:
+                issues.append(row_issue('warning', 'choice_normalized',
+                                        f'已整理為「{dict(Reservation.SINGLE_LANGUAGE_CHOICES)[language]}」，請核對。', LANGUAGE))
+            coach = None
+            if COACH not in invalid and isinstance(values[COACH], str) and choice_token(values[COACH]) in PAYMENT_TOKENS:
+                issues.append(row_issue('warning', 'coach_pending',
+                                        '教練欄填了付款方式，已忽略。這堂會先建單、教練待排，請由行政補排。', COACH))
+            else:
+                coach = read(COACH, self.coach)
             fee = read(FEE, lambda v: integer(v, 0), required=True)
-            fees.append(fee)
+            fees[row.number] = fee
             original = read(ORIGINAL, lambda v: integer(v, 0))
             discount = read(DISCOUNT, discount_amount, default=0)
             discount_note = read(DISCOUNT_NOTE, lambda v: text(v, 255), default='')
-            equipment_option = read(EQUIPMENT, equipment)
+            equipment_option = read(EQUIPMENT, equipment, warning=('equipment_pending', None))
             if fee is not None and DISCOUNT not in invalid:
                 expected = fee + discount
                 if expected > MAX_INT or original is not None and original != expected:
@@ -480,6 +652,25 @@ class Validator:
                 except CourseError as exc:
                     unmatched_addon = exc.code == 'unmatched_addon'
                     issues.append(row_issue('error', exc.code, str(exc), *exc.columns))
+            if campus_differs:
+                if template and resort and order_fields[CAMPUS]:
+                    issues.append(row_issue('warning', 'use_first_campus',
+                                            f'本列校區與首列（第 {first} 列）不同。雪場與課程適用首列校區，已沿用首列。若應分開排課，請拆單後重傳。', CAMPUS))
+                else:
+                    issues.append(row_issue('error', 'order_campus_conflict',
+                                            f'本列校區與首列（第 {first} 列）不同，雪場或課程無法依首列校區建單。請核對校區或拆單後重傳。',
+                                            CAMPUS, RESORT, TEMPLATE))
+            for field in (START, END):
+                if field in invalid or not blank(values[field]):
+                    continue
+                windows = matching_windows(template, start, end) if template and (start or end) else []
+                if len(windows) == 1:
+                    start, end = windows[0]
+                    time = start if field == START else end
+                    issues.append(row_issue('warning', 'session_time_completed',
+                                            f'依唯一啟用時段補上 {time:%H:%M}，請核對開始與結束時間。', field))
+                else:
+                    issues.append(row_issue('error', 'required', '請填寫此欄並對照「選項」的啟用時段。', field))
             missing = [field for field in (DAY, PEOPLE, ABILITY) if field not in invalid and blank(values[field])]
             if missing and not unmatched_addon:
                 if template and template.course_type.category.service_type == CourseCategory.SERVICE_TYPE_PHOTO:
@@ -490,6 +681,9 @@ class Validator:
 
             if template:
                 issues.extend(self.validate_lesson(template, resort, course_day, start, end, people, abilities, row_issue))
+                if not missing and template.course_type.category.service_type == CourseCategory.SERVICE_TYPE_PHOTO:
+                    issues.append(row_issue('error', 'standalone_photo',
+                                            '這筆是獨立攝影課，請由行政另行處理收款與排課。', TEMPLATE))
             elif start is not None and end is not None and start >= end:
                 issues.append(row_issue('error', 'invalid_time_range', '結束時間須晚於開始時間', START, END))
 
@@ -509,9 +703,23 @@ class Validator:
                     discount_note, equipment_option, lesson_note,
                 ))
 
-        amount = None if None in fees else sum(fees)
+        amount = None if not fees or None in fees.values() else sum(fees.values())
+        reported = order_fields[RECEIVED]
+        for addon in addons:
+            addon_issue = lambda level, code, message, *columns: issue(addon.row_number, key, level, code, message, *columns)
+            if not lessons or (addon.resort_id and not any(lesson.resort.pk == addon.resort_id for lesson in lessons)):
+                issues.append(addon_issue('error', 'addon_no_main', '找不到可對應的同單主課。請核對單號與雪場後重傳。', KEY, RESORT, TEMPLATE))
+            elif reported is None or amount is None or reported != amount:
+                issues.append(addon_issue('error', 'addon_total_unverified', f'請核對首列（第 {first} 列）的已收款金額與主課加總，再重新上傳。', RECEIVED, FEE))
+            elif not any(item['level'] == 'error' for item in issues):
+                issues.append(addon_issue('warning', 'addon_pending', '主課可先匯入。這筆隨單加購會在堂次與訂單備註留痕，待後台補記。', TEMPLATE, LESSON_NOTE))
+
+        totals = {
+            'amount': amount, 'reported_amount': reported,
+            'amount_difference': amount - reported if amount is not None and reported is not None else None,
+            'lesson_amounts': [{'row_number': number, 'amount': fee} for number, fee in fees.items()],
+        }
         if amount is not None:
-            reported = order_fields[RECEIVED]
             if not 0 < amount <= MAX_INT:
                 issues.append(issue(first, key, 'error', 'invalid_total', '整單實收須大於 0 且在可記錄的整數範圍內', FEE))
             if reported is not None and reported != amount:
@@ -519,19 +727,19 @@ class Validator:
                     first, key, 'error', 'received_total_mismatch',
                     f'本單各堂加總為 {amount:,} 元，和已收款金額 {reported:,} 元不同。請按實際收款分攤到各堂。', RECEIVED, FEE,
                 ))
-            elif reported is None and len(fees) > 1 and amount > 0 and len(set(fees)) == 1:
+            elif reported is None and len(fees) > 1 and amount > 0 and len(set(fees.values())) == 1:
                 issues.append(issue(
                     first, key, 'warning', 'repeated_lesson_amount',
                     f'本單各堂填了相同金額，加總為 {amount:,} 元。請確認是否把整單金額複製到每堂，若是請按實際收款分攤。', FEE,
                 ))
         if any(item['level'] == 'error' for item in issues):
-            return None, issues, amount
+            return None, issues, totals
         try:
             user, member_code = self.pick_member(order_fields[EMAIL])
         except ValueError as exc:
             issues.append(issue(first, key, 'error', 'member_conflict', str(exc), EMAIL))
-            return None, issues, amount
-        return ImportOrder(key, first, order_fields, lessons, user, member_code), issues, amount
+            return None, issues, totals
+        return ImportOrder(key, first, order_fields, lessons, user, member_code, tuple(addons)), issues, totals
 
     def validate_lesson(self, template, resort, course_day, start, end, people, abilities, row_issue):
         if course_day and not in_course_period(template, course_day):

@@ -10,7 +10,15 @@ const card = 'rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-70
 const primary = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50'
 const secondary = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium dark:border-gray-600 disabled:opacity-50'
 const money = new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 })
-const filters = [['all', '全部'], ['issues', '有問題'], ['full', '已滿堂']] as const
+const previewLabels = {
+  ready: '可匯入（請核對）',
+  error: '請改檔後重傳',
+  full: '滿堂預設跳過',
+  skipped: '已匯入，本次跳過',
+  failed: '匯入失敗',
+  created: '匯入成功',
+} as const
+const filters = [['all', '全部'], ['ready', previewLabels.ready], ['error', previewLabels.error], ['full', previewLabels.full]] as const
 type Filter = typeof filters[number][0]
 
 function errorMessage(error: unknown, fallback: string) {
@@ -31,14 +39,17 @@ function IssueBadge({ issue }: { issue: ImportIssue }) {
 function PreviewDetails({ batch }: { batch: ImportBatch }) {
   const [filter, setFilter] = useState<Filter>('all')
   const { summary } = batch
-  const visible = batch.row_results.filter(issue => filter === 'all'
-    || (filter === 'issues' && issue.level !== 'ok') || (filter === 'full' && issue.code === 'full'))
+  const orderStatus = new Map(batch.order_results.map(order => [order.row_number, order.status]))
+  const statusFor = (issue: ImportIssue) => orderStatus.get(issue.order_row_number ?? issue.row_number) ?? 'error'
+  const visible = batch.row_results.filter(issue => filter === 'all' || filter === statusFor(issue))
+  const empty = summary.lessons === 0 ? '這份檔案沒有正式資料列。' : '沒有符合篩選條件的資料。'
   return <section className={card} aria-labelledby="import-preview">
     <h2 id="import-preview" className="text-lg font-semibold">預覽匯入內容</h2>
     <dl className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       {[
-        ['訂單', summary.orders], ['堂次', summary.lessons], ['已核對金額', money.format(summary.amount)],
-        ['錯誤', summary.errors], ['已滿堂', summary.full], ['停收', summary.closed],
+        ['預設可建單', `${summary.committable} 張`], ['有警告', `${summary.warning_orders} 張`],
+        ['請改檔後重傳', `${summary.blocked_orders} 張`], ['滿堂預設跳過', `${summary.skipped_full} 張`],
+        ['已匯入，本次跳過', `${summary.already_imported} 張`], ['預設可匯入實收', money.format(summary.amount)],
       ].map(([label, value]) => <div key={label} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900">
         <dt className="text-sm text-gray-600 dark:text-gray-300">{label}</dt><dd className="mt-1 text-lg font-semibold">{value}</dd>
       </div>)}
@@ -48,21 +59,33 @@ function PreviewDetails({ batch }: { batch: ImportBatch }) {
       {filters.map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value}
         onClick={() => setFilter(value)} className={filter === value ? primary : secondary}>{label}</button>)}
     </div>
-    <div className="max-h-[32rem] overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
+    <ul aria-label="逐列驗證結果" className="max-h-[32rem] space-y-2 overflow-y-auto sm:hidden">
+      {visible.map((issue, index) => <li key={index} className="space-y-1 break-words rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
+        <p className="font-medium">第 {issue.row_number} 列{issue.group_key && ` · ${issue.group_key}`}</p>
+        <p><IssueBadge issue={issue} /> · {previewLabels[statusFor(issue)]}</p>
+        {issue.columns.length > 0 && <p className="text-gray-600 dark:text-gray-300">{issue.columns.join('、')}</p>}
+        <p>{issue.message_zh}</p>
+      </li>)}
+      {visible.length === 0 && <li className="p-3 text-sm text-gray-600 dark:text-gray-300">{empty}</li>}
+    </ul>
+    <div className="hidden max-h-[32rem] overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 sm:block">
       <table className="w-full min-w-[36rem] text-left text-sm">
         <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900"><tr>
-          {['列號', '匯入訂單編號', '狀態', '欄位', '驗證結果'].map(label => <th key={label} scope="col" className="px-3 py-2">{label}</th>)}
+          {['列號', '匯入訂單編號', '狀態', '欄位', '處理結果與下一步'].map(label => <th key={label} scope="col" className="whitespace-nowrap px-3 py-2">{label}</th>)}
         </tr></thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
           {visible.map((issue, index) => <tr key={index}>
             <td className="px-3 py-2 align-top">{issue.row_number}</td>
             <td className="max-w-40 break-words px-3 py-2 align-top">{issue.group_key || '—'}</td>
-            <td className="whitespace-nowrap px-3 py-2 align-top"><IssueBadge issue={issue} /></td>
+            <td className="min-w-28 px-3 py-2 align-top">
+              <IssueBadge issue={issue} />
+              <span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">{previewLabels[statusFor(issue)]}</span>
+            </td>
             <td className="px-3 py-2 align-top">{issue.columns.join('、') || '—'}</td>
             <td className="px-3 py-2 align-top">{issue.message_zh}</td>
           </tr>)}
           {visible.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-gray-600 dark:text-gray-300">
-            {summary.lessons === 0 ? '這份檔案沒有正式資料列。' : '沒有符合篩選條件的資料。'}
+            {empty}
           </td></tr>}
         </tbody>
       </table>
@@ -71,8 +94,13 @@ function PreviewDetails({ batch }: { batch: ImportBatch }) {
       <summary className="min-h-11 cursor-pointer py-2 font-medium">逐單金額與會員綁定</summary>
       <ul className="max-h-64 space-y-2 overflow-auto text-sm">
         {batch.order_results.map(order => <li key={order.row_number} className="break-words">
-          第 {order.row_number} 列 · {order.group_key} · 本單各堂加總＝{order.amount == null ? '待補齊各堂金額' : money.format(order.amount)}
+          第 {order.row_number} 列 · {order.group_key} · {previewLabels[order.status]} · 本單各堂加總＝{order.amount == null ? '待補齊各堂金額' : money.format(order.amount)}
+          {' · 首列已收款＝'}{order.reported_amount == null ? '未填' : money.format(order.reported_amount)}
+          {order.amount_difference != null && <> · 差額 {money.format(order.amount_difference)}</>}
           {order.member && <> · {order.member.message_zh}</>}
+          {order.lesson_amounts?.length ? <p className="mt-1 text-gray-600 dark:text-gray-300">
+            {order.lesson_amounts.map(lesson => `第 ${lesson.row_number} 列 ${lesson.amount == null ? '待補' : money.format(lesson.amount)}`).join('、')}
+          </p> : null}
         </li>)}
       </ul>
     </details>}
@@ -93,7 +121,9 @@ function CommitResults({ batch, clientCode }: { batch: ImportBatch, clientCode: 
         {order.order_id && <Link className="inline-flex min-h-11 items-center font-semibold text-violet-700 underline dark:text-violet-300"
           to={'/' + clientCode + '/console/orders/edit?order_id=' + order.order_id}>{order.order_number}</Link>}
         {order.overbooked && <p className="text-amber-800 dark:text-amber-300">已記錄超賣匯入</p>}
-        {order.issues.map((issue, index) => <p key={index}>第 {issue.row_number} 列 · {issue.message_zh}</p>)}
+        {order.issues.map((issue, index) => <p key={index}>
+          第 {issue.row_number} 列{issue.columns.length > 0 && ` · ${issue.columns.join('、')}`} · {issue.message_zh}
+        </p>)}
       </li>)}
       {ungrouped.map(issue => <li key={issue.row_number}>第 {issue.row_number} 列 · {issue.message_zh}</li>)}
     </ul>
@@ -111,6 +141,8 @@ export default function OrderImportPage() {
   const [allowOverbook, setAllowOverbook] = useState(false)
   const [reason, setReason] = useState('')
   const clientCode = currentClientCode()
+  const eligibleCount = batch ? batch.summary.committable + (allowOverbook ? batch.summary.skipped_full : 0) : 0
+  const eligibleAmount = batch ? batch.summary.amount + (allowOverbook ? batch.summary.full_amount : 0) : 0
 
   function selectFile(next: File | null) {
     setFile(next)
@@ -164,7 +196,7 @@ export default function OrderImportPage() {
   }
 
   async function commit() {
-    if (!batch || !confirmed || (allowOverbook && !reason.trim()) || action) return
+    if (!batch || !confirmed || !eligibleCount || (allowOverbook && !reason.trim()) || action) return
     setAction('commit')
     setError('')
     try {
@@ -180,8 +212,8 @@ export default function OrderImportPage() {
     <h1 className="text-2xl font-bold">匯入已購訂單</h1>
     <section className={card}>
       <h2 className="text-lg font-semibold">填寫並上傳範本</h2>
-      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">一列 = 一堂。相同匯入訂單編號會合成一張訂單。同單首列填聯絡及付款資料，教練欄只填行政已排定的教練。</p>
-      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">本堂已付金額填這堂分到的實收。整單已收款金額和備註填首列，各堂的標籤填堂次備註。舊版範本也能上傳。</p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">從第 5 列開始填。一堂填一列，同一張單各列用相同訂單編號，聯絡和付款資料只填首列。教練未排可留空。</p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">各堂已付金額加總要等於整張單的實收。攝影加購請依範本「填寫說明」標記，再看預覽怎麼處理。舊版範本也能上傳。</p>
       <button type="button" className={secondary + ' mt-3'} disabled={Boolean(action)} onClick={download}>
         <Download size={16} />{action === 'download' ? '下載中…' : '下載 Excel 範本'}
       </button>
@@ -193,8 +225,8 @@ export default function OrderImportPage() {
             onChange={event => selectFile(event.target.files?.[0] ?? null)} />
           <p id="import-file-limits" className="mt-2 text-sm text-gray-600 dark:text-gray-300">Excel 或 CSV，最多 5 MB、2,000 列。</p>
         </div>
-        <button type="submit" className={primary} disabled={!file || Boolean(action) || Boolean(batch)}>
-          <Upload size={16} />{action === 'preview' ? '驗證中…' : '上傳並預覽'}
+        <button type="submit" className={primary} disabled={!file || Boolean(action) || (batch !== null && batch.status !== 'previewed')}>
+          <Upload size={16} />{action === 'preview' ? '驗證中…' : batch ? '重新預覽' : '上傳並預覽'}
         </button>
         {file && <button type="button" className={secondary} disabled={Boolean(action)} onClick={() => {
           const input = document.getElementById('order-import-file') as HTMLInputElement
@@ -208,15 +240,15 @@ export default function OrderImportPage() {
     {action === 'commit' && <p role="status" className="text-sm">正在重新驗證並逐單匯入，請保留此頁。</p>}
     {batch?.status === 'previewed' && <>
       <PreviewDetails key={batch.batch_id} batch={batch} />
-      {batch.summary.committable > 0 && <section className={card}>
+      {batch.summary.committable + batch.summary.skipped_full > 0 && <section className={card}>
         <h2 className="text-lg font-semibold">確認匯入</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">確認後重新檢查名額與排課，逐單建立並立即佔位。驗證有誤的訂單會跳過。</p>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">預計處理 {eligibleCount} 張，實收 {money.format(eligibleAmount)}。確認時會重新檢查名額與排課，建單後立即佔位。</p>
         <label className="mt-2 flex min-h-11 items-center gap-2 text-sm">
           <input type="checkbox" checked={confirmed} disabled={Boolean(action)} onChange={event => setConfirmed(event.target.checked)} />
           我已核對預覽
         </label>
         {batch.summary.closed > 0 && <p className="mb-2 text-sm text-orange-800 dark:text-orange-300">停收時段仍可匯入已售訂單。</p>}
-        {batch.summary.full > 0 && <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-950">
+        {batch.summary.skipped_full > 0 && <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-950">
           <p className="text-sm text-amber-900 dark:text-amber-100">預設跳過名額不足的訂單。超賣匯入須填寫原因。</p>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input type="checkbox" checked={allowOverbook} disabled={Boolean(action)}
@@ -228,7 +260,7 @@ export default function OrderImportPage() {
           </label>}
         </div>}
         <button type="button" className={primary + ' mt-4'} onClick={commit}
-          disabled={!confirmed || Boolean(action) || (allowOverbook && !reason.trim())}>
+          disabled={!confirmed || !eligibleCount || Boolean(action) || (allowOverbook && !reason.trim())}>
           {action === 'commit' ? '匯入中…' : '確認匯入已購訂單'}
         </button>
       </section>}
